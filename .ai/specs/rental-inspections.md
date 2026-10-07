@@ -7651,3 +7651,46 @@ Migrations `2026_10_14_200000` (`rental_inspection_reopens`), `…200010` (`void
 **Write paths that still touch a distributed inspection, left as they are:** (a) a **tenant fault report** filed inside the fault-report window appends an observation to the completed In-inspection (§3.5 — a deliberate legal mechanism: the tenant's own addition); (b) **move-out comparison findings** (the agent's classification of a difference on a completed Out, §45.14) are separate append-only records that the PDF and public page do not print; (c) **archiving** a completed inspection (needs `archive_completed`) hides it, it does not change it; (d) **renaming or retiring a property checklist item** changes how an already-sent report reads when re-rendered (the report is rebuilt from the live checklist — the standing "retired items vanish from completed reports" question, now also covering renames); a snapshot of the item names at completion would close it; (e) **attendance and invitation records** are not locked by a signature (they are append-only "who was present" records, and a representative or a non-attendee can sign before them).
 
 **Behaviour left as it was, to confirm:** a **Routine** inspection still completes without signatures, without every-item grading, without required-note checks and without attendance (only In / Out / Interim carry those); should Routine now require the three signatures before Complete, like the others?
+
+---
+
+## 48. AT-436 + AT-437 re-verified against QA1, and the two bug CLASSES closed properly — 7 Oct 2026 (cc6; Johan's instruction)
+
+Both tickets were still "In Progress" in Jira. Checked against the QA1 code of 7 Oct (`66bb84573`), not against what the spec says happened.
+
+### 48.1 AT-436 (photos silently lost) — core ALREADY FIXED; four neighbouring silent-drop paths found and fixed now
+
+**Already fixed, by:** `b7ee63e15` (server: a photo with no condition lands on a holding observation, `CONDITION_PENDING = ''`, which never counts as recorded — §20.22) and `2cc8951f9` (screen: no staging, every pick uploads at once, the PENDING tile means "uploading now", a failed upload shows Retry — §20.23). Confirmed in today's code: `onItemPhotosSelected()` has a single path and posts immediately; `storePhotos()` resolves/creates the holding row; `roomProgress()`/`inspectionProgress()` read `.condition`. Proven again by `RentalInspectionPhotoSafetyTest::test_a_photo_added_before_any_condition_is_still_there_after_a_reload_and_the_item_stays_unrecorded` (photo-only item survives a fresh read of the page payload; the counters still read 1 of 2).
+
+**Still open in the same class — fixed now**, all in the shared uploader `public/js/corex-photo-batch-uploader.js` (used by the Inspections screen and the untagged tray / room photos):
+
+| # | How a photo was still lost | Fix |
+|---|---|---|
+| 1 | One photo over 50 MB in a selection pushed a single failed row and **returned** — every other photo picked with it was never uploaded and never reported | Each oversize file gets its own visible failed row; the rest upload normally |
+| 2 | Closing the tab / reloading / navigating while a photo was uploading **or had failed** lost it with no warning (the page's only `beforeunload` watches the property edit form) | One page-wide `beforeunload` guard over every uploader: warns while any batch is `uploading` or `failed`; silent when all landed. `window.corexUnsavedPhotoCount()` exposes the number |
+| 3 | An exception in the post-upload callback left the batch promise unresolved, so every **later** batch of the same selection was never sent | Callback wrapped; the promise always resolves (photos are already saved at that point) |
+| 4 | An aborted request fired neither `onload` nor `onerror` — the row sat on "Uploading…" forever and the queue behind it stalled | `onabort` ends it as a visible failed row with Retry |
+
+**Other recording surfaces, checked:**
+- *Phone recording screen* = the same web screen on a phone (same uploader, same fixes). The CoreX mobile app's rental-images upload (`MobileRentalImagesController::upload`) writes under a row lock, is idempotent by `client_upload_id`, and refuses to return 2xx unless the file is on disk — nothing staged, nothing to lose.
+- *Link signing / public report* (`rental-inspection-sign/*`, `rental-inspection-report/*`): read and sign only; no route accepts a photo. `test_the_link_signing_and_public_report_pages_accept_no_photo_uploads` fails if one ever does without these guarantees being added.
+
+**Known and NOT changed (reported):** the uploader mints a fresh idempotency key on every attempt, so a Retry after a network error where the server had actually saved the photos can create a duplicate photo (visible, archivable — not a loss). The header comment of the file claims the opposite. Not changed: it is a duplicate, not a drop, and outside this ticket.
+
+**Limit that cannot be engineered away:** a phone that discards a backgrounded tab mid-upload gives the page no chance to warn. What changed is that every deliberate way of leaving now warns first, and every failure is visible with a Retry.
+
+### 48.2 AT-437 (dead controls) — ALREADY FIXED; the class now has the guard it never had
+
+**Already fixed, by** `e3c615507` (27 Sep): `isMarkGoodBusy()` / `isMarkNaBusy()` / `isDiscBusy()` return `!!this.xBusy[key]`, bound in both `:disabled` and `x-text` (spec §26). Fresh sweep today of every `:disabled/:readonly/:required/:checked/:hidden/:selected` binding in `show.blade.php`, the `rental-inspection-*` partials, `corex/rental-inspections/**` and the public inspection pages: no remaining raw lookup on a lazily-populated object except the two `startBusy[...]` ("Start In/Out-Inspection") buttons, which §26.3 judged safe because they are not inside an `x-for`.
+
+**Done now:** those two were converted too (`isStartBusy(section)`, same pattern) so the rule has **no exceptions** and can be enforced mechanically: `RentalInspectionPhotoSafetyTest::test_no_boolean_attribute_binding_on_an_inspection_screen_reads_a_lazy_object_by_raw_bracket_lookup` scans every inspection Blade file and fails the build on any boolean-attribute binding that reads `obj[key]` unless the lookup is negated (`!obj[key]`). A self-test (`test_the_lint_itself_catches_the_exact_shapes_that_shipped_dead`) feeds it the four dead shapes and the safe shapes so the lint cannot rot into a pass-everything. A third test pins that the five coercing methods exist and are actually bound.
+
+**Not proven in a browser** (instruction for this task: no browser harness). The statement "an agent can click All Good" rests on: the binding now returns a real boolean; the lint; and the click-through checks #21–#23 that §26.5 added to `scripts/rental-click-through.mjs`, which were never run end to end. **Open point worth knowing:** Alpine 3.15.3's `bindAttribute` (the version QA1 bundles) *removes* `disabled` for `undefined` — the code does not show the "undefined disables the button" mechanism the ticket and §26.1 describe. The fix is the proven `isObsBusy` pattern and is harmless, but if Johan still finds a dead control on this screen, the cause is something other than the one named in AT-437 and the click-through gate (`node scripts/rental-click-through.mjs`) is the tool to find it.
+
+### 48.3 Files
+
+`public/js/corex-photo-batch-uploader.js` (4 fixes + guard) · `resources/views/corex/properties/show.blade.php` (`isStartBusy`, one button) · `resources/views/corex/properties/partials/rental-inspection-recording.blade.php` (the other Start button) · `tests/js/photo-batch-uploader.mjs` (new — 25 checks against the real uploader in a node sandbox; the QA1-tip uploader fails 3 of them and crashes on a 4th) · `tests/Feature/RentalInspections/RentalInspectionPhotoSafetyTest.php` (new). No migration, no backend change, no change to the signing/lock rules (§46/§47).
+
+### 48.4 Verification (7 Oct 2026)
+
+`php -l` clean · `node --check` clean · `view:clear` · `bash scripts/lane-test.sh`: `RentalInspectionPhotoSafetyTest` 7 passed (46 assertions); `RentalInspectionRecordingControllerTest` 110 passed (292 assertions, includes the §20.22 backend cases) · `node tests/js/photo-batch-uploader.mjs` 25/25 (against the QA1-tip uploader: 3 fail, 1 crashes).

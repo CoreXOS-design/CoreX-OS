@@ -311,9 +311,9 @@
 <template x-if="!currentInspection({{ $sectionJs }})">
     <div class="space-y-2">
         <div x-show="startError[{{ $sectionJs }}]" x-cloak class="text-xs" style="color:#ef4444;" x-text="startError[{{ $sectionJs }}]"></div>
-        <button type="button" :disabled="startBusy[{{ $sectionJs }}]" @click="startInspection({{ $sectionJs }})"
+        <button type="button" :disabled="isStartBusy({{ $sectionJs }})" @click="startInspection({{ $sectionJs }})"
                 class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
-                x-text="startBusy[{{ $sectionJs }}] ? 'Starting…' : 'Start {{ ucfirst($section) }}-Inspection'"></button>
+                x-text="isStartBusy({{ $sectionJs }}) ? 'Starting…' : 'Start {{ ucfirst($section) }}-Inspection'"></button>
     </div>
 </template>
 
