@@ -33,7 +33,7 @@ use Illuminate\Support\Facades\DB;
  *
  * Stock created in CoreX with no status history (created straight into an on-market status):
  * the earliest proof the advert went live (website publish, first P24 submit, PP / P24
- * activation, first-marketed stamp), else its listing date - which CoreX itself stamped at
+ * activation), else its listing date - which CoreX itself stamped at
  * creation. Off-market statuses never count.
  */
 final class DaysOnMarket
@@ -209,7 +209,8 @@ final class DaysOnMarket
 
         // CoreX-created stock with no status history: earliest proof the advert went live, else the
         // listing date CoreX stamped at creation.
-        $proofs = [$p->published_at, $p->pp_activated_at, $p->p24_activated_at, $p->first_marketed_at];
+        // first_marketed_at is deliberately NOT a proof: loaded stock carries it equal to created_at.
+        $proofs = [$p->published_at, $p->pp_activated_at, $p->p24_activated_at];
         foreach ($logs['submits'] as $s) {
             $proofs[] = $s;
         }

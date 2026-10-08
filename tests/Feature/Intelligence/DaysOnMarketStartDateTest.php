@@ -135,6 +135,14 @@ final class DaysOnMarketStartDateTest extends TestCase
         $this->assertNull(DaysOnMarket::for($this->native(['listed_date' => null])));
     }
 
+    public function test_first_marketed_stamp_is_not_a_go_live_proof(): void
+    {
+        // Loaded stock carries first_marketed_at = created_at; it must never pull the count back.
+        $p = $this->native(['listed_date' => now()->subDays(20)->toDateString(), 'first_marketed_at' => now()->subDays(100)]);
+
+        $this->assertSame(20, DaysOnMarket::for($p));
+    }
+
     public function test_rental_counts_from_its_go_live(): void
     {
         $p = $this->native(['listing_type' => 'rental', 'status' => 'to_let', 'listed_date' => now()->subDays(40)->toDateString(), 'pp_activated_at' => now()->subDays(12)]);
