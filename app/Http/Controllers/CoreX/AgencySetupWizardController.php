@@ -670,6 +670,9 @@ class AgencySetupWizardController extends Controller
                     'require_end_or_month_to_month_for_signing' => LeaseSetting::requireEndOrMonthToMonthForSigningFor($agency->id),
                     'restore_end_date_on_leaving_month_to_month' => LeaseSetting::restoreEndDateOnLeavingMonthToMonthFor($agency->id),
                     'signed_copy_not_live_note' => LeaseSetting::signedCopyNotLiveNoteFor($agency->id),
+                    'auto_readvertise_on_notice' => LeaseSetting::autoReadvertiseOnNoticeFor($agency->id),
+                    'auto_restore_status_on_lease_ended' => LeaseSetting::autoRestoreStatusOnLeaseEndedFor($agency->id),
+                    'auto_restore_status_on_lease_cancelled' => LeaseSetting::autoRestoreStatusOnLeaseCancelledFor($agency->id),
                     default => $control['default'] ?? null,
                 },
                 // .ai/specs/rental-work-orders.md §3.4b/§8, Stage 3 — only one

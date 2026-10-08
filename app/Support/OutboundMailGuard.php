@@ -38,20 +38,20 @@ class OutboundMailGuard
      * row per (APP_ENV, APP_URL host) pair, not an inference. Anything not
      * listed here defaults to intercepting.
      *
-     *   - production / corexos.co.za, www.corexos.co.za — the live site.
-     *   - staging / staging.corexos.co.za — Johan: "if we move email to
-     *     staging... we can test emails on my account there... once we have
-     *     it working and happy... we can make a plan to get it promoted to
-     *     live." The only way to ever prove the poller and sending path
-     *     work against a real mailbox.
+     *   - production / corexos.co.za, www.corexos.co.za — the live site. NOTHING ELSE.
      *
-     * QA1 (qatesting1.corexos.co.za) is deliberately absent — it keeps
-     * intercepting by default, exactly as before this revision.
+     * 2026-10-08 (Johan, via conductor) — Staging was on this list so the
+     * mailbox poller and sending path could be proved against a real mailbox.
+     * That made it the one non-production environment where a database
+     * restored from live (carrying `mail_intercept_forced` = 0, or no row)
+     * would have mailed real tenants and landlords — and 18 of Staging's 20
+     * mailboxes hold real SMTP credentials. Staging is now removed: EVERY
+     * environment except real production intercepts, and that is decided by
+     * environment configuration here, never by a database row (see isActive()).
      */
     private const SENDING_ENVIRONMENTS = [
         ['env' => 'production', 'host' => 'corexos.co.za'],
         ['env' => 'production', 'host' => 'www.corexos.co.za'],
-        ['env' => 'staging', 'host' => 'staging.corexos.co.za'],
     ];
 
     /**
@@ -100,12 +100,20 @@ class OutboundMailGuard
     /** True = outbound mail is being intercepted RIGHT NOW, accounting for any override. */
     public static function isActive(): bool
     {
+        // Environment-forced: anything that is not real production intercepts, full stop. The
+        // database override below is NEVER read for such an environment — a dev_settings row
+        // restored from live (`mail_intercept_forced` = 0, or absent) cannot switch the guard off.
+        if (! self::isSendingConfirmed() || self::isTripped()) {
+            return true;
+        }
+
+        // Real production only: the super-admin kill switch (force intercept during an incident).
         $forced = self::forcedDirection();
         if ($forced !== null) {
             return $forced;
         }
 
-        return ! self::isSendingConfirmed();
+        return false;
     }
 
     /**
@@ -181,6 +189,10 @@ class OutboundMailGuard
      */
     public static function hasLocalSink(): bool
     {
+        if (self::isTripped()) {
+            return false;
+        }
+
         return collect(['smtp', 'corex', 'otp'])->every(
             fn (string $mailer) => config("mail.mailers.{$mailer}.host") === self::sinkHost()
                 && (int) config("mail.mailers.{$mailer}.port") === self::sinkPort()
@@ -196,17 +208,101 @@ class OutboundMailGuard
      */
     public static function sinkAddress(): string
     {
-        return (string) env('MAIL_GUARD_SINK_ADDRESS', 'outbound-guard@localhost.test');
+        return (string) config('mail.guard.sink_address', 'outbound-guard@localhost.test');
     }
 
     public static function sinkHost(): string
     {
-        return (string) env('MAIL_GUARD_SINK_HOST', env('MAIL_HOST', '127.0.0.1'));
+        return (string) config('mail.guard.sink_host', '127.0.0.1');
     }
 
     public static function sinkPort(): int
     {
-        return (int) env('MAIL_GUARD_SINK_PORT', env('MAIL_PORT', 1025));
+        return (int) config('mail.guard.sink_port', 1025);
+    }
+
+    /**
+     * True = a non-production environment is pointed at a real mail host, so this process refuses to
+     * send ANYTHING, including the guard's own sink copy. Derived from config on every call (cheap, no
+     * database), so it can never go stale or stick after a config change.
+     */
+    public static function isTripped(): bool
+    {
+        return ! self::isSendingConfirmed() && self::bootProblems() !== [];
+    }
+
+    /**
+     * Is $host a place mail can only be caught, never delivered? Loopback, private (RFC 1918)
+     * ranges, localhost / mailpit / mailhog names, and reserved .test / .localhost names. A blank
+     * host cannot connect anywhere. Anything else is treated as a REAL mail host.
+     */
+    public static function isLocalMailHost(?string $host): bool
+    {
+        $host = strtolower(trim((string) $host));
+        if ($host === '' || $host === 'null') {
+            return true;
+        }
+        if (in_array($host, ['localhost', '::1', '[::1]', 'mailpit', 'mailhog'], true)
+            || str_ends_with($host, '.test') || str_ends_with($host, '.localhost')) {
+            return true;
+        }
+        if (filter_var($host, FILTER_VALIDATE_IP)) {
+            return ! filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE);
+        }
+
+        return false;
+    }
+
+    /**
+     * Boot-time check, config only (no database — it must work before one is reachable). On any
+     * environment that is not real production, every mail host the application can connect to
+     * must be a local catcher. If one is a real host, this process is TRIPPED: it logs loudly and
+     * refuses to send anything (guard vetoes everything, no sink copy, per-mailbox sends refuse).
+     *
+     * @return list<string> the problems found (empty = fine, or real production where it does not apply)
+     */
+    public static function auditBootConfiguration(): array
+    {
+        $problems = self::isSendingConfirmed() ? [] : self::bootProblems();
+
+        if ($problems !== []) {
+            \Illuminate\Support\Facades\Log::critical(
+                'OUTBOUND MAIL GUARD BOOT CHECK FAILED — this is not production but is pointed at a real mail host. '
+                . 'Sending is REFUSED in this process until the mail configuration is fixed.',
+                [
+                    'app_env' => config('app.env'),
+                    'app_url' => config('app.url'),
+                    'problems' => $problems,
+                ],
+            );
+        }
+
+        return $problems;
+    }
+
+    /** @return list<string> */
+    private static function bootProblems(): array
+    {
+        $problems = [];
+
+        $default = (string) config('mail.default', '');
+        $defaultTransport = (string) config("mail.mailers.{$default}.transport", '');
+        if (! in_array($defaultTransport, ['', 'log', 'array', 'smtp', 'failover', 'roundrobin'], true)) {
+            $problems[] = "default mailer '{$default}' uses the real transport '{$defaultTransport}'";
+        }
+
+        foreach (array_unique(array_filter([$default, 'smtp', 'corex', 'otp'])) as $mailer) {
+            $host = config("mail.mailers.{$mailer}.host");
+            if ($host !== null && ! self::isLocalMailHost((string) $host)) {
+                $problems[] = "mailer '{$mailer}' points at the real mail host '{$host}'";
+            }
+        }
+
+        if (! self::isLocalMailHost(self::sinkHost())) {
+            $problems[] = "the guard sink host '" . self::sinkHost() . "' is a real mail host";
+        }
+
+        return $problems;
     }
 
     private static function configuredAppHost(): ?string

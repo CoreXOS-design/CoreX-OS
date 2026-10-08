@@ -20,6 +20,8 @@
             @if($property)
             <a href="{{ route('corex.rentals.reports.property-history.print', ['property_id' => $property->id]) }}" target="_blank" class="corex-btn-outline text-xs">Print</a>
             <a href="{{ route('corex.rentals.reports.property-history.pdf', ['property_id' => $property->id]) }}" class="corex-btn-outline text-xs">PDF</a>
+            {{-- rentals-reports.md §5 — the landlord property activity report (PDF only) is reached from here. --}}
+            <a href="{{ route('corex.rentals.reports.landlord-activity.pdf', ['property_id' => $property->id]) }}" class="corex-btn-outline text-xs" data-qa="landlord-activity-pdf">Landlord activity report (PDF)</a>
             @endif
         </div>
     </div>
