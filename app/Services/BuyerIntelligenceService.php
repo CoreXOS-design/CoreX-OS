@@ -186,7 +186,7 @@ class BuyerIntelligenceService
                 'price'          => $p->effectivePrice(),
                 'suburb'         => $p->suburb,
                 'match_score'    => (int) ($p->match_score ?? 0),
-                'days_on_market' => $p->published_at ? (int) $p->published_at->diffInDays(now()) : null,
+                'days_on_market' => \App\Services\Properties\DaysOnMarket::for($p),
             ])
             ->values();
     }

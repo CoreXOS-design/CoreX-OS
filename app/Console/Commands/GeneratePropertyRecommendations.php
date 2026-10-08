@@ -59,7 +59,7 @@ class GeneratePropertyRecommendations extends Command
     private function analyseProperty(Property $property): array
     {
         $recs = [];
-        $daysOnMarket = $property->published_at ? (int) $property->published_at->diffInDays(now()) : 0;
+        $daysOnMarket = \App\Services\Properties\DaysOnMarket::for($property) ?? 0;
 
         // Feedback analysis
         $feedbackCount = CalendarEventFeedback::where('property_id', $property->id)->whereNotNull('captured_at')->count();

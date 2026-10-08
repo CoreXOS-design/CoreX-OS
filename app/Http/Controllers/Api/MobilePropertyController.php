@@ -871,7 +871,7 @@ class MobilePropertyController extends Controller
         // noon → dusk → gallery → images), returned as an absolute URL.
         $coverImage = $this->coverImageUrl($property);
         $allImages  = $property->allImages();
-        $daysOnMarket = $property->listed_date ? (int) $property->listed_date->diffInDays(now()) : null;
+        $daysOnMarket = \App\Services\Properties\DaysOnMarket::for($property);
 
         // Owner contact: prefer role-tagged seller/landlord/owner, else the first linked contact.
         $ownerRoles = ['seller', 'landlord', 'owner'];

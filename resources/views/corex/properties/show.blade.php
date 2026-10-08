@@ -1384,7 +1384,7 @@
                                 ?? $property->contacts->first();
                 $ownerLabel   = $owner ? ucfirst($owner->pivot->role ?: 'Linked Contact') : 'Owner';
                 $ownerName    = $owner ? (trim($owner->full_name ?? '') ?: trim(($owner->first_name ?? '') . ' ' . ($owner->last_name ?? '')) ?: ($owner->email ?: $owner->phone ?: 'Unnamed contact')) : null;
-                $daysOnMarket = $property->listed_date ? (int) $property->listed_date->diffInDays(now()) : null;
+                $daysOnMarket = \App\Services\Properties\DaysOnMarket::for($property);
                 $descPreview  = \Illuminate\Support\Str::limit(strip_tags($property->description ?? ''), 220);
                 $statusColor      = $statusColors[$property->status] ?? 'var(--text-muted)';
                 $statusBadgeClass = $statusBadgeVariants[$property->status] ?? 'ds-badge-default';

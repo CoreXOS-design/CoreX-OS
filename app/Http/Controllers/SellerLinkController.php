@@ -125,7 +125,7 @@ class SellerLinkController extends Controller
             ->get();
 
         $priceChangeEvents = $this->buildPriceChangeEvents($property->id);
-        $daysOnMarket = $property->listed_date ? HumanDiff::daysBetween($property->listed_date) : null;
+        $daysOnMarket = \App\Services\Properties\DaysOnMarket::for($property);
         $priceChangeNarrative = $this->buildPriceChangeNarrative($priceChangeEvents, $portalEngagement['series'] ?? []);
         $soldComparison = $this->buildBestComparison($property, $daysOnMarket, $soldComparables);
         $underOfferComparison = $this->buildBestComparison($property, $daysOnMarket, $underOfferSales);
