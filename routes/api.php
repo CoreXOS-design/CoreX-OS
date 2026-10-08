@@ -233,9 +233,7 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::get('/fault-reports/{faultReport}', [ClientTenantRentalsController::class, 'faultReportShow'])->name('fault-reports.show');
             Route::get('/work-orders/{workOrder}', [ClientTenantRentalsController::class, 'workOrderShow'])->name('work-orders.show');
             Route::post('/work-orders/{workOrder}/confirm', [ClientTenantRentalsController::class, 'workOrderConfirm'])->name('work-orders.confirm');
-            // rental-work-orders.md §14.29 — job cards on the tenant's own lease(s).
-            Route::get('/job-cards', [ClientTenantRentalsController::class, 'jobCards'])->name('job-cards.index');
-            Route::get('/job-cards/{jobCard}', [ClientTenantRentalsController::class, 'jobCardShow'])->name('job-cards.show');
+            // W4 (8 Oct 2026): the job card is INTERNAL - tenants and owners see the work order's progress, never the job card.
             // §17.21.1 — Build 3 only (tenant: work-orders index, completion-response).
             // BUILD 3 BEGIN — tenant maintenance-flow routes (.ai/specs/rental-work-orders.md §17.21.5)
             // §17.3.5 — the portal's Jobs are work orders: the tenant's list, and their answer to "is this finished?".
@@ -256,10 +254,10 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::get('/fault-reports/{faultReport}', [ClientLandlordRentalsController::class, 'faultReportShow'])->whereNumber('faultReport')->name('fault-reports.show');
             Route::post('/fault-reports/{faultReport}/decision', [ClientLandlordRentalsController::class, 'faultReportDecision'])->name('fault-reports.decision');
             Route::get('/work-orders', [ClientLandlordRentalsController::class, 'workOrders'])->name('work-orders.index');
-            // rental-work-orders.md §14.29 — job cards on the landlord's own properties.
-            Route::get('/job-cards', [ClientLandlordRentalsController::class, 'jobCards'])->name('job-cards.index');
-            Route::get('/job-cards/{jobCard}', [ClientLandlordRentalsController::class, 'jobCardShow'])->name('job-cards.show');
             Route::post('/work-orders/{workOrder}/decision', [ClientLandlordRentalsController::class, 'workOrderDecision'])->name('work-orders.decision');
+            // W6 (8 Oct 2026): the owner may book the appointment and report progress on their work order.
+            Route::post('/work-orders/{workOrder}/appointment', [ClientLandlordRentalsController::class, 'workOrderAppointment'])->whereNumber('workOrder')->name('work-orders.appointment');
+            Route::post('/work-orders/{workOrder}/progress', [ClientLandlordRentalsController::class, 'workOrderProgress'])->whereNumber('workOrder')->name('work-orders.progress');
             Route::get('/inspections', [ClientLandlordRentalsController::class, 'inspections'])->name('inspections.index');
             Route::get('/documents', [ClientLandlordRentalsController::class, 'documents'])->name('documents.index');
             Route::get('/documents/{document}/file', [ClientLandlordRentalsController::class, 'documentFile'])->whereNumber('document')->name('documents.file');

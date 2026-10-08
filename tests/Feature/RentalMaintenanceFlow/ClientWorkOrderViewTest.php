@@ -118,10 +118,10 @@ final class ClientWorkOrderViewTest extends TestCase
         $table = [];
         $this->workOrder->forceFill(['status' => 'reported', 'owner_approval_status' => 'not_required'])->save();   // (the shared world starts owner-approved)
         $this->card->forceFill(['status' => 'draft'])->save();
-        $table['draft card, nothing arranged'] = [$this->stageFor(), 'Being arranged'];
+        $table['draft card, nothing arranged'] = [$this->stageFor(), 'Created'];
 
         $this->card->forceFill(['status' => RentalJobCard::STATUS_SCHEDULED])->save();
-        $table['scheduled'] = [$this->stageFor(), 'Scheduled'];
+        $table['scheduled'] = [$this->stageFor(), 'Appointment set'];
 
         $this->card->forceFill(['status' => RentalJobCard::STATUS_IN_PROGRESS])->save();
         $table['crew started'] = [$this->stageFor(), 'In progress'];
@@ -132,11 +132,11 @@ final class ClientWorkOrderViewTest extends TestCase
         $this->workOrder->forceFill(['status' => 'reported', 'owner_approval_status' => 'pending'])->save();
         $this->card->forceFill(['status' => 'quoted'])->save();
         $table['landlord, waiting on the owner'] = [$this->stageFor('landlord'), 'Needs your decision'];
-        $table['tenant, same moment'] = [$this->stageFor('tenant'), 'Being arranged'];
+        $table['tenant, same moment'] = [$this->stageFor('tenant'), 'Created'];
 
         $this->workOrder->forceFill(['owner_approval_status' => 'approved'])->save();
         $this->card->forceFill(['status' => 'approved'])->save();
-        $table['approved'] = [$this->stageFor('landlord'), 'Approved'];
+        $table['approved'] = [$this->stageFor('landlord'), 'Created'];
 
         $round = app(RentalCompletionService::class)->openRound($this->workOrder->fresh(), ['reported_by_label' => 'Team 1', 'reported_via' => 'crew_link']);
         $table['reported done, tenant asked'] = [$this->stageFor(), 'Reported complete — please check'];
@@ -300,7 +300,7 @@ final class ClientWorkOrderViewTest extends TestCase
         $payload = $this->getJson("/api/v1/client/rentals/fault-reports/{$fault->id}")->assertOk()->json('fault_report');
 
         $this->assertSame($this->workOrder->id, $payload['work_order_stage']['id']);
-        $this->assertSame('Scheduled', $payload['work_order_stage']['stage_label']);
+        $this->assertSame('Appointment set', $payload['work_order_stage']['stage_label']);
 
         $plain = $this->faultReport(['title' => 'No work order yet']);
         $this->assertNull($this->getJson("/api/v1/client/rentals/fault-reports/{$plain->id}")->json('fault_report.work_order_stage'));

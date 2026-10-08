@@ -681,6 +681,12 @@ class RentalApprovalGateService
      */
     public function authoriseToProceed(RentalWorkOrder $workOrder, bool $record = true): GateDecision
     {
+        // W3 (8 Oct 2026): the owner's OWN contractor - the owner decided on the fault, arranges and pays the contractor; the
+        // agency prices, quotes and authorises nothing, so there is nothing for this gate to hold back.
+        if ($workOrder->isOwnerContractor()) {
+            return new GateDecision(true, 'no_change', RentalWorkOrder::BASIS_OWNER_DECISION, note: "The owner arranges and pays their own contractor.");
+        }
+
         if ($this->isEmergency($workOrder)) {
             return new GateDecision(true, RentalApprovalDecision::DECISION_EMERGENCY_COVERED, RentalWorkOrder::BASIS_EMERGENCY, note: 'Approved to proceed as emergency work — the owner agreed.');
         }

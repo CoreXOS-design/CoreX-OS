@@ -32,7 +32,7 @@
     <div class="flex items-center justify-between">
         <div>
             <h1 class="text-lg font-semibold">{{ $workOrder->title }}</h1>
-            <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst(str_replace('_', ' ', $workOrder->status)) }}</span>
+            <span class="ds-badge {{ $statusBadgeClass }}" title="{{ ucfirst(str_replace('_', ' ', $workOrder->status)) }}">{{ $workOrder->stageLabel('agent') }}</span>
             <span class="text-xs" style="color: var(--text-muted);">{{ $workOrder->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $workOrder->property?->trashed() ? ' (archived)' : '' }}</span>
         </div>
         <div class="flex items-center gap-2">
@@ -46,6 +46,48 @@
          names this exact include). --}}
     <x-rental-context-bar :property="$workOrder->property" :lease="$workOrder->lease" current="work_orders" />
 
+    {{-- W2/W6 (Johan, 8 Oct 2026) - the appointment for the repair. The agent normally coordinates it with the tenant; the tenant is
+         emailed when it is set or changed, and sees it (with who is doing the work and the progress) on their portal. --}}
+    @if($isOpen)
+    @permission('rental_work_orders.create')
+    @php
+        $tzApp = $workOrder->agency?->outreachTimezone() ?: config('app.timezone');
+        $apptValue = $workOrder->appointment_at?->copy()->setTimezone($tzApp)->format('Y-m-d\TH:i');
+    @endphp
+    <div class="rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);" id="appointment-card">
+        <h2 class="text-sm font-semibold">Appointment <span class="font-normal text-xs" style="color: var(--text-muted);">&mdash; {{ $workOrder->stageLabel('agent') }}</span></h2>
+        <form method="POST" action="{{ route('corex.rental-work-orders.appointment.store', $workOrder) }}" class="grid grid-cols-3 gap-3 items-end">
+            @csrf
+            <div>
+                <label class="text-xs font-medium">Date and time</label>
+                <input type="datetime-local" name="appointment_at" required value="{{ old('appointment_at', $apptValue) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+            </div>
+            <div>
+                <label class="text-xs font-medium">Note for the tenant (optional)</label>
+                <input type="text" name="appointment_note" maxlength="500" value="{{ old('appointment_note', $workOrder->appointment_note) }}" placeholder="e.g. the plumber will call 30 minutes before" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+            </div>
+            <div><button type="submit" class="corex-btn-primary text-xs">{{ $workOrder->appointment_at ? 'Change appointment' : 'Set appointment' }}</button></div>
+        </form>
+        <p class="text-xs" style="color: var(--text-muted);">The tenant is emailed when you set or change this. The owner can also set it from their portal.</p>
+        @if($workOrder->isOwnerContractor())
+            <form method="POST" action="{{ route('corex.rental-work-orders.owner-contractor.update', $workOrder) }}" class="grid grid-cols-3 gap-3 items-end pt-2">
+                @csrf
+                @method('PUT')
+                <div>
+                    <label class="text-xs font-medium">Owner's contractor &mdash; name</label>
+                    <input type="text" name="contractor_name" maxlength="191" value="{{ old('contractor_name', $workOrder->contractor_name) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                </div>
+                <div>
+                    <label class="text-xs font-medium">Phone</label>
+                    <input type="text" name="contractor_phone" maxlength="40" value="{{ old('contractor_phone', $workOrder->contractor_phone) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                </div>
+                <div><button type="submit" class="corex-btn-outline text-xs">Save contractor details</button></div>
+            </form>
+        @endif
+    </div>
+    @endpermission
+    @endif
+
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ editing: false }">
         <div class="grid grid-cols-2 gap-3 text-sm" x-show="!editing">
             <div class="col-span-2"><span style="color: var(--text-muted);">Description:</span> {{ $workOrder->description }}</div>
@@ -53,10 +95,14 @@
             <div><span style="color: var(--text-muted);">Item:</span> {{ $workOrder->inspectionItem?->label ?? '—' }}</div>
             <div><span style="color: var(--text-muted);">Trade:</span> {{ $workOrder->trade_type ? ucfirst($workOrder->trade_type) : '—' }}</div>
             {{-- AT-442 req #1 — "who does the work" is the first choice on every work order. --}}
-            <div><span style="color: var(--text-muted);">Who does the work:</span> {{ $workOrder->assignment_type === \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL ? 'Our maintenance team' : 'Outside supplier' }}</div>
-            @if($workOrder->assignment_type !== \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL)
+            <div><span style="color: var(--text-muted);">Who does the work:</span> {{ $workOrder->whoLabel() }}</div>
+            @if($workOrder->isOwnerContractor())
+            <div><span style="color: var(--text-muted);">Owner's contractor:</span> {{ $workOrder->contractor_name ?: 'name not given' }}{{ $workOrder->contractor_phone ? ' - ' . $workOrder->contractor_phone : '' }}</div>
+            @endif
+            @if($workOrder->assignment_type === \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER)
             <div><span style="color: var(--text-muted);">Supplier:</span> {{ $workOrder->supplier?->name ?? '—' }}</div>
             @endif
+            <div><span style="color: var(--text-muted);">Appointment:</span> {{ $workOrder->appointment_at ? $workOrder->appointment_at->copy()->setTimezone($workOrder->agency?->outreachTimezone() ?: config('app.timezone'))->format('D j M Y H:i') . ($workOrder->appointment_note ? ' - ' . $workOrder->appointment_note : '') : 'Not booked yet' }}</div>
             <div><span style="color: var(--text-muted);">Reported by:</span> {{ ucfirst(str_replace('_', ' ', $workOrder->reported_by_type)) }}</div>
             @if($workOrder->reportedFaultReport)
                 <div><span style="color: var(--text-muted);">From fault report:</span> @feature('rental-faults')<a href="{{ route('corex.rental-fault-reports.show', $workOrder->reported_fault_report_id) }}" class="underline">#{{ $workOrder->reported_fault_report_id }}</a>@else #{{ $workOrder->reported_fault_report_id }} @endfeature</div>

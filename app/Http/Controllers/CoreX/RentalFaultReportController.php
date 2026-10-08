@@ -620,9 +620,13 @@ class RentalFaultReportController extends Controller
             'assignment_type' => ['nullable', 'in:' . implode(',', [
                 \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER,
                 \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL,
+                \App\Models\RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR,
             ])],
             // Fault flow F6 - the contractor chosen on the owner's decision, pre-selected on the external work order.
             'agency_service_provider_id' => ['nullable', 'integer'],
+            // W3 - the owner's own contractor (both optional).
+            'contractor_name' => ['nullable', 'string', 'max:191'],
+            'contractor_phone' => ['nullable', 'string', 'max:40'],
         ]);
         if (! empty($validated['agency_service_provider_id'])) {
             $ok = \App\Models\DealV2\AgencyServiceProvider::active()->whereKey($validated['agency_service_provider_id'])->exists();
@@ -641,6 +645,12 @@ class RentalFaultReportController extends Controller
                 return redirect()->route('corex.rental-job-cards.show', $jobCard)->with('success', 'Work order created — job card ready for the crew.');
             }
 
+            // The owner's own contractor and the agency's supplier are different routes - never both on one work order.
+            if ($validated['assignment_type'] === \App\Models\RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR) {
+                unset($validated['agency_service_provider_id']);
+            } else {
+                unset($validated['contractor_name'], $validated['contractor_phone']);
+            }
             $workOrder = $service->fromFaultReport($rentalFaultReport, $request->user(), $validated);
             if (! empty($validated['agency_service_provider_id'])) {
                 $workOrder->updates()->create([

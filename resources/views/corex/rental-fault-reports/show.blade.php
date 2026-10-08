@@ -164,6 +164,7 @@
         // Fault flow: the contractor chosen on the decision (agency route) pre-fills the existing work-order form.
         $latestDecision = $faultReport->decision();
         $prefillSupplier = ($latestDecision && $latestDecision->contractor_source === \App\Models\RentalApproval::CONTRACTOR_AGENCY) ? $latestDecision->contractorSupplier : null;
+        $prefillOwner = ($latestDecision && $latestDecision->contractor_source === \App\Models\RentalApproval::CONTRACTOR_OWN) ? $latestDecision : null;
         $prefillTradeCode = null;
         if ($faultReport->faultType?->category) {
             $needle = strtolower($faultReport->faultType->category);
@@ -281,7 +282,7 @@
              order AND its job card and lands on the card; External creates the work order only. --}}
         @permission('rental_fault_reports.raise_work_order')
             @if($faultReport->workOrderBlockReason() === null)
-                <form id="raise-work-order-form" method="POST" action="{{ route('corex.rental-fault-reports.raise-work-order', $faultReport) }}" class="{{ request()->boolean('create_work_order') ? '' : 'hidden' }} space-y-3 pt-2" x-data="{ who: '{{ old('assignment_type', $prefillSupplier ? \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER : \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL) }}' }">
+                <form id="raise-work-order-form" method="POST" action="{{ route('corex.rental-fault-reports.raise-work-order', $faultReport) }}" class="{{ request()->boolean('create_work_order') ? '' : 'hidden' }} space-y-3 pt-2" x-data="{ who: '{{ old('assignment_type', $prefillOwner ? \App\Models\RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR : ($prefillSupplier ? \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER : \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL)) }}' }">
                     @csrf
                     @if($prefillSupplier)
                         <input type="hidden" name="agency_service_provider_id" value="{{ $prefillSupplier->id }}">
@@ -290,12 +291,14 @@
                     <div>
                         <label class="text-xs font-medium">Who does the work?</label>
                         <div class="flex flex-wrap gap-4 mt-1 text-sm">
-                            <label class="flex items-center gap-2"><input type="radio" name="assignment_type" value="{{ \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL }}" x-model="who"> Internal crew</label>
-                            <label class="flex items-center gap-2"><input type="radio" name="assignment_type" value="{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER }}" x-model="who"> External contractor</label>
+                            <label class="flex items-center gap-2"><input type="radio" name="assignment_type" value="{{ \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL }}" x-model="who"> Internal crew <span class="text-xs" style="color: var(--text-muted);">(creates a job card)</span></label>
+                            <label class="flex items-center gap-2"><input type="radio" name="assignment_type" value="{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER }}" x-model="who"> Agency contractor</label>
+                            <label class="flex items-center gap-2"><input type="radio" name="assignment_type" value="{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR }}" x-model="who"> Owner's contractor</label>
                         </div>
                         <p class="text-xs mt-1" style="color: var(--text-muted);" x-show="who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL }}'">Creates the work order and a job card for your maintenance crew.</p>
-                        <p class="text-xs mt-1" style="color: var(--text-muted);" x-show="who !== '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL }}'" x-cloak>Creates the work order. You then capture the contractor's quote and send them the work order.</p>
+                        <p class="text-xs mt-1" style="color: var(--text-muted);" x-show="who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER }}'" x-cloak>Creates the work order. You then capture the contractor's quote and send them the work order.</p>
                     </div>
+                    <p class="text-xs mt-1" style="color: var(--text-muted);" x-show="who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR }}'" x-cloak>Creates the work order for the owner's own contractor. The owner arranges and pays them; you coordinate, and the tenant is kept informed. No job card is created.</p>
                     <div x-show="who !== '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL }}'" x-cloak>
                         <label class="text-xs font-medium">Trade type</label>
                         <select name="trade_type" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
@@ -304,6 +307,16 @@
                                 <option value="{{ $type->code }}" @selected($prefillTradeCode === $type->code)>{{ $type->label }}</option>
                             @endforeach
                         </select>
+                    </div>
+                    <div x-show="who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR }}'" x-cloak class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-xs font-medium">Owner's contractor &mdash; name <span class="font-normal" style="color: var(--text-muted);">(optional)</span></label>
+                            <input type="text" name="contractor_name" maxlength="191" value="{{ old('contractor_name', $prefillOwner?->contractor_name) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                        </div>
+                        <div>
+                            <label class="text-xs font-medium">Phone <span class="font-normal" style="color: var(--text-muted);">(optional)</span></label>
+                            <input type="text" name="contractor_phone" maxlength="40" value="{{ old('contractor_phone', $prefillOwner?->contractor_phone) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                        </div>
                     </div>
                     <div>
                         <label class="text-xs font-medium">Title</label>
@@ -315,7 +328,7 @@
                     </div>
                     <button type="submit" class="corex-btn-primary text-xs">Create work order</button>
                 </form>
-            @elseif(in_array($faultReport->status, [\App\Models\RentalFaultReport::STATUS_DECLINED, \App\Models\RentalFaultReport::STATUS_OWNER_HANDLING], true))
+            @elseif($faultReport->status === \App\Models\RentalFaultReport::STATUS_DECLINED)
                 <p class="text-xs" style="color: var(--text-muted);">{{ $faultReport->workOrderBlockReason() }}</p>
             @endif
         @endpermission
@@ -385,7 +398,7 @@
                 <div class="flex flex-wrap gap-2">
                     <button type="submit" class="corex-btn-primary text-xs">Save decision</button>
                     @permission('rental_fault_reports.raise_work_order')
-                        <button type="submit" name="after" value="create_work_order" x-show="decision === 'approved' && route === 'agency_appoints'" x-cloak class="corex-btn-outline text-xs">Save decision and create work order</button>
+                        <button type="submit" name="after" value="create_work_order" x-show="decision === 'approved'" x-cloak class="corex-btn-outline text-xs">Save decision and create work order</button>
                     @endpermission
                 </div>
             </form>

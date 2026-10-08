@@ -651,3 +651,9 @@ The notice **length** is the lease's own `extra.notice_period_days`, else the ag
 ## 21. The owner's fault view and decision (8 Oct 2026, QA1 — fault flow F2/F3/F4/F7)
 
 The owner's portal Faults / Decisions tabs show a fault only after the agent has SENT it (or it is decided, or the owner reported it): `RentalFaultReport::scopeVisibleToOwner()`, used by every `RentalPortalScopeService::landlord*FaultReport*` method. They show the agent's sanitised version only — title, description, shared photos, agent note — never the tenant's original. New endpoint `GET /api/v1/client/rentals/landlord/fault-reports/{id}` (detail + contractor list for this type of work + read-only decision) and an extended `POST …/decision` (Approve/Decline with required reason; own contractor with optional name/phone; a listed contractor; or "my agent arranges it"). The shell's Decisions tab opens a review-and-decide card; "My requests" opens the same card read-only. Full rules: `rentals-faults-work-orders.md` §15.
+
+---
+
+## 23. The owner's and tenant's Jobs are WORK ORDERS only; appointment and progress (8 Oct 2026, QA1 — W2/W4/W6)
+
+The portal's Jobs read work orders (`RentalWorkOrderClientViewService`): plain stage (data: `config/rental-work-order-stages.php`), who is doing it, the appointment, the completion rounds and the photos the agency allows. The job card is internal: its portal endpoints are gone and nothing of it (crew names, sign-off, booking) is in the payload. The tenant's fault list/detail carries its linked work order (stage, who, appointment); the tenant is emailed when the appointment is set or changed. The owner's Jobs cards add: set/change the appointment (`POST …/landlord/work-orders/{id}/appointment`), report the work started/finished (`POST …/landlord/work-orders/{id}/progress`; not for the agency's internal crew). Full rules: `rentals-faults-work-orders.md` §16.

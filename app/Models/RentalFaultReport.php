@@ -733,8 +733,9 @@ class RentalFaultReport extends Model
      * understands; null when it can. The one place the "Create work order" gate lives, so the screen (button hidden,
      * reason shown) and RentalWorkOrderService::fromFaultReport() can never disagree.
      *
-     * Allowed: reported, awaiting_approval, or approved with the agency_appoints route. Refused: declined (the owner
-     * said no), owner_handling (the owner is doing it), work_order_raised, resolved, cancelled.
+     * Allowed: reported, awaiting_approval, or approved on ANY route (W1/W5, 8 Oct 2026: agency contractor, the owner's own
+     * contractor or the internal crew - every approved fault gets a work order). Refused: declined (the owner said no),
+     * work_order_raised, resolved, cancelled.
      */
     public function workOrderBlockReason(): ?string
     {
@@ -744,13 +745,10 @@ class RentalFaultReport extends Model
 
         return match ($this->status) {
             self::STATUS_DECLINED => 'The owner declined this repair, so a work order cannot be created from it.',
-            self::STATUS_OWNER_HANDLING => 'The owner is handling this repair themselves, so no work order is needed.',
             self::STATUS_RESOLVED => 'This fault report is already resolved.',
             self::STATUS_CANCELLED => 'This fault report was cancelled.',
-            self::STATUS_APPROVED => $this->approval_route === self::ROUTE_AGENCY_APPOINTS
-                ? null
-                : 'The owner has not asked the agency to arrange this repair, so a work order cannot be created from it.',
-            self::STATUS_REPORTED, self::STATUS_AWAITING_APPROVAL => null,
+            // W1/W5 (8 Oct 2026): every approved fault gets a work order - whoever does the work, including the owner's own contractor.
+            self::STATUS_APPROVED, self::STATUS_OWNER_HANDLING, self::STATUS_REPORTED, self::STATUS_AWAITING_APPROVAL => null,
             default => 'A work order cannot be created from this fault report in its current state.',
         };
     }

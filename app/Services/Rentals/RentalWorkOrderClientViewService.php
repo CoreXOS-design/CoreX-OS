@@ -33,43 +33,90 @@ class RentalWorkOrderClientViewService
     {
     }
 
-    /** The plain-words stage (§17.12) for this work order, as this audience should read it. */
-    public function stageLabel(RentalWorkOrder $workOrder, string $audience = self::AUDIENCE_TENANT): string
+    /**
+     * W2 (8 Oct 2026) - the plain stage KEY of a work order: created, appointment_set, in_progress, check_requested,
+     * reopened, completed, cancelled, needs_decision. The words for each live in config/rental-work-order-stages.php, per
+     * audience; nothing here is a label.
+     */
+    public function stageKey(RentalWorkOrder $workOrder, string $audience = self::AUDIENCE_TENANT): string
     {
         $latest = $this->latestRound($workOrder);
 
         if ($workOrder->status === RentalWorkOrder::STATUS_CANCELLED) {
-            return 'Cancelled';
+            return 'cancelled';
         }
         if ($workOrder->status === RentalWorkOrder::STATUS_DISPUTED) {
-            return 'Not complete — reopened';
+            return 'reopened';
         }
         if ($latest && $latest->outcome === RentalWorkCompletionRound::OUTCOME_AWAITING_TENANT) {
-            return 'Reported complete — please check';
+            return 'check_requested';
         }
         if ($workOrder->status === RentalWorkOrder::STATUS_COMPLETED) {
-            return 'Completed';
+            return 'completed';
         }
         if ($workOrder->status === RentalWorkOrder::STATUS_IN_PROGRESS) {
-            return 'In progress';
+            return 'in_progress';
         }
 
         $card = $this->card($workOrder);
-        if ($card && in_array($card->status, [RentalJobCard::STATUS_SCHEDULED, RentalJobCard::STATUS_IN_PROGRESS], true)) {
-            return $card->status === RentalJobCard::STATUS_IN_PROGRESS ? 'In progress' : 'Scheduled';
+        if ($card && $card->status === RentalJobCard::STATUS_IN_PROGRESS) {
+            return 'in_progress';
         }
-        if ($audience === self::AUDIENCE_LANDLORD && $workOrder->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING) {
-            return 'Needs your decision';
+        if ($card && $card->status === RentalJobCard::STATUS_SCHEDULED) {
+            return 'appointment_set';   // the crew is booked: that IS the appointment
         }
-        if ($workOrder->owner_approval_status === RentalWorkOrder::APPROVAL_APPROVED
-            || ($card && $card->status === RentalJobCard::STATUS_APPROVED)) {
-            return 'Approved';
+        if ($audience !== self::AUDIENCE_TENANT && $workOrder->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING) {
+            return 'needs_decision';
         }
-        if ($workOrder->status === RentalWorkOrder::STATUS_ORDERED || $card || $workOrder->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING) {
-            return 'Being arranged';
+        if ($this->appointmentAt($workOrder)) {
+            return 'appointment_set';
         }
 
-        return 'Reported';
+        return 'created';
+    }
+
+    /** The plain-words stage for this work order, as this audience should read it (words come from the config data). */
+    public function stageLabel(RentalWorkOrder $workOrder, string $audience = self::AUDIENCE_TENANT): string
+    {
+        $key = $this->stageKey($workOrder, $audience);
+        $who = match ($audience) {
+            self::AUDIENCE_LANDLORD => 'owner',
+            self::AUDIENCE_TENANT => 'tenant',
+            default => 'agent',
+        };
+
+        return (string) (config("rental-work-order-stages.{$key}.{$who}")
+            ?? config("rental-work-order-stages.{$key}.agent")
+            ?? ucfirst(str_replace('_', ' ', $key)));
+    }
+
+    /**
+     * W2 - the short work-order summary shown beside the fault it belongs to (tenant fault list/detail, owner fault detail):
+     * the plain stage, who is doing the repair, the appointment. Never a price, never a job-card detail.
+     *
+     * @return array<string, mixed>
+     */
+    public function summary(RentalWorkOrder $workOrder, string $audience = self::AUDIENCE_TENANT): array
+    {
+        $internal = $workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL;
+        $ownerContractor = $workOrder->isOwnerContractor();
+
+        return [
+            'id' => $workOrder->id,
+            'stage' => $this->stageKey($workOrder, $audience),
+            'stage_label' => $this->stageLabel($workOrder, $audience),
+            'who_label' => $internal ? 'Our maintenance team' : ($ownerContractor ? ($audience === self::AUDIENCE_LANDLORD ? 'Your contractor' : "Owner's contractor") : 'Contractor arranged by the agency'),
+            'contractor_name' => $internal ? null : ($ownerContractor ? ($workOrder->contractor_name ?: null) : $workOrder->supplier()->withoutGlobalScopes()->withTrashed()->first()?->name),
+            'appointment_at' => $this->appointmentAt($workOrder)?->toIso8601String(),
+            'appointment_note' => $workOrder->appointment_note,
+            'completed_at' => $workOrder->completed_at?->toIso8601String(),
+        ];
+    }
+
+    /** The appointment as the client sees it: the work order's own; an older internal job falls back to its booking. */
+    public function appointmentAt(RentalWorkOrder $workOrder): ?\Illuminate\Support\Carbon
+    {
+        return $workOrder->appointment_at ?? $this->card($workOrder)?->scheduled_at;
     }
 
     /**
@@ -83,7 +130,9 @@ class RentalWorkOrderClientViewService
         $property = $workOrder->property()->withoutGlobalScopes()->withTrashed()->first();
         $rounds = $this->rounds($workOrder);
         $latest = $rounds->last();
-        $external = $workOrder->assignment_type !== RentalWorkOrder::ASSIGNMENT_INTERNAL;
+        $internal = $workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL;
+        $ownerContractor = $workOrder->isOwnerContractor();
+        $appointment = $this->appointmentAt($workOrder);
 
         $payload = [
             'id' => $workOrder->id,
@@ -95,15 +144,18 @@ class RentalWorkOrderClientViewService
             'rental_fault_report_id' => $workOrder->reported_fault_report_id,
             // The raw status stays for older consumers of this endpoint; people read `stage_label`.
             'status' => $workOrder->status,
+            'stage' => $this->stageKey($workOrder, $audience),
             'stage_label' => $this->stageLabel($workOrder, $audience),
-            'who' => $external ? 'external_contractor' : 'our_team',
-            'who_label' => $external ? 'External contractor' : 'Our maintenance team',
-            // The contractor's NAME only — never their contact details, quote or rates.
-            'contractor_name' => $external ? $workOrder->supplier()->withoutGlobalScopes()->withTrashed()->first()?->name : null,
-            'scheduled_at' => $card?->scheduled_at?->toIso8601String(),
-            'due_at' => $card?->due_at?->toIso8601String(),
+            // W2/W3: who is doing the repair. Never contact details for a tenant; the owner also sees their own contractor's phone.
+            'who' => $internal ? 'our_team' : ($ownerContractor ? 'owner_contractor' : 'external_contractor'),
+            'who_label' => $internal ? 'Our maintenance team' : ($ownerContractor ? ($audience === self::AUDIENCE_LANDLORD ? 'Your contractor' : "Owner's contractor") : 'Contractor arranged by the agency'),
+            'contractor_name' => $internal ? null : ($ownerContractor ? ($workOrder->contractor_name ?: null) : $workOrder->supplier()->withoutGlobalScopes()->withTrashed()->first()?->name),
+            'contractor_phone' => ($ownerContractor && $audience === self::AUDIENCE_LANDLORD) ? ($workOrder->contractor_phone ?: null) : null,
+            // W2: the appointment for the repair. `scheduled_at` is kept for older consumers of this endpoint.
+            'appointment_at' => $appointment?->toIso8601String(),
+            'appointment_note' => $workOrder->appointment_note,
+            'scheduled_at' => $appointment?->toIso8601String(),
             'completed_at' => $workOrder->completed_at?->toIso8601String(),
-            'crew_completion' => $card ? $this->photoView->crewCompletion($card) : null,
             'photos' => $this->photoView->photosPayload($this->photoView->photosForWorkOrder($workOrder)),
             'rounds' => $rounds->map(fn (RentalWorkCompletionRound $r) => $this->roundPayload($r, $workOrder))->values()->all(),
             // The one open question for the tenant: "is this finished?" (null when nothing waits on them).

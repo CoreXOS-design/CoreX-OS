@@ -53,6 +53,8 @@ class RentalWorkOrder extends Model
     /** AT-442 — "who does the work" is the FIRST choice on every work order. */
     public const ASSIGNMENT_OUTSIDE_SUPPLIER = 'outside_supplier';
     public const ASSIGNMENT_INTERNAL = 'internal';
+    /** W3 (8 Oct 2026) - the owner's own contractor (optional name + phone): the owner arranges and pays, the agency coordinates. */
+    public const ASSIGNMENT_OWNER_CONTRACTOR = 'owner_contractor';
 
     public const APPROVAL_NOT_REQUIRED = 'not_required';
     public const APPROVAL_PENDING = 'pending';
@@ -95,6 +97,13 @@ class RentalWorkOrder extends Model
         'lease_id',
         'rental_inspection_item_id',
         'agency_service_provider_id',
+        'contractor_name',
+        'contractor_phone',
+        'appointment_at',
+        'appointment_note',
+        'appointment_set_at',
+        'appointment_set_by_user_id',
+        'appointment_set_by_contact_id',
         'owner_approval_status',
         'assignment_type',
         'trade_type',
@@ -135,6 +144,8 @@ class RentalWorkOrder extends Model
     protected $casts = [
         'reported_at' => 'datetime',
         'ordered_at' => 'datetime',
+        'appointment_at' => 'datetime',
+        'appointment_set_at' => 'datetime',
         'completed_at' => 'datetime',
         'cancelled_at' => 'datetime',
         // NAMING TRAP (§17.13): this is the OWNER-FACING (selling) final amount for an internal job and
@@ -172,6 +183,32 @@ class RentalWorkOrder extends Model
     }
 
     /** Same reasoning as property() above — a soft-deleted supplier must not vanish from work-order history. */
+    public function isOwnerContractor(): bool
+    {
+        return $this->assignment_type === self::ASSIGNMENT_OWNER_CONTRACTOR;
+    }
+
+    /** W3 - who does the work, in plain words (agent wording; the portal adds its own, see RentalWorkOrderClientViewService). */
+    public function whoLabel(): string
+    {
+        return match ($this->assignment_type) {
+            self::ASSIGNMENT_INTERNAL => 'Our maintenance team',
+            self::ASSIGNMENT_OWNER_CONTRACTOR => "Owner's own contractor",
+            default => 'Agency contractor',
+        };
+    }
+
+    /** The plain stage key (config/rental-work-order-stages.php) and its label for an audience: 'agent' | 'owner' | 'tenant'. */
+    public function stageKey(): string
+    {
+        return app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->stageKey($this);
+    }
+
+    public function stageLabel(string $audience = 'agent'): string
+    {
+        return app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->stageLabel($this, $audience === 'agent' ? 'agent' : $audience);
+    }
+
     public function supplier(): BelongsTo
     {
         return $this->belongsTo(\App\Models\DealV2\AgencyServiceProvider::class, 'agency_service_provider_id')->withTrashed();
@@ -379,6 +416,9 @@ class RentalWorkOrder extends Model
                 'action' => match ($update->update_type) {
                     'supplier_assigned' => 'Supplier assigned',
                     'supplier_changed' => 'Supplier changed',
+                    'appointment_set' => 'Appointment set',
+                    'appointment_changed' => 'Appointment changed',
+                    'owner_progress' => 'Progress reported by the owner',
                     'status_change' => 'Status changed',
                     'note' => 'Note added',
                     'quote_captured' => 'Quote captured',
@@ -752,7 +792,7 @@ class RentalWorkOrder extends Model
         // §17.6/§17.8 — emergency work has no threshold, and a work order with an approved amount is measured against
         // that amount by RentalCloseGuards::assertFinalCostWithinApproval() (within tolerance → auto-approved and
         // logged). This older check only guards a work order with no approved baseline at all.
-        if ($cost !== null && $this->approved_amount === null && $this->approval_basis !== self::BASIS_EMERGENCY
+        if ($cost !== null && ! $this->isOwnerContractor() && $this->approved_amount === null && $this->approval_basis !== self::BASIS_EMERGENCY
             && $cost > $this->spendThreshold() && $this->owner_approval_status !== self::APPROVAL_APPROVED) {
             throw new \LogicException('The cost of R' . number_format($cost, 2) . ' is above the approval threshold — record the owner\'s approval before ' . $action . '.');
         }
@@ -822,7 +862,7 @@ class RentalWorkOrder extends Model
     }
 
     /** §3.4 — optional stage; a quick fix may skip straight to completed. */
-    public function startProgress(User $by): void
+    public function startProgress(?User $by, ?string $viaNote = null): void
     {
         if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true)) {
             throw new \LogicException('This work order is already closed.');
@@ -836,7 +876,8 @@ class RentalWorkOrder extends Model
         $this->update(['status' => self::STATUS_IN_PROGRESS]);
         $this->updates()->create([
             'agency_id' => $this->agency_id, 'update_type' => 'status_change',
-            'from_status' => $fromStatus, 'to_status' => self::STATUS_IN_PROGRESS, 'created_by_user_id' => $by->id,
+            'from_status' => $fromStatus, 'to_status' => self::STATUS_IN_PROGRESS, 'created_by_user_id' => $by?->id,
+            'note' => $viaNote,
         ]);
     }
 

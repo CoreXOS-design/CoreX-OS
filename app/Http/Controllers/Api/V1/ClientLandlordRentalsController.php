@@ -260,39 +260,6 @@ class ClientLandlordRentalsController extends Controller
         ]);
     }
 
-    /**
-     * §14.29 — job cards on this landlord's own properties: status, schedule,
-     * crew completion, the allowed photos, and the selected quote amount only
-     * as the work-order endpoint above already shows it.
-     */
-    public function jobCards(Request $request): JsonResponse
-    {
-        $contact = $this->resolvePortalContact($request);
-        if ($contact instanceof JsonResponse) {
-            return $contact;
-        }
-
-        return response()->json([
-            'job_cards' => $this->scope->landlordJobCards($contact)
-                ->map(fn ($card) => $this->jobCardView->payload($card, true))->values(),
-        ]);
-    }
-
-    public function jobCardShow(Request $request, int $jobCard): JsonResponse
-    {
-        $contact = $this->resolvePortalContact($request);
-        if ($contact instanceof JsonResponse) {
-            return $contact;
-        }
-
-        $card = $this->scope->landlordJobCard($contact, $jobCard);
-        if (!$card) {
-            return response()->json(['message' => 'Job card not found.'], 404);
-        }
-
-        return response()->json(['job_card' => $this->jobCardView->payload($card, true)]);
-    }
-
     public function inspections(Request $request): JsonResponse
     {
         $contact = $this->resolvePortalContact($request);
@@ -417,6 +384,8 @@ class ClientLandlordRentalsController extends Controller
             'category' => $fault->faultType?->category,
             'status' => $fault->status,
             'status_label' => $fault->ownerStatusLabel(),
+            // W2: once approved, the work order for this fault - stage, who is doing it, the appointment.
+            'work_order' => $this->workOrderSummaryFor($fault),
             'reported_at' => $fault->reported_at?->toIso8601String(),
             'sent_to_owner_at' => $fault->sent_to_owner_at?->toIso8601String(),
             'awaiting_decision' => $awaiting,
@@ -519,6 +488,78 @@ class ClientLandlordRentalsController extends Controller
             'status_label' => $fault->ownerStatusLabel(),
             'owner_approval_status' => $fault->owner_approval_status,
         ]]);
+    }
+
+    /** @return array<string, mixed>|null */
+    private function workOrderSummaryFor(RentalFaultReport $fault): ?array
+    {
+        if (! $fault->rental_work_order_id) {
+            return null;
+        }
+        $order = RentalWorkOrder::withoutGlobalScopes()->where('agency_id', $fault->agency_id)->whereNull('deleted_at')->find($fault->rental_work_order_id);
+
+        return $order ? app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)
+            ->summary($order, \App\Services\Rentals\RentalWorkOrderClientViewService::AUDIENCE_LANDLORD) : null;
+    }
+
+    /**
+     * W6 (Johan, 8 Oct 2026) - the owner books (or moves) the repair appointment from the portal. The same service as the
+     * agent's screen: it is written to the work order's history and the tenant is emailed. `appointment_at` is read in the
+     * agency's timezone (a datetime-local value) or as a full ISO-8601 moment.
+     */
+    public function workOrderAppointment(Request $request, int $workOrder): JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+        $order = $this->scope->landlordWorkOrder($contact, $workOrder);
+        if (! $order) {
+            return response()->json(['message' => 'Work order not found.'], 404);
+        }
+
+        $data = $request->validate([
+            'appointment_at' => 'required|date',
+            'note' => 'nullable|string|max:500',
+        ]);
+        $tz = $order->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $at = \Illuminate\Support\Carbon::parse($data['appointment_at'], $tz)->utc();
+
+        try {
+            app(\App\Services\Rentals\RentalWorkOrderService::class)->setAppointment($order, $at, $data['note'] ?? null, $contact);
+        } catch (\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['work_order' => app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)
+            ->summary($order->fresh(), \App\Services\Rentals\RentalWorkOrderClientViewService::AUDIENCE_LANDLORD)]);
+    }
+
+    /** W6 - the owner reports progress: action = started | finished (the normal tenant check follows "finished"). */
+    public function workOrderProgress(Request $request, int $workOrder): JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+        $order = $this->scope->landlordWorkOrder($contact, $workOrder);
+        if (! $order) {
+            return response()->json(['message' => 'Work order not found.'], 404);
+        }
+
+        $data = $request->validate([
+            'action' => 'required|in:started,finished',
+            'note' => 'nullable|string|max:500',
+        ]);
+
+        try {
+            app(\App\Services\Rentals\RentalWorkOrderService::class)->recordOwnerProgress($order, $contact, $data['action'], $data['note'] ?? null);
+        } catch (\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['work_order' => app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)
+            ->summary($order->fresh(), \App\Services\Rentals\RentalWorkOrderClientViewService::AUDIENCE_LANDLORD)]);
     }
 
     /** §3 — Approve/Decline a quote already over the spend limit. No "handle it myself" here — a contractor is already engaged. */

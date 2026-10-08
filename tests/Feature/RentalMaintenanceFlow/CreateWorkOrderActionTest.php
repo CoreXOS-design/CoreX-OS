@@ -106,6 +106,8 @@ final class CreateWorkOrderActionTest extends TestCase
             'reported' => ['status' => RentalFaultReport::STATUS_REPORTED],
             'awaiting approval' => ['status' => RentalFaultReport::STATUS_AWAITING_APPROVAL, 'owner_approval_status' => RentalFaultReport::APPROVAL_PENDING],
             'approved, agency appoints' => ['status' => RentalFaultReport::STATUS_APPROVED, 'owner_approval_status' => RentalFaultReport::APPROVAL_APPROVED, 'approval_route' => RentalFaultReport::ROUTE_AGENCY_APPOINTS],
+            // W1/W5 (8 Oct 2026): every approved fault gets a work order, including the owner's own contractor.
+            'owner handling' => ['status' => RentalFaultReport::STATUS_OWNER_HANDLING, 'owner_approval_status' => RentalFaultReport::APPROVAL_APPROVED, 'approval_route' => RentalFaultReport::ROUTE_OWNER_HANDLES],
         ];
 
         foreach ($allowed as $label => $attrs) {
@@ -118,17 +120,15 @@ final class CreateWorkOrderActionTest extends TestCase
 
             $this->assertNotNull($fault->fresh()->rental_work_order_id, "{$label}: the work order is linked");
         }
-        $this->assertSame(3, RentalWorkOrder::count());
+        $this->assertSame(4, RentalWorkOrder::count());
     }
 
     public function test_each_refused_fault_status_is_refused_with_a_plain_sentence_and_creates_nothing(): void
     {
         $refused = [
             'declined' => [['status' => RentalFaultReport::STATUS_DECLINED], 'owner declined'],
-            'owner handling' => [['status' => RentalFaultReport::STATUS_OWNER_HANDLING, 'approval_route' => RentalFaultReport::ROUTE_OWNER_HANDLES], 'handling this repair themselves'],
             'resolved' => [['status' => RentalFaultReport::STATUS_RESOLVED, 'outcome' => RentalFaultReport::OUTCOME_NOT_REPAIRED, 'outcome_note' => 'x'], 'already resolved'],
             'cancelled' => [['status' => RentalFaultReport::STATUS_CANCELLED], 'was cancelled'],
-            'approved but not agency appoints' => [['status' => RentalFaultReport::STATUS_APPROVED, 'approval_route' => RentalFaultReport::ROUTE_OWNER_HANDLES], 'has not asked the agency'],
         ];
 
         foreach ($refused as $label => [$attrs, $words]) {
@@ -192,7 +192,7 @@ final class CreateWorkOrderActionTest extends TestCase
     {
         $open = $this->faultReport();
         $this->actingAs($this->admin)->get(route('corex.rental-fault-reports.show', $open))
-            ->assertOk()->assertSee('Create work order')->assertSee('Internal crew')->assertSee('External contractor')->assertDontSee('Raise work order');
+            ->assertOk()->assertSee('Create work order')->assertSee('Internal crew')->assertSee('Agency contractor')->assertSee("Owner's contractor", false)->assertDontSee('Raise work order');
 
         $declined = $this->faultReport(['status' => RentalFaultReport::STATUS_DECLINED, 'title' => 'Declined one']);
         $this->actingAs($this->admin)->get(route('corex.rental-fault-reports.show', $declined))

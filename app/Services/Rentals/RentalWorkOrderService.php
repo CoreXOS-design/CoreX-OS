@@ -74,6 +74,10 @@ class RentalWorkOrderService
             throw new \LogicException($reason);
         }
 
+        // W3 (8 Oct 2026): the owner's own contractor is "appointed" from the start - the owner arranged them, the agency
+        // quotes and authorises nothing (RentalApprovalGateService::authoriseToProceed). Every other route starts as before.
+        $ownerContractor = ($attributes['assignment_type'] ?? null) === RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR;
+
         $workOrder = RentalWorkOrder::create(array_merge($attributes, [
             'agency_id' => $faultReport->agency_id,
             'branch_id' => $faultReport->branch_id,
@@ -84,10 +88,19 @@ class RentalWorkOrderService
             'reported_fault_report_id' => $faultReport->id,
             // §17.3.3 — approval no longer rides the fault: not_required, approved_amount null.
             'owner_approval_status' => RentalWorkOrder::APPROVAL_NOT_REQUIRED,
-            'status' => RentalWorkOrder::STATUS_REPORTED,
+            'status' => $ownerContractor ? RentalWorkOrder::STATUS_ORDERED : RentalWorkOrder::STATUS_REPORTED,
+            'ordered_at' => $ownerContractor ? now() : null,
             'reported_at' => now(),
             'created_by_user_id' => $by->id,
         ]));
+        if ($ownerContractor) {
+            $workOrder->updates()->create([
+                'agency_id' => $workOrder->agency_id, 'update_type' => 'status_change',
+                'from_status' => RentalWorkOrder::STATUS_REPORTED, 'to_status' => RentalWorkOrder::STATUS_ORDERED,
+                'note' => "Owner's own contractor" . ($workOrder->contractor_name ? ': ' . $workOrder->contractor_name : '') . ' - arranged by the owner',
+                'created_by_user_id' => $by->id,
+            ]);
+        }
 
         $faultReport->recordWorkOrderRaised($workOrder, $by);
 
@@ -208,6 +221,101 @@ class RentalWorkOrderService
         }
 
         Mail::to($tenant->email)->send(new RentalWorkOrderTenantMail($workOrder, $tenant->first_name ?? ''));
+    }
+
+    // ───────────────────────── W2/W6 (8 Oct 2026) - the appointment, set by the agent or the owner ─────────────────────────
+
+    /**
+     * Book (or re-book) the repair: ONE method for the agent screen, the owner's portal and the job-card booking mirror.
+     * Every set/change is a row in the work order's history (who, from -> to, note) and the tenant is emailed - once per
+     * real change; saving the same date and note again changes nothing and sends nothing.
+     *
+     * @throws \LogicException the work order is finished or cancelled
+     */
+    public function setAppointment(RentalWorkOrder $workOrder, \DateTimeInterface $at, ?string $note, User|\App\Models\Contact $by, ?string $viaNote = null): bool
+    {
+        if (in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true)) {
+            throw new \LogicException('This work order is already closed - an appointment can no longer be set.');
+        }
+
+        // Stored in the application timezone (Eloquent formats a datetime in the Carbon's OWN zone and reads it back in the app zone).
+        $when = \Illuminate\Support\Carbon::instance($at)->setTimezone(config('app.timezone'))->startOfMinute();
+        $note = trim((string) $note) !== '' ? mb_substr(trim((string) $note), 0, 500) : null;
+        $previous = $workOrder->appointment_at;
+        if ($previous && $previous->getTimestamp() === $when->getTimestamp() && ($workOrder->appointment_note ?? null) === $note) {
+            return false;
+        }
+
+        $byUser = $by instanceof User ? $by : null;
+        $byContact = $by instanceof \App\Models\Contact ? $by : null;
+        $who = $byUser ? $byUser->name : trim(($byContact->first_name ?? '') . ' ' . ($byContact->last_name ?? '')) . ' (owner, on the portal)';
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($workOrder, $when, $note, $previous, $byUser, $byContact, $who, $viaNote) {
+            $workOrder->forceFill([
+                'appointment_at' => $when,
+                'appointment_note' => $note,
+                'appointment_set_at' => now(),
+                'appointment_set_by_user_id' => $byUser?->id,
+                'appointment_set_by_contact_id' => $byContact?->id,
+            ])->save();
+
+            $workOrder->updates()->create([
+                'agency_id' => $workOrder->agency_id,
+                'update_type' => $previous ? 'appointment_changed' : 'appointment_set',
+                'note' => trim(($previous ? 'From ' . $previous->format('D j M Y H:i') . ' to ' : '') . $when->format('D j M Y H:i')
+                    . ($note ? ' - ' . $note : '') . ' (set by ' . $who . ($viaNote ? ', ' . $viaNote : '') . ')'),
+                'created_by_user_id' => $byUser?->id,
+            ]);
+        });
+
+        $this->notifyTenantAppointment($workOrder->fresh(), (bool) $previous);
+
+        return true;
+    }
+
+    /** W2 - the tenant is told when the repair appointment is set or changed (the existing tenant-notification setting). */
+    public function notifyTenantAppointment(RentalWorkOrder $workOrder, bool $changed): void
+    {
+        if (! $workOrder->lease_id || ! \App\Models\RentalPortalSetting::notifyTenantOnStatusChangeFor($workOrder->agency_id)) {
+            return;
+        }
+
+        foreach ($workOrder->lease?->tenantContacts() ?? [] as $tenant) {
+            if ($tenant->email) {
+                Mail::to($tenant->email)->send(new \App\Mail\Rentals\RentalWorkOrderAppointmentMail($workOrder, $tenant->first_name ?? '', $changed));
+            }
+        }
+    }
+
+    /**
+     * W6 - the owner reports progress from the portal: 'started' (work has begun) or 'finished' (the work is done - the
+     * normal tenant check follows). Same service paths and gates as the office; the owner is the recorded actor.
+     * An internal job's progress comes from the agency's own job card, never from the owner.
+     *
+     * @throws \LogicException when the work order cannot move that way
+     */
+    public function recordOwnerProgress(RentalWorkOrder $workOrder, \App\Models\Contact $owner, string $action, ?string $note = null): void
+    {
+        if ($workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL) {
+            throw new \LogicException("This job is done by the agency's own team - its progress is updated by them.");
+        }
+        $name = trim(($owner->first_name ?? '') . ' ' . ($owner->last_name ?? ''));
+        $via = 'told by the owner' . ($name !== '' ? ' (' . $name . ')' : '') . ' on the portal';
+
+        if ($action === 'started') {
+            if ($workOrder->status === RentalWorkOrder::STATUS_IN_PROGRESS) {
+                return;
+            }
+            $workOrder->startProgress(null, ucfirst($via));
+            $workOrder->updates()->create([
+                'agency_id' => $workOrder->agency_id, 'update_type' => 'owner_progress',
+                'note' => 'Work started - ' . $via . (trim((string) $note) !== '' ? ': ' . trim((string) $note) : ''),
+            ]);
+
+            return;
+        }
+
+        app(\App\Services\Rentals\RentalCompletionService::class)->recordOwnerReportedDone($workOrder, $owner, $note);
     }
 
     // ───────────────────────── Build 2 mails (§17.16) — all through the agency mailbox path ─────────────────────────

@@ -4138,6 +4138,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.start-progress');
         Route::post('/{rentalWorkOrder}/complete', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'complete'])
             ->middleware('permission:rental_work_orders.complete')->name('corex.rental-work-orders.complete');
+        Route::post('/{rentalWorkOrder}/appointment', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'setAppointment'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.appointment.store');
+        Route::put('/{rentalWorkOrder}/owner-contractor', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'updateOwnerContractor'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.owner-contractor.update');
         Route::post('/{rentalWorkOrder}/notes', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'addNote'])
             ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.notes.store');
         Route::post('/{rentalWorkOrder}/cancel', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'cancel'])

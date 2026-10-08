@@ -22,6 +22,8 @@ class RentalWorkCompletionRound extends Model
     public const VIA_SIGNED_COPY = 'signed_copy';
     public const VIA_OFFICE = 'office';
     public const VIA_CONTRACTOR_CAPTURED = 'contractor_captured';
+    /** W6 (8 Oct 2026) - the owner reported the work done from the portal. */
+    public const VIA_OWNER_PORTAL = 'owner_portal';
 
     public const NOTIFY_SENT = 'sent';
     public const NOTIFY_NO_TENANT = 'no_tenant';
@@ -106,6 +108,7 @@ class RentalWorkCompletionRound extends Model
             self::VIA_CREW_PAGE => 'crew page',
             self::VIA_SIGNED_COPY => 'signed copy',
             self::VIA_CONTRACTOR_CAPTURED => 'captured from the contractor',
+            self::VIA_OWNER_PORTAL => 'told by the owner on the portal',
             default => 'recorded by the office',
         };
     }

@@ -352,39 +352,7 @@ class ClientTenantRentalsController extends Controller
         ]]);
     }
 
-    /**
-     * §14.29 — job cards on this tenant's own lease(s): status, schedule,
-     * completion and the photos the agency allows. Never a price.
-     */
-    public function jobCards(Request $request): JsonResponse
-    {
-        $contact = $this->resolvePortalContact($request);
-        if ($contact instanceof JsonResponse) {
-            return $contact;
-        }
-
-        return response()->json([
-            'job_cards' => $this->scope->tenantJobCards($contact)
-                ->map(fn ($card) => $this->jobCardView->payload($card))->values(),
-        ]);
-    }
-
-    public function jobCardShow(Request $request, int $jobCard): JsonResponse
-    {
-        $contact = $this->resolvePortalContact($request);
-        if ($contact instanceof JsonResponse) {
-            return $contact;
-        }
-
-        $card = $this->scope->tenantJobCard($contact, $jobCard);
-        if (!$card) {
-            return response()->json(['message' => 'Job card not found.'], 404);
-        }
-
-        return response()->json(['job_card' => $this->jobCardView->payload($card)]);
-    }
-
-    /** @return array{id: int, stage_label: string}|null the fault's work order, in plain words (§17.3.5) */
+    /** @return array<string, mixed>|null the fault's work order summary, in plain words (§17.3.5, W2) */
     private function workOrderStageFor(RentalFaultReport $fault): ?array
     {
         if (! $fault->rental_work_order_id) {
@@ -396,11 +364,10 @@ class ClientTenantRentalsController extends Controller
             return null;
         }
 
-        return [
-            'id' => $order->id,
-            'stage_label' => app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)
-                ->stageLabel($order, \App\Services\Rentals\RentalWorkOrderClientViewService::AUDIENCE_TENANT),
-        ];
+        // W2 (8 Oct 2026): the work order beside its fault - stage, who is doing it, the appointment. (`id` and
+        // `stage_label` stay for older consumers.)
+        return app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)
+            ->summary($order, \App\Services\Rentals\RentalWorkOrderClientViewService::AUDIENCE_TENANT);
     }
 
     private function leaseSummary($lease): array

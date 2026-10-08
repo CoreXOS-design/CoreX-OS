@@ -610,6 +610,50 @@ class RentalCompletionService
         });
     }
 
+    /**
+     * W6 (8 Oct 2026) - the owner tells us from the portal that the work is done. Exactly the office's "contractor reports
+     * done": the same round, the same tenant check, the same hand-over to the office to close the work order.
+     *
+     * @throws \LogicException the work order is not at a stage where work can be reported done
+     */
+    public function recordOwnerReportedDone(RentalWorkOrder $workOrder, Contact $owner, ?string $note = null): RentalWorkCompletionRound
+    {
+        if ($workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL) {
+            throw new \LogicException("This work is done by the agency's own team - it is reported through the job card.");
+        }
+        if (! in_array($workOrder->status, [RentalWorkOrder::STATUS_ORDERED, RentalWorkOrder::STATUS_IN_PROGRESS, RentalWorkOrder::STATUS_DISPUTED], true)) {
+            throw new \LogicException(match ($workOrder->status) {
+                RentalWorkOrder::STATUS_REPORTED => 'The work has not been given to a contractor yet.',
+                RentalWorkOrder::STATUS_COMPLETED => 'This work order is already completed.',
+                default => 'This work order is cancelled.',
+            });
+        }
+
+        $name = trim(($owner->first_name ?? '') . ' ' . ($owner->last_name ?? ''));
+        $contractor = $workOrder->isOwnerContractor() ? ($workOrder->contractor_name ?: "The owner's contractor") : ($workOrder->supplier?->name ?: 'The contractor');
+        $note = trim((string) $note);
+
+        return DB::transaction(function () use ($workOrder, $contractor, $name, $note) {
+            $round = $this->openRound($workOrder, [
+                'reported_by_label' => $contractor,
+                'reported_via' => RentalWorkCompletionRound::VIA_OWNER_PORTAL,
+                'reported_note' => 'Told to us by the owner' . ($name !== '' ? " ({$name})" : '') . ' on the portal' . ($note !== '' ? " - {$note}" : ''),
+            ]);
+
+            $wo = RentalWorkOrder::findOrFail($workOrder->id);
+            if ($wo->status === RentalWorkOrder::STATUS_ORDERED) {
+                $wo->forceFill(['status' => RentalWorkOrder::STATUS_IN_PROGRESS])->save();
+                $wo->updates()->create([
+                    'agency_id' => $wo->agency_id, 'update_type' => 'status_change',
+                    'from_status' => RentalWorkOrder::STATUS_ORDERED, 'to_status' => RentalWorkOrder::STATUS_IN_PROGRESS,
+                    'note' => 'The owner reported the work done',
+                ]);
+            }
+
+            return $round;
+        });
+    }
+
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
     // Silence = accepted
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────

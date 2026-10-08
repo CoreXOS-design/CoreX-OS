@@ -567,6 +567,17 @@ class RentalJobCard extends Model
         } else {
             $this->logUpdate('scheduled', $by);
         }
+
+        // W2 (8 Oct 2026): the job card is INTERNAL; the appointment the tenant and owner see lives on the WORK ORDER. Booking the
+        // crew here sets (or moves) that appointment, so the tenant is told - one fact, entered once.
+        $workOrder = $this->workOrder()->first();
+        if ($workOrder && $scheduledAt) {
+            try {
+                app(\App\Services\Rentals\RentalWorkOrderService::class)->setAppointment($workOrder, $scheduledAt, null, $by, 'booked on the job card');
+            } catch (\LogicException $e) {
+                // a closed work order keeps its last appointment; the card's own booking stands
+            }
+        }
     }
 
     /**

@@ -351,14 +351,20 @@ class FaultOwnerFlowTest extends TestCase
         $this->assertSame(\App\Models\RentalWorkOrder::STATUS_REPORTED, $workOrder->status, 'pre-selected, not ordered: the usual quote/authorisation steps still apply');
     }
 
-    public function test_the_hand_over_button_does_nothing_when_the_owner_arranges_the_repair_or_declines(): void
+    public function test_the_hand_over_button_now_works_on_the_owners_own_contractor_route_and_not_on_a_decline(): void
     {
+        // W5 (8 Oct 2026): "Save decision and create work order" is available on EVERY approved route.
         $fault = $this->sentFault();
-        $res = $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.approval.store', $fault), [
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.approval.store', $fault), [
             'decision' => 'approved', 'approval_route' => 'owner_handles', 'evidence_type' => 'verbal_note', 'evidence_text' => 'ok', 'after' => 'create_work_order',
-        ]);
-        $res->assertRedirect(route('corex.rental-fault-reports.show', $fault));   // no create_work_order flag: existing rule blocks it
-        $this->assertNotNull($fault->fresh()->workOrderBlockReason());
+        ])->assertRedirect(route('corex.rental-fault-reports.show', ['rentalFaultReport' => $fault, 'create_work_order' => 1]));
+        $this->assertNull($fault->fresh()->workOrderBlockReason());
+
+        $declined = $this->sentFault('Another fault');
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.approval.store', $declined), [
+            'decision' => 'declined', 'evidence_type' => 'verbal_note', 'evidence_text' => 'no', 'after' => 'create_work_order',
+        ])->assertRedirect(route('corex.rental-fault-reports.show', $declined));
+        $this->assertNotNull($declined->fresh()->workOrderBlockReason());
     }
 
     public function test_agent_declining_needs_a_reason(): void

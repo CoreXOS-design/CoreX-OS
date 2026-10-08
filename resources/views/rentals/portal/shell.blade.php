@@ -242,7 +242,7 @@
                                             <span x-text="f.title"></span>
                                             <span class="badge" x-text="f.status"></span>
                                             {{-- BUILD 3 — §17.3.5: the linked work order's plain stage. --}}
-                                            <span class="muted" x-show="f.work_order_stage" x-text="f.work_order_stage ? 'Job: ' + f.work_order_stage.stage_label : ''"></span>
+                                            <span class="muted" x-show="f.work_order_stage" x-text="f.work_order_stage ? 'Repair: ' + f.work_order_stage.stage_label + (f.work_order_stage.who_label ? ' · ' + f.work_order_stage.who_label + (f.work_order_stage.contractor_name ? ' (' + f.work_order_stage.contractor_name + ')' : '') : '') + (f.work_order_stage.appointment_at ? ' · appointment ' + new Date(f.work_order_stage.appointment_at).toLocaleString([], {dateStyle:'medium', timeStyle:'short'}) : '') : ''"></span>
                                         </div>
                                     </template>
                                     <p class="muted" x-show="!faultReports.length">No faults reported yet.</p>
@@ -250,7 +250,7 @@
                             </div>
                         </template>
 
-                        {{-- BUILD 3 BEGIN — §17.3.5 / §17.10.4: the tenant's Jobs are WORK ORDERS (the job-card endpoints stay registered but are no longer linked from here): the plain stage, who is doing it, the completion rounds, the photos the agency allows — never a price — and the "Is this finished?" question. --}}
+                        {{-- BUILD 3 BEGIN — §17.3.5 / §17.10.4: the tenant's Jobs are WORK ORDERS (job cards are internal and have no portal endpoints): the plain stage, who is doing it, the completion rounds, the photos the agency allows — never a price — and the "Is this finished?" question. --}}
                         <template x-if="tenantTab === 'jobs'">
                             <div>
                                 <div class="card" x-show="!workOrders.length"><p class="muted">No maintenance jobs yet.</p></div>
@@ -260,7 +260,7 @@
                                         <p class="muted" x-show="w.property_address" x-text="w.property_address"></p>
                                         <p class="muted" x-text="w.who_label + (w.contractor_name ? ' — ' + w.contractor_name : '')"></p>
                                         <p class="muted" x-show="w.completed_at" x-text="w.completed_at ? 'Completed ' + w.completed_at.substring(0,10) : ''"></p>
-                                        <p class="muted" x-show="!w.completed_at && w.scheduled_at" x-text="w.scheduled_at ? 'Scheduled ' + w.scheduled_at.substring(0,10) : ''"></p>
+                                        <p x-show="!w.completed_at && w.appointment_at"><strong x-text="w.appointment_at ? 'Appointment: ' + new Date(w.appointment_at).toLocaleString([], {dateStyle:'full', timeStyle:'short'}) : ''"></strong><span class="muted" x-show="w.appointment_note" x-text="w.appointment_note ? ' — ' + w.appointment_note : ''"></span></p>
                                         <div class="photo-grid" x-show="w.photos.length">
                                             <template x-for="ph in w.photos" :key="ph.id">
                                                 <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.url" :alt="ph.photo_type + ' photo'" loading="lazy"></a>
@@ -490,8 +490,24 @@
                                         <p class="muted" x-show="w.property_address" x-text="w.property_address"></p>
                                         <p class="muted" x-text="w.who_label + (w.contractor_name ? ' — ' + w.contractor_name : '')"></p>
                                         <p class="muted" x-show="w.completed_at" x-text="w.completed_at ? 'Completed ' + w.completed_at.substring(0,10) : ''"></p>
-                                        <p class="muted" x-show="!w.completed_at && w.scheduled_at" x-text="w.scheduled_at ? 'Scheduled ' + w.scheduled_at.substring(0,10) : ''"></p>
+                                        <p x-show="!w.completed_at && w.appointment_at"><strong x-text="w.appointment_at ? 'Appointment: ' + new Date(w.appointment_at).toLocaleString([], {dateStyle:'full', timeStyle:'short'}) : ''"></strong><span class="muted" x-show="w.appointment_note" x-text="w.appointment_note ? ' — ' + w.appointment_note : ''"></span></p>
+                                        <p class="muted" x-show="w.contractor_phone" x-text="w.contractor_phone ? 'Contractor phone: ' + w.contractor_phone : ''"></p>
                                         <p class="muted" x-show="w.owner_facing_amount !== null && w.owner_facing_amount !== undefined" x-text="'Amount: R ' + w.owner_facing_amount"></p>
+                                        {{-- W6 (8 Oct 2026): the owner may also set the appointment and report progress; the tenant is told. The agency's own team reports through its job card. --}}
+                                        <template x-if="w.stage !== 'completed' && w.stage !== 'cancelled'">
+                                            <div data-owner-appointment style="margin-top:10px; padding-top:10px; border-top:1px solid #eef1f6;">
+                                                <label>Appointment for the repair</label>
+                                                <input type="datetime-local" x-model="apptDraft[w.id + '_at']">
+                                                <input type="text" maxlength="500" placeholder="Note for the tenant (optional)" x-model="apptDraft[w.id + '_note']">
+                                                <button class="btn btn-outline" @click="setAppointment(w)" x-text="w.appointment_at ? 'Change the appointment' : 'Set the appointment'"></button>
+                                                <template x-if="w.who !== 'our_team'">
+                                                    <div>
+                                                        <button class="btn btn-outline" x-show="w.stage !== 'in_progress' && w.stage !== 'check_requested'" @click="reportProgress(w, 'started')">The work has started</button>
+                                                        <button class="btn btn-ok" x-show="w.stage !== 'check_requested'" @click="reportProgress(w, 'finished')">The work is finished</button>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </template>
                                         <div class="photo-grid" x-show="w.photos.length">
                                             <template x-for="ph in w.photos" :key="ph.id">
                                                 <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.url" :alt="ph.photo_type + ' photo'" loading="lazy"></a>
@@ -678,7 +694,7 @@ function rentalsPortal() {
         landlordFaults: [],
         faultDetail: null,
         faultForm: { decision: '', handled_by: '', contractor_name: '', contractor_phone: '', agency_service_provider_id: '', note: '', error: null, busy: false },
-        jobCards: [],
+        apptDraft: {},
         // BUILD 3 — the portal's Jobs are work orders (§17.3.5); the "is this finished?" answer form (§17.10.4).
         workOrders: [], answerForm: null, answerBusy: false, answerError: null, answerKeys: {},
         landlordFaultWizard: { open: false, step: 'form', property: null, faultTypeId: '', ftype: null, showAid: false, title: '', description: '', photos: [], photoError: null, photoBusy: false, photoPending: 0, sending: false, progress: 0, error: null, key: null },
@@ -814,13 +830,18 @@ function rentalsPortal() {
             const r = await portalFetch('/api/v1/client/rentals/fault-reports');
             if (r.ok) this.faultReports = r.data.fault_reports;
         },
-        // §14.29 — one list, two endpoints: the tenant's own lease(s) or the landlord's own properties.
-        async loadJobCards() {
-            const url = this.activeRole === 'landlord'
-                ? '/api/v1/client/rentals/landlord/job-cards'
-                : '/api/v1/client/rentals/job-cards';
-            const r = await portalFetch(url);
-            if (r.ok) this.jobCards = r.data.job_cards;
+        // W6 (8 Oct 2026) - the owner books the repair appointment / reports progress on their work order.
+        async setAppointment(w) {
+            const at = this.apptDraft[w.id + '_at'];
+            if (!at) { alert('Please choose a date and time.'); return; }
+            const r = await portalFetch('/api/v1/client/rentals/landlord/work-orders/' + w.id + '/appointment', { method: 'POST', body: JSON.stringify({ appointment_at: at, note: this.apptDraft[w.id + '_note'] || '' }) });
+            if (r.ok) { this.apptDraft[w.id + '_at'] = ''; await this.loadWorkOrders(); }
+            else alert(r.data?.message || 'Could not set the appointment.');
+        },
+        async reportProgress(w, action) {
+            const r = await portalFetch('/api/v1/client/rentals/landlord/work-orders/' + w.id + '/progress', { method: 'POST', body: JSON.stringify({ action }) });
+            if (r.ok) await this.loadWorkOrders();
+            else alert(r.data?.message || 'Could not record that.');
         },
         // BUILD 3 BEGIN — §17.3.5: one list, two endpoints: the tenant's work orders, or the landlord's (each carries its own `client` view).
         async loadWorkOrders() {

@@ -788,6 +788,52 @@ class RentalWorkOrderController extends Controller
         return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', 'Work order completed.');
     }
 
+    /**
+     * W2/W6 - book (or re-book) the repair appointment. The agent normally coordinates it with the tenant; the tenant is
+     * emailed when it is set or changed. (The owner can do the same from the portal.)
+     */
+    public function setAppointment(Request $request, RentalWorkOrderService $service, RentalWorkOrder $rentalWorkOrder): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
+
+        $validated = $request->validate([
+            'appointment_at' => ['required', 'date'],
+            'appointment_note' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        // The box is read in the AGENCY timezone (the same convention as the job card's scheduling box).
+        $tz = $rentalWorkOrder->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $at = \Illuminate\Support\Carbon::parse($validated['appointment_at'], $tz)->utc();
+
+        try {
+            $changed = $service->setAppointment($rentalWorkOrder, $at, $validated['appointment_note'] ?? null, $request->user());
+        } catch (\LogicException $e) {
+            return back()->withErrors(['rental_work_order' => $e->getMessage()]);
+        }
+
+        return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)
+            ->with('success', $changed ? 'Appointment saved. The tenant has been emailed.' : 'Nothing changed.');
+    }
+
+    /** W3 - the owner's own contractor's details (name / phone, both optional) on an owner-contractor work order. */
+    public function updateOwnerContractor(Request $request, RentalWorkOrder $rentalWorkOrder): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
+        abort_unless($rentalWorkOrder->isOwnerContractor(), 409, "Only a work order done by the owner's own contractor has these details.");
+
+        $validated = $request->validate([
+            'contractor_name' => ['nullable', 'string', 'max:191'],
+            'contractor_phone' => ['nullable', 'string', 'max:40'],
+        ]);
+        $rentalWorkOrder->forceFill([
+            'contractor_name' => trim((string) ($validated['contractor_name'] ?? '')) ?: null,
+            'contractor_phone' => trim((string) ($validated['contractor_phone'] ?? '')) ?: null,
+        ])->save();
+        $rentalWorkOrder->addNote("Owner's contractor details updated.", $request->user());
+
+        return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', 'Contractor details saved.');
+    }
+
     public function addNote(Request $request, RentalWorkOrder $rentalWorkOrder): RedirectResponse
     {
         $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);

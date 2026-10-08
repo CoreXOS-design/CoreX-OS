@@ -118,7 +118,7 @@ final class RentalWorkOrderLifecycleTest extends TestCase
         $this->assertNull($workOrder->approved_amount);
     }
 
-    public function test_cannot_raise_a_work_order_from_a_fault_report_approved_via_owner_handles(): void
+    public function test_can_raise_a_work_order_from_a_fault_report_approved_via_owner_handles(): void
     {
         $faultReport = $this->faultReport();
         $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.approval.store', $faultReport), [
@@ -128,9 +128,10 @@ final class RentalWorkOrderLifecycleTest extends TestCase
 
         $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.raise-work-order', $faultReport), [
             'title' => 'x', 'description' => 'x',
-        ])->assertSessionHasErrors();
+        ])->assertSessionHasNoErrors();
 
-        $this->assertSame(0, RentalWorkOrder::count());
+        // W1/W5 (8 Oct 2026): every approved fault gets a work order - the owner's own contractor included.
+        $this->assertSame(1, RentalWorkOrder::count());
     }
 
     public function test_cannot_raise_a_second_work_order_from_the_same_fault_report(): void
