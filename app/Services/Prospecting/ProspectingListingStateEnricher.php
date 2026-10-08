@@ -28,6 +28,7 @@ use Illuminate\Support\Facades\DB;
  *     'presentations'  => [listing_id => ['presentation_id','title','created_at','creator_name']],
  *     'contact_counts' => [listing_id => int],
  *     'promotions'     => [matched_property_id => true]  // keyed by property_id, NOT listing_id
+ *     'oas_properties' => [matched_property_id => true]  // the matched properties that are Other Agency Stock — Pitch is hidden for these (spec §5c)
  *   ]
  */
 final class ProspectingListingStateEnricher
@@ -54,7 +55,7 @@ final class ProspectingListingStateEnricher
         if (empty($listingIds)) {
             return [
                 'pitches' => [], 'claims' => [], 'prospected' => [], 'presentations' => [],
-                'contact_counts' => [], 'promotions' => [], 'temp_locks' => [],
+                'contact_counts' => [], 'promotions' => [], 'oas_properties' => [], 'temp_locks' => [],
             ];
         }
 
@@ -71,6 +72,7 @@ final class ProspectingListingStateEnricher
             'presentations' => $this->loadPresentations($propertyIds, $agencyId, $listingByPropertyId),
             'contact_counts' => $this->loadContactCounts($propertyIds, $agencyId, $listingByPropertyId),
             'promotions' => $this->loadPromotions($propertyIds, $agencyId),
+            'oas_properties' => \App\Services\Properties\OtherAgencyStockActionRules::blockedPropertyIds('pitch_seller', $propertyIds),
             // Active temp pitch-locks per listing — blocks the Pitch CTA for other agents
             // while one agent has the composer open. Delegated to ProspectingClaimService
             // so all claim-lifecycle state stays in one place.

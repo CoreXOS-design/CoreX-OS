@@ -143,6 +143,7 @@ class LegacySpacesJsonConverter
             'spaces' => $spaces,
             'features' => [
                 'theProperty' => $theProperty,
+                'building' => [],
                 'security' => [],
                 'connectivity' => [],
                 'sustainability' => [],
