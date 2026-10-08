@@ -496,6 +496,8 @@ rental_work_order_invoices
   created_at, updated_at, deleted_at      -- soft-delete only.
 ```
 
+**Built 8 Oct 2026 (cc6, QA1) as the office-side half — see `rental-work-orders.md` §17.31:** the agent files the supplier's invoice (number, date, amount, file; limits are agency settings) on the work order, the owner sees it only when the agent ticks "share with owner", the tenant never does. The contractor's own secure-link upload (§7.3) is still not built. Table name and columns there are the built ones (they differ from the sketch above: `invoice_number`, `share_with_owner`, a nullable supplier).
+
 **Deliberately NOT a financial feature** — same evidence-trail-only treatment `cost_amount`/`paid_by`
 already get (`rental-work-orders.md §5.1`, unchanged by this spec, explicitly named again in §6 below).
 The invoice amount is NOT automatically written to `rental_work_orders.cost_amount` — an agent
@@ -1135,4 +1137,6 @@ Each reached step shows its date; the last reached is `current`. A declined faul
 **Command centre.** A fault in status *reported* (no agent has reviewed it) is a needs-action item **"Review fault"** (`fault_to_review`), scoped own / branch / agency at the query layer exactly like the other rules, and leaves the queue as soon as the status moves (sent to owner, under review, work order…).
 
 **Tests:** `OwnerFaultScreenTest` (screen, deep link, leak, recipients + fallback chain, state→step on the internal / agency-contractor / owner-contractor routes and the declined path, reopened / cancelled, data-driven words, tenant mails once), `RentalCommandCentreServiceTest` (Review fault: appears, leaves, scoping).
+
+**Back-half walk follow-up (8 Oct 2026).** Step 5 of the progress line ("Sent to contractor for scheduling") is reached on the agency-contractor route only when the office actually sends the work order (`ordered_at`), not at creation; a fault whose work order was CANCELLED may get a new one (`RentalFaultReport::hasLiveWorkOrder()`); the command centre gains "Resolve dispute" for a disputed work order. Full list and the walk: `rental-work-orders.md` §17.30; tests `tests/Feature/RentalMaintenanceWalk/BackHalfWalkTest.php`.
 

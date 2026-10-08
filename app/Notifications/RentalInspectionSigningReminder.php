@@ -7,7 +7,7 @@ use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
 /**
- * .ai/specs/rental-inspections.md §51 — the reminder the INSPECTING AGENT gets (in-app bell + email) when a report is waiting
+ * .ai/specs/rental-inspections.md §52 — the reminder the INSPECTING AGENT gets (in-app bell + email) when a report is waiting
  * for signatures and its signing window is about to close (`lead`) or has closed (`passed`). Facts only; it is never sent to a
  * tenant or landlord, and nothing happens to the inspection when it fires — what to do next is the agent's call.
  */

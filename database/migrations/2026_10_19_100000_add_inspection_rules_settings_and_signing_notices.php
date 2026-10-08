@@ -5,7 +5,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * .ai/specs/rental-inspections.md §51 — the rules the 8 Oct 2026 walk turned into agency settings. Every column is
+ * .ai/specs/rental-inspections.md §52 — the rules the 8 Oct 2026 walk turned into agency settings. Every column is
  * nullable and read at run time with a default (RentalInspectionSetting::INSPECTION_RULES): null means "use the
  * recommended default", never a default baked into the schema. Plus the append-only ledger that makes the signing-window
  * reminder idempotent (one row per inspection and milestone).

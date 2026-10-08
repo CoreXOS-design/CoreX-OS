@@ -72,7 +72,7 @@
         @endisset
         <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
             @if(! empty($branding))
-                {{-- §51 — who this report is from: the agency (name + logo, the portal's own branding source) and the inspecting agent. --}}
+                {{-- §52 — who this report is from: the agency (name + logo, the portal's own branding source) and the inspecting agent. --}}
                 <div class="flex items-center justify-between gap-3 pb-4 mb-4 border-b border-slate-100" data-qa="report-branding">
                     <div class="flex items-center gap-3">
                         @if(! empty($branding['logo_url']))

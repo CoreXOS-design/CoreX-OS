@@ -145,7 +145,7 @@ class SignedDocumentDistributionService
      * agent is CC'd unless their own address is already one of the recipients (no double copy).
      *
      * `$withoutPdfEmails` (lower-cased addresses): these recipients get the same email with the link but WITHOUT the PDF
-     * attached (a consumer's own rule, e.g. rental inspections for a person who refused to sign — spec §51).
+     * attached (a consumer's own rule, e.g. rental inspections for a person who refused to sign — spec §52).
      *
      * @param array<int, string>|null $onlyEmails
      * @param array<int, string>|null $withoutPdfEmails
@@ -162,7 +162,7 @@ class SignedDocumentDistributionService
         ?array $withoutPdfEmails = null,
     ): array {
         $agent = $sendAs ?? $doc->distributionAgent();
-        $testOverride = ! app()->environment('production');
+        $testOverride = ! \App\Support\OutboundMailGuard::isSendingConfirmed(); // real production only (flag + env + host), not merely APP_ENV=production
         $results = [];
         $testRecipient = (string) config('mail.non_production_redirect');
 
@@ -247,7 +247,7 @@ class SignedDocumentDistributionService
      */
     public function sendGenericMail(string $toEmail, BaseSignatureMail $mail, ?User $agent = null): array
     {
-        $testOverride = ! app()->environment('production');
+        $testOverride = ! \App\Support\OutboundMailGuard::isSendingConfirmed(); // real production only (flag + env + host), not merely APP_ENV=production
         $testRecipient = (string) config('mail.non_production_redirect');
 
         if ($testOverride && $testRecipient === '') {

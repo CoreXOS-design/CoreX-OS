@@ -1184,7 +1184,10 @@
              doesn't also hold rental_applications.view/.view_returned still
              sees the "Rentals" group at all — otherwise they'd have the
              right to the queue but never see the toggle that leads to it. --}}
-        @if($user && ($user->hasAnyPermission(['rental_applications.view', 'rental_applications.view_returned']) || $user->isRentalApplicationAuthoriser()))
+        {{-- Gate = ANY permission that puts an item in this panel (cross-cutting audit 2026-10-08): it used to be
+             applications-only, so a user with leases / work orders / inspections access but no applications
+             access never saw the Rentals menu at all. --}}
+        @if($user && ($user->hasAnyPermission(['rental_applications.view', 'rental_applications.view_returned', 'leases.view', 'rental_command_centre.view', 'rental_reports.view', 'rental_inspections.view', 'rental_fault_reports.view', 'rental_fault_types.view', 'rental_work_orders.view', 'rental_job_cards.view', 'rental_notices.create', 'rental_catalogue.view', 'rentals_take_on_import.view']) || $user->isRentalApplicationAuthoriser()))
         @feature('rentals')
         <div>
             <button type="button" @click="push('rental-applications')"

@@ -43,8 +43,15 @@ class LeaseController extends Controller
     use HandlesLeaseCapture;
     use SearchesQualifyingRentalProperties;
 
-    /** §39, 2026-09-28 — "Expiring soon" summary tile window; no agency-configurable setting exists for this yet (see index()'s own note). */
-    private const LEASE_EXPIRING_SOON_DAYS = 60;
+    /**
+     * §39 "Expiring soon" summary tile window — the agency's own lease expiry notice window (Settings → Leases),
+     * the SAME number the Rentals Command Centre's "Expiring" tile and renewal queue use, so the two screens
+     * never disagree for an agency that changed it. (Was a hardcoded 60.)
+     */
+    private function leaseExpiringSoonDays(Request $request): int
+    {
+        return \App\Models\LeaseSetting::expiryNoticeWindowDaysFor($request->user()->effectiveAgencyId());
+    }
 
     private const PER_PAGE_OPTIONS = [10, 25, 50, 100];
 
@@ -135,7 +142,7 @@ class LeaseController extends Controller
             'cancelled' => $leaseTileBase()->where('leases.status', Lease::STATUS_CANCELLED)->count(),
             'expiring_soon' => $leaseTileBase()
                 ->where('leases.status', Lease::STATUS_ACTIVE)
-                ->whereBetween('leases.end_date', [now(), now()->addDays(self::LEASE_EXPIRING_SOON_DAYS)])
+                ->whereBetween('leases.end_date', [now(), now()->addDays($this->leaseExpiringSoonDays($request))])
                 ->count(),
         ];
 
@@ -147,7 +154,7 @@ class LeaseController extends Controller
             'showArchived' => $showArchived,
             'perPage' => $perPage,
             'perPageOptions' => self::PER_PAGE_OPTIONS,
-            'filters' => $request->only(['q', 'status', 'agreement', 'property_id', 'branch_id', 'date_from', 'date_to', 'expiring_soon']),
+            'filters' => $request->only(['q', 'status', 'agreement', 'property_id', 'branch_id', 'date_from', 'date_to', 'expiring_soon', 'notice_terms']),
             'filteredProperty' => $filteredProperty,
             'tileCounts' => $tileCounts,
             'resolvedScope' => $resolvedScope,
@@ -222,10 +229,15 @@ class LeaseController extends Controller
             $query->where('leases.end_date', '<=', $dateTo);
         }
 
+        // leases.md §18.7 — the "to check" list: notice terms no agent has confirmed against the signed lease.
+        if ($request->get('notice_terms') === 'unconfirmed') {
+            $query->noticeTermsUnconfirmed();
+        }
+
         // §39 — the summary tiles' own "Expiring soon" exception tile.
         if ($request->boolean('expiring_soon')) {
             $query->where('leases.status', Lease::STATUS_ACTIVE)
-                ->whereBetween('leases.end_date', [now(), now()->addDays(self::LEASE_EXPIRING_SOON_DAYS)]);
+                ->whereBetween('leases.end_date', [now(), now()->addDays($this->leaseExpiringSoonDays($request))]);
         }
 
         return $query;
@@ -342,6 +354,9 @@ class LeaseController extends Controller
         }
         if (is_string($agreement = $request->get('agreement')) && isset(Lease::SIGNING_LABELS[$agreement])) {
             $out['Agreement'] = Lease::SIGNING_LABELS[$agreement];
+        }
+        if ($request->get('notice_terms') === 'unconfirmed') {
+            $out['Notice terms'] = 'To check — not confirmed';
         }
         if ($request->boolean('expiring_soon')) {
             $out['Expiring soon'] = 'Yes';
@@ -496,7 +511,19 @@ class LeaseController extends Controller
             ? round($rent * $months, 2)
             : ($property?->deposit_amount !== null ? round((float) $property->deposit_amount, 2) : null);
 
+        // Rentals front-half decision D14 (8 Oct 2026, agency setting `prefill_lease_from_application`, default on): the date the
+        // applicant asked to move in and the term they asked for are SUGGESTED as start and end date; the agent can change both.
+        // The end date is the day before the same date N months later (1 Nov + 12 months = 31 Oct).
+        $startDate = null;
+        $endDate = null;
+        if (\App\Models\RentalApplicationQualifyingSetting::prefillLeaseFromApplicationFor((int) $application->agency_id) && $application->occupation_date) {
+            $startDate = $application->occupation_date->copy();
+            $endDate = $application->rental_term_months ? $startDate->copy()->addMonthsNoOverflow((int) $application->rental_term_months)->subDay() : null;
+        }
+
         return [
+            'start_date' => $startDate?->toDateString(),
+            'end_date' => $endDate?->toDateString(),
             'rental_amount' => $rent,
             'deposit_amount' => $deposit,
             'deposit_months' => $months,
@@ -650,6 +677,11 @@ class LeaseController extends Controller
             'values' => $values,
             'has' => $has,
             'source' => $terms?->notice_terms_source,
+            'confirmed' => $terms?->notice_terms_confirmed_at !== null && $has,
+            'confirmedAt' => $terms?->notice_terms_confirmed_at,
+            'confirmedBy' => $terms?->notice_terms_confirmed_by
+                ? \App\Models\User::withoutGlobalScopes()->withTrashed()->whereKey($terms->notice_terms_confirmed_by)->value('name')
+                : null,
             'defaults' => $svc->defaultsFor((int) $lease->agency_id, $lease->start_date),
             'locked' => $lease->isLockedForSigning(),
             'signedDocument' => in_array($lease->signing_status, [Lease::SIGNING_SIGNED, Lease::SIGNING_SIGNED_ON_PAPER], true),
@@ -672,7 +704,12 @@ class LeaseController extends Controller
         }
 
         $svc = app(LeaseNoticeTermsService::class);
-        $data = $request->validate($svc->rules('notice'), $svc->messages('notice'));
+        $signed = in_array($lease->signing_status, [Lease::SIGNING_SIGNED, Lease::SIGNING_SIGNED_ON_PAPER], true);
+        // leases.md §18.7 — the signed document does not change when these do: no silent edit, a reason is required and logged.
+        $data = $request->validate(
+            $svc->rules('notice') + ['notice_reason' => [$signed ? 'required' : 'nullable', 'string', 'max:300']],
+            $svc->messages('notice') + ['notice_reason.required' => 'This lease is already signed. Say why the notice terms are being changed — the signed document does not change (an addendum is needed).']
+        );
         $values = $svc->normalise((array) ($data['notice'] ?? []), (int) $lease->agency_id);
 
         $errors = $svc->crossErrors($values, $lease->start_date?->toDateString());
@@ -680,10 +717,26 @@ class LeaseController extends Controller
             return back()->withInput()->withErrors($errors);
         }
 
-        $changed = $svc->save($lease, $values, $request->user(), LeaseNoticeTermsService::SOURCE_EDITED);
+        $changed = $svc->save($lease, $values, $request->user(), LeaseNoticeTermsService::SOURCE_EDITED, true, $signed ? ($data['notice_reason'] ?? null) : null);
 
         return redirect()->route('corex.leases.show', $lease)
-            ->with('success', $changed === [] ? 'The notice terms were already set that way.' : 'Notice terms updated.');
+            ->with('success', $changed === []
+                ? 'The notice terms were already set that way.'
+                : ($signed ? 'Notice terms updated. The signed document is unchanged — an addendum is needed to change what it says.' : 'Notice terms updated.'));
+    }
+
+    /**
+     * leases.md §18.7 — "Confirm terms": an agent confirms the notice terms the lease holds against its signed copy. One click,
+     * audited (who, when), same permission as editing them. Only confirmed terms are ever stated to a tenant or owner.
+     */
+    public function confirmNoticeTerms(Request $request, Lease $lease): RedirectResponse
+    {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
+        $confirmed = app(LeaseNoticeTermsService::class)->confirm($lease, $request->user());
+
+        return redirect()->route('corex.leases.show', $lease)
+            ->with('success', $confirmed ? 'Notice terms confirmed. The portal can now answer notice questions for this lease.' : 'There are no unconfirmed notice terms to confirm on this lease.');
     }
 
     /**

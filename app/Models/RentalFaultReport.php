@@ -741,7 +741,7 @@ class RentalFaultReport extends Model
      */
     public function workOrderBlockReason(): ?string
     {
-        if ($this->rental_work_order_id !== null || $this->status === self::STATUS_WORK_ORDER_RAISED) {
+        if ($this->hasLiveWorkOrder()) {
             return 'A work order has already been created for this fault report.';
         }
 
@@ -751,8 +751,21 @@ class RentalFaultReport extends Model
             self::STATUS_CANCELLED => 'This fault report was cancelled.',
             // W1/W5 (8 Oct 2026): every approved fault gets a work order - whoever does the work, including the owner's own contractor.
             self::STATUS_APPROVED, self::STATUS_OWNER_HANDLING, self::STATUS_REPORTED, self::STATUS_AWAITING_APPROVAL => null,
+            // Its work order was cancelled (and nothing live replaced it): the repair still has to happen, so a new one may be created.
+            self::STATUS_WORK_ORDER_RAISED => null,
             default => 'A work order cannot be created from this fault report in its current state.',
         };
+    }
+
+    /** A work order that is still in play for this fault - a CANCELLED one does not count (the fault must not be stuck behind it). */
+    public function hasLiveWorkOrder(): bool
+    {
+        if ($this->rental_work_order_id === null) {
+            return $this->status === self::STATUS_WORK_ORDER_RAISED;
+        }
+        $linked = RentalWorkOrder::withoutGlobalScopes()->find($this->rental_work_order_id);
+
+        return $linked !== null && $linked->status !== RentalWorkOrder::STATUS_CANCELLED;
     }
 
     /** §17.10.6 — the guard behind setOutcome(): refuses "repaired" while the tenant has not settled the finished work. */

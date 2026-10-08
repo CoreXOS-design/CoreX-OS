@@ -91,7 +91,24 @@ else
 fi
 
 START_TS=$(date +%Y%m%d-%H%M%S)
-BACKUP_DIR="/var/backups/hfc"
+# Where the pre-deploy dumps are written (a Staging dump is ~190 MB and every deploy
+# adds one — on the small root disk they filled it to 90%, 2026-10-08). Resolution:
+#   1. BACKUP_DIR from the caller's environment / $DEPLOY_ENV_FILE (explicit wins), else
+#   2. <data volume>/corex-backups/pre-deploy/<env> when the data volume is mounted, else
+#   3. the legacy folder on the root disk.
+# BACKUP_KEEP_LATEST = how many dumps of THIS database to keep (default 5); the prune
+# runs only after a dump has been written AND passed gzip -t (see STEP 2).
+BACKUP_FALLBACK_DIR="/var/backups/hfc"
+BACKUP_DATA_VOLUME="${BACKUP_DATA_VOLUME:-/mnt/HC_Volume_103099143}"
+BACKUP_KEEP_LATEST="${BACKUP_KEEP_LATEST:-5}"
+BACKUP_DIR_EXPLICIT=0
+if [[ -n "${BACKUP_DIR:-}" ]]; then
+    BACKUP_DIR_EXPLICIT=1
+elif mountpoint -q "$BACKUP_DATA_VOLUME" 2>/dev/null; then
+    BACKUP_DIR="${BACKUP_DATA_VOLUME}/corex-backups/pre-deploy/${ENV_NAME}"
+else
+    BACKUP_DIR="$BACKUP_FALLBACK_DIR"
+fi
 LOG_FILE="/var/log/hfc-deploys.log"
 DEPLOY_ENV_FILE="/etc/hfc-deploy.env"
 
@@ -103,6 +120,51 @@ step() { echo "" | tee -a "$LOG_FILE"; log "▶ STEP $1 — $2"; }
 ok() { log "  ✓ $*"; }
 warn() { log "  ⚠ $*"; }
 fail() { log "  ✗ $*"; return 1; }
+
+# prune_pre_deploy_backups <dir> <db> <keep> <just_taken_file> [dry_run=0]
+# Keep the newest <keep> dumps of <db> in <dir>; remove older ones. Touches ONLY regular
+# files named exactly "<db>-pre-deploy-YYYYMMDD-HHMMSS.sql.gz" (this script's own naming):
+# never the *-LATEST symlink, never another database's dumps, never any other file.
+# Never removes <just_taken_file>. A bad <keep> (not a whole number >= 1) prunes nothing.
+prune_pre_deploy_backups() {
+    local dir="$1" db="$2" keep="$3" just_taken="$4" dry="${5:-0}"
+    local prefix="${db}-pre-deploy-" f base stamp jt i=0 removed=0
+    local -a matched=() victims=()
+    if ! [[ "$keep" =~ ^[0-9]+$ ]] || (( keep < 1 )); then
+        warn "BACKUP_KEEP_LATEST='$keep' is not a whole number >= 1 — pruning skipped"
+        return 0
+    fi
+    if [[ ! -s "$just_taken" ]]; then
+        warn "Pruning skipped: the dump just taken is missing or empty ($just_taken)"
+        return 0
+    fi
+    jt="$(readlink -f "$just_taken")"
+    while IFS= read -r f; do
+        base="${f##*/}"
+        [[ "$base" == "$prefix"* ]] || continue
+        stamp="${base#"$prefix"}"
+        [[ "$stamp" =~ ^[0-9]{8}-[0-9]{6}\.sql\.gz$ ]] || continue
+        matched+=("$f")
+    done < <(find "$dir" -maxdepth 1 -type f -name "${prefix}*.sql.gz" | LC_ALL=C sort -r)
+    for f in ${matched[@]+"${matched[@]}"}; do
+        i=$((i + 1))
+        (( i <= keep )) && continue
+        [[ "$(readlink -f "$f")" == "$jt" ]] && continue
+        victims+=("$f")
+    done
+    for f in ${victims[@]+"${victims[@]}"}; do
+        if [[ "$dry" == "1" ]]; then
+            log "  [dry-run] would prune: $f"
+        else
+            rm -f -- "$f" && removed=$((removed + 1))
+        fi
+    done
+    if [[ "$dry" == "1" ]]; then
+        ok "Retention (dry-run): ${#matched[@]} dump(s) of $db, keep newest $keep, would prune ${#victims[@]}"
+    else
+        ok "Retention: ${#matched[@]} dump(s) of $db found, kept newest $keep, pruned $removed"
+    fi
+}
 
 CURRENT_STEP="0 / not yet started"
 MAINT_MODE_ON=0
@@ -274,6 +336,27 @@ read_env_var() {
 ACTUAL_APP_ENV=$(read_env_var "$DIR/.env" APP_ENV)
 [[ "$ACTUAL_APP_ENV" == "$EXPECT_APP_ENV" ]] || fail ".env APP_ENV='$ACTUAL_APP_ENV' but expected '$EXPECT_APP_ENV' for this deploy target."
 
+# preflight_real_send_flag <staging|production> <env-file>
+# OUTBOUND_MAIL_REAL_SEND=1 is the ONE server-side flag that lets the application send real mail (see
+# .ai/specs/outbound-mail-guard.md). Production must carry it - without it the guard intercepts ALL live mail,
+# silently, so refuse the deploy instead. Any other target must NOT carry it (a copied .env must not arm a test box).
+preflight_real_send_flag() {
+    local target="$1" file="$2" val
+    # `|| true`: grep exits 1 when the key is absent, and this script runs under set -euo pipefail - without it the
+    # deploy would die silently HERE instead of printing the refusal below (the exact case this check exists for).
+    val=$(grep -E "^OUTBOUND_MAIL_REAL_SEND=" "$file" | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//" | tr 'A-Z' 'a-z') || true
+    if [[ "$target" == "production" ]]; then
+        if [[ "$val" != "1" && "$val" != "true" ]]; then
+            fail "OUTBOUND_MAIL_REAL_SEND=1 is MISSING from $file. Without it this code intercepts ALL live mail (tenants, landlords, agents would stop receiving anything). Add the line OUTBOUND_MAIL_REAL_SEND=1 to the live .env BY HAND, then re-run. See .ai/runbooks/outbound-mail-real-send-flag.md."
+            return 1
+        fi
+    elif [[ "$val" == "1" || "$val" == "true" ]]; then
+        fail "OUTBOUND_MAIL_REAL_SEND is SET in $file but this deploy target is '$target'. Only the real live server may carry it - remove the line (a copied live .env must not be able to send real mail from a test box)."
+        return 1
+    fi
+}
+preflight_real_send_flag "$ENV_NAME" "$DIR/.env"
+
 # 1e. Resolve the database credentials the BACKUP step will use.
 # Priority order (DEPLOY-2):
 #   1. MYSQL_BACKUP_USER / MYSQL_BACKUP_PASSWORD from /etc/hfc-deploy.env
@@ -347,9 +430,20 @@ if [[ "$BACKUP_MODE" == "offsite" ]]; then
 fi
 
 # 1g. Disk space ≥ 2 GiB free on the backup partition?
-mkdir -p "$BACKUP_DIR"
+# The dump goes to $BACKUP_DIR, so the free-space test below is on THAT disk. If the
+# data-volume folder cannot be created/written (and nobody asked for it explicitly),
+# fall back to the legacy folder rather than abort the deploy.
+if ! { mkdir -p "$BACKUP_DIR" 2>/dev/null && [[ -w "$BACKUP_DIR" ]]; }; then
+    if (( BACKUP_DIR_EXPLICIT == 0 )) && [[ "$BACKUP_DIR" != "$BACKUP_FALLBACK_DIR" ]]; then
+        warn "Cannot write to $BACKUP_DIR — falling back to $BACKUP_FALLBACK_DIR (root disk)"
+        BACKUP_DIR="$BACKUP_FALLBACK_DIR"
+        mkdir -p "$BACKUP_DIR"
+    else
+        fail "Backup folder is not writable: $BACKUP_DIR"
+    fi
+fi
 FREE_KB=$(df -P "$BACKUP_DIR" | awk 'NR==2 {print $4}')
-(( FREE_KB > 2 * 1024 * 1024 )) || fail "Less than 2 GiB free at $BACKUP_DIR (have $((FREE_KB/1024)) MiB)"
+(( FREE_KB > 2 * 1024 * 1024 )) || fail "Less than 2 GiB free at $BACKUP_DIR (have $((FREE_KB/1024)) MiB, on $(df -P "$BACKUP_DIR" | awk 'NR==2 {print $1}'))"
 
 PREV_SHA=$(git rev-parse HEAD)
 ok "Branch=$BRANCH, dir=$DIR, .env APP_ENV=$EXPECT_APP_ENV, tools=present, $((FREE_KB/1024)) MiB free"
@@ -396,6 +490,7 @@ MYSQL_PWD="$BACKUP_PASSWORD" mysqldump \
   | gzip > "$BACKUP_FILE"
 
 [[ -s "$BACKUP_FILE" ]] || fail "Local backup is empty: $BACKUP_FILE"
+gzip -t "$BACKUP_FILE" || fail "Local backup failed its gzip integrity check: $BACKUP_FILE"
 ok "Local backup: $BACKUP_FILE ($(du -h "$BACKUP_FILE" | cut -f1))"
 
 # 2b. Off-server to Hetzner Storage Box (SFTP/rsync over SSH port 23).
@@ -423,6 +518,11 @@ fi
 #     pre-deploy backup by name (independent of timestamp).
 ln -sfn "$BACKUP_FILE" "${BACKUP_DIR}/${DB_NAME}-pre-deploy-LATEST.sql.gz"
 ok "Latest-pointer: ${BACKUP_DIR}/${DB_NAME}-pre-deploy-LATEST.sql.gz"
+
+# 2d. Retention — only now (dump written, gzip -t passed, copied off-server if offsite).
+#     A prune problem must never abort a deploy; the dump just taken is never removed.
+prune_pre_deploy_backups "$BACKUP_DIR" "$DB_NAME" "$BACKUP_KEEP_LATEST" "$BACKUP_FILE" \
+    || warn "Backup retention prune reported a problem (non-fatal) — check $BACKUP_DIR"
 
 # =============================================================================
 # STEP 3 — MAINTENANCE MODE

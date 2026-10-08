@@ -378,7 +378,7 @@ class RentalInspectionSetting extends Model
     ];
 
     /**
-     * §51 — the business rules the 8 Oct 2026 walk turned into agency settings. column => [recommended default, label,
+     * §52 — the business rules the 8 Oct 2026 walk turned into agency settings. column => [recommended default, label,
      * explain, affects]. Read at run time through ruleFor() (null in the table = "use the default"); the settings page, the saver and
      * the Setup Wizard all read THIS list, so a rule cannot exist in one place and be missing from another.
      */
@@ -416,7 +416,7 @@ class RentalInspectionSetting extends Model
             'The same logo and name the tenant and owner portal shows, plus the inspecting agent\'s name, role, phone and email, at the top of the report a tenant or landlord receives.',
             'Whether the report and PDF open with the agency logo, name and the agent\'s contact details. On by default.'],
     ];
-    /** §51 — how many days before the signing window closes the first reminder goes out. */
+    /** §52 — how many days before the signing window closes the first reminder goes out. */
     public const DEFAULT_SIGNING_REMINDER_LEAD_DAYS = 2;
 
     /**
@@ -458,7 +458,7 @@ class RentalInspectionSetting extends Model
         // §46 — signing by personal link.
         'signing_link_enabled',
         'signing_link_expiry_days',
-        // §51 — the walk's rules (INSPECTION_RULES) and the first-reminder lead.
+        // §52 — the walk's rules (INSPECTION_RULES) and the first-reminder lead.
         'signing_window_reminders_enabled', 'signing_reminder_lead_days', 'calendar_include_lease_agents', 'cancel_signed_requires_edit',
         'photos_required_to_sign', 'empty_checklist_blocks_signing', 'routine_follows_full_checks', 'hold_pdf_when_refused', 'report_shows_agency_branding',
         // §49 — are the three signatures required to complete an inspection of each type?
@@ -746,7 +746,7 @@ class RentalInspectionSetting extends Model
         return $value !== null ? (bool) $value : $default;
     }
 
-    /** §51 — one of INSPECTION_RULES for this agency, with its recommended default when the agency never set it. */
+    /** §52 — one of INSPECTION_RULES for this agency, with its recommended default when the agency never set it. */
     public static function ruleFor(?int $agencyId, string $column): bool
     {
         $default = (bool) (self::INSPECTION_RULES[$column][0] ?? false);
@@ -758,7 +758,7 @@ class RentalInspectionSetting extends Model
         return $value !== null ? (bool) $value : $default;
     }
 
-    /** §51 — days before the signing window closes that the first reminder goes out. Read-time default: 2. */
+    /** §52 — days before the signing window closes that the first reminder goes out. Read-time default: 2. */
     public static function signingReminderLeadDaysFor(?int $agencyId): int
     {
         if (! $agencyId) {

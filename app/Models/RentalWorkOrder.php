@@ -266,6 +266,12 @@ class RentalWorkOrder extends Model
         return $this->hasMany(RentalWorkOrderQuote::class)->orderByDesc('quote_date');
     }
 
+    /** §17.31 — the supplier's invoice documents filed against this work order (live ones; archived via onlyTrashed()). */
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(RentalWorkOrderInvoice::class)->orderByDesc('invoice_date')->orderByDesc('id');
+    }
+
     /** AT-442 — present only when assignment_type='internal'; §14. */
     public function jobCard(): \Illuminate\Database\Eloquent\Relations\HasOne
     {
@@ -861,6 +867,24 @@ class RentalWorkOrder extends Model
         }
     }
 
+    /**
+     * §17.12 — the job card started, so the job is in progress. The CARD already passed the authorisation gate (including the
+     * grandfathered / emergency cases), so this only mirrors the stage and logs it; it must not re-judge approval and refuse.
+     */
+    public function markStartedByJobCard(?User $by): void
+    {
+        if (! in_array($this->status, [self::STATUS_REPORTED, self::STATUS_ORDERED], true)) {
+            return;
+        }
+        $fromStatus = $this->status;
+        $this->update(['status' => self::STATUS_IN_PROGRESS]);
+        $this->updates()->create([
+            'agency_id' => $this->agency_id, 'update_type' => 'status_change',
+            'from_status' => $fromStatus, 'to_status' => self::STATUS_IN_PROGRESS, 'created_by_user_id' => $by?->id,
+            'note' => 'Job card started',
+        ]);
+    }
+
     /** §3.4 — optional stage; a quick fix may skip straight to completed. */
     public function startProgress(?User $by, ?string $viaNote = null): void
     {
@@ -1078,6 +1102,13 @@ class RentalWorkOrder extends Model
 
         // §17.7.2 — cancelling the work order withdraws any request still waiting on the owner.
         app(\App\Services\Rentals\RentalApprovalGateService::class)->withdrawOpenVariations($this, 'The work order was cancelled.', $by);
+
+        // The card and its work order are one job (§17.10.9): cancelling one cancels the other, or the crew keeps a live card
+        // (and link) for a job that no longer exists. The card's own cancel() sees this work order already cancelled and stops.
+        $card = $this->jobCard;
+        if ($card && ! in_array($card->status, [RentalJobCard::STATUS_CANCELLED, RentalJobCard::STATUS_COMPLETED], true)) {
+            $card->cancel($by, $reason);
+        }
     }
 
     /** §3.4 — a free-text elaboration, not tied to a status change. */

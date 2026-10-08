@@ -12,7 +12,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Log;
 
 /**
- * .ai/specs/rental-inspections.md §51 — the daily signing-window reminder (command `rentals:send-signing-window-reminders`).
+ * .ai/specs/rental-inspections.md §52 — the daily signing-window reminder (command `rentals:send-signing-window-reminders`).
  *
  * - Only reports waiting for signatures (`awaiting_signature`, not archived) whose window has a closing day and who still have
  *   someone to sign (a tenant or the landlord with no outcome). The agent's own signature never triggers it.

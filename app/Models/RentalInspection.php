@@ -459,7 +459,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      * asks that the outcome be written down. It does not stop anyone from not attending.
      */
     /**
-     * §51 — the checklist items this inspection has a recorded, applicable condition for but NO photo on: the list behind the
+     * §52 — the checklist items this inspection has a recorded, applicable condition for but NO photo on: the list behind the
      * "N items without a photo" warning at Ready to sign. Items marked Not applicable and items not yet recorded are not counted
      * (the first has nothing to photograph, the second is the every-item-recorded gate's business).
      *
@@ -493,7 +493,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
     }
 
     /**
-     * §51 — who the report says it is from: the agency's name and logo (the SAME source the tenant / owner portal header uses,
+     * §52 — who the report says it is from: the agency's name and logo (the SAME source the tenant / owner portal header uses,
      * Agency::publicBrandingFor()) and the inspecting agent's name, role, phone and email. Null when the agency switched
      * `report_shows_agency_branding` off. `logo_data_uri` is for the PDF (a file:// logo cannot be fetched by the renderer);
      * `logo_url` for the web page. A missing or unreadable logo file simply yields no logo — the name still shows.
@@ -535,7 +535,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
     }
 
     /**
-     * §51 — where the signing window stands, for the screens ("5 days left", "closed 2 days ago — 1 still outstanding"). Null
+     * §52 — where the signing window stands, for the screens ("5 days left", "closed 2 days ago — 1 still outstanding"). Null
      * unless the report is waiting for signatures. `days_left` is whole calendar days from today to the closing day (0 = it
      * closes today, negative = it closed). `outstanding` counts the tenants and the landlord who have no signing outcome yet.
      *
@@ -564,7 +564,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
     }
 
     /**
-     * §51 — a Routine (stored `ad_hoc`) inspection used to be exempt from every-item-recorded, required notes and attendance.
+     * §52 — a Routine (stored `ad_hoc`) inspection used to be exempt from every-item-recorded, required notes and attendance.
      * With the agency rule `routine_follows_full_checks` (default ON) it needs the same checks as the others; switch it off and
      * Routine is the light-weight check it was. Signatures are a separate, per-type setting (§49.4).
      */
@@ -601,7 +601,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             return;
         }
 
-        // §51 — "every item recorded" is vacuously true on an inspection with NOTHING to inspect, which used to be signed and
+        // §52 — "every item recorded" is vacuously true on an inspection with NOTHING to inspect, which used to be signed and
         // sent as an empty report (QA1 #38 is a completed Out with 0 items). Agency rule, default ON.
         if (RentalInspectionSetting::ruleFor($this->agency_id, 'empty_checklist_blocks_signing')
             && ! RentalInspectionItem::query()->where('property_id', $this->property_id)->notRetired()->exists()) {
@@ -1130,7 +1130,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
         $this->guardUngradedItems('start the signing window');
         $this->guardMissingRequiredNotes('start the signing window');
 
-        // §51 — "photos on everything": the count is always shown at Ready to sign; the agency can make it a hard stop.
+        // §52 — "photos on everything": the count is always shown at Ready to sign; the agency can make it a hard stop.
         if (RentalInspectionSetting::ruleFor($this->agency_id, 'photos_required_to_sign')) {
             $bare = $this->itemsWithoutPhoto();
             if ($bare->isNotEmpty()) {
@@ -1281,7 +1281,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      */
     public function cancel(User $by, string $reason): void
     {
-        // §51 — people have already signed this report: cancelling it would leave their signatures standing on a cancelled
+        // §52 — people have already signed this report: cancelling it would leave their signatures standing on a cancelled
         // record. The agent presses "Edit report" first (clears every signature, records why), then cancels. Agency rule.
         if ($this->isSignedLocked() && RentalInspectionSetting::ruleFor($this->agency_id, 'cancel_signed_requires_edit')) {
             throw new \App\Exceptions\RentalInspectionSignedLockedException('This report has been signed. Press "Edit report" first — that clears the signatures and records why — and then cancel it.');
@@ -2255,7 +2255,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             // inspection needs no attendance, and signatures only where the agency's setting asks for them).
             $insp?->setAttribute('signatures_required', $insp?->signaturesRequired());
             $insp?->setAttribute('attendance_required', $insp ? ! $insp->isRoutineExemptFromChecks() : true);
-            // §51 — "days left" in the signing window, and the "N items without a photo" warning at Ready to sign.
+            // §52 — "days left" in the signing window, and the "N items without a photo" warning at Ready to sign.
             $insp?->setAttribute('signing_window', $insp?->signingWindowStatus());
             $insp?->setAttribute('items_without_photo', $insp ? $insp->itemsWithoutPhoto()->map(fn ($i) => ['id' => $i->id, 'label' => $i->label, 'room' => $i->room?->label])->values()->all() : []);
             // The "Resend report" popover must show exactly who the SERVER will send to (tenants, landlords, the agency's

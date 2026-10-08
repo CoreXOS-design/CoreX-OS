@@ -643,7 +643,7 @@
             @php $nt = $noticeTerms ?? null; @endphp
             @if($nt)
             <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);"
-                 x-data="{ editing: {{ $errors->has('notice') || $errors->hasAny(array_map(fn ($k) => 'notice.' . $k, \App\Services\Rentals\LeaseNoticeTermsService::EDIT_KEYS)) ? 'true' : 'false' }} }" data-qa="lease-notice-card">
+                 x-data="{ editing: {{ $errors->has('notice') || $errors->has('notice_reason') || $errors->hasAny(array_map(fn ($k) => 'notice.' . $k, \App\Services\Rentals\LeaseNoticeTermsService::EDIT_KEYS)) ? 'true' : 'false' }} }" data-qa="lease-notice-card">
                 <div class="flex items-center justify-between">
                     <h2 class="text-sm font-semibold">Notice terms</h2>
                     @permission('lease_notice_terms.edit')
@@ -678,11 +678,24 @@
                         @if(! empty($nv['early_cancellation_penalty']))
                             <div><span style="color: var(--text-muted);">Penalty:</span> {{ $nv['early_cancellation_penalty'] }}</div>
                         @endif
-                        @if($nt['source'] === 'agency_default')
+                        @if($nt['source'] === 'agency_default' && ! $nt['confirmed'])
                             <div class="text-xs" style="color: var(--text-muted);">Filled from your agency defaults — check it against the signed lease.</div>
                         @endif
+                        @if($nt['confirmed'])
+                            <div class="text-xs" style="color: var(--ds-emerald, #047857);" data-qa="lease-notice-confirmed">Confirmed against the signed lease{{ $nt['confirmedBy'] ? ' by ' . $nt['confirmedBy'] : '' }}{{ $nt['confirmedAt'] ? ' on ' . $nt['confirmedAt']->format('j M Y') : '' }} — the tenant and owner portal can answer notice questions for this lease.</div>
+                        @else
+                            <div class="text-xs" style="color: var(--ds-amber, #b45309);" data-qa="lease-notice-unconfirmed">Not confirmed — the tenant and owner portal show nothing about notice for this lease until an agent confirms these terms against the signed lease.</div>
+                            @permission('lease_notice_terms.edit')
+                                @unless($nt['locked'])
+                                    <form method="POST" action="{{ route('corex.leases.notice-terms.confirm', $lease) }}" data-qa="lease-notice-confirm-form">
+                                        @csrf
+                                        <button type="submit" class="corex-btn-primary text-xs" data-qa="lease-notice-confirm">Confirm terms</button>
+                                    </form>
+                                @endunless
+                            @endpermission
+                        @endif
                         @if($nt['signedDocument'])
-                            <div class="text-xs" style="color: var(--text-muted);">Changing these does not change the signed document.</div>
+                            <div class="text-xs" style="color: var(--text-muted);">This lease is signed. Changing these terms does not change the signed document — an addendum is needed to change what it says.</div>
                         @endif
                     @endif
                 </div>
@@ -696,6 +709,14 @@
                                 'noticePrefix' => 'notice',
                                 'noticeHide' => [],
                             ])
+                            @if($nt['signedDocument'])
+                                <div>
+                                    <label class="text-xs font-semibold" for="notice_reason">Why are these terms being changed? (required — this lease is already signed)</label>
+                                    <textarea id="notice_reason" name="notice_reason" rows="2" maxlength="300" required class="w-full rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);" data-qa="lease-notice-reason">{{ old('notice_reason') }}</textarea>
+                                    @error('notice_reason')<div class="text-xs" style="color: var(--ds-crimson);">{{ $message }}</div>@enderror
+                                    <div class="text-xs" style="color: var(--text-muted);">The signed document stays as it is — an addendum is needed to change what it says. The reason is kept in the history.</div>
+                                </div>
+                            @endif
                             <div class="flex items-center gap-2">
                                 <button type="submit" class="corex-btn-primary text-xs">Save notice terms</button>
                                 <button type="button" class="corex-btn-outline text-xs" x-on:click="editing = false">Cancel</button>

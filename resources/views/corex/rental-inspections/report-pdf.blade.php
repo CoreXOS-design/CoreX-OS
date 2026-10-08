@@ -77,7 +77,7 @@
         <div class="for-signature-banner">For signature — this document is not yet complete</div>
     @endif
     @if(! empty($branding))
-        {{-- §51 — the agency's name and logo (same source as the portal header) and the inspecting agent's contact details. --}}
+        {{-- §52 — the agency's name and logo (same source as the portal header) and the inspecting agent's contact details. --}}
         <table style="width:100%; border-collapse:collapse; margin-bottom:8pt;"><tr>
             <td style="vertical-align:middle; width:55%;">
                 @if(! empty($branding['logo_data_uri']))

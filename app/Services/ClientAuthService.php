@@ -195,7 +195,7 @@ class ClientAuthService
             'expires_minutes' => $expiresMin,
             // Fake @corexclient.co.za logins are not deliverable mailboxes.
             'deliver'         => !str_ends_with($email, '@' . $fakeDomain),
-            'mail'            => fn (string $code) => new ClientAuthOtpMail($code, $expiresMin),
+            'mail'            => fn (string $code) => new ClientAuthOtpMail($code, $expiresMin, $this->singleAgencyNameFor($clientUser)),
             // Preserve the legacy columns exactly (client_user_id + email) so
             // the ClientUser->otps() relation and existing rows are unchanged.
             'attributes'      => ['client_user_id' => $clientUser?->id, 'email' => $email],
@@ -208,6 +208,24 @@ class ClientAuthService
                 }
             },
         ]);
+    }
+
+    /**
+     * Rentals front-half D11: the agency a client's sign-in code is for - named in the mail only when the person belongs to exactly
+     * one agency (a person across several gets the neutral wording; nothing is guessed). Null for an unknown address, so the mail
+     * never hints at whether the address is a client.
+     */
+    private function singleAgencyNameFor(?ClientUser $clientUser): ?string
+    {
+        if (! $clientUser) {
+            return null;
+        }
+        $agencyIds = $clientUser->contacts()->withoutGlobalScopes()->whereNull('deleted_at')->pluck('agency_id')->filter()->unique();
+        if ($agencyIds->count() !== 1) {
+            return null;
+        }
+
+        return \App\Models\Agency::withoutGlobalScopes()->whereKey($agencyIds->first())->value('name') ?: null;
     }
 
     /**

@@ -93,6 +93,13 @@
                     <span x-show="!dirty" x-cloak>Add an email address to send</span>
                 </span>
             </form>
+            @if(\App\Models\RentalApplicationQualifyingSetting::allowManualLinkShareFor($rentalApplication->agency_id)
+                && ! in_array($rentalApplication->status, array_merge(\App\Models\RentalApplication::DOCUMENT_UPLOADS_ALWAYS_CLOSED_STATUSES, \App\Models\RentalApplication::POST_RETURN_STATUSES), true))
+                <form method="POST" action="{{ route('corex.rental-applications.share-link', $rentalApplication) }}" class="inline-flex items-center gap-2" data-test="share-link-form">
+                    @csrf
+                    <button type="submit" class="corex-btn-outline text-xs" :disabled="dirty" title="Give the applicant the link yourself (WhatsApp, in person) - nothing is emailed">Share the link myself</button>
+                </form>
+            @endif
             @endpermission
 
             {{-- 2026-09-12 — Archive moved off rental_applications.create onto
@@ -124,7 +131,7 @@
 
     @if($rentalApplication->token && $rentalApplication->status === 'draft')
     <div class="rounded-md p-4 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);">
-        The applicant's link starts working once you send the application (it needs an email address). Until then there is nothing to share.
+        The applicant's link starts working once you send the application, or press "Share the link myself" if you will give it to them yourself. Until then there is nothing to share.
     </div>
     @elseif($rentalApplication->token)
     <div class="rounded-md p-4 text-xs space-y-1" style="background: var(--surface); border: 1px solid var(--border);">

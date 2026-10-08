@@ -526,12 +526,18 @@ final class LeaseNoticeTermsTest extends TestCase
         $this->assertSame(1, LeaseEvent::where('lease_id', $bare->id)->where('event_type', LeaseEvent::TYPE_NOTICE_TERMS_BACKFILLED)->count());
     }
 
-    public function test_the_portal_faq_appears_once_the_backfill_has_run(): void
+    public function test_backfilled_terms_are_unconfirmed_so_the_portal_says_nothing_until_an_agent_confirms_them(): void
     {
         $lease = $this->lease();
         $this->assertSame([], app(RentalPortalFaqService::class)->forLease($lease, 'tenant'));
 
         $this->artisan('leases:backfill-notice-terms')->assertExitCode(0);
+
+        $this->assertNotNull($this->terms($lease)->notice_period, 'the back-fill still fills the default');
+        $this->assertNull($this->terms($lease)->notice_terms_confirmed_at);
+        $this->assertSame([], app(RentalPortalFaqService::class)->forLease($lease->fresh(), 'tenant'), 'an agency default is never stated to a tenant');
+
+        $this->assertTrue($this->svc()->confirm($lease->fresh(), $this->admin));
 
         $faq = app(RentalPortalFaqService::class)->forLease($lease->fresh(), 'tenant');
         $this->assertNotEmpty($faq);

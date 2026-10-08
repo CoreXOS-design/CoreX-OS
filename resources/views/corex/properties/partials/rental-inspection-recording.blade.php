@@ -1559,7 +1559,7 @@
              still works unsigned/undispositioned in the meantime. --}}
         <template x-if="currentInspection({{ $sectionJs }}).status !== 'awaiting_signature'">
             <div class="flex justify-end items-center gap-3 pt-1">
-                {{-- §51 — the count is always shown; an agency rule can make it a hard stop (the server refuses). --}}
+                {{-- §52 — the count is always shown; an agency rule can make it a hard stop (the server refuses). --}}
                 <span x-show="(currentInspection({{ $sectionJs }}).items_without_photo || []).length" x-cloak data-qa="items-without-photo"
                       class="text-xs font-semibold px-2 py-1 rounded-md" style="background:color-mix(in srgb, #d97706 14%, transparent); color:#b45309;"
                       :title="(currentInspection({{ $sectionJs }}).items_without_photo || []).map(i => (i.room ? i.room + ' — ' : '') + i.label).join('\n')"
@@ -1574,7 +1574,7 @@
 
         <template x-if="currentInspection({{ $sectionJs }}).status === 'awaiting_signature'">
             <div class="space-y-2 pt-1" style="border-top:1px solid var(--border);">
-                {{-- §51 — the signing window: days left, or how long ago it closed, and how many still have to sign. --}}
+                {{-- §52 — the signing window: days left, or how long ago it closed, and how many still have to sign. --}}
                 <p x-show="currentInspection({{ $sectionJs }}).signing_window" x-cloak data-qa="signing-window" class="text-xs font-semibold"
                    :style="currentInspection({{ $sectionJs }}).signing_window?.closed ? 'color:#b45309;' : 'color:var(--text-secondary);'"
                    x-text="currentInspection({{ $sectionJs }}).signing_window?.label"></p>

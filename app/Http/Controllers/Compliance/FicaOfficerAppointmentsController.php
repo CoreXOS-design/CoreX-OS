@@ -182,4 +182,34 @@ class FicaOfficerAppointmentsController extends Controller
 
         return back()->with('success', 'Refer-to-CO settings saved.')->with('tab', 'user');
     }
+
+    /**
+     * The FICA time windows (link expiry, how long an approval counts as current, its validity, the "expiring soon" look-ahead).
+     * Each is written only when the form rendered it (§6.1 — a subset post must never wipe a setting); blank = back to the platform
+     * default. Values are bounded by FicaWindows::WINDOWS.
+     */
+    public function saveWindowSettings(Request $request)
+    {
+        abort_unless(Auth::user()->hasPermission('manage_compliance_officer'), 403);
+        $agencyId = (int) (Auth::user()->effectiveAgencyId() ?: 0);
+        abort_unless($agencyId > 0, 403);
+
+        $rules = [];
+        foreach (\App\Services\Compliance\FicaWindows::WINDOWS as $key => [$default, $min, $max]) {
+            $rules[$key] = ['nullable', 'integer', "min:{$min}", "max:{$max}"];
+        }
+        $validated = $request->validate($rules);
+
+        $update = [];
+        foreach (array_keys(\App\Services\Compliance\FicaWindows::WINDOWS) as $key) {
+            if ($request->has($key)) {
+                $update[$key] = ($validated[$key] ?? null) === null ? null : (int) $validated[$key];
+            }
+        }
+        if ($update !== []) {
+            \App\Models\Agency::withoutGlobalScopes()->whereKey($agencyId)->update($update);
+        }
+
+        return back()->with('success', 'FICA time windows saved.')->with('tab', 'user');
+    }
 }

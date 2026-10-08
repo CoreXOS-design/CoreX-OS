@@ -537,6 +537,41 @@ final class LeaseCaptureTest extends TestCase
         $this->assertSame(Lease::STATUS_DRAFT, Lease::firstOrFail()->status);
     }
 
+    // ── Rentals front-half decision D8 (8 Oct 2026): a lease sent for signing says how long it runs ──
+
+    public function test_prepare_for_signing_needs_an_end_date_or_month_to_month_and_creates_nothing_until_it_has_one(): void
+    {
+        $this->linkAgreement($this->agency);
+        $this->makeSignable();
+        $noTerm = $this->payload(['intent' => 'lease_and_sign']);
+        unset($noTerm['end_date']);
+
+        $this->actingAs($this->admin)->from(route('corex.leases.create'))->post(route('corex.leases.store'), $noTerm)
+            ->assertRedirect(route('corex.leases.create'))->assertSessionHasErrors();
+        $this->assertStringContainsString('end date', strtolower(implode(' ', session('errors')->getBag('default')->all())));
+        $this->assertSame(0, Lease::count());
+
+        // "Create lease only" is never held to it.
+        $this->actingAs($this->admin)->post(route('corex.leases.store'), array_merge($noTerm, ['intent' => 'lease_only']))->assertSessionHasNoErrors();
+        $this->assertSame(1, Lease::count());
+    }
+
+    public function test_month_to_month_satisfies_the_term_rule_and_the_agency_can_switch_the_rule_off(): void
+    {
+        $this->linkAgreement($this->agency);
+        $this->makeSignable();
+
+        $this->actingAs($this->admin)->post(route('corex.leases.store'), $this->payload(['intent' => 'lease_and_sign', 'is_month_to_month' => '1']))->assertSessionHasNoErrors();
+        $this->assertSame(1, Lease::count());
+        Lease::query()->forceDelete();
+
+        \App\Models\LeaseSetting::updateOrCreate(['agency_id' => $this->agency->id], ['require_end_or_month_to_month_for_signing' => false]);
+        $noTerm = $this->payload(['intent' => 'lease_and_sign']);
+        unset($noTerm['end_date']);
+        $this->actingAs($this->admin)->post(route('corex.leases.store'), $noTerm)->assertSessionHasNoErrors();
+        $this->assertSame(1, Lease::count(), 'with the rule switched off the lease is prepared as before');
+    }
+
     public function test_prepare_for_signing_with_required_details_missing_names_them_creates_nothing_and_keeps_the_input(): void
     {
         $this->linkAgreement($this->agency, [
@@ -795,13 +830,13 @@ final class LeaseCaptureTest extends TestCase
         $current = $this->activeLease(['source' => 'uploaded_signed_copy']);
 
         $this->actingAs($this->admin)->from(route('corex.leases.renewal.create', $current))
-            ->post(route('corex.leases.renewal.store', $current), ['intent' => 'lease_and_sign', 'start_date' => '2026-11-01', 'rental_amount' => '9500'])
+            ->post(route('corex.leases.renewal.store', $current), ['intent' => 'lease_and_sign', 'start_date' => '2026-11-01', 'end_date' => '2027-10-31', 'rental_amount' => '9500'])
             ->assertRedirect(route('corex.leases.renewal.create', $current))
             ->assertSessionHasErrors('agreement.pets');
         $this->assertSame(1, Lease::count());
 
         $this->actingAs($this->admin)->post(route('corex.leases.renewal.store', $current), [
-            'intent' => 'lease_and_sign', 'start_date' => '2026-11-01', 'rental_amount' => '9500', 'agreement' => ['pets' => 'None'],
+            'intent' => 'lease_and_sign', 'start_date' => '2026-11-01', 'end_date' => '2027-10-31', 'rental_amount' => '9500', 'agreement' => ['pets' => 'None'],
         ])->assertSessionHasNoErrors();
 
         $new = Lease::where('previous_lease_id', $current->id)->firstOrFail();
@@ -1085,10 +1120,17 @@ final class LeaseCaptureTest extends TestCase
     /** @return array<string,mixed> a complete, valid POST body for the New Lease screen */
     private function payload(array $overrides = []): array
     {
-        return array_merge([
+        $body = array_merge([
             'property_id' => $this->property->id, 'rental_amount' => '8500', 'start_date' => '2026-11-01',
             'tenant_contact_ids' => [$this->tenant->id],
         ], $overrides);
+
+        // "Prepare for signing" needs an end date or month-to-month (agency setting, default on): a prepared lease here gets a term.
+        if (($body['intent'] ?? null) === 'lease_and_sign' && ! array_key_exists('end_date', $body) && empty($body['is_month_to_month'])) {
+            $body['end_date'] = '2027-10-31';
+        }
+
+        return $body;
     }
 
     private function leaseAttributes(array $overrides = []): array

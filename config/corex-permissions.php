@@ -264,6 +264,9 @@ return [
         ['key' => 'rental_work_orders.manage_work_terms', 'label' => 'Manage Owner Work Terms (per property)', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 9],
         // "Contractor reports done", "Record tenant's answer", "Send back to crew/contractor" (§17.10).
         ['key' => 'rental_work_orders.manage_completion', 'label' => 'Capture Completion, Tenant Answers & Disputes', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 10],
+        // §17.31 — the supplier's invoice documents on a work order: file, replace, share with the owner, archive, restore, view.
+        // Separate from .manage_quotes/.complete: an invoice carries the supplier's figures, so seeing it is a decision of its own.
+        ['key' => 'rental_work_orders.manage_invoices', 'label' => 'File & Manage Supplier Invoices on a Work Order', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 11],
 
         // ── Rental Portal Access (AT-445, .ai/specs/rental-portal-access.md §9) ──
         ['key' => 'rental_portal.manage_settings', 'label' => 'Manage Rental Portal Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_portal', 'sort_order' => 1],
@@ -561,6 +564,9 @@ return [
         // agency's roster itself, resolved by SyndicationApprovalService::canApprove().
         // Two lists of "who approves" would drift.
         ['key' => 'properties.syndication.manage_approvers', 'label' => 'Configure Syndication Approval (switch + approvers)', 'section' => 'properties', 'type' => 'action', 'module' => 'properties', 'sort_order' => 16],
+        // Correct a property's Listed Date (reason required, recorded in the notes + audited).
+        // Default: admin (all-minus-exclude) and branch manager. Spec: .ai/specs/property-listed-date-correction.md
+        ['key' => 'properties.listed_date.correct', 'label' => 'Correct Listed Date (reason required)', 'section' => 'properties', 'type' => 'action', 'module' => 'properties', 'sort_order' => 17],
 
         // ── Contacts ──
         ['key' => 'access_contacts',             'label' => 'Access Contacts',             'section' => 'contacts',         'type' => 'access',  'module' => 'contacts',         'sort_order' => 1],
@@ -1068,6 +1074,7 @@ return [
                 'view_worksheet', 'edit_worksheet', 'view_deals', 'create_deals', 'proforma.generate', 'proforma.view',
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile
                 'viewing_feedback_edit.view', // viewing feedback edit - scope branch (scope_defaults)
+                'properties.listed_date.correct', // Correct Listed Date (reason required) - Johan's default: admin + branch manager
                 'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view', 'performance_report.view', 'manage_targets',
                 'manage_rentals', 'view_daily_activity', 'manage_tv_messages',
                 'deals.view', 'deals.create', 'deals.edit',
@@ -1105,7 +1112,8 @@ return [
                 'rental_fault_reports.view', 'rental_fault_reports.create', 'rental_fault_reports.cancel',
                 'rental_fault_reports.record_approval', 'rental_fault_reports.send_to_owner', 'rental_fault_reports.resolve', 'rental_fault_reports.raise_work_order',
                 'rental_work_orders.view', 'rental_work_orders.create', 'rental_work_orders.record_approval',
-                'rental_work_orders.complete', 'rental_work_orders.cancel', 'rental_work_orders.manage_quotes',
+                'rental_work_orders.complete', 'rental_work_orders.cancel', 'rental_work_orders.manage_quotes', 'rental_work_orders.manage_invoices',
+                'rental_work_orders.manage_completion', 'rental_work_orders.record_emergency_approval',
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',
                 'tv_messages.view', 'tv_messages.create', 'tv_messages.edit',
                 'targets.view', 'targets.create', 'targets.edit',
@@ -1265,7 +1273,8 @@ return [
                 'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.record_attendance', 'rental_inspections.manage_planned_dates',
                 'rental_inspections.edit_details', 'rental_inspections.archive', 'rental_inspections.restore', 'rental_inspections.cancel', 'rental_inspections.reschedule', 'rental_inspections.public_link', 'rental_inspections.export',
                 'rental_fault_reports.view', 'rental_fault_reports.create', 'rental_fault_reports.send_to_owner', 'rental_fault_reports.raise_work_order',
-                'rental_work_orders.view', 'rental_work_orders.create', 'rental_work_orders.complete',
+                'rental_work_orders.view', 'rental_work_orders.create', 'rental_work_orders.complete', 'rental_work_orders.manage_invoices',
+                'rental_work_orders.manage_completion', 'rental_work_orders.record_emergency_approval',
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',
                 'targets.view',
                 'access_my_portal', 'upload_own_documents', 'edit_own_profile', 'view_agency_documents',

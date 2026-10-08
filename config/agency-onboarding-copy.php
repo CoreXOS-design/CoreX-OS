@@ -419,6 +419,8 @@ return [
             // post to wipe (agency-onboarding-setup.md §6.1 is satisfied by absence).
             'agency-setup.steps.rentals-lease-agreement',
             // LEASE-AGREEMENT END
+            // Rentals front-half decision D6: the decline reasons (a link row, no saver - the decline email wording is below).
+            'agency-setup.steps.rentals-decline-templates',
         ],
         'savers' => [
             // Johan, 2026-09-22 (property 4283) — update() now also carries
@@ -483,6 +485,8 @@ return [
             // can never wipe the others (onboarding spec §6.1). It refuses 403 itself without rental_work_orders.manage_settings.
             ['controller' => \App\Http\Controllers\CoreX\RentalCompletionSettingsController::class, 'method' => 'update'],
             // BUILD 3 END
+            // §17.31 — the two supplier-invoice limits; each written only when present in the request (has()-guarded).
+            ['controller' => \App\Http\Controllers\CoreX\RentalWorkOrderInvoiceSettingsController::class, 'method' => 'update'],
             // Owner's ruling 2026-09-30 — the four rental settings + three lists that
             // were "Pending Johan's ruling" are now in this step. Scalars use
             // has()-guarded canonical savers (credit bureau / tenanted label /
@@ -508,6 +512,9 @@ return [
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateFieldDisplayConfig'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateRequiredFields'],
             // The 5 scalar rental-application controls below.
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateFrontHalfDefaults'],
+            // Rentals front-half decision D6: the decline email's subject and body (has()-guarded; the settings page keeps its own saver).
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateDeclineEmailWording'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updatePropertyLock'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateTenantTagging'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateRequireFicaBeforeAuthorisation'],
@@ -594,6 +601,34 @@ return [
              'label' => 'Days after a lease\'s end date before it goes month-to-month',
              'explain' => 'When a lease reaches its end date and there is no notice to vacate and no renewal on record, CoreX switches it to month-to-month by itself, logs it on the lease and tells the agent.',
              'affects' => 'How long after the end date a lease is left alone before it switches. 1 means the day after the end date; a higher number gives agents more time to record a renewal or a notice first. A notice or a renewal, even one still out for signing, always stops the switch.'],
+            // Rentals front-half decisions (8 Oct 2026) - same saver (LeaseSettingsController::update), has()-guarded (§6.1).
+            ['key' => 'require_end_or_month_to_month_for_signing', 'source' => 'leases', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Ask for an end date (or month-to-month) before "prepare for signing"',
+             'explain' => 'A lease sent for signing should say how long it runs. When this is on, "Create lease & prepare for signing" needs either an end date or the month-to-month box ticked.',
+             'affects' => 'Whether an agent can send a lease for signing with no end date at all. Off lets it through (the agreement then prints no term); "Create lease only" is never blocked either way.'],
+            ['key' => 'restore_end_date_on_leaving_month_to_month', 'source' => 'leases', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Put the original end date back when month-to-month is reversed',
+             'explain' => 'Switching a lease to month-to-month clears its end date. Reversing the switch can bring the original end date back, where it is on record.',
+             'affects' => 'What a lease shows after "Reverse month-to-month": its original end date (on) or no end date until the agent types one (off).'],
+            // Property status follows the lease (rental-renewals.md) - same saver, has()-guarded (§6.1). The fourth setting,
+            // default_pre_let_status, is a pick from the agency's OWN statuses (not a static list), so it lives on the
+            // Settings page only - recorded in agency-onboarding-setup.md section 5.1.
+            ['key' => 'auto_readvertise_on_notice', 'source' => 'leases', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Put the property back on the market when notice is recorded',
+             'explain' => 'When a tenant (or the landlord) gives notice, the agent is asked whether to put the property back on the market for the date after move-out. This sets whether that box arrives ticked.',
+             'affects' => 'Whether a recorded notice re-advertises the property by default (on) or leaves it as let out until the agent ticks the box (off). The agent can always change it for a single notice.'],
+            ['key' => 'auto_restore_status_on_lease_ended', 'source' => 'leases', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Put the property back on the market when the move-out inspection confirms it is empty',
+             'explain' => 'When a move-out inspection confirms the property is vacant, CoreX can return it to the status it had before it was let, so it shows on the market again.',
+             'affects' => 'On: a vacant property goes back on the market by itself after the move-out inspection. Off: it stays "let out" until an agent changes it.'],
+            ['key' => 'auto_restore_status_on_lease_cancelled', 'source' => 'leases', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Put the property back on the market when a lease is cancelled',
+             'explain' => 'When an active lease is cancelled, CoreX can return the property to the status it had before it was let.',
+             'affects' => 'On: a cancelled lease puts the property back on the market from the cancellation date. Off: the property stays "let out" until an agent changes it.'],
+            ['key' => 'signed_copy_not_live_note', 'source' => 'leases', 'type' => 'textarea', 'default' => 'Your signed lease is attached. It is not active on our system yet - your agent will confirm when it is.',
+             'label' => 'Sentence in the signed-copy email when the lease cannot go live yet',
+             'explain' => 'Everyone still gets their signed copy. When the lease cannot become active straight away (for example another lease is still running on the property), this one sentence tells the tenant so.',
+             'affects' => 'The extra line in the tenant\'s signed-copy email in that situation only. Leave empty to add nothing.'],
             ['key' => 'fault_report_window_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 7, 'min' => 1, 'max' => 90,
              'label' => 'Days a tenant has to report a fault after moving in',
              'explain' => 'After the move-in inspection, a tenant can report anything missed without it counting against them, for this many days.',
@@ -623,7 +658,7 @@ return [
             // §49 — Johan, 8 Oct 2026: are the three signatures (every tenant, the landlord, the agent) needed before an
             // inspection of each type can be completed? Same saver as the controls above
             // (RentalInspectionSettingsController::update(), registered once) — all four has()-guarded there.
-            // §51 — the 8 Oct 2026 walk's rules, generated from ONE list (RentalInspectionSetting::INSPECTION_RULES) so the
+            // §52 — the 8 Oct 2026 walk's rules, generated from ONE list (RentalInspectionSetting::INSPECTION_RULES) so the
             // settings page, the saver and this step cannot drift. Same saver as above, every field has()-guarded there.
             ...array_values(array_map(
                 fn (string $column, array $rule) => ['key' => $column, 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => $rule[0] ? 1 : 0,
@@ -947,6 +982,16 @@ return [
              'explain' => 'When a tenant says work is not complete, the office normally looks at the complaint first and presses "Send back to crew". Switch this on and CoreX emails your crew a fresh job link, with the tenant\'s note and photos, the moment the tenant disputes the work.',
              'affects' => 'Whether a disputed job reaches the crew automatically or waits for an office decision. Off by default so no one is sent back on a complaint the office has not read. A contractor is always sent back by the office, never automatically.'],
             // BUILD 3 END
+            // §17.31 — supplier invoice upload limits (own narrow saver, has()-guarded, registered in the step's savers above).
+            ['key' => 'invoice_max_file_mb', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 10, 'min' => 1, 'max' => 50, 'step' => 1,
+             'label' => 'Largest supplier invoice file (MB)',
+             'explain' => 'When your office files a supplier\'s invoice against a work order, the file can be at most this many megabytes.',
+             'affects' => 'Whether a large scan or photo is accepted when an invoice is uploaded; a bigger file is refused with a plain message. 10 MB suits most invoices. The most you can set is 50 MB.'],
+            ['key' => 'invoice_allowed_file_types', 'source' => 'rental_work_orders', 'type' => 'select', 'default' => 'pdf_images',
+             'options' => ['pdf' => 'PDF only', 'pdf_images' => 'PDF and photos (JPG, PNG, WebP)', 'pdf_images_heic' => 'PDF and photos, including iPhone HEIC'],
+             'label' => 'File types allowed for a supplier invoice',
+             'explain' => 'Which kinds of file your office can upload as a supplier invoice. Most suppliers send a PDF; some send a phone photo of a paper invoice.',
+             'affects' => 'What the invoice upload on a work order accepts. Choosing "PDF only" refuses photos; "including iPhone HEIC" also accepts photos taken straight from an iPhone.'],
             // Owner's ruling 2026-09-30 — moved in from the §5.1 "Pending" list.
             ['key' => 'show_lease_type_field', 'source' => 'leases', 'type' => 'toggle', 'default' => 0,
              'label' => 'Show the lease type field on a lease',
@@ -983,6 +1028,39 @@ return [
              'label' => 'Lock the property link once an application is submitted',
              'explain' => 'Once an applicant submits, CoreX can stop the same application link from being used to apply for a different property.',
              'affects' => 'Whether an applicant\'s link stays tied to the one property they applied for, or can be reused for another listing.'],
+            // Rentals front-half decisions (8 Oct 2026) - one has()-guarded saver (RentalApplicationSettingsController::updateFrontHalfDefaults).
+            ['key' => 'allow_manual_link_share', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Let agents hand an applicant their link themselves',
+             'explain' => 'An applicant normally gets their application link by email. For a tenant with no email, the agent can instead press "Share the link myself" and give them the link on WhatsApp or in person.',
+             'affects' => 'Whether the "Share the link myself" button appears on an application. Off means an application can only be sent by email.'],
+            ['key' => 'notify_agents_on_application_returned', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Tell the property\'s and lease\'s agents when a tenant submits an application',
+             'explain' => 'The agent who created the application is always emailed. This adds an in-app note for the property\'s agent and, where the property is let, the lease\'s owner-side and tenant-side agents.',
+             'affects' => 'Who sees a note in the app when an application comes back. Each person can still switch their own notifications off.'],
+            ['key' => 'notify_authoriser_on_hand_over', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Tell the authoriser when an application is handed to them',
+             'explain' => 'When an agent hands an application to the authorisers, the people chosen as reviewers are told, in the app and by email, instead of having to find it in the queue.',
+             'affects' => 'Whether reviewers get a notification at hand-over. Each person can still switch their own notifications off.'],
+            ['key' => 'invite_policy_sentence', 'source' => 'rental_application', 'type' => 'textarea', 'default' => '', 'rows' => 2,
+             'label' => 'Your sentence in the applicant\'s email and PDF',
+             'explain' => 'One sentence of your own at the top of the application email and PDF, for example how your agency screens tenants. Type {agency} where your agency name should appear. Leave empty to say nothing.',
+             'affects' => 'The wording an applicant reads before they start. Nothing is added if you leave it empty.'],
+            ['key' => 'prefill_lease_from_application', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Suggest the lease start date and term from the application',
+             'explain' => 'When an agent creates a lease from an approved application, the date and term the applicant asked for are filled in as a suggestion.',
+             'affects' => 'What the lease screen starts with. The agent can change both before saving.'],
+            ['key' => 'allow_withdraw_after_approval', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Allow an approved application with no lease yet to be withdrawn',
+             'explain' => 'If the tenant walks away after being approved and before a lease exists, the agent can withdraw the application with a note.',
+             'affects' => 'Whether the Withdraw action is offered on an approved application. It is logged either way; a decided application with a lease can never be withdrawn this way.'],
+            ['key' => 'decline_email_subject', 'source' => 'rental_application', 'type' => 'text', 'default' => 'Your rental application - {{agency_name}}',
+             'label' => 'Decline email - subject',
+             'explain' => 'The subject line of the email an applicant gets when their application is declined. {{agency_name}} becomes your agency name. Leave it as it is to use the suggested wording.',
+             'affects' => 'What an applicant sees in their inbox when declined. Nothing changes for applications already declined.'],
+            ['key' => 'decline_email_body', 'source' => 'rental_application', 'type' => 'textarea', 'default' => '', 'rows' => 8,
+             'label' => 'Decline email - wording',
+             'explain' => 'The email an applicant gets when their application is declined, in your own words. Placeholders such as {{applicant_name}}, {{agency_name}} and {{decline_guidance}} are filled in for each applicant. It starts with a suggested, respectful default; edit it freely.',
+             'affects' => 'The tone and content of every decline email your agency sends from now on. Clear it back to the suggested default on the Rental applications settings page.'],
             ['key' => 'tag_contact_as_tenant_on_approval', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 1,
              'label' => 'Tag the contact as Tenant when an application is approved',
              'explain' => 'When an agent approves a rental application, CoreX can automatically add "Tenant" to that person\'s contact record.',
@@ -1333,6 +1411,8 @@ return [
             // PPRA FFC Employment Letter — .ai/specs/ppra-ffc-employment-letter.md §11.
             // The saver is has()-guarded (§6.1), so a post without the field leaves it alone.
             ['controller' => SettingsController::class, 'method' => 'savePpraEmploymentLetterSettings'],
+            // Rentals cross-cut — FICA time windows; has()-guarded per field (§6.1).
+            ['controller' => FicaOfficerAppointmentsController::class, 'method' => 'saveWindowSettings'],
         ],
         'controls' => [
             ['key' => 'financial_year_start_month', 'source' => 'agency', 'type' => 'select', 'default' => 3,
@@ -1374,6 +1454,23 @@ return [
              'label' => 'PPRA employment letter — who it is addressed to',
              'explain' => 'Each agent needs a signed "Confirmation of Employment" letter from you to renew their Fidelity Fund Certificate. This is the address block at the top of that letter (the "RE:" line). Leave it blank to use the Property Practitioners Regulatory Board\'s own published address — change it only if your agency writes to a different PPRA office.',
              'affects' => 'The addressee printed at the top of every PPRA employment letter your agents and admins generate (My Portal → Documents, and Admin → PPRA Employment Letters). Letters already printed keep what they were printed with.'],
+            // Rentals cross-cut (8 Oct 2026) — the FICA time windows that were literals in code. Plain number inputs; the saver is has()-guarded (§6.1).
+            ['key' => 'fica_link_expiry_days', 'source' => 'agency', 'type' => 'number', 'default' => 14, 'min' => 1, 'max' => 90,
+             'label' => 'FICA link stays valid for (days)',
+             'explain' => 'How long the FICA link emailed to a client works before it expires and has to be re-sent.',
+             'affects' => 'The expiry date printed in the FICA request email and the day the client\'s link stops working.'],
+            ['key' => 'fica_current_months', 'source' => 'agency', 'type' => 'number', 'default' => 11, 'min' => 1, 'max' => 60,
+             'label' => 'An approved FICA counts as current for (months)',
+             'explain' => 'How long an approved FICA is treated as up to date before CoreX flags it as expiring.',
+             'affects' => 'When a contact\'s FICA badge turns to "Expiring", and when a repeat rental applicant is asked for FICA again.'],
+            ['key' => 'fica_validity_months', 'source' => 'agency', 'type' => 'number', 'default' => 24, 'min' => 1, 'max' => 120,
+             'label' => 'An approval is valid for (months)',
+             'explain' => 'The expiry date CoreX stamps on a FICA when your compliance officer approves it.',
+             'affects' => 'The expiry date shown on approved FICA records and on the compliance calendar.'],
+            ['key' => 'fica_expiring_soon_days', 'source' => 'agency', 'type' => 'number', 'default' => 60, 'min' => 1, 'max' => 365,
+             'label' => '"Expiring soon" looks ahead (days)',
+             'explain' => 'How far ahead the "expiring soon" list looks for FICA approvals about to lapse.',
+             'affects' => 'Which FICA approvals appear under "Expiring soon" in document filing.'],
         ],
     ],
 

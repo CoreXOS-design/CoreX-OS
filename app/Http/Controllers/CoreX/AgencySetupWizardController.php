@@ -213,6 +213,8 @@ class AgencySetupWizardController extends Controller
                 // LEASE-AGREEMENT BEGIN (leases.md §15.14 — Build L0): done / not done for the lease-agreement row.
                 'wzLeaseAgreementLinked' => app(\App\Services\Rentals\LeaseAgreementTemplateGuard::class)->linkedFor((int) $agency->id) !== null,
                 // LEASE-AGREEMENT END
+                // Rentals front-half decision D6: how many decline reasons the agency has (the link row on the Rentals step).
+                'wzDeclineTemplateCount' => \App\Models\RentalApplicationDeclineReasonTemplate::where('agency_id', $agency->id)->count(),
             ],
             // Same reads settings.prospecting.index itself uses (SettingsController)
             // — the wizard step shows exactly what that page would.
@@ -664,6 +666,13 @@ class AgencySetupWizardController extends Controller
                     'default_early_cancellation_penalty' => LeaseSetting::earlyCancellationPenaltyFor($agency->id) ?? '',
                     // Johan, 7 Oct 2026 — leases.md §5.3.
                     'month_to_month_after_end_days' => LeaseSetting::monthToMonthAfterEndDaysFor($agency->id),
+                    // Rentals front-half decisions (8 Oct 2026).
+                    'require_end_or_month_to_month_for_signing' => LeaseSetting::requireEndOrMonthToMonthForSigningFor($agency->id),
+                    'restore_end_date_on_leaving_month_to_month' => LeaseSetting::restoreEndDateOnLeavingMonthToMonthFor($agency->id),
+                    'signed_copy_not_live_note' => LeaseSetting::signedCopyNotLiveNoteFor($agency->id),
+                    'auto_readvertise_on_notice' => LeaseSetting::autoReadvertiseOnNoticeFor($agency->id),
+                    'auto_restore_status_on_lease_ended' => LeaseSetting::autoRestoreStatusOnLeaseEndedFor($agency->id),
+                    'auto_restore_status_on_lease_cancelled' => LeaseSetting::autoRestoreStatusOnLeaseCancelledFor($agency->id),
                     default => $control['default'] ?? null,
                 },
                 // .ai/specs/rental-work-orders.md §3.4b/§8, Stage 3 — only one
@@ -702,6 +711,9 @@ class AgencySetupWizardController extends Controller
                     'notify_landlord_on_dispute' => \App\Models\RentalWorkOrderSetting::notifyLandlordOnDisputeFor($agency->id),
                     'dispute_notify_crew_immediately' => \App\Models\RentalWorkOrderSetting::disputeNotifyCrewImmediatelyFor($agency->id),
                     // BUILD 3 END
+                    // §17.31 — supplier invoice limits
+                    'invoice_max_file_mb' => \App\Models\RentalWorkOrderSetting::invoiceMaxFileMbFor($agency->id),
+                    'invoice_allowed_file_types' => \App\Models\RentalWorkOrderSetting::invoiceAllowedFileTypesFor($agency->id),
                     default => $control['default'] ?? null,
                 },
                 // rental-portal-access.md §10 / rental-work-orders.md §14.27.3 — this source had NO arm,
@@ -748,7 +760,7 @@ class AgencySetupWizardController extends Controller
                     'public_link_expiry_days' => \App\Models\RentalInspectionSetting::publicLinkExpiryDaysFor($agency->id),
                     'signing_link_enabled' => \App\Models\RentalInspectionSetting::signingLinkEnabledFor($agency->id),
                     'signing_link_expiry_days' => \App\Models\RentalInspectionSetting::signingLinkExpiryDaysFor($agency->id),
-                    // §51 — the walk's rules and the reminder lead.
+                    // §52 — the walk's rules and the reminder lead.
                     'signing_reminder_lead_days' => \App\Models\RentalInspectionSetting::signingReminderLeadDaysFor($agency->id),
                     // §49 — signatures required to complete an inspection, per type.
                     'signatures_required_in' => \App\Models\RentalInspectionSetting::signaturesRequiredFor($agency->id, 'in'),
@@ -776,7 +788,7 @@ class AgencySetupWizardController extends Controller
                     'raise_due_inspections_enabled' => \App\Models\RentalInspectionSetting::raiseDueInspectionsEnabledFor($agency->id),
                     'planned_date_lead_days' => \App\Models\RentalInspectionSetting::plannedDateLeadDaysFor($agency->id),
                     'out_due_lead_days' => \App\Models\RentalInspectionSetting::outDueLeadDaysFor($agency->id),
-                    // §51 — the rules, named one by one (a missing arm would silently show the hardcoded default).
+                    // §52 — the rules, named one by one (a missing arm would silently show the hardcoded default).
                     'signing_window_reminders_enabled' => \App\Models\RentalInspectionSetting::ruleFor($agency->id, 'signing_window_reminders_enabled'),
                     'calendar_include_lease_agents' => \App\Models\RentalInspectionSetting::ruleFor($agency->id, 'calendar_include_lease_agents'),
                     'cancel_signed_requires_edit' => \App\Models\RentalInspectionSetting::ruleFor($agency->id, 'cancel_signed_requires_edit'),

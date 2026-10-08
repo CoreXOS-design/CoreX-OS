@@ -444,8 +444,11 @@ class FicaSubmission extends Model
         return $this->fica_expires_at && $this->fica_expires_at->isPast();
     }
 
-    public function scopeExpiringSoon(Builder $query, int $days = 60): Builder
+    /** $days null = the agency's own "expiring soon" window (default 60 days). */
+    public function scopeExpiringSoon(Builder $query, ?int $days = null): Builder
     {
+        $days ??= \App\Services\Compliance\FicaWindows::expiringSoonDays(auth()->user()?->effectiveAgencyId());
+
         return $query->whereNotNull('fica_expires_at')
             ->whereBetween('fica_expires_at', [now(), now()->addDays($days)]);
     }

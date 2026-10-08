@@ -655,3 +655,35 @@ Johan, QA1: "the tiles are way too big. can we get this to a max of 2 lines, and
 - **Needs action + the property list sit higher.** No change to their own code: both panels are sized from the top of `#rcc-layout` to the bottom of the viewport (§14.2), so the height the tiles gave back is now rows.
 - **Heading on the right-hand panel.** **"Property list (N)"** — N is the row count the current tile / search / filters leave (the paginator's total) — with "Showing: <tile>" beside it while a tile is filtering the list. Mirrors the left panel's "Needs action (N)".
 - **Tests.** `tests/Feature/Rentals/RentalCommandCentreLayoutTest.php` (six across, no five across, every tile present and still a filter link, active highlight kept, heading present); `RentalCommandCentreServiceTest` unchanged and green.
+
+---
+
+## 17. Cross-cutting audit fixes (2026-10-08, qa1-cc2 — no new features)
+
+Audit of every tile and queue against the data (QA1, agency 1) found the numbers right and these defects, all fixed:
+
+- **Queue collapse state did not save when every group was expanded.** `POST …/preference` validated `value` as `required`, which rejects the empty list "Expand all" sends (422), so the collapsed state stuck on reload. Now `present`. Test: `RentalCommandCentreServiceTest::test_expanding_every_queue_group_saves_an_empty_list_instead_of_a_422`.
+- **Tiles: max 2 lines of text, enforced.** The label (and the "· on N properties" note) is clamped to two lines; the full wording stays in the tooltip. The Tenant(s) cell is clamped to two lines too (joint tenants). Test: `RentalCommandCentreLayoutTest::test_tile_text_is_clamped_to_two_lines`.
+- **Queue buttons are gated like the Actions menu.** Each button sits behind the agency feature switch of the screen it opens (leases / faults / work orders / inspections), so a switched-off module never shows a button that can only 404. The route's own permission middleware still decides access.
+- **Archived properties raise no "Interim inspection" row.** The loaded-date rule loaded properties without scopes, so an archived property showed as "(archived)". The tiles and the In/Out rule already excluded them. Test: `…::test_an_archived_property_with_a_planned_inspection_date_raises_no_needs_action_row`.
+- **Tenant search and the tenant column ignore archived contacts, and search finds a full name** ("Zandile Nkosi"), not only first or last name. Test: `…::test_tenant_search_matches_a_full_name_and_ignores_archived_contacts`.
+- **A property with no status** lands in exactly one of Unoccupied / Inactive (COALESCE), so occupied + unoccupied + inactive can no longer fall short of the total.
+- **Empty queue under a filter** says "Nothing needs action for this filter." instead of implying nothing needs action at all.
+- **An "Inventories" button** on the toolbar (permission `rental_inventories.view`) is the one door to the all-inventories list, whose sidebar entry was retired on purpose (§0b of rental-inventory.md: it lives on a property) and which otherwise had no inbound link.
+
+**Corrections to earlier text in this spec:** §3.2 says the Start-inspection parameter is ignored — the controller reads it now; and the queue has more rules than §3 lists (review fault, renewal draft ready, out-inspection, interim). §3 should be read together with `rental-inspections.md` §45.7 for the inspection rules.
+
+**Open for Johan (recorded, not changed):**
+1. *"Inspections due" tile counts any open inspection.* Spec §3.1 says so (a property with an open inspection OR one due). The queue only raises a row for DUE ones, so six QA1 properties are in the tile with no queue row. Recommended: keep the tile as specified and add nothing — an in-progress inspection is already being worked on. Say if you would rather the tile counted only due ones.
+2. *"Record outcome" still lists a lease past its end date even when notice is on file or a renewal draft exists.* Spec §3 says "unchanged"; the Lease Hub treats those as an outcome on file. Recommended: hide it when notice is on file or a draft exists.
+3. *Own scope on the queue is the property's agent only.* Johan's 8 Oct lease rule says own = creator, owner's agent or tenant's agent. A tenant's agent sees the lease on /leases but not its queue row. Recommended: use the lease rule for the lease-based queue rules.
+4. *"N faults / N work orders" links open the list for the property with all statuses,* while the count is open ones only. Needs an open-only filter in the fault and work-order lists (another lane's screens).
+
+## 18. A number you click shows exactly that many rows (2026-10-08, cc1 — follow-up to the cc2 cross-cut audit; QA1 only)
+* **Open faults / Open work orders tiles** show a RECORD total, so they now open the **fault / work-order list itself** — `?open=1&cc_scope=<own|branch|all>` — instead of filtering this properties table (which can only show properties, so its row count was the "on N properties" figure, not the big number). `cc_scope` limits the list to the properties this screen's tile counted (rental listings inside the viewer's command-centre own/branch/all, clamped to their ceiling — `RentalCommandCentreService::limitToCommandCentreProperties`); the fault / work-order lists still apply the viewer's OWN fault / work-order scope on top. The `?tile=open_faults|open_work_orders` filter of this table still works for bookmarks. Every other tile counts properties and filters this table (Round 7 parity tests unchanged).
+* **"N F" / "N WO" per row** count the viewer's open faults / work orders **under the viewer's own fault / work-order data scope** (a viewer who sees only what they raised is counted what they raised; a role with no access sees 0, never a number that opens a 403), and the link carries `open=1` so the list shows exactly N. The tile total is the sum of these same per-row counts, so tile, row and list agree.
+* **"Open only"** filter on the fault list and the work-order list (`open=1`), print/export included, using the ONE definition of open (`FAULT_OPEN_STATUSES_EXCLUDED` / `WORK_ORDER_OPEN_STATUSES_EXCLUDED`) — resolved/cancelled/declined and completed/cancelled drop out.
+* **Needs-action rows** show their action button only when the viewer's role could open it (`canOpenRoute` reads the route's own `permission:` middleware — group and route, OR within an entry, AND between entries); a row whose action the role lacks stays listed (it still needs doing) but has no button that could only answer 403. Test: every openable row answers 200.
+* Still open (Johan, from the audit): the "Inspections due" tile counts open inspections the queue does not list; "Record outcome" lists leases with notice/draft.
+Tests: `RentalCommandCentreLinkParityTest` (11), `RentalCommandCentreServiceTest` (fault/WO grants added to six fixtures because counts now follow the fault / work-order scope).
+

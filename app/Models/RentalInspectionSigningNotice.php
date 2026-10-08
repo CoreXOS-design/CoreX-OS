@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * .ai/specs/rental-inspections.md §51 — append-only record that a signing-window reminder milestone (`lead` = the window is
+ * .ai/specs/rental-inspections.md §52 — append-only record that a signing-window reminder milestone (`lead` = the window is
  * about to close with someone still outstanding, `passed` = it closed) was handled for an inspection. UNIQUE (inspection,
  * milestone): a re-run, or a catch-up after a missed tick, never reminds twice.
  */

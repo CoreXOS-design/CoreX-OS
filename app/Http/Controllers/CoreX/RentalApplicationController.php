@@ -191,10 +191,16 @@ class RentalApplicationController extends Controller
         // own docblock has the full reasoning.
         $tenantedLabel = \App\Models\RentalApplicationQualifyingSetting::tenantedLabelFor($user->effectiveAgencyId());
 
+        // Rentals front-half decision D14: an approved row offers "Create lease" until a lease exists for it. One query for the
+        // page (no per-row lookup); archived leases do not count.
+        $leasedApplicationIds = \App\Models\Lease::withoutGlobalScopes()->whereNull('deleted_at')
+            ->whereIn('rental_application_id', $applications->getCollection()->pluck('id'))
+            ->pluck('rental_application_id')->all();
+
         return view('corex.rental-applications.index', compact(
             'applications', 'archived', 'canSeeBranch', 'canSeeAgency', 'perPage',
             'tile', 'counts', 'isAuthoriser', 'authorisationQueueCount', 'canViewReturned',
-            'resolvedScope', 'scopeOptions', 'tenantedLabel',
+            'resolvedScope', 'scopeOptions', 'tenantedLabel', 'leasedApplicationIds',
         ));
     }
 
@@ -412,8 +418,9 @@ class RentalApplicationController extends Controller
      */
     private function applyFicaBucketFilter($query, string $bucket): void
     {
-        $query->whereDoesntHave('contact.ficaSubmissions', function ($q) {
-            $q->where('status', 'approved')->where('verified_at', '>=', now()->subMonths(11));
+        $currentMonths = \App\Services\Compliance\FicaWindows::currentMonths(auth()->user()?->effectiveAgencyId());
+        $query->whereDoesntHave('contact.ficaSubmissions', function ($q) use ($currentMonths) {
+            $q->where('status', 'approved')->where('verified_at', '>=', now()->subMonths($currentMonths));
         });
 
         $applicantStatuses = ['draft', 'corrections_requested'];
@@ -526,10 +533,20 @@ class RentalApplicationController extends Controller
      * stale/foreign id just resolves to null rather than leaking anything)
      * and handed to the view to seed the Alpine component's initial state.
      */
-    public function create(): View
+    public function create(Request $request): View
     {
+        // Rentals front-half decision D2 (8 Oct 2026): "New application" is also started from a rental property's page and
+        // from a contact's Rental tab, pre-filled with that property / contact. The ids arrive in the URL, so they go
+        // through the SAME scoping the store does (contact: agency scope; property: a rental listing this user may see) -
+        // an id the user may not see simply pre-fills nothing, never leaks a name.
         $oldContact = old('contact_id') ? Contact::find(old('contact_id')) : null;
         $oldProperty = old('property_id') ? Property::find(old('property_id')) : null;
+        if (! $oldContact && $request->filled('contact_id')) {
+            $oldContact = Contact::find((int) $request->query('contact_id'));
+        }
+        if (! $oldProperty && $request->filled('property_id')) {
+            $oldProperty = Property::findLinkableForRentalApplication((int) $request->query('property_id'), $request->user());
+        }
 
         return view('corex.rental-applications.create', compact('oldContact', 'oldProperty'));
     }
@@ -1137,7 +1154,8 @@ class RentalApplicationController extends Controller
         // server accepts it only from there. An approved or declined application is a final call - the way back is
         // Reopen (override tier for declined) - and an approved one cannot be flipped to withdrawn from here either
         // (a UI that merely hides the option while the endpoint accepts it is the same gap, per the withdrawn guard below).
-        if (in_array($from, ['approved', 'declined'], true)) {
+        $withdrawingApprovedWithNoLease = $from === 'approved' && $to === 'withdrawn' && $rentalApplication->canBeWithdrawnAfterApproval();
+        if (in_array($from, ['approved', 'declined'], true) && ! $withdrawingApprovedWithNoLease) {
             return back()->withInput()->with('error', "This application already has a decision ({$from}) - it can't be changed from this screen. Use Reopen to bring it back into assessment; that needs a note and is recorded in the audit trail.");
         }
 
@@ -1485,6 +1503,58 @@ class RentalApplicationController extends Controller
         return redirect()
             ->route('corex.rental-applications.index')
             ->with('success', 'Sent to ' . $recipientEmail . '. Both the download link and the online link are on the application page too, if you want to share them another way.');
+    }
+
+    /**
+     * Rentals front-half decision D1 (8 Oct 2026): the agent hands the applicant their link themselves (WhatsApp, in
+     * person) - the way for a tenant with no email. Agency setting `allow_manual_link_share` (default on). It does what
+     * Send does except the mail: makes sure the link exists and is not expired, moves a draft to "sent", and writes
+     * who did it to the status history and the application audit. Never for a declined / withdrawn application.
+     */
+    public function shareLinkManually(Request $request, RentalApplication $rentalApplication, \App\Services\RentalApplications\RentalApplicationAuditService $audit)
+    {
+        $this->guardRentalApplication($rentalApplication);
+
+        if (! RentalApplicationQualifyingSetting::allowManualLinkShareFor($rentalApplication->agency_id)) {
+            return redirect()->route('corex.rental-applications.show', $rentalApplication)
+                ->with('error', 'Handing the link over yourself is switched off for your agency (Settings > Rental Applications).');
+        }
+        if (in_array($rentalApplication->status, RentalApplication::DOCUMENT_UPLOADS_ALWAYS_CLOSED_STATUSES, true)
+            || in_array($rentalApplication->status, RentalApplication::POST_RETURN_STATUSES, true)) {
+            return redirect()->route('corex.rental-applications.show', $rentalApplication)
+                ->with('error', 'This application is ' . $rentalApplication->status . ' - there is no applicant link to hand over.');
+        }
+
+        $expiryDays = RentalApplicationQualifyingSetting::reopenLinkExpiryDaysFor($rentalApplication->agency_id);
+        $renewed = false;
+        if (! $rentalApplication->token) {
+            $rentalApplication->token = $this->generateToken();
+            $rentalApplication->token_expires_at = now()->addDays($expiryDays);
+        } elseif ($rentalApplication->token_expires_at && $rentalApplication->token_expires_at->isPast()) {
+            $rentalApplication->token_expires_at = now()->addDays($expiryDays);
+            $renewed = true;
+        }
+
+        $from = $rentalApplication->status;
+        if ($rentalApplication->status === 'draft') {
+            $rentalApplication->status = 'sent';
+        }
+        $rentalApplication->save();
+
+        if ($from === 'draft') {
+            \App\Models\RentalApplicationStatusHistory::record($rentalApplication, 'draft', 'sent', $request->user(), 'Link handed to the applicant by the agent (not emailed).');
+        }
+        $audit->log(
+            $rentalApplication,
+            eventCategory: 'applicant_link',
+            eventType: 'link_handed_over',
+            user: $request->user(),
+            newValues: ['status' => $rentalApplication->status, 'link_renewed' => $renewed],
+            humanSummary: 'The agent handed the applicant their link directly (not emailed)' . ($renewed ? ' - the expired link was renewed.' : '.'),
+        );
+
+        return redirect()->route('corex.rental-applications.show', $rentalApplication)
+            ->with('success', 'The link is ready - copy the Online link below and give it to the applicant. Nothing was emailed.');
     }
 
     public function pdf(RentalApplication $rentalApplication)

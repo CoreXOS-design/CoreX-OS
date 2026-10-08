@@ -47,10 +47,22 @@
 --}}
 
 @php
-    $tileHref = fn ($key) => route('corex.rentals.command-centre.index', array_merge(
-        request()->except(['tile', 'page']),
-        $filters['tile'] === $key ? ['tile' => null] : ['tile' => $key]
-    ));
+    // The Open faults / Open work orders tiles show a RECORD total, so they open the fault / work-order list itself, open ones only and
+    // limited to this screen's own/branch/all property set — the list then shows exactly the number on the tile. Every other tile
+    // counts properties and filters this table.
+    $tileHref = function ($key) use ($scope, $filters) {
+        if ($key === 'open_faults' && auth()->user()?->hasFeature('rental-faults')) {
+            return route('corex.rental-fault-reports.index', ['open' => 1, 'cc_scope' => $scope]);
+        }
+        if ($key === 'open_work_orders' && auth()->user()?->hasFeature('rental-work-orders')) {
+            return route('corex.rental-work-orders.index', ['open' => 1, 'cc_scope' => $scope]);
+        }
+
+        return route('corex.rentals.command-centre.index', array_merge(
+            request()->except(['tile', 'page']),
+            $filters['tile'] === $key ? ['tile' => null] : ['tile' => $key]
+        ));
+    };
     $sortLink = fn ($col) => route('corex.rentals.command-centre.index', array_merge(
         request()->except('page'),
         ['sort' => $col, 'direction' => ($sort === $col && $direction === 'asc') ? 'desc' : 'asc']
@@ -82,6 +94,11 @@
             </div>
             @endif
             <a href="{{ route('corex.rentals.command-centre.print', request()->query()) }}" target="_blank" class="corex-btn-outline text-xs">Print</a>
+            {{-- The all-inventories list had no way in once the sidebar entry was retired on purpose
+                 (it lives on a property); this is its one door for staff who want the whole list. --}}
+            @permission('rental_inventories.view')
+            <a href="{{ route('corex.rental-inventories.index') }}" class="corex-btn-outline text-xs" data-qa="rcc-inventories-link">Inventories</a>
+            @endpermission
             @if(\Illuminate\Support\Facades\Route::has('corex.rentals.reports.index'))
             @feature('rental-reports')
             <a href="{{ route('corex.rentals.reports.index') }}" class="corex-btn-outline text-xs">Reports</a>
@@ -119,7 +136,8 @@
            data-qa="rcc-tile-{{ $key }}"
            style="{{ $active ? 'border-color:color-mix(in srgb, var(--brand-icon,#6366f1) 40%, transparent);background:color-mix(in srgb, var(--brand-icon,#6366f1) 10%, var(--surface));' : '' }}">
             <span class="text-base font-bold leading-none tabular-nums flex-shrink-0" style="color:var(--text-primary);">{{ number_format($bigNumber) }}</span>
-            <span class="text-[0.6875rem] font-medium leading-tight min-w-0" style="color:var(--text-muted);">
+            {{-- Johan's ruling: a tile is max 2 lines of text — clamp, the full wording is in the tooltip. --}}
+            <span class="text-[0.6875rem] font-medium leading-tight min-w-0" style="color:var(--text-muted);display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">
                 {{ $label }}
                 @if($propertiesNote)
                     <span class="font-normal">&middot; {{ $propertiesNote }}</span>
@@ -239,7 +257,7 @@
                         @include('corex.rentals.command-centre._queue-row', ['item' => $item, 'index' => $i])
                         @php($i++)
                     @empty
-                    <div class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">Nothing needs action right now.</div>
+                    <div class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">{{ ($queuePropertyId ?? null) || ($queueDateFrom ?? null) || ($queueDateTo ?? null) ? 'Nothing needs action for this filter.' : 'Nothing needs action right now.' }}</div>
                     @endforelse
                 @else
                     @php($i = 0)
@@ -263,7 +281,7 @@
                             @endforeach
                         </div>
                     @empty
-                    <div class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">Nothing needs action right now.</div>
+                    <div class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">{{ ($queuePropertyId ?? null) || ($queueDateFrom ?? null) || ($queueDateTo ?? null) ? 'Nothing needs action for this filter.' : 'Nothing needs action right now.' }}</div>
                     @endforelse
                 @endif
             </div>
@@ -357,7 +375,7 @@
                             </td>
                             <td class="px-3 py-2"><span class="ds-badge {{ $statusBadgeClass($property->status) }}">{{ $humanise($property->status) }}</span></td>
                             <td class="px-3 py-2">
-                                <div>{{ $property->active_lease_id ? ($tenantNamesByLeaseId[$property->active_lease_id] ?? 'No tenant linked') : '— vacant —' }}</div>
+                                <div title="{{ $property->active_lease_id ? ($tenantNamesByLeaseId[$property->active_lease_id] ?? '') : '' }}" style="display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">{{ $property->active_lease_id ? ($tenantNamesByLeaseId[$property->active_lease_id] ?? 'No tenant linked') : '— vacant —' }}</div>
                                 {{-- Agent — merged into this cell (round 3 layout fix) to free a whole
                                      column's width for the sticky Actions column at 1280px with the
                                      queue open. --}}
@@ -366,13 +384,13 @@
                             <td class="px-3 py-2 whitespace-nowrap">{{ $property->active_end_date ? \Illuminate\Support\Carbon::parse($property->active_end_date)->format('Y-m-d') : ($property->active_month_to_month ? 'Month-to-month' : '—') }}</td>
                             <td class="px-3 py-2 whitespace-nowrap">
                                 @if((int) $property->open_faults_count > 0)
-                                    @feature('rental-faults')<a href="{{ route('corex.rental-fault-reports.index', ['property_id' => $property->id]) }}">{{ (int) $property->open_faults_count }} F</a>@else {{ (int) $property->open_faults_count }} F @endfeature
+                                    @feature('rental-faults')<a href="{{ route('corex.rental-fault-reports.index', ['property_id' => $property->id, 'open' => 1]) }}">{{ (int) $property->open_faults_count }} F</a>@else {{ (int) $property->open_faults_count }} F @endfeature
                                 @else
                                     <span style="color: var(--text-muted);">0 F</span>
                                 @endif
                                 ·
                                 @if((int) $property->open_work_orders_count > 0)
-                                    @feature('rental-work-orders')<a href="{{ route('corex.rental-work-orders.index', ['property_id' => $property->id]) }}">{{ (int) $property->open_work_orders_count }} WO</a>@else {{ (int) $property->open_work_orders_count }} WO @endfeature
+                                    @feature('rental-work-orders')<a href="{{ route('corex.rental-work-orders.index', ['property_id' => $property->id, 'open' => 1]) }}">{{ (int) $property->open_work_orders_count }} WO</a>@else {{ (int) $property->open_work_orders_count }} WO @endfeature
                                 @else
                                     <span style="color: var(--text-muted);">0 WO</span>
                                 @endif

@@ -92,7 +92,7 @@ class RentalInspectionCopiesService
     }
 
     /**
-     * §51 — agency rule `hold_pdf_when_refused` (default on): a tenant or landlord who REFUSED to sign receives the completion
+     * §52 — agency rule `hold_pdf_when_refused` (default on): a tenant or landlord who REFUSED to sign receives the completion
      * email without the PDF attached (their link and the portal already keep the PDF closed until everyone has signed, §49.2).
      * Everyone else, and the agency's own copy addresses, get it as before. Lower-cased addresses.
      *

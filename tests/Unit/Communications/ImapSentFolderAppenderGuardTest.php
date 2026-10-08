@@ -88,7 +88,7 @@ final class ImapSentFolderAppenderGuardTest extends TestCase
 
     public function test_append_proceeds_to_a_real_connection_attempt_on_the_confirmed_live_host(): void
     {
-        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za']);
+        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za', 'mail.guard.real_send' => true]);
 
         $poller = new class(app(EmailArchiveIngestor::class)) extends ImapMailboxPoller {
             public int $connectCalls = 0;

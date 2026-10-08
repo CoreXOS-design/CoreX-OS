@@ -42,12 +42,25 @@ class LeaseSettingsController extends Controller
             // Johan, 7 Oct 2026 — automatic month-to-month (leases.md §5.3).
             'monthToMonthAfterEndDays' => LeaseSetting::monthToMonthAfterEndDaysFor($agencyId),
             'monthToMonthAfterEndDaysDefault' => LeaseSetting::DEFAULT_MONTH_TO_MONTH_AFTER_END_DAYS,
+            // Rentals front-half decisions (8 Oct 2026).
+            'requireEndOrMonthToMonthForSigning' => LeaseSetting::requireEndOrMonthToMonthForSigningFor($agencyId),
+            'restoreEndDateOnLeavingMonthToMonth' => LeaseSetting::restoreEndDateOnLeavingMonthToMonthFor($agencyId),
+            'signedCopyNotLiveNote' => LeaseSetting::signedCopyNotLiveNoteFor($agencyId),
+            'recentFrontHalfChanges' => \App\Models\RentalSettingAuditEntry::where('agency_id', $agencyId)
+                ->whereIn('setting_key', ['require_end_or_month_to_month_for_signing', 'restore_end_date_on_leaving_month_to_month', 'signed_copy_not_live_note'])
+                ->with('user')->latest('id')->limit(5)->get(),
             // Round 7 (2026-10-05) — Command Centre "Unoccupied"/"Inactive"
             // tiles. Options = this agency's full write-side status
             // vocabulary (Property::allowedStatuses() — systemStatuses()
             // plus whatever this agency has activated under Settings →
             // Property Statuses), same source the dashboard's own Status
             // filter already draws from.
+            // Property status follows the lease (rental-renewals.md "status follows the lease", rows 2/6/7).
+            'autoReadvertiseOnNotice' => LeaseSetting::autoReadvertiseOnNoticeFor($agencyId),
+            'autoRestoreStatusOnLeaseEnded' => LeaseSetting::autoRestoreStatusOnLeaseEndedFor($agencyId),
+            'autoRestoreStatusOnLeaseCancelled' => LeaseSetting::autoRestoreStatusOnLeaseCancelledFor($agencyId),
+            'defaultPreLetStatus' => LeaseSetting::defaultPreLetStatusFor($agencyId),
+            'defaultPreLetStatusDefault' => LeaseSetting::DEFAULT_PRE_LET_STATUS,
             'activeRentalStatuses' => LeaseSetting::activeRentalStatusesFor($agencyId),
             'activeRentalStatusesDefault' => LeaseSetting::defaultActiveRentalStatuses(),
             'allowedPropertyStatuses' => Property::allowedStatuses($agencyId),
@@ -87,11 +100,20 @@ class LeaseSettingsController extends Controller
             // Johan, 7 Oct 2026 (leases.md §5.3) — same §6.1 nullable/has()-guard reasoning: this method is also the
             // onboarding wizard's saver for the leases step, so an absent key means "not shown", never "0".
             'month_to_month_after_end_days' => ['nullable', 'integer', 'min:0', 'max:365'],
+            // Rentals front-half decisions (8 Oct 2026) - same §6.1 has()-guard: an absent key means "not shown", never "off".
+            'require_end_or_month_to_month_for_signing' => ['nullable', 'boolean'],
+            'restore_end_date_on_leaving_month_to_month' => ['nullable', 'boolean'],
+            'signed_copy_not_live_note' => ['nullable', 'string', 'max:' . LeaseSetting::SIGNED_COPY_NOT_LIVE_NOTE_MAX],
             // Round 7 (2026-10-05) — same §6.1 nullable/has()-guard
             // reasoning; an empty array (every box unchecked) is itself a
             // valid, if unusual, choice, so 'array' here, never 'required'.
             'active_rental_statuses' => ['nullable', 'array'],
             'active_rental_statuses.*' => ['string'],
+            // Property status follows the lease — same §6.1 has()-guard: absent = "not shown", never "off".
+            'auto_readvertise_on_notice' => ['nullable', 'boolean'],
+            'auto_restore_status_on_lease_ended' => ['nullable', 'boolean'],
+            'auto_restore_status_on_lease_cancelled' => ['nullable', 'boolean'],
+            'default_pre_let_status' => ['nullable', 'string', 'max:40', \Illuminate\Validation\Rule::in(Property::allowedStatuses($agencyId))],
         ]);
 
         $data = [
@@ -129,6 +151,22 @@ class LeaseSettingsController extends Controller
         if ($request->has('month_to_month_after_end_days')) {
             $data['month_to_month_after_end_days'] = $validated['month_to_month_after_end_days'];
         }
+        foreach (['auto_readvertise_on_notice', 'auto_restore_status_on_lease_ended', 'auto_restore_status_on_lease_cancelled'] as $field) {
+            if ($request->has($field)) {
+                $data[$field] = $request->boolean($field);
+            }
+        }
+        if ($request->has('default_pre_let_status')) {
+            $data['default_pre_let_status'] = trim((string) ($validated['default_pre_let_status'] ?? '')) ?: null; // blank = back to the default
+        }
+        foreach (['require_end_or_month_to_month_for_signing', 'restore_end_date_on_leaving_month_to_month'] as $field) {
+            if ($request->has($field)) {
+                $data[$field] = $request->boolean($field);
+            }
+        }
+        if ($request->has('signed_copy_not_live_note')) {
+            $data['signed_copy_not_live_note'] = trim((string) ($validated['signed_copy_not_live_note'] ?? '')); // '' = say nothing extra
+        }
         // Round 7 (2026-10-05) — a checkbox GROUP going from "every box
         // checked" to "every box unchecked" submits NO active_rental_statuses
         // key at all (unchecked checkboxes never appear in a POST) — that
@@ -140,7 +178,21 @@ class LeaseSettingsController extends Controller
             $data['active_rental_statuses'] = $validated['active_rental_statuses'] ?? [];
         }
 
+        // Audit (rentals front-half decisions): who changed which of the three, from what to what, and from where.
+        $before = [
+            'require_end_or_month_to_month_for_signing' => LeaseSetting::requireEndOrMonthToMonthForSigningFor($agencyId),
+            'restore_end_date_on_leaving_month_to_month' => LeaseSetting::restoreEndDateOnLeavingMonthToMonthFor($agencyId),
+            'signed_copy_not_live_note' => LeaseSetting::signedCopyNotLiveNoteFor($agencyId),
+        ];
+
         LeaseSetting::updateOrCreate(['agency_id' => $agencyId], $data);
+
+        $source = str_contains((string) $request->route()?->getName(), 'agency-setup') ? 'wizard' : 'settings';
+        foreach ($before as $key => $old) {
+            if (array_key_exists($key, $data)) {
+                \App\Models\RentalSettingAuditEntry::record((int) $agencyId, $request->user(), $key, $old, $data[$key], $source);
+            }
+        }
 
         return redirect()->route('corex.settings.leases.edit')->with('success', 'Lease settings saved.');
     }

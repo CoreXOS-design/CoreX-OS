@@ -62,6 +62,15 @@ class LeaseSetting extends Model
     /** Johan, 7 Oct 2026 — a lease goes month-to-month this many days after its end date (1 = the day after). */
     public const DEFAULT_MONTH_TO_MONTH_AFTER_END_DAYS = 1;
 
+    // Rentals front-half decisions (8 Oct 2026) - per-agency settings, recommended value as the default.
+    /** "Prepare for signing" needs an end date or an explicit month-to-month; "lease only" stays free. */
+    public const DEFAULT_REQUIRE_END_OR_MONTH_TO_MONTH_FOR_SIGNING = true;
+    /** Reversing month-to-month puts the lease's original end date back (when it is on record). */
+    public const DEFAULT_RESTORE_END_DATE_ON_LEAVING_MONTH_TO_MONTH = true;
+    /** One sentence added to the signed-copy mail when the lease cannot go live yet. Neutral, editable. */
+    public const DEFAULT_SIGNED_COPY_NOT_LIVE_NOTE = 'Your signed lease is attached. It is not active on our system yet - your agent will confirm when it is.';
+    public const SIGNED_COPY_NOT_LIVE_NOTE_MAX = 500;
+
     // .ai/specs/rental-renewals.md §15 (GATE 2, approved 2026-10-04) — each
     // transition is independently toggle-able, default ON.
     public const DEFAULT_AUTO_READVERTISE_ON_NOTICE = true;
@@ -89,6 +98,9 @@ class LeaseSetting extends Model
         'default_early_cancellation_notice_unit',
         'default_early_cancellation_penalty',
         'month_to_month_after_end_days',
+        'require_end_or_month_to_month_for_signing',
+        'restore_end_date_on_leaving_month_to_month',
+        'signed_copy_not_live_note',
         'auto_readvertise_on_notice',
         'auto_restore_status_on_lease_ended',
         'auto_restore_status_on_lease_cancelled',
@@ -104,6 +116,8 @@ class LeaseSetting extends Model
         'default_earliest_notice_months' => 'integer',
         'default_early_cancellation_notice' => 'integer',
         'month_to_month_after_end_days' => 'integer',
+        'require_end_or_month_to_month_for_signing' => 'boolean',
+        'restore_end_date_on_leaving_month_to_month' => 'boolean',
         'auto_readvertise_on_notice' => 'boolean',
         'auto_restore_status_on_lease_ended' => 'boolean',
         'auto_restore_status_on_lease_cancelled' => 'boolean',
@@ -164,6 +178,40 @@ class LeaseSetting extends Model
         $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
 
         return $row?->month_to_month_after_end_days ?? self::DEFAULT_MONTH_TO_MONTH_AFTER_END_DAYS;
+    }
+
+    public static function requireEndOrMonthToMonthForSigningFor(?int $agencyId): bool
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_REQUIRE_END_OR_MONTH_TO_MONTH_FOR_SIGNING;
+        }
+
+        $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
+
+        return $row?->require_end_or_month_to_month_for_signing ?? self::DEFAULT_REQUIRE_END_OR_MONTH_TO_MONTH_FOR_SIGNING;
+    }
+
+    public static function restoreEndDateOnLeavingMonthToMonthFor(?int $agencyId): bool
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_RESTORE_END_DATE_ON_LEAVING_MONTH_TO_MONTH;
+        }
+
+        $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
+
+        return $row?->restore_end_date_on_leaving_month_to_month ?? self::DEFAULT_RESTORE_END_DATE_ON_LEAVING_MONTH_TO_MONTH;
+    }
+
+    /** The sentence for the signed-copy mail ('' = the agency chose to say nothing extra). */
+    public static function signedCopyNotLiveNoteFor(?int $agencyId): string
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_SIGNED_COPY_NOT_LIVE_NOTE;
+        }
+
+        $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
+
+        return $row && $row->signed_copy_not_live_note !== null ? (string) $row->signed_copy_not_live_note : self::DEFAULT_SIGNED_COPY_NOT_LIVE_NOTE;
     }
 
     public static function autoReadvertiseOnNoticeFor(?int $agencyId): bool

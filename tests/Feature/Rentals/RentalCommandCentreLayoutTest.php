@@ -39,7 +39,13 @@ final class RentalCommandCentreLayoutTest extends TestCase
 
         foreach (array_keys(RentalCommandCentreService::TILES) as $key) {
             $this->assertStringContainsString('data-qa="rcc-tile-' . $key . '"', $html, "tile {$key} is still there");
-            $this->assertStringContainsString('tile=' . $key, $html, "tile {$key} still filters the list on click");
+            // the two record-total tiles open the fault / work-order list itself (open only); every other tile filters this list
+            $target = match ($key) {
+                'open_faults' => 'rental-fault-reports?open=1',
+                'open_work_orders' => 'rental-work-orders?open=1',
+                default => 'tile=' . $key,
+            };
+            $this->assertStringContainsString($target, $html, "tile {$key} opens what it counted on click");
         }
         $this->assertStringContainsString('Inactive / off market', $html, 'the label stays in full');
     }
@@ -51,6 +57,14 @@ final class RentalCommandCentreLayoutTest extends TestCase
         $this->assertMatchesRegularExpression('/data-qa="rcc-tile-occupied"\s+style="border-color:color-mix/', $html);
         $this->assertDoesNotMatchRegularExpression('/data-qa="rcc-tile-unoccupied"\s+style="border-color:color-mix/', $html);
         $this->assertStringContainsString('Showing: Occupied', $html);
+    }
+
+    public function test_tile_text_is_clamped_to_two_lines(): void
+    {
+        $html = $this->page();
+
+        // Johan's ruling: max 2 lines of text per tile (full wording stays in the tooltip).
+        $this->assertSame(11, substr_count($html, '-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">'), 'one clamp per tile label');
     }
 
     public function test_the_right_hand_panel_has_a_heading(): void

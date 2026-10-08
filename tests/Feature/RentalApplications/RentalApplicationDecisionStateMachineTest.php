@@ -132,8 +132,11 @@ final class RentalApplicationDecisionStateMachineTest extends TestCase
 
             $this->actingAs($this->agent)->post(route('corex.rental-applications.update-status', $app), ['status' => 'under_assessment'])
                 ->assertSessionHas('error');
-            $this->actingAs($this->agent)->post(route('corex.rental-applications.update-status', $app), ['status' => 'withdrawn', 'note' => 'told me'])
-                ->assertSessionHas('error');
+            // Declined is final. (An APPROVED application with no lease yet may be withdrawn - RentalFrontHalfDecisionsTest.)
+            if ($status === 'declined') {
+                $this->actingAs($this->agent)->post(route('corex.rental-applications.update-status', $app), ['status' => 'withdrawn', 'note' => 'told me'])
+                    ->assertSessionHas('error');
+            }
 
             $this->assertSame($status, $app->fresh()->status);
         }

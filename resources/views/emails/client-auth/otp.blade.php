@@ -26,7 +26,7 @@
                                 Your sign-in code
                             </h1>
                             <p style="margin:0 0 24px; font-size:0.9375rem; line-height:1.6; color:#6b7280;">
-                                Enter this code to sign in. It will expire in
+                                @if(!empty($agencyName))Use this code to sign in to your {{ $agencyName }} portal.@else Enter this code to sign in.@endif It will expire in
                                 <strong style="color:#111827;">{{ $expiresMinutes }} minutes</strong>.
                             </p>
 

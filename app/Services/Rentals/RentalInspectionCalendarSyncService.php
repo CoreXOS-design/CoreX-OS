@@ -95,7 +95,7 @@ class RentalInspectionCalendarSyncService
     }
 
     /**
-     * §51 — the lease's OTHER agents (owner's agent, tenant's agent) see a booked inspection on their own calendar too, so
+     * §52 — the lease's OTHER agents (owner's agent, tenant's agent) see a booked inspection on their own calendar too, so
      * nobody is surprised by a visit to "their" tenancy. One extra event per agent, same content and status as the inspector's
      * (category `rental_inspection_lease_agent`, keyed by the agent), dismissed/completed in step with it. Agency rule
      * `calendar_include_lease_agents` (default on); switching it off dismisses the extras, it never deletes them. An agent who

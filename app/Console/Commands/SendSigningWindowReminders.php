@@ -6,7 +6,7 @@ use App\Services\Rentals\RentalInspectionSigningReminderService;
 use Illuminate\Console\Command;
 
 /**
- * .ai/specs/rental-inspections.md §51 — reminds the inspecting AGENT about a report whose signing window is about to close, or
+ * .ai/specs/rental-inspections.md §52 — reminds the inspecting AGENT about a report whose signing window is about to close, or
  * has closed, with someone still to sign. Idempotent and catch-up safe; never contacts a tenant or landlord; changes nothing on
  * the inspection. All rules live in RentalInspectionSigningReminderService.
  */

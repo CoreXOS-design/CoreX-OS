@@ -26,7 +26,7 @@ use Tests\Feature\RentalInspections\Concerns\BuildsSigningFixture;
 use Tests\TestCase;
 
 /**
- * .ai/specs/rental-inspections.md §51 — the decisions taken while Johan was away, one test per rule: each one at its
+ * .ai/specs/rental-inspections.md §52 — the decisions taken while Johan was away, one test per rule: each one at its
  * recommended default, each one switchable by the agency, each one undone by switching the setting back.
  */
 final class RentalInspectionDefaultsTest extends TestCase

@@ -167,6 +167,9 @@
         @include('corex.rental-applications._record-withdrawn', ['application' => $rentalApplication])
         @else
             <span class="ds-badge ds-badge-info">{{ $rentalApplication->displayStatusLabel() }}</span>
+            @permission('rental_applications.create')
+                @include('corex.rental-applications._record-withdrawn', ['application' => $rentalApplication])
+            @endpermission
         @endif
 
         @if($rentalApplication->status === 'approved')

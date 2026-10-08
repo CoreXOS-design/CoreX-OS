@@ -196,7 +196,7 @@ class FicaController extends Controller
             'agency_id'        => $agencyId,
             'requested_by'     => Auth::id(),
             'token'            => Str::random(64),
-            'token_expires_at' => now()->addDays(14),
+            'token_expires_at' => now()->addDays(\App\Services\Compliance\FicaWindows::linkExpiryDays((int) $agencyId)),
             'status'           => 'draft',
         ]);
 
@@ -614,7 +614,7 @@ class FicaController extends Controller
             'risk_rating'          => $validated['risk_rating'],
             'verified_by'          => Auth::id(),
             'verified_at'          => now(),
-            'fica_expires_at'      => now()->addMonths(24),
+            'fica_expires_at'      => now()->addMonths(\App\Services\Compliance\FicaWindows::validityMonths((int) $submission->agency_id)),
             'co_verified_by'       => Auth::id(),
             'co_verified_at'       => now(),
             'co_verification_data' => $coChecklistData,
@@ -851,7 +851,7 @@ class FicaController extends Controller
             'status'           => 'corrections_requested',
             'reviewer_notes'   => $validated['reviewer_notes'],
             'token'            => Str::random(64),
-            'token_expires_at' => now()->addDays(14),
+            'token_expires_at' => now()->addDays(\App\Services\Compliance\FicaWindows::linkExpiryDays((int) $submission->agency_id)),
         ]);
 
         if ($submission->contact && $submission->contact->email) {
@@ -875,7 +875,7 @@ class FicaController extends Controller
 
         $submission->update([
             'token'            => Str::random(64),
-            'token_expires_at' => now()->addDays(14),
+            'token_expires_at' => now()->addDays(\App\Services\Compliance\FicaWindows::linkExpiryDays((int) $submission->agency_id)),
         ]);
 
         FicaResendLog::create([

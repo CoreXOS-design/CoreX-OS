@@ -338,6 +338,8 @@ class OwnerFaultScreenTest extends TestCase
         ]);
         $wo = $fault->fresh()->workOrder;
 
+        $this->assertSame('owner_decided', $this->progress($fault->fresh())['current'], 'not sent to the contractor until the office sends it');
+        $wo->forceFill(['status' => RentalWorkOrder::STATUS_ORDERED, 'ordered_at' => now()])->save();
         $this->assertSame('Sent to contractor for scheduling', $this->progress($fault->fresh())['current_label']);
         app(RentalWorkOrderService::class)->setAppointment($wo, now()->addDays(2)->setTime(8, 0), null, $this->agent);
         $step = collect($this->progress($fault->fresh())['steps'])->firstWhere('key', 'appointment_set');

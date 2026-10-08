@@ -54,7 +54,7 @@
                         <select x-model="faultForm.handled_by">
                             <option value="">Choose…</option>
                             <option value="own">My own contractor</option>
-                            <option value="list" :hidden="!faultDetail.contractors.length" :disabled="!faultDetail.contractors.length">A contractor from my agent's list</option>
+                            <option value="list" :hidden="!faultDetail.contractors.length" :disabled="!!(!faultDetail.contractors.length)">A contractor from my agent's list</option>
                             <option value="agency">My agent arranges it</option>
                         </select>
                         <p class="muted" x-show="!faultDetail.contractors.length">Your agent has no contractor on file for this type of work yet. You can use your own, or ask your agent to arrange it.</p>
@@ -79,7 +79,7 @@
                     </div>
                 </template>
                 <p class="error" x-show="faultForm.error" x-text="faultForm.error"></p>
-                <button class="btn btn-ok" :disabled="faultForm.busy || !faultForm.decision" @click="submitFaultDecision()">Send my decision</button>
+                <button class="btn btn-ok" :disabled="!!(faultForm.busy || !faultForm.decision)" @click="submitFaultDecision()">Send my decision</button>
             </div>
         </template>
         <button class="btn btn-outline" @click="faultDetail = null">Close</button>

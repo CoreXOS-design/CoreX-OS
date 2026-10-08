@@ -1499,6 +1499,18 @@
     ],
     "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
   },
+  "corex.buyer-notes.show": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "Not a page: the read-only buyer-notes FRAGMENT (JSON for a popup) opened from a button in the Core Matches popup and the property Intelligence tab (Buyer Interest Signals) \u2014 see resources/views/corex/core-matches/index.blade.php and corex/properties/show.blade.php. It has no screen of its own, so there is nothing for the sidebar to point at; access is the buyer_notes.view Role Manager data scope (own / branch / agency)."
+  },
+  "settings.prospecting.address-matching.edit": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "A Settings sub-page, reached from Settings \u2192 Prospecting (resources/views/settings/prospecting/index.blade.php) and from the admin address-review list \u2014 exactly like its siblings settings.prospecting.duplicate-rules.edit and stale-rules.edit, none of which has a sidebar item. Admin-only match-strictness settings, deliberately not in the Setup Wizard (spec .ai/specs/structured-address-matching.md \u00a710)."
+  },
   "settings.prospecting.duplicate-rules.edit": {
     "flags": [
       "NO_ITEM"

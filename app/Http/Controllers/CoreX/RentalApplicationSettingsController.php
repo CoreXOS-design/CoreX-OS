@@ -275,8 +275,20 @@ class RentalApplicationSettingsController extends Controller
             ->with('documentType')
             ->get();
 
+        // Rentals front-half decisions (8 Oct 2026) - the six application-side switches and their recent audit trail.
+        $frontHalf = [
+            'allow_manual_link_share' => RentalApplicationQualifyingSetting::allowManualLinkShareFor($agencyId),
+            'notify_agents_on_application_returned' => RentalApplicationQualifyingSetting::notifyAgentsOnApplicationReturnedFor($agencyId),
+            'notify_authoriser_on_hand_over' => RentalApplicationQualifyingSetting::notifyAuthoriserOnHandOverFor($agencyId),
+            'prefill_lease_from_application' => RentalApplicationQualifyingSetting::prefillLeaseFromApplicationFor($agencyId),
+            'allow_withdraw_after_approval' => RentalApplicationQualifyingSetting::allowWithdrawAfterApprovalFor($agencyId),
+            'invite_policy_sentence' => RentalApplicationQualifyingSetting::invitePolicySentenceFor($agencyId),
+        ];
+        $recentFrontHalfChanges = \App\Models\RentalSettingAuditEntry::where('agency_id', $agencyId)
+            ->whereIn('setting_key', array_keys($frontHalf))->with('user')->latest('id')->limit(5)->get();
+
         return view('corex.settings.rental-applications', compact(
-            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'approvalMode', 'rentAboveApprovedMode', 'requireChecklistComplete', 'fieldRegistry', 'requiredFieldKeys', 'hiddenFieldKeys', 'fieldLabelOverrides', 'fieldHelpTextOverrides', 'fieldOrder', 'fieldSections', 'maritalStatusOptions', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'identityGateEnabled', 'identityGateOtpLength', 'identityGateOtpExpiryMinutes', 'identityGateAttemptMax', 'identityGateAttemptWindowMinutes', 'identityGateResendCooldownSeconds', 'identityGateUnreachableByDesign', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'activeCustomFields', 'retiredCustomFields', 'validityDefaults', 'validityOverrides', 'creditBureauName', 'tenantedLabel'
+            'frontHalf', 'recentFrontHalfChanges', 'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'approvalMode', 'rentAboveApprovedMode', 'requireChecklistComplete', 'fieldRegistry', 'requiredFieldKeys', 'hiddenFieldKeys', 'fieldLabelOverrides', 'fieldHelpTextOverrides', 'fieldOrder', 'fieldSections', 'maritalStatusOptions', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'identityGateEnabled', 'identityGateOtpLength', 'identityGateOtpExpiryMinutes', 'identityGateAttemptMax', 'identityGateAttemptWindowMinutes', 'identityGateResendCooldownSeconds', 'identityGateUnreachableByDesign', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'activeCustomFields', 'retiredCustomFields', 'validityDefaults', 'validityOverrides', 'creditBureauName', 'tenantedLabel'
         ));
     }
 
@@ -996,6 +1008,102 @@ class RentalApplicationSettingsController extends Controller
      * threshold; see RentalApplicationQualifyingSetting::PROPERTY_LOCKED_STATUSES
      * for exactly what "locked" covers and why.
      */
+    /**
+     * Rentals front-half decisions (8 Oct 2026, built while Johan was away; spec rental-applications.md "Front-half
+     * decisions"). ONE narrow saver for the six application-side switches below. Every field is has()-guarded: this is
+     * also a Setup Wizard saver, and a step that posts a subset must never reset a setting it did not render
+     * (agency-onboarding-setup.md section 6.1). Each real change is written to the settings audit.
+     *
+     *   allow_manual_link_share, notify_agents_on_application_returned, notify_authoriser_on_hand_over,
+     *   prefill_lease_from_application, allow_withdraw_after_approval   toggles
+     *   invite_policy_sentence                                          text ('' = say nothing)
+     */
+    public function updateFrontHalfDefaults(Request $request)
+    {
+        // The Setup Wizard calls this method directly, so the permission is checked here as well as on the route.
+        abort_unless($request->user()?->hasPermission('rental_applications.manage_settings'), 403);
+
+        $request->validate(['invite_policy_sentence' => ['nullable', 'string', 'max:' . RentalApplicationQualifyingSetting::INVITE_POLICY_SENTENCE_MAX]]);
+
+        $agencyId = (int) $request->user()->effectiveAgencyId();
+        $bools = [
+            'allow_manual_link_share' => RentalApplicationQualifyingSetting::allowManualLinkShareFor($agencyId),
+            'notify_agents_on_application_returned' => RentalApplicationQualifyingSetting::notifyAgentsOnApplicationReturnedFor($agencyId),
+            'notify_authoriser_on_hand_over' => RentalApplicationQualifyingSetting::notifyAuthoriserOnHandOverFor($agencyId),
+            'prefill_lease_from_application' => RentalApplicationQualifyingSetting::prefillLeaseFromApplicationFor($agencyId),
+            'allow_withdraw_after_approval' => RentalApplicationQualifyingSetting::allowWithdrawAfterApprovalFor($agencyId),
+        ];
+
+        $data = [];
+        foreach ($bools as $key => $old) {
+            if ($request->has($key)) {
+                $data[$key] = $request->boolean($key);
+            }
+        }
+        $oldSentence = RentalApplicationQualifyingSetting::invitePolicySentenceFor($agencyId);
+        if ($request->has('invite_policy_sentence')) {
+            $data['invite_policy_sentence'] = trim((string) $request->input('invite_policy_sentence', ''));
+        }
+
+        if ($data !== []) {
+            RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $agencyId], $data);
+
+            $source = str_contains((string) $request->route()?->getName(), 'agency-setup') ? 'wizard' : 'settings';
+            foreach ($bools as $key => $old) {
+                if (array_key_exists($key, $data)) {
+                    \App\Models\RentalSettingAuditEntry::record($agencyId, $request->user(), $key, $old, $data[$key], $source);
+                }
+            }
+            if (array_key_exists('invite_policy_sentence', $data)) {
+                \App\Models\RentalSettingAuditEntry::record($agencyId, $request->user(), 'invite_policy_sentence', $oldSentence, $data['invite_policy_sentence'], $source);
+            }
+        }
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Application hand-off settings saved.');
+    }
+
+    /**
+     * Rentals front-half decision D6 (8 Oct 2026): the decline email's wording, reachable from the Setup Wizard. Unlike
+     * updateDeclineEmail() (the settings page: both fields always posted, blank = back to the suggested default) this is
+     * has()-guarded per field - a wizard step that did not render a field can never reset it (onboarding spec section 6.1).
+     * Saving a value identical to the suggested default stores nothing (so the agency keeps following any future default).
+     * Audited like the other front-half settings.
+     */
+    public function updateDeclineEmailWording(Request $request)
+    {
+        abort_unless($request->user()?->hasPermission('rental_applications.manage_settings'), 403);
+
+        $validated = $request->validate([
+            'decline_email_subject' => ['nullable', 'string', 'max:500'],
+            'decline_email_body' => ['nullable', 'string', 'max:10000'],
+        ]);
+
+        $agencyId = (int) $request->user()->effectiveAgencyId();
+        $current = RentalApplicationDeclineEmailSetting::forAgency($agencyId);
+        $updates = [];
+        foreach (['decline_email_subject' => ['subject', RentalApplicationDeclineEmailSetting::DEFAULT_SUBJECT], 'decline_email_body' => ['body', RentalApplicationDeclineEmailSetting::DEFAULT_BODY]] as $input => [$column, $default]) {
+            if (! $request->has($input)) {
+                continue;
+            }
+            $value = trim((string) ($validated[$input] ?? ''));
+            $updates[$column] = ($value === '' || $value === trim($default)) ? null : $value;
+        }
+        if ($updates === []) {
+            return redirect()->route('corex.settings.rental-applications.edit');
+        }
+
+        RentalApplicationDeclineEmailSetting::updateOrCreate(['agency_id' => $agencyId], $updates);
+
+        $after = RentalApplicationDeclineEmailSetting::forAgency($agencyId);
+        $source = str_contains((string) $request->route()?->getName(), 'agency-setup') ? 'wizard' : 'settings';
+        foreach (['subject' => 'decline_email_subject', 'body' => 'decline_email_body'] as $column => $key) {
+            \App\Models\RentalSettingAuditEntry::record($agencyId, $request->user(), $key, $current[$column], $after[$column], $source);
+        }
+
+        return redirect()->route('corex.settings.rental-applications.edit')->with('success', 'Decline email wording saved.');
+    }
+
     public function updatePropertyLock(Request $request)
     {
         $agencyId = $request->user()->effectiveAgencyId();

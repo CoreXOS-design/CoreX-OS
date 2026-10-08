@@ -257,6 +257,13 @@ agency, so the visible count is ≤ 13.
 These were built and then removed on Johan's call. They are out of scope by decision, not
 by oversight — do not reinstate them without asking:
 
+- **`lease_settings.default_pre_let_status` — "the status that means back on the market"** (2026-10-08, qa1-cc2, **pending
+  Johan's confirmation**). It is a pick from the agency's OWN property statuses, which a wizard control cannot list (wizard
+  `options` are static config; a closure would break `config:cache`). It is on Settings → Leases, default `active`, valid for
+  every agency. Its three sibling switches (`auto_readvertise_on_notice`, `auto_restore_status_on_lease_ended`,
+  `auto_restore_status_on_lease_cancelled`) ARE in the `leases` step. If Johan wants the status in the wizard too, the step
+  needs a dynamic `options` source.
+
 - **Portal credentials (P24 / Private Property) and advanced portal settings.** Not an
   onboarding concern. They stay on the agency-edit page. The narrow
   `SettingsController@updatePortalCredentials` saver written for this was removed with them.

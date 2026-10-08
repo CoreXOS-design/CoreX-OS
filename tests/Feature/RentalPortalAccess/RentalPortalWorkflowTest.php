@@ -55,7 +55,7 @@ class RentalPortalWorkflowTest extends TestCase
         $this->lease = Lease::withoutGlobalScopes()->create([
             'agency_id' => $this->agency->id, 'branch_id' => $this->property->branch_id, 'property_id' => $this->property->id,
             'status' => 'active', 'rental_amount' => 9000, 'deposit_amount' => 9000,
-            'start_date' => now()->subMonth(), 'is_month_to_month' => true, 'lease_type' => 'residential', 'source' => 'manual',
+            'start_date' => now()->subMonth(), 'is_month_to_month' => true, 'lease_type' => 'residential', 'source' => 'manual', 'created_by_user_id' => $this->agent->id,
         ]);
 
         $this->tenant = Contact::withoutGlobalScope(AgencyScope::class)->create([

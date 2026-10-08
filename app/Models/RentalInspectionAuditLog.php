@@ -46,7 +46,7 @@ class RentalInspectionAuditLog extends Model
     // §47 — "Edit report" on a signed inspection.
     public const EVENT_REOPENED = 'report_reopened';
     public const EVENT_REPLACED = 'replaced';
-    // §51 — the signing-window reminder to the agent.
+    // §52 — the signing-window reminder to the agent.
     public const EVENT_SIGNING_REMINDER = 'signing_reminder';
 
     /** @var array<string, string> event key => the label the History panel's filter shows */
