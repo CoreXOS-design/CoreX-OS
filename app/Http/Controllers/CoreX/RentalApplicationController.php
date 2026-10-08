@@ -1133,6 +1133,14 @@ class RentalApplicationController extends Controller
         // be the same class of gap as the stale review-URL door closed
         // earlier this week, so this is refused here too, not just hidden
         // from the dropdown (see index/show/view-readonly.blade.php).
+        // The status control is only ever rendered for returned / under_assessment (index, show, view-readonly), so the
+        // server accepts it only from there. An approved or declined application is a final call - the way back is
+        // Reopen (override tier for declined) - and an approved one cannot be flipped to withdrawn from here either
+        // (a UI that merely hides the option while the endpoint accepts it is the same gap, per the withdrawn guard below).
+        if (in_array($from, ['approved', 'declined'], true)) {
+            return back()->withInput()->with('error', "This application already has a decision ({$from}) - it can't be changed from this screen. Use Reopen to bring it back into assessment; that needs a note and is recorded in the audit trail.");
+        }
+
         if ($from === 'withdrawn') {
             return back()->withInput()->with('error', "A withdrawn application can't be changed from this screen — use Reopen (on the row, or on the application's own page) to bring it back into assessment. That requires a note and is recorded in the audit trail.");
         }
@@ -1151,7 +1159,9 @@ class RentalApplicationController extends Controller
             // no scheduled job. If the agent wants the applicant back in,
             // reopen() (already unconditional on token_expires_at, already
             // extends this same token) is the only way back — unchanged.
-            $updates = ['status' => $to];
+            // Moving between returned / under_assessment / withdrawn is never "pending with an authoriser": clear any
+            // stale hand-off marker so the file cannot reappear in the authoriser's queue by itself.
+            $updates = ['status' => $to, 'submitted_for_approval_at' => null];
             if ($to === 'withdrawn') {
                 $updates['token_expires_at'] = now();
             }
@@ -1165,6 +1175,12 @@ class RentalApplicationController extends Controller
                 $validated['note'] ?? null,
             );
         });
+
+        // The contact's cached rental status (RecomputeRentalApplicationStatus) must follow a withdrawal too - it only
+        // listened to submit / approve / decline / reopen, so a withdrawn applicant still read "approved" or "in progress".
+        if ($to === 'withdrawn') {
+            event(new \App\Events\RentalApplication\RentalApplicationWithdrawn($rentalApplication, auth()->id()));
+        }
 
         return back()->with('success', $to === 'withdrawn'
             ? RentalApplication::WITHDRAWN_LABEL . '.'

@@ -143,7 +143,7 @@ class RentalApplicationAuthorisationController extends Controller
         // submitForApproval() itself accepts. Nothing below this gate
         // (approve()/decline() themselves) branches on the mode.
         $oneStepEligible = RentalApplicationQualifyingSetting::approvalModeFor((int) $rentalApplication->agency_id) === 'one_step'
-            && in_array($rentalApplication->status, RentalApplication::POST_RETURN_STATUSES, true);
+            && in_array($rentalApplication->status, RentalApplication::HAND_OFF_STATUSES, true);
 
         abort_unless($rentalApplication->isPendingAuthorisation() || $oneStepEligible, 422, 'This application is not currently awaiting authorisation.');
 
@@ -428,6 +428,15 @@ class RentalApplicationAuthorisationController extends Controller
     ) {
         $decision = $this->guardCanDecide($rentalApplication);
 
+        // One-step agencies skip the hand-off, so the hand-off's checks (unsorted PDFs, the FICA hard stop when the
+        // agency has it on) must run here, or one-step could approve what two-step would have refused.
+        if (! $rentalApplication->isPendingAuthorisation() && ! in_array($rentalApplication->status, ['approved', 'declined'], true)) {
+            $handOffRefusal = \App\Services\RentalApplications\AuthorisationHandOffGate::refusal($rentalApplication);
+            if ($handOffRefusal !== null) {
+                return redirect()->route('corex.rental-applications.review', $rentalApplication)->with('error', $handOffRefusal['error']);
+            }
+        }
+
         // AT-430 §3.6 — Johan: "the checklist does not block approval by
         // default." Off (default) means nothing here changes at all. On
         // means THIS action — approve only, never decline (§3.6: declining
@@ -486,6 +495,9 @@ class RentalApplicationAuthorisationController extends Controller
         $isSubjectToFica = $rentalApplication->ficaOutstanding();
 
         $rentalApplication->status = 'approved';
+        // A new decision always needs telling: a decision flipped after the applicant was notified (declined, sent,
+        // reopened, approved) must not leave "Send approval" permanently refused by the old applicant_notified_at.
+        $rentalApplication->applicant_notified_at = null;
         $rentalApplication->approved_rental_amount = $validated['approved_rental_amount'];
         $rentalApplication->approved_deposit_amount = $validated['approved_deposit_amount'] ?? null;
         $rentalApplication->approved_subject_to_fica_at = $isSubjectToFica ? now() : null;
@@ -585,6 +597,8 @@ class RentalApplicationAuthorisationController extends Controller
 
         $fromStatus = $rentalApplication->status;
         $rentalApplication->status = 'declined';
+        // A new decision always needs telling (see approve()).
+        $rentalApplication->applicant_notified_at = null;
         $rentalApplication->decline_reason_template_id = $template->id;
         $rentalApplication->decline_email_subject = $draft['subject'];
         $rentalApplication->decline_email_body = $draft['body'];
@@ -678,6 +692,8 @@ class RentalApplicationAuthorisationController extends Controller
             $user->isRentalApplicationRO((int) $rentalApplication->agency_id) || $user->isRentalApplicationCO((int) $rentalApplication->agency_id),
             403,
         );
+        // WHICH records, not only WHO may act (own / branch / agency) - guardCanDecide() does this for approve/decline.
+        $this->guardRentalApplication($rentalApplication);
         $this->guardNotSelfApproving($rentalApplication, $user);
         abort_unless($rentalApplication->isPendingAuthorisation(), 422, 'This application is not currently awaiting authorisation.');
 

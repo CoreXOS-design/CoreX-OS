@@ -939,6 +939,10 @@ class RentalApplicationSigningController extends Controller
             $application->fill($fields);
             $application->delivery_mode = 'online';
             $application->status = 'returned';
+            // A new submission needs a new hand-off and a new decision: nothing from the previous round may linger as
+            // "pending authorisation" or "applicant already told".
+            $application->submitted_for_approval_at = null;
+            $application->applicant_notified_at = null;
             $application->submitted_at = now();
             if ($isResubmit) {
                 $application->current_generation = $application->current_generation + 1;

@@ -794,6 +794,7 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\RentalApplication\RentalApplicationApproved::class,
             \App\Events\RentalApplication\RentalApplicationDeclined::class,
             \App\Events\RentalApplication\RentalApplicationReopened::class,
+            \App\Events\RentalApplication\RentalApplicationWithdrawn::class,
         ] as $rentalApplicationEvent) {
             Event::listen($rentalApplicationEvent, \App\Listeners\Contact\RecomputeRentalApplicationStatus::class);
         }

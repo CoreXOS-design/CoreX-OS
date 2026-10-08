@@ -9,6 +9,7 @@ use App\Events\RentalApplication\RentalApplicationApproved;
 use App\Events\RentalApplication\RentalApplicationDeclined;
 use App\Events\RentalApplication\RentalApplicationReopened;
 use App\Events\RentalApplication\RentalApplicationSubmitted;
+use App\Events\RentalApplication\RentalApplicationWithdrawn;
 use App\Models\Contact;
 use App\Models\RentalApplication;
 use Illuminate\Support\Facades\Log;
@@ -32,6 +33,7 @@ final class RecomputeRentalApplicationStatus
             && ! $event instanceof RentalApplicationApproved
             && ! $event instanceof RentalApplicationDeclined
             && ! $event instanceof RentalApplicationReopened
+            && ! $event instanceof RentalApplicationWithdrawn
         ) {
             return;
         }

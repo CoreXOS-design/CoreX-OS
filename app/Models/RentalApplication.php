@@ -157,6 +157,16 @@ class RentalApplication extends Model
     ];
 
     /**
+     * The ONLY statuses an application may be handed to an authoriser from (or approved/declined directly from, in
+     * one-step agencies), and the only ones the agent's own status control moves it out of. approved / declined /
+     * withdrawn are final calls: the one way back is Reopen (override tier for declined / withdrawn, required note,
+     * audited). POST_RETURN_STATUSES above also lists them because it answers a different question ("has this been
+     * submitted at all?") - using it for the hand-off let a crafted POST drag a decided application back into the
+     * authoriser's queue and let one-step mode approve a withdrawn one.
+     */
+    public const HAND_OFF_STATUSES = ['returned', 'under_assessment'];
+
+    /**
      * Reopen/resubmit, 2026-09-08 — the agent's OWN edit form
      * (RentalApplicationController::update()) must stay blocked while an
      * application is 'reopened', same as it's blocked once returned — the
