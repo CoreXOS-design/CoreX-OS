@@ -155,6 +155,12 @@ class LeaseSigningLauncher
             }
         }
 
+        // Rentals front-half decision D8 (agency setting, default on): the same end-date-or-month-to-month rule the capture screen
+        // applies, for a lease that already exists (prepare again, the API).
+        if (\App\Models\LeaseSetting::requireEndOrMonthToMonthForSigningFor((int) $lease->agency_id) && ! $lease->end_date && ! $lease->is_month_to_month) {
+            $gaps[] = ['key' => 'end_date', 'label' => 'An end date, or month-to-month ticked', 'fix_url' => route('corex.leases.show', $lease)];
+        }
+
         // A lease with a service fee needs the letting commission % to work it out.
         $map = app(LeaseAgreementValuesReader::class)->normaliseMap((array) ($agreement->field_map ?? []));
         if ((isset($map['agent_service_fee']) || isset($map['net_to_owner']))

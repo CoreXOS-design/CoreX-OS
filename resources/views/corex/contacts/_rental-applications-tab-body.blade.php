@@ -46,6 +46,12 @@
     $rentalHasFilters = request()->filled('q') || $rentalOutcome !== '' || request()->filled('date_from') || request()->filled('date_to');
 @endphp
 
+@permission('rental_applications.create')
+<div class="flex justify-end" data-test="contact-new-application">
+    <a href="{{ route('corex.rental-applications.create', ['contact_id' => $contact->id]) }}" class="corex-btn-outline text-xs">New rental application</a>
+</div>
+@endpermission
+
 <div class="flex items-center gap-3 flex-wrap">
     <span class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Current status</span>
     <span class="text-xs font-semibold px-2.5 py-1 rounded-md" style="background:{{ $currentStatus['bg'] }}; color:{{ $currentStatus['fg'] }};">

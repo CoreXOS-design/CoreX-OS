@@ -16,6 +16,8 @@ class ClientAuthOtpMail extends Mailable
     public function __construct(
         public string $code,
         public int $expiresMinutes = 10,
+        /** Rentals front-half D11: the agency this sign-in is for, named in the body when it is exactly one. Null = say nothing. */
+        public ?string $agencyName = null,
     ) {}
 
     public function envelope(): Envelope

@@ -4666,6 +4666,15 @@
                     @endif
                 </div>
 
+                @permission('rental_applications.create')
+                @feature('rental-applications')
+                <div class="flex items-center justify-between rounded-md p-3 text-sm" style="background: var(--surface-2); border: 1px solid var(--border);" data-test="property-new-application">
+                    <span style="color: var(--text-muted);">A tenant wants this property?</span>
+                    <a href="{{ route('corex.rental-applications.create', ['property_id' => $property->id]) }}" class="corex-btn-outline text-xs">New rental application</a>
+                </div>
+                @endfeature
+                @endpermission
+
                 {{-- AT-440 Lease Hub — shared rental context bar (leases.md
                      §12.4 / rentals-foundation-at439.md §5), ONE include, no
                      per-screen reimplementation. --}}

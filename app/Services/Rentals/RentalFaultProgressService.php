@@ -89,10 +89,21 @@ class RentalFaultProgressService
                 RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR => 'sent_to_contractor_owner',
                 default => 'sent_to_contractor',
             } : 'sent_to_contractor';
-            $push('sent_to_contractor', $variant, $wo?->created_at, null, null, $wo?->id);
+            // The agency's own contractor is only "sent" when the office actually sends them the work order (after the quote and the
+            // owner's authorisation) - a work order that still waits on a quote or the owner's answer has not been sent to anyone.
+            // The internal crew and the owner's own contractor are engaged from the moment the work order exists. If a later step has
+            // already happened (e.g. an appointment booked early) the hand-over obviously has too.
+            $appt = $wo ? app(RentalWorkOrderClientViewService::class)->appointmentAt($wo) : null;
+            $handedOverAt = null;
+            if ($wo) {
+                $handedOverAt = $wo->assignment_type === RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER
+                    ? ($wo->ordered_at ?? (in_array($wo->status, [RentalWorkOrder::STATUS_ORDERED, RentalWorkOrder::STATUS_IN_PROGRESS, RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_DISPUTED], true) ? $wo->updated_at : null)
+                        ?? ($appt ? ($wo->appointment_set_at ?? $appt) : null))
+                    : $wo->created_at;
+            }
+            $push('sent_to_contractor', $variant, $handedOverAt, null, null, $wo?->id);
 
             // 6 - the appointment: date, time and who is coming.
-            $appt = $wo ? app(RentalWorkOrderClientViewService::class)->appointmentAt($wo) : null;
             $apptDetail = null;
             if ($wo && $appt) {
                 $apptDetail = $appt->copy()->setTimezone($tz)->format('D j M Y, H:i') . ' — ' . $this->whoIsComing($wo, $aud);

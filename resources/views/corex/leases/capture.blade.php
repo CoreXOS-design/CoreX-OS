@@ -33,7 +33,8 @@
     $rentValue = old('rental_amount', $dflt['rental_amount'] ?? ($appDefaults['rental_amount'] ?? null));
     $depositValue = old('deposit_amount', $dflt['deposit_amount'] ?? ($appDefaults['deposit_amount'] ?? null));
     $depositTypedOrCarried = old('deposit_amount') !== null || ($dflt['deposit_amount'] ?? null) !== null;
-    $startValue = old('start_date', $dflt['start_date'] ?? null);
+    $startValue = old('start_date', $dflt['start_date'] ?? ($appDefaults['start_date'] ?? null));
+    $endValue = old('end_date', $appDefaults['end_date'] ?? null);
     $leaseTypeValue = old('lease_type', $dflt['lease_type'] ?? null);
 
     $agreementCount = count($agreements);
@@ -231,7 +232,7 @@
             </div>
             <div class="col-span-2 sm:col-span-1">
                 <label class="prop-label">End date</label>
-                <input type="date" name="end_date" value="{{ old('end_date') }}" x-bind:disabled="monthToMonth" class="prop-input" style="color-scheme: light dark;">
+                <input type="date" name="end_date" value="{{ $endValue }}" x-bind:disabled="monthToMonth" class="prop-input" style="color-scheme: light dark;">
             </div>
         </div>
 

@@ -734,6 +734,13 @@
                 @if($jobCard->worker_signed_off_at && $jobCard->agent_signed_off_at)
                 <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.complete', $jobCard) }}" onsubmit="return confirm('Mark this job card complete?');">
                     @csrf
+                    <label class="text-xs font-medium" for="complete-paid-by">Who pays for this job?</label>
+                    <select id="complete-paid-by" name="paid_by" class="w-full rounded-md px-3 py-2 text-sm mt-1 mb-2" style="border: 1px solid var(--border);">
+                        <option value="owner">Owner</option>
+                        <option value="tenant">Tenant</option>
+                        <option value="deposit_deduction">Deposit deduction</option>
+                        <option value="not_yet_paid">Not yet paid</option>
+                    </select>
                     <button type="submit" class="corex-btn-primary text-xs w-full">Complete job card</button>
                 </form>
                 @endif

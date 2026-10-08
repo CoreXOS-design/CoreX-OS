@@ -858,7 +858,7 @@ class RentalJobCardService
      * a test calling this service directly) gets the same behaviour —
      * never duplicated in a controller.
      */
-    public function complete(RentalJobCard $jobCard, User $by): void
+    public function complete(RentalJobCard $jobCard, User $by, ?string $paidBy = null): void
     {
         // A job card can reach completion without ever having a quote sent
         // (under-threshold internal jobs often won't need one) — freeze VAT
@@ -873,13 +873,15 @@ class RentalJobCardService
         // open) cannot coexist with the reopen-on-dispute rule. The transaction rolls the card's own close
         // back, and the caller (controller / mobile) shows the message.
         try {
-            DB::transaction(function () use ($jobCard, $by) {
+            DB::transaction(function () use ($jobCard, $by, $paidBy) {
                 $jobCard->complete($by);
 
                 $workOrder = $jobCard->workOrder;
                 if ($workOrder && $workOrder->status !== RentalWorkOrder::STATUS_COMPLETED) {
                     $workOrder->complete($by, [
-                        'paid_by' => RentalWorkOrder::PAID_BY_OWNER,
+                        // Who carries the cost is the agent's call at close (owner by default; the tenant for damage, or a deposit
+                        // deduction) - it used to be hard-wired to the owner with no way to say otherwise.
+                        'paid_by' => $paidBy ?: RentalWorkOrder::PAID_BY_OWNER,
                         // VAT-inclusive — the actual amount the owner pays, same
                         // figure the quote/threshold already used.
                         'cost_amount' => $this->vat->inclusiveTotal($jobCard),

@@ -44,11 +44,14 @@ class LeaseAgreementTerms extends Model
         'early_cancellation_notice_unit',
         'early_cancellation_penalty',
         'notice_terms_source',
+        'notice_terms_confirmed_at',
+        'notice_terms_confirmed_by',
         'extra',
         'source',
     ];
 
     protected $casts = [
+        'notice_terms_confirmed_at' => 'datetime',
         'adults' => 'integer',
         'max_other_persons' => 'integer',
         'escalation_percent' => 'decimal:2',

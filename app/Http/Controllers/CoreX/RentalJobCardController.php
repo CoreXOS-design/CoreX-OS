@@ -767,8 +767,15 @@ class RentalJobCardController extends Controller
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
+        $validated = $request->validate([
+            'paid_by' => ['nullable', 'in:' . implode(',', [
+                \App\Models\RentalWorkOrder::PAID_BY_OWNER, \App\Models\RentalWorkOrder::PAID_BY_TENANT,
+                \App\Models\RentalWorkOrder::PAID_BY_DEPOSIT_DEDUCTION, \App\Models\RentalWorkOrder::PAID_BY_NOT_YET_PAID,
+            ])],
+        ]);
+
         try {
-            $service->complete($rentalJobCard, $request->user());
+            $service->complete($rentalJobCard, $request->user(), $validated['paid_by'] ?? null);
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_job_card' => $e->getMessage()]);
         }

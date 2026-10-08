@@ -1182,6 +1182,21 @@ class RentalApplication extends Model
      * consulted this field. Single choke point so send() and the mailer can
      * never independently drift back out of sync with each other.
      */
+    /**
+     * Rentals front-half decision D15 (8 Oct 2026): an APPROVED application that has no lease yet may be withdrawn (the tenant
+     * walked away between approval and the lease), with a required note. Agency setting `allow_withdraw_after_approval`
+     * (default on). Once a lease exists for it - active or draft - it cannot: the lease is cancelled on the lease screen, and
+     * nothing else moves a decided file.
+     */
+    public function canBeWithdrawnAfterApproval(): bool
+    {
+        if ($this->status !== 'approved' || ! RentalApplicationQualifyingSetting::allowWithdrawAfterApprovalFor($this->agency_id)) {
+            return false;
+        }
+
+        return ! Lease::withoutGlobalScopes()->whereNull('deleted_at')->where('rental_application_id', $this->id)->exists();
+    }
+
     public function recipientEmail(): ?string
     {
         return $this->email ?: $this->contact?->email;

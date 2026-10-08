@@ -39,6 +39,12 @@
             </div>
         @endif
 
+        @if(!empty($leaseNote))
+            <div style="background-color: #fffbeb; border-left: 4px solid #d69e2e; padding: 15px; margin: 20px 0;" data-lease-note>
+                <p style="margin: 0;">{{ $leaseNote }}</p>
+            </div>
+        @endif
+
         @if(!empty($portal))
             <div style="background-color: #f0f9ff; border-left: 4px solid #00b4d8; padding: 15px; margin: 20px 0;" data-portal-block>
                 <p style="margin: 0 0 6px;"><strong>Your CoreX portal</strong></p>

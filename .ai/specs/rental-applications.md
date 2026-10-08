@@ -14940,3 +14940,20 @@ Walking apply -> review -> approve/decline -> lease found these; each is fixed a
 * **Send** refuses a no-recipient application before stamping it sent, and a declined / withdrawn one (link closed on purpose); an expired link is renewed on resend (same token). A draft shows "the link starts working once you send" instead of a link that opens "not available".
 * **Public PDF** follows the form's availability rules (draft / expired / withdrawn links no longer serve the applicant's personal data).
 * **Returned mail** takes the agent to the review screen. **Custom "Additional Questions" answers** now autosave from a real browser (nested `custom_field_values[key]` names are rebuilt before the JSON post).
+
+
+## Front-half decisions (8 Oct 2026, cc3, QA1 - built while Johan was away)
+Johan was offline until Sunday and told the conductor to build the recommended default of every open decision. Each is a **per-agency setting with the recommended value as its default**, **audited** (`rental_setting_audit`: who, which key, from, to, Settings page or Setup Wizard; shown as "Recent changes" on the card), reachable in the **Setup Wizard** (rule 10a), and reversible by switching it off. Permission: the existing `rental_applications.manage_settings` / `leases.manage_settings` (checked inside the saver too, because the wizard calls it directly). Tests: `RentalFrontHalfDecisionsTest`, `LeaseFrontHalfDecisionsTest`, `LeaseCaptureTest` (D8).
+
+| # | Decision (recommended default built) | Setting (default) | Where |
+|---|---|---|---|
+| D1 | The agent hands a no-email applicant the link themselves ("Share the link myself": makes sure the link exists / is renewed, draft -> sent, nothing mailed, history + audit row) | `allow_manual_link_share` (on) | Settings > Rental Applications; wizard |
+| D2 | "New rental application" on a rental property's page and on a contact's Rental tab, pre-filled (ids go through the same scoping as the save; an id the user may not see pre-fills nothing) | none (a button, gated by `rental_applications.create`) | - |
+| D3 | When a tenant submits, an in-app note to the creating agent AND the property's / lease's agents (`LeaseAgentService::faultRecipients`); the creator's e-mail is unchanged | `notify_agents_on_application_returned` (on) + each person's own notification preference (`rental_application.returned`, in-app only) | same |
+| D4 | The authoriser(s) (the RO reviewers, else the CO tier) are told in-app + by e-mail at hand-over; not the person who handed over | `notify_authoriser_on_hand_over` (on) + each person's own preference (`rental_application.handed_over`) | same |
+| D5 | The agency's own sentence in the invite e-mail and the PDF intro (`{agency}` = its name); the invite names the property. Neutral default: **no sentence** for a new agency. Agencies that had already been sending applications keep the wording they were sending (migration data step) as their own editable text | `invite_policy_sentence` (empty) | same |
+| D6 | Decline e-mail subject and wording reachable from the wizard through a has()-guarded saver (saving the suggested default stores nothing); decline reasons appear as a link row | existing decline-email settings; wizard controls `decline_email_subject` / `decline_email_body` | wizard Rentals step |
+| D14 | The lease screen suggests start date and end date (start + the applicant's asked term, minus a day) from the application; approved rows on the list get "Create lease" until a lease exists | `prefill_lease_from_application` (on) | same |
+| D15 | An approved application with **no lease yet** can be withdrawn (note required, history row); refused once any lease exists for it | `allow_withdraw_after_approval` (on) | same |
+
+Not built (kept as is): D7 who signs first / receives the signed mail stays "whoever pressed the button"; D9 leases that go live without a signature get no automatic portal login (the lease-screen button remains; the existing `auto_portal_access_on_signing` governs the signature case); D10 the tenant's Home already shows "Starts <date>" for a signed lease with a future start (a draft is not shown).

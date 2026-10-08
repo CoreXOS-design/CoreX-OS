@@ -6134,6 +6134,28 @@ class SignatureService
         }
     }
 
+    /**
+     * Rentals front-half decision D13 (8 Oct 2026): the tenant / landlord still get their signed lease, and when the lease cannot
+     * go live yet (another lease is still active on the property) the mail carries the agency's one sentence saying so
+     * (LeaseSetting::signedCopyNotLiveNoteFor(), editable, empty = nothing extra). Null for every other document.
+     */
+    private function leaseNotLiveNoteFor(SignatureTemplate $template): ?string
+    {
+        try {
+            $lease = \App\Models\Lease::withoutGlobalScopes()->where('signature_template_id', $template->id)->first();
+            if (! $lease || $lease->status !== \App\Models\Lease::STATUS_DRAFT) {
+                return null;
+            }
+            $note = trim(\App\Models\LeaseSetting::signedCopyNotLiveNoteFor((int) $lease->agency_id));
+
+            return $note !== '' && app(\App\Services\Rentals\LeaseActivationService::class)->blockingLease($lease) ? $note : null;
+        } catch (\Throwable $e) {
+            Log::warning('Not-live note for a signed lease copy failed', ['template_id' => $template->id, 'error' => $e->getMessage()]);
+
+            return null;
+        }
+    }
+
     private function sendCompletionEmails(SignatureTemplate $template, ?array $pdfPaths = null, array $signedDocuments = []): void
     {
         try {
@@ -6221,6 +6243,7 @@ class SignatureService
                     pdfFilename: $clientPdfPath ? $pdfFilename : null,
                     documents: $attachments,
                     portal: $this->leasePortalBlockFor($template, (string) $request->signer_email),
+                    leaseNote: $this->leaseNotLiveNoteFor($template),
                 ))->fromAgent($agent);
 
                 // AT-294 — per-recipient try/catch: a single failed send records

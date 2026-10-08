@@ -493,6 +493,7 @@ class RentalApplicationSigningController extends Controller
     {
         $application = $application->fresh();
         app(RentalApplicationNotifier::class)->notifyAgentOfReturn($application);
+        app(RentalApplicationNotifier::class)->notifyAgentsInApp($application);
 
         // AT-392 — keeps Contact::rental_application_status in sync
         // (App\Listeners\Contact\RecomputeRentalApplicationStatus).

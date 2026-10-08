@@ -3,9 +3,9 @@
 
 @section('corex-content')
 <div class="w-full space-y-5" x-data="rentalApplicationCreate({{ Js::from([
-    'contactId' => old('contact_id', ''),
+    'contactId' => old('contact_id', $oldContact?->id ?? ''),
     'contactName' => $oldContact ? trim($oldContact->first_name . ' ' . $oldContact->last_name) : '',
-    'propertyId' => old('property_id', ''),
+    'propertyId' => old('property_id', $oldProperty?->id ?? ''),
     {{-- Johan, QA1 walk, 2026-09-21 — address first, never the listing's
          marketing title. Same fix as the search results below. --}}
     'propertyLabel' => $oldProperty?->buildDisplayAddress() ?? '',

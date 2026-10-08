@@ -36,6 +36,12 @@ class RentalPortalFaqService
             return [];
         }
 
+        // Nothing unconfirmed is ever stated to a tenant or owner: the notice terms must have been confirmed by an agent against the
+        // signed lease (captured on the lease, or confirmed on the lease card — leases.md §18.7). Until then: no FAQ.
+        if (! app(LeaseNoticeTermsService::class)->isConfirmed($lease)) {
+            return [];
+        }
+
         $agencyId = (int) $lease->agency_id;
         $who = $audience === RentalPortalOverviewService::AUDIENCE_LANDLORD ? 'landlord' : 'tenant';
         $values = $this->values($lease, $agencyId, $who);

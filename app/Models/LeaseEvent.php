@@ -57,6 +57,8 @@ class LeaseEvent extends Model
     public const TYPE_NOTICE_TERMS_CHANGED = 'lease_notice_terms_changed';
     /** leases.md §18.5 — an existing lease's notice terms filled from the agency defaults by `leases:backfill-notice-terms` (reversible). */
     public const TYPE_NOTICE_TERMS_BACKFILLED = 'lease_notice_terms_backfilled';
+    /** leases.md §18.7 — an agent confirmed the notice terms against the signed lease (who, when). */
+    public const TYPE_NOTICE_TERMS_CONFIRMED = 'lease_notice_terms_confirmed';
 
     protected $fillable = [
         'lease_id',
