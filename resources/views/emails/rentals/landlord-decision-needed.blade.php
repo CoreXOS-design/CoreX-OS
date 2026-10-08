@@ -9,7 +9,9 @@
         <p>Dear {{ $recipientName }},</p>
         <p>At {{ $propertyAddress }}, the following needs your decision:</p>
         <p><strong>{{ $title }}</strong></p>
-        <p>Please <a href="{{ $portalUrl }}">log in to your portal</a> to see the details and approve or decline it, and tell us who should handle the repair.</p>
+        <p>Open it to see the details, approve or decline it, and tell us who should handle the repair.</p>
+        <p style="text-align: center; margin: 24px 0;"><a href="{{ $portalUrl }}" style="background-color: #1a365d; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">Review and decide</a></p>
+        <p style="color: #666; font-size: 13px;">You will be asked to sign in first.</p>
     </div>
 </body>
 </html>

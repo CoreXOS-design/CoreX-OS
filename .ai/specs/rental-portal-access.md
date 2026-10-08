@@ -64,7 +64,7 @@ already use — `contact_property.role IN ('landlord', 'lessor')` — never a ha
 duplicated in the portal layer. Sees:
 - **My properties and current tenancy** — occupancy history: tenant NAME and dates only, never ID
   numbers, application documents, payslips, bank statements, or FICA files.
-- **Decisions** — fault reports awaiting the owner-approval route, and work-order quotes over the
+- **Decisions** *(no longer a tab — see §24: a fault's decision is on the fault under Faults; a work order's quote / extra-work decision is on that work order under Work orders)* — fault reports awaiting the owner-approval route, and work-order quotes over the
   spend limit. Approve / Decline / "I'll handle it myself" (note required) on a fault report drives
   `RentalFaultReport::recordApproval()` — widened this ticket to accept `User|Contact` (a landlord's
   own click is the evidence now, `evidence_type='portal'`, `recorded_by_contact_id` set,
@@ -657,3 +657,25 @@ The owner's portal Faults / Decisions tabs show a fault only after the agent has
 ## 23. The owner's and tenant's Jobs are WORK ORDERS only; appointment and progress (8 Oct 2026, QA1 — W2/W4/W6)
 
 The portal's Jobs read work orders (`RentalWorkOrderClientViewService`): plain stage (data: `config/rental-work-order-stages.php`), who is doing it, the appointment, the completion rounds and the photos the agency allows. The job card is internal: its portal endpoints are gone and nothing of it (crew names, sign-off, booking) is in the payload. The tenant's fault list/detail carries its linked work order (stage, who, appointment); the tenant is emailed when the appointment is set or changed. The owner's Jobs cards add: set/change the appointment (`POST …/landlord/work-orders/{id}/appointment`), report the work started/finished (`POST …/landlord/work-orders/{id}/progress`; not for the agency's internal crew). Full rules: `rentals-faults-work-orders.md` §16.
+
+---
+
+## 24. Owner portal: no Decisions tab; Faults then Work orders; why an owner saw no tabs (8 Oct 2026, QA1 — Johan's 16:30 test + 16:32 ruling)
+
+**Why the owner (ClientUser #30) saw no Decisions tab at all.** Every landlord/tenant call goes through `ResolvesPortalContact::resolvePortalContact()`, which answered **409 "Select an agency first."** whenever `client_users.current_agency_id` was NULL; with every call 409 the shell's `detectRoles()` found no role and drew no tabs. The login had been created by the lease "send portal link" path (`RentalPortalAccessService::attach()`), which never set `current_agency_id`. **Fixed twice:** `attach()` now creates the login IN its agency, and `resolvePortalContact()` adopts (and saves) the agency when a login has none and is linked to exactly ONE agency (or is locked to one) — the same rule the sign-in endpoints use. A login linked to several agencies still gets the 409 and must pick one.
+
+**Tabs.** Owner: Home · Faults · Work orders · Properties · Documents. Tenant: Home · Faults · Work orders · … There is **no Decisions tab**. Faults and Work orders carry a red count when something needs the owner (fault awaiting the owner's decision; work-order quote or extra-work approval waiting) and the tenant's Work orders a count of completion checks waiting. Counts are loaded at sign-in.
+
+**What moved off the Decisions tab (and where it is now):**
+| Was on Decisions | Now |
+|---|---|
+| Fault awaiting the owner's decision | On the **fault** (Faults tab): "Needs your decision" banner, the agent's version, approve / decline-with-reason, contractor route. Home's "decisions waiting" link opens Faults. |
+| Work-order **quote** approval (Approve / Decline) | On that **work order's card** (Work orders tab), "Needs your decision". |
+| **Extra work** (variation) approval | On the **work order's card** it belongs to (`variationsFor(w.id)`); same approve / decline-with-note. |
+The `GET …/landlord/decisions` endpoint is unchanged (the shell reads it for the counts and to place the quote / variation cards); nothing server-side about the decisions themselves changed.
+
+**Email deep link.** The owner "A decision is needed" mail's button (“Review and decide”) opens `/portal?fault=<id>&email=<owner address>` — sign-in first, then straight onto that fault with the decision controls (the link forces the owner role for that visit, since one login can be both tenant and owner). A work-order decision mail opens the portal, where the card is on the work order.
+
+**Agent-reported faults** are invisible to the owner (list, detail → 404, no email) until "Save and send to owner"; the one mail then carries the fault link. Proven in `OwnerFaultScreenTest`.
+
+**Tests:** `tests/Feature/RentalFaultFlow/OwnerFaultScreenTest.php`.

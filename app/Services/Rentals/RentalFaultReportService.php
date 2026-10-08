@@ -58,23 +58,28 @@ class RentalFaultReportService
      */
     private function notifyCreated(RentalFaultReport $faultReport): void
     {
-        $property = $faultReport->property()->with('agent')->first();
-        if (!$property || !$property->agent_id || !$property->agent) {
+        $property = $faultReport->property()->withoutGlobalScopes()->first();
+        if (! $property) {
             return;
         }
 
-        app(NotificationDispatcher::class)->fire(
-            $property->agent,
-            'rental_fault_report.created',
-            $faultReport,
-            [
-                'title' => 'Fault reported — ' . ($property->buildDisplayAddress() ?: $property->title ?: ('Property #' . $property->id)),
-                'body' => $faultReport->title,
-                'action_url' => route('corex.rental-fault-reports.show', $faultReport->id),
-                'severity' => 'info',
-                'threshold_hit_at' => now(),
-            ]
-        );
+        // Fault flow (8 Oct 2026): the lease's tenant-side AND owner-side agents (once each), else the property's agent, else the
+        // branch manager / office admin / agency admin - a fault is never reported to nobody. Same event, same per-agent settings.
+        $recipients = app(LeaseAgentService::class)->faultRecipients($faultReport->lease, $property, (int) $faultReport->agency_id);
+        foreach ($recipients as $user) {
+            app(NotificationDispatcher::class)->fire(
+                $user,
+                'rental_fault_report.created',
+                $faultReport,
+                [
+                    'title' => 'Fault reported — ' . ($property->buildDisplayAddress() ?: $property->title ?: ('Property #' . $property->id)),
+                    'body' => $faultReport->title,
+                    'action_url' => route('corex.rental-fault-reports.show', $faultReport->id),
+                    'severity' => 'info',
+                    'threshold_hit_at' => now(),
+                ]
+            );
+        }
     }
 
     /**

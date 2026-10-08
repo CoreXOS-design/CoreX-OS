@@ -25,14 +25,20 @@ class RentalLandlordDecisionNeededMail extends Mailable implements ShouldQueue
     public string $title;
     public string $portalUrl;
 
-    public function __construct(public RentalFaultReport|RentalWorkOrder $decisionSubject, string $recipientName)
+    public function __construct(public RentalFaultReport|RentalWorkOrder $decisionSubject, string $recipientName, ?string $recipientEmail = null)
     {
         $this->onQueue('mail');
         $this->recipientName = $recipientName ?: 'there';
         $this->propertyAddress = $decisionSubject->property?->buildDisplayAddress() ?: ('Property #' . $decisionSubject->property_id);
         // Fault flow F2: the owner is only ever told the agent's sanitised wording, never the tenant's original.
         $this->title = $decisionSubject instanceof RentalFaultReport ? $decisionSubject->ownerVersion()['title'] : $decisionSubject->title;
-        $this->portalUrl = url('/portal');
+        // The button opens THAT fault with its decision controls (after sign-in): /portal?fault=<id>, with the owner's own address
+        // pre-filled on the sign-in. (A work-order decision lands on the portal home, where it is on the work order.)
+        $query = $decisionSubject instanceof RentalFaultReport ? ['fault' => $decisionSubject->id] : [];
+        if ($recipientEmail) {
+            $query['email'] = $recipientEmail;
+        }
+        $this->portalUrl = url('/portal') . ($query ? '?' . http_build_query($query) : '');
     }
 
     public function envelope(): Envelope
