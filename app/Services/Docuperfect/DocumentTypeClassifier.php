@@ -9,10 +9,9 @@ use App\Models\Docuperfect\DocumentType;
 /**
  * What IS this document? — the canonical classification.
  *
- * This exists because of a legal control. `Template::isEsignBlocked()` blocks alienation
- * documents from e-signing under ECTA §13(1) (a sale e-signed is VOID), and its FIRST and
- * strongest layer reads the template's `document_type` slug. That layer works — five live OTPs
- * are blocked by it today.
+ * This exists because of a legal control: the e-sign legal warning attaches to a template through its
+ * `document_type` (`document_types.esign_warning_required`), so a template that is classified
+ * keeps the warning whatever it is renamed. Unclassified templates are matched to a type by name.
  *
  * The hole was never the layer. It was that **nothing ever classified a template**:
  *   - the importer created every document with `document_type_id = null`;
@@ -20,11 +19,11 @@ use App\Models\Docuperfect\DocumentType;
  *     Estate" — a deed of alienation whose only protection was a name regex.
  *
  * An unclassified sale is protected by what it is CALLED. A classified sale is protected by
- * what it IS — rename it and it stays blocked. That is the whole point of this class.
+ * what it IS — rename it and it keeps the warning. That is the whole point of this class.
  *
  * Deliberately conservative: it returns null rather than guess. A wrong classification on a
- * legal control is worse than none, because none still falls through to the name regex, while
- * a wrong one can mark a sale "mandate" and unblock it.
+ * legal control is worse than none, because none is still matched to a type by name, while
+ * a wrong one can mark a sale "mandate" and drop its warning.
  */
 class DocumentTypeClassifier
 {

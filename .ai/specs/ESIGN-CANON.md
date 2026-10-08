@@ -1,5 +1,7 @@
 # ESIGN-CANON — the governing doctrine of CoreX e-signature
 
+> **Amended 2026-10-08 (Johan's ruling, lane cc3):** §7 — whether a document can be e-signed is **the template's own setting**, for every document type alike. There is **no hard block** on sale agreements / OTPs / deeds: the guard is template setup; for the document types flagged `document_types.esign_warning_required` the **admin** acknowledges a legal warning **in template setup only**, it is recorded, and **nothing about it is ever shown to an agent**. Johan: *"as CoreX the guard is from template setup, and that's where it stays. If an agency chooses to do electronic sales agreements then that's their call. We will warn them of it, but we do not hard block it. And when the law changes it's a mere tick, not recoding."* All stated below as the canon AND as what the code does. The e-sign acknowledgement lives in `App\Services\Docuperfect\EsignAcknowledgementService`.
+
 > **Status: CANON (Johan's order, 2026-07-15). This document governs all e-sign content and
 > behaviour work. Where any other spec, blade, or service disagrees with a ruling below, this
 > document wins and the code is the defect.**
@@ -32,8 +34,7 @@ it is dormant — the live documents take the legacy path.* Read every "CONFORMS
 **Legal foundation** (`esign-v3-complete-spec.md` §2): ECTA s13 gives an e-signature wet-ink weight
 **except** s13(1) exclusions (alienation of land, wills, bills of exchange). Alienation of Land Act
 68/1981 s2(1) requires alienation to be in writing and signed. → **The e-sign estate = mandates,
-marketing permissions, FICA, disclosures, addenda, leases < 10 years. Sale/OTP/alienation = wet-ink
-only.**
+marketing permissions, FICA, disclosures, addenda, leases < 10 years. Sale/OTP/alienation: e-sign is the template's own setting (default wet ink; admin-acknowledged warning to switch it on) — see §7.**
 
 ---
 
@@ -203,26 +204,18 @@ from splitter stays.*
 
 ## §7 — WET-INK BOUNDARY (sale/alienation never e-sign)
 
-**THE LAW (ruling 7):** *Sale/alienation agreements NEVER e-sign (Alienation of Land Act / ECTA s13(1)) —
-mandates, disclosures, FICA, leases < 10y are the e-sign estate.*
+**THE LAW (ruling 7, AMENDED 2026-10-08 — Johan's ruling and same-day correction, relayed by the conductor; the quote above is verbatim, the wording below is a paraphrase):** *Whether a document is e-signed, wet-ink or download-only is decided by the template's own setting (`is_esign`, `allowed_delivery_modes`) and respected as set, for every document type alike. There is no hard block. For the document types flagged as sale documents the **admin** is warned — once, in template setup, at the moment e-signing is switched ON — must acknowledge it, and the acknowledgement (who, when, which template) is recorded. The warning appears in no other place: nothing for agents — not on the template, the send-for-signature screen, the wizard, the document, mail or the signing page.* Which types trigger the warning is **data** (a flag on the document type), so that when the law changes it is switched off with a tick, not recoding.
 
-**CONFORMANCE — CONFORMS at the binding (signing) gate; verify the pack-flow wizard entry.**
+**CONFORMANCE — what the code does (CONFORMS):**
 
-- **CONFORMS** — `Template::isEsignBlocked()` (`app/Models/Docuperfect/Template.php:331-359`) blocks
-  `otp, sale_agreement, deed_of_sale, deed_of_alienation, offer_to_purchase` via slug + template_type +
-  name-regex, and writes a `LegalBlockAuditLog` row. Enforced **at signing time**
-  (`SigningController.php:184` forces `wet_ink` + redirects to the wet-ink portal) and at wizard entry
-  (`ESignWizardController.php:138,1496`); `getEffectiveDeliveryModes()` strips `esign` from blocked templates
-  (`:403-425`). Mandates/disclosures/FICA/leases are not in the blocklist → remain e-sign eligible. This
-  **post-dates and largely closes** the July-11 gap-analysis legal hole (AT-254 `8812f92b` consolidated the
-  OTP slug into this blocklist).
-- **Residual to verify:** gap analysis C2 found the *wizard `store()`* hard block scoped to single templates
-  (`!$isPackFlow && !$pdfPackId`) — so a sale/OTP **inside a web pack** may pass the wizard entry. The
-  **signing-time** check (`SigningController.php:184`) is per-document and catches it before any mark is made,
-  so the net exposure is closed at the mark; but the pack-flow wizard-entry block should be confirmed/closed
-  for defence-in-depth (a blocked doc should never *enter* an e-sign pack flow, not merely be stopped at sign).
-
----
+- **Template setting respected:** `Template::allowsDeliveryMode()` / `getEffectiveDeliveryModes()` read `allowed_delivery_modes`.
+- **The flag is data:** `document_types.esign_warning_required`, set by migration for `otp`, `offer_to_purchase`, `sale_agreement`, `deed_of_sale`, `deed_of_alienation` and on create by `DocumentTypesCatalogueSeeder` (never re-asserted on a sync). CoreX owner-role users switch it per type on Document Types settings. An unclassified template is matched to a document type by name (`DocumentTypeClassifier`) and follows that type's flag. The old hard-coded slug list and name regex in `Template::isEsignBlocked()` are **gone**.
+- **Defaults unchanged:** a template of a flagged type stays wet-ink for every agency, existing and new; nothing flips by itself. `Template::booted()` stores `is_esign = false` for a flagged template that carries no recorded acknowledgement, whoever the writer is; e-sign delivery for it (`esignAwaitingAcknowledgement()`) is unavailable until an admin switches it on.
+- **Warning + acknowledgement, template setup only:** the PDF template editor and the CDS builder show the warning (`public/js/esign-acknowledgement-modal.js`, wording in `config/esign-acknowledgement.php`) when e-signing is switched ON for a flagged type and require the tick before the save; the server (`EsignAcknowledgementService::resolveRequest()`, used by `TemplateController::saveFields()` and `cdsGenerate()`) refuses a missing acknowledgement with `422 esign_ack_required`. Permission: the existing `manage_templates`.
+- **Audit:** `template_esign_acknowledgements` (insert-only) records `enabled`/`disabled` with user, template, document type, the exact wording and its version; the template carries `esign_acknowledged_by_*`/`_at`, visible to admins in template setup only. Switching off clears it; switching on again needs a new acknowledgement; a copy starts wet-ink.
+- **Agents see nothing:** an agent who reaches a flagged template nobody switched on is told only that the template is not set up for e-signing. `tests/Feature/Docuperfect/SigningView/EsignAcknowledgementTest` fails the build if any other view/script references the warning or the record.
+- **Held CDS compiler (not live):** its compile-time linter L7 / `LegalClass::forbidsEsign()` still rejects an alienation-class template with `web_esign`. That subsystem is not deployed and not wired to any live path; it is **not** changed here and must be aligned to this section (the flag, not a class constant) before it is activated.
+- **Residual (unchanged):** a web pack's slots are resolved server-side and each resolved template must have `is_esign` on (`WebPackSlotResolver::assertEsignable()`); for a flagged type that now means an admin has switched it on.
 
 ## §8 — DIVERGENCE TABLE (for Johan)
 
@@ -237,10 +230,10 @@ mandates, disclosures, FICA, leases < 10y are the e-sign estate.*
 | 4 | Disclosure machinery reaches signing | **DIVERGES** | Active flagship disclosures use the bare-table shape, whose converter is "external-only" → inert on the main signing view; gate is JS-only (no server re-validate) | `disclosure-logic.blade.php:11-13`; `external/sign.blade.php:2958`; `SigningController.php:1328-1384` | **HIGH** |
 | 5 | Conditional (binary) rendering | **MISSING** | No conditional tag in the live pipeline; only wired binary mechanism is signing-time strikethrough (the thing to replace); the real primitive is in the held CDS Compiler | `DocumentTemplateGenerator.php:251-287`; `Cds/Condition.php` (held) | **HIGH** |
 | 6 | FICA gate — what lifts it | **DIVERGES** | Gate lifts on `submitted`/`under_review`/`agent_approved`, not only `approved` — an unvetted submission passes | `SigningController.php:125-127` | **HIGH** (compliance) |
-| 7 | Wet-ink boundary | CONFORMS (verify pack) | Blocked at signing time + wizard entry; confirm sale/OTP can't *enter* a web-pack e-sign flow (gap C2) | `Template.php:331-359`; `SigningController.php:184` | LOW (residual) |
+| 7 | E-sign eligibility = template setting (ruling amended 2026-10-08) | **CONFORMS** | Template setting respected for every type; no hard block; flagged types (data) need an admin acknowledgement in template setup, recorded, shown to no agent | `EsignAcknowledgementService`; `Template::booted()`; `TemplateController::saveFields()/cdsGenerate()` | — (held compiler L7 to align before activation) |
 
 **CONFORMS as-is:** 1c-1e (loop/blocks/roles), 2-injection (company-header + signature-block components),
-3-external-view, 4-master/no-data-field, 6-no-prefill + splitter FICA, 7-signing-gate.
+3-external-view, 4-master/no-data-field, 6-no-prefill + splitter FICA, 7 (template setting; admin acknowledgement for flagged types).
 
 ---
 

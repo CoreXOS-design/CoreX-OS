@@ -1814,10 +1814,43 @@
     // ======================================================================
     // SAVE
     // ======================================================================
+    // True when e-signing is ticked on a template whose (selected) document type carries the
+    // legal warning and nobody has acknowledged it yet. Which types carry it is DATA — the ids
+    // arrive from the server (document_types.esign_warning_required).
+    function esignNeedsAcknowledgement() {
+        var esignEl = document.getElementById('dpEsign');
+        var docTypeEl = document.getElementById('dpDocumentType');
+        if (!esignEl || !esignEl.checked || !docTypeEl || !docTypeEl.value) { return false; }
+        if (C.esignAcknowledged) { return false; }
+        return (C.esignFlaggedTypeIds || []).indexOf(parseInt(docTypeEl.value, 10)) !== -1;
+    }
+
     function save(opts) {
         // The Save button passes a MouseEvent; autosave passes { silent: true }.
         if (opts && typeof opts.preventDefault === 'function') opts = null;
         var silent = !!(opts && opts.silent);
+
+        // E-sign switched ON for a flagged document type (sale agreement, OTP, deed): the admin
+        // acknowledges the legal warning here, in template setup, before the save goes through.
+        // Autosave never prompts — the manual Save does.
+        if (C.mode === 'template' && esignNeedsAcknowledgement()) {
+            if (silent) { return; }
+            if (window.CoreXEsignAck) {
+                window.CoreXEsignAck.confirm(C.esignWarning).then(function (ok) {
+                    if (ok) {
+                        C.esignAcknowledged = true;
+                        save(opts);
+                    } else {
+                        var cb = document.getElementById('dpEsign');
+                        if (cb) { cb.checked = false; cb.dispatchEvent(new Event('change')); }
+                        showToast('E-signing left off - the template stays on wet ink.', 'success');
+                    }
+                });
+            } else {
+                showToast('Could not show the e-signing warning - please reload the page.', 'error');
+            }
+            return;
+        }
 
         var btn = document.getElementById('dpSaveBtn');
         if (btn && !silent) { btn.textContent = 'Saving\u2026'; btn.disabled = true; }
@@ -1837,7 +1870,10 @@
             // 2026-08-24 — is_global is deliberately never sent from this editor.
             // No UI path sets it; see TemplateController::saveFields().
             var esignEl = document.getElementById('dpEsign');
-            if (esignEl) body.is_esign = esignEl.checked;
+            if (esignEl) {
+                body.is_esign = esignEl.checked;
+                body.esign_acknowledged = !!C.esignAcknowledged;
+            }
             var partyModeEl = document.querySelector('input[name="party_mode"]:checked');
             if (partyModeEl) body.party_mode = partyModeEl.value;
             if (docTypeEl) body.document_type_id = docTypeEl.value || null;

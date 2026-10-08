@@ -273,6 +273,8 @@ by oversight — do not reinstate them without asking:
   save). Stays on `Admin\AgencyApiKeyController@toggleWebsite`, reachable from the
   agency's website-settings page. `agencies.website_enabled` and
   `config/corex-features.php`'s `public-website` registry row both still default `false`.
+- **E-sign legal warning flag (`document_types.esign_warning_required`, 2026-10-08).** Which document types ask the admin to acknowledge a legal warning when e-signing is switched on for a template. `document_types` is a platform-wide table shared by every agency (no `agency_id`), switched only by a CoreX owner-role user on Document Types settings — not an agency setting, so the wizard cannot configure it. Recorded as a decision for Johan to confirm (§10a makes the call his, not the lane's). Spec `ESIGN-CANON.md` §7.
+
 
 - **MIC tile-count cache window** (`suggested_action_thresholds.mic_counts_cache_fresh_seconds` /
   `.mic_counts_cache_stale_seconds`, added 2026-08-27). An internal cache-tuning knob, not a

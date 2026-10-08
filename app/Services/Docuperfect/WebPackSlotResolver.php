@@ -174,19 +174,12 @@ final class WebPackSlotResolver
     }
 
     /**
-     * May this document be e-signed, right now, on its own merits?
-     *
-     * `Template::isEsignBlocked()` is the canonical legal predicate (there is no
-     * EsignEligibilityService — the model owns this). The model's `booted()` guard already
-     * refuses to PERSIST is_esign=true on an alienation document, so the two checks agree; this
-     * is the send-time gate that the pack path never had.
+     * May this document be e-signed, right now? Only the template's own setting decides: a
+     * flagged type (sale agreement etc.) cannot be stored with is_esign=true without an admin's
+     * acknowledgement (Template::booted()), so `is_esign` is the whole answer for every template.
      */
     private function assertEsignable(Template $template): void
     {
-        if ($template->isEsignBlocked()) {
-            throw WebPackSlotException::esignBlocked((string) $template->name);
-        }
-
         if (! $template->is_esign) {
             throw new WebPackSlotException(
                 "“{$template->name}” is not enabled for e-signing. Enable it on the template, or remove it from this pack."

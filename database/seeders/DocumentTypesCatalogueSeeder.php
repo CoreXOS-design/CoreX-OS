@@ -45,6 +45,8 @@ class DocumentTypesCatalogueSeeder extends Seeder implements SyncableReferenceSe
      * [slug => [label, sort_order, grouping, contact_roles, fica_slot, buyer_pack_eligible]]
      * contact_roles is stored as JSON; null stays null (no routing role).
      */
+    private const ESIGN_WARNING_SLUGS = ['otp', 'offer_to_purchase', 'sale_agreement', 'deed_of_sale', 'deed_of_alienation'];
+
     private const CATALOGUE = [
         'mandate' => ['Mandate', 1, 'shared', ['seller_owner'], 'none', false],
         'fica' => ['FICA', 2, 'contact', ['seller_owner'], 'fica_form', false],
@@ -110,7 +112,11 @@ class DocumentTypesCatalogueSeeder extends Seeder implements SyncableReferenceSe
                 $type->fill($attrs)->save();
                 $updated++;
             } else {
-                DocumentType::create(array_merge(['slug' => $slug], $attrs));
+                // The legal e-sign warning flag is set on CREATE only and never re-asserted on a
+                // sync, so switching it off (the law changing) is not undone by the next deploy.
+                DocumentType::create(array_merge(['slug' => $slug], $attrs, [
+                    'esign_warning_required' => in_array($slug, self::ESIGN_WARNING_SLUGS, true),
+                ]));
                 $created++;
             }
         }

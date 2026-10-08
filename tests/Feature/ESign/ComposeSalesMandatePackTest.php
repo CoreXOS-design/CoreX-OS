@@ -10,6 +10,7 @@ use App\Models\Docuperfect\Template;
 use App\Models\Docuperfect\WebPack;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\SeedsWetInkDocumentTypes;
 use Tests\TestCase;
 
 /**
@@ -22,12 +23,15 @@ use Tests\TestCase;
 final class ComposeSalesMandatePackTest extends TestCase
 {
     use RefreshDatabase;
+    use SeedsWetInkDocumentTypes;
 
     private Agency $agency;
 
     protected function setUp(): void
     {
         parent::setUp();
+        // The sale-document exclusion reads the document-type flag (data), so the flagged types must exist.
+        $this->seedWetInkDocumentTypes();
         $this->agency = Agency::create(['name' => 'Home Finders Coastal', 'slug' => 'hfc-' . uniqid()]);
         User::factory()->create(['agency_id' => $this->agency->id, 'role' => 'super_admin']);
     }
@@ -172,12 +176,12 @@ final class ComposeSalesMandatePackTest extends TestCase
         $this->assertCount(1, $mandateItems, 'Only the EATS is a mandate; "Mandatory Disclosure" must not be pulled in by name.');
     }
 
-    /** A legally-blocked template (an OTP mis-typed as mandate) is never wired into a candidate pack. */
-    public function test_an_esign_blocked_template_is_excluded(): void
+    /** A sale document (an OTP mis-typed as mandate) is never wired into a mandate candidate pack. */
+    public function test_a_sale_document_is_excluded_from_the_mandate_pack(): void
     {
         $mandate = $this->docType('mandate', 'Mandate');
         $this->template('Exclusive Authority to Sell', $mandate);
-        // Name trips the alienation block regardless of its document_type.
+        // Its NAME classifies it as a sale document (a flagged type) regardless of the document_type it was given.
         $this->template('Offer to Purchase', $mandate);
 
         $this->compose(['--apply' => true]);

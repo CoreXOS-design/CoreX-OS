@@ -123,7 +123,7 @@ A `CompiledTemplate` **cannot be published** unless every rule passes. This gate
 - **L4 — Every conditional / party combination resolves.** Enumerate the party-cardinality × conditional space; each combination must produce a valid, fully-bound render (no dangling block, no unreachable required field).
 - **L5 — Validation coherence.** Each field's validation is the dictionary entry's, optionally tightened, never loosened.
 - **L6 — Web + PDF render-parity diff.** Render every party-combination in web and PDF; a structural diff must pass (same blocks, same bound values, same anchors). Parity hashes are stored on the artifact. (This is the guarantee the three delivery modes never diverge.)
-- **L7 — Legal-mode coherence** (§6.1). A template whose `legal_class` forbids e-sign cannot publish with `web_esign` enabled (Alienation of Land Act §2(1) / ECTA §13(1)). The legal block is a compile-time invariant, not a runtime name-regex.
+- **L7 — Legal-mode coherence** (§6.1). A template whose `legal_class` forbids e-sign cannot publish with `web_esign` enabled (Alienation of Land Act §2(1) / ECTA §13(1)). The legal block is a compile-time invariant, not a runtime name-regex. **NOTE 2026-10-08:** the live product no longer hard-blocks e-signing of sale documents (ESIGN-CANON.md §7: template setting + admin acknowledgement, flag on the document type). This held compiler's L7 / `LegalClass::forbidsEsign()` is NOT live and is unchanged; it must be aligned to ESIGN-CANON §7 (flag, not class constant; warning not error) before the compiler is activated.
 
 Gate output is an auditable **lint report** attached to the version. A failed lint blocks publish with precise, block-addressed errors.
 
@@ -150,7 +150,7 @@ The renderer is a pure function `render(CDS, party, mode) → surface`. Pure ⇒
 
 ### 6.1 Delivery modes are declared **and legally constrained at compile time**
 
-Today `allowed_delivery_modes` is a CSV string (`'esign,wet_ink,download'`) and an `isEsignBlocked()` check strips `esign` at *runtime* via a 4-layer heuristic (slug → template_type → name regex → audit) because **South African law forbids e-signing certain instruments** — Alienation of Land Act 68 of 1981 §2(1) + ECTA 25 of 2002 §13(1) mean an Offer to Purchase / sale agreement **must** be wet-ink. That legal constraint is a **document-class fact**, so it belongs in the compiled artifact, not in a runtime name-regex:
+Today `allowed_delivery_modes` is a CSV string (`'esign,wet_ink,download'`) and an `isEsignBlocked()` check (since REMOVED on 2026-10-08 — see ESIGN-CANON.md §7) stripped `esign` at *runtime* via a 4-layer heuristic (slug → template_type → name regex → audit) because **South African law forbids e-signing certain instruments** — Alienation of Land Act 68 of 1981 §2(1) + ECTA 25 of 2002 §13(1) mean an Offer to Purchase / sale agreement **must** be wet-ink. That legal constraint is a **document-class fact**, so it belongs in the compiled artifact, not in a runtime name-regex:
 
 - The CDS declares `delivery_modes` explicitly, and a **`legal_class`** (e.g. `alienation_of_land`) that the compiler resolves from the document family — not from a fuzzy name match.
 - **Linter rule L7 (legal-mode coherence):** a template whose `legal_class` forbids e-sign **cannot publish with `web_esign` enabled.** The block becomes a compile-time invariant with an audit trail, not a runtime string-strip that could be fooled by a renamed template.

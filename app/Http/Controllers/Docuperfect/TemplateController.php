@@ -13,6 +13,7 @@ use App\Models\Docuperfect\Template;
 use App\Models\Docuperfect\TemplateSignatureZone;
 use Illuminate\Http\Request;
 use App\Services\Docuperfect\CdsRendererService;
+use App\Services\Docuperfect\EsignAcknowledgementService;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -331,8 +332,30 @@ class TemplateController extends Controller
         // must not honor an is_global key even if one arrives some other way (a raw
         // API call, a stale cached form, dev tools), or removing the checkbox would
         // have been cosmetic rather than an actual closure of the platform-wide leak.
+        // E-sign is the template's own setting. For a flagged document type (sale agreement, OTP,
+        // deed) switching it ON needs the admin's acknowledgement of the legal warning — here, in
+        // template setup, and nowhere else. Resolved against the document type being saved NOW.
+        $esignResolution = null;
         if ($request->has('is_esign')) {
-            $data['is_esign'] = $request->boolean('is_esign');
+            $esignResolution = app(EsignAcknowledgementService::class)->resolveRequest(
+                $template,
+                $request->boolean('is_esign'),
+                array_key_exists('document_type_id', $data) ? ($data['document_type_id'] ? (int) $data['document_type_id'] : null) : ($template->document_type_id ? (int) $template->document_type_id : null),
+                (string) ($data['name'] ?? $template->name),
+                $request->boolean('esign_acknowledged'),
+                $user,
+            );
+            $data = array_merge($data, $esignResolution['attributes']);
+        } elseif (array_key_exists('document_type_id', $data) && $template->is_esign
+            && ! $template->esign_acknowledged_at
+            && app(EsignAcknowledgementService::class)->typeRequiresAcknowledgement($data['document_type_id'] ? (int) $data['document_type_id'] : null, (string) $template->name)) {
+            // Re-typing an already e-sign-enabled template as a flagged type is also "turning
+            // e-sign on for a flagged type": it needs the acknowledgement too.
+            $esignResolution = app(EsignAcknowledgementService::class)->resolveRequest(
+                $template, true, $data['document_type_id'] ? (int) $data['document_type_id'] : null,
+                (string) $template->name, $request->boolean('esign_acknowledged'), $user,
+            );
+            $data = array_merge($data, $esignResolution['attributes']);
         }
         if ($request->has('party_mode')) {
             $allowed = ['shared', 'per_party'];
@@ -348,6 +371,8 @@ class TemplateController extends Controller
         if (!empty($data)) {
             $template->update($data);
         }
+
+        $this->recordEsignAcknowledgement($template, $esignResolution, $user);
 
         if ($request->has('allowed_branches')) {
             // The stranding case (empty branches + no agency_id) was already refused
@@ -454,6 +479,11 @@ class TemplateController extends Controller
         $copy->name = $original->name . ' (Copy)';
         $copy->owner_id = $user->id;
         $copy->archived_at = null;
+        // An acknowledgement belongs to the template it was given for. A copy of a flagged
+        // template starts on the wet-ink default until an admin switches e-signing on for it.
+        $copy->esign_acknowledged_by_user_id = null;
+        $copy->esign_acknowledged_by_name = null;
+        $copy->esign_acknowledged_at = null;
         $copy->save();
 
         // Copy branch associations
@@ -747,7 +777,8 @@ class TemplateController extends Controller
             'cds_json' => $draft->cds_json,
             'field_mappings' => $draft->mappings,
             'fields_json' => $this->convertMappingsToFieldsJson($draft->mappings ?? []),
-            'is_esign' => $request->boolean('is_esign', true),
+            // is_esign and the acknowledgement columns are resolved below by
+            // EsignAcknowledgementService (needs the existing template, if any).
             'party_mode' => $request->input('party_mode', 'shared'),
             'allowed_delivery_modes' => $request->input('allowed_delivery_modes', 'esign,wet_ink,download'),
             'security_tier' => $request->input('security_tier', 'enhanced'),
@@ -770,6 +801,20 @@ class TemplateController extends Controller
                 'tagged_html' => $draft->tagged_html,
             ],
         ];
+
+        // E-sign is the template's own setting; switching it ON for a flagged document type
+        // (sale agreement, OTP, deed) needs the admin's acknowledgement, given here in setup.
+        $existingTemplate = $draft->source_template_id ? Template::find($draft->source_template_id) : null;
+        $wantEsign = $request->boolean('is_esign', true);
+        $esignResolution = app(EsignAcknowledgementService::class)->resolveRequest(
+            $existingTemplate,
+            $wantEsign,
+            $templateData['document_type_id'] ? (int) $templateData['document_type_id'] : null,
+            (string) $templateData['name'],
+            $request->boolean('esign_acknowledged'),
+            $user,
+        );
+        $templateData = array_merge($templateData, $esignResolution['attributes']);
 
         if ($draft->source_template_id) {
             $template = Template::findOrFail($draft->source_template_id);
@@ -803,6 +848,8 @@ class TemplateController extends Controller
             $templateData['agency_id'] = $user->effectiveAgencyId();
             $template = Template::create($templateData);
         }
+
+        $this->recordEsignAcknowledgement($template, $esignResolution, $user);
 
         // Contract-driven recipient-loop — stamp `data-role-block`
         // attributes on every block-level ancestor of role-bearing
@@ -1722,6 +1769,27 @@ BLADE;
         }
 
         return $parties->toArray();
+    }
+
+    /**
+     * Write the audit row for an e-sign switch made through template setup: an acknowledgement
+     * when e-signing was switched on for a flagged type, or a "disabled" row when an acknowledged
+     * template had it switched off.
+     *
+     * @param  array{attributes:array,newly_acknowledged:bool,was_acknowledged:bool}|null  $resolution
+     */
+    private function recordEsignAcknowledgement(Template $template, ?array $resolution, $user): void
+    {
+        if ($resolution === null) {
+            return;
+        }
+
+        $service = app(EsignAcknowledgementService::class);
+        if ($resolution['newly_acknowledged']) {
+            $service->recordEnabled($template, $user);
+        } elseif ($resolution['was_acknowledged'] && ! $template->is_esign) {
+            $service->recordDisabled($template, $user);
+        }
     }
 
     /**

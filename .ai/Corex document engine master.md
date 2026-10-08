@@ -72,10 +72,10 @@ precise.
 - Wills and codicils
 - Bills of exchange
 
-CoreX must NEVER allow a sale agreement into the e-sign
-pipeline. Templates flagged as sale agreements are locked
-to wet-ink and download-only delivery modes. This is
-structural — not a warning the agent can click past.
+E-sign eligibility is the template's own setting (ESIGN-CANON.md §7, amended 2026-10-08). The only extra step today: templates
+flagged as sale agreements / OTPs / deeds default to wet ink. There is no hard block: an admin may switch e-signing on in template setup
+after acknowledging a legal warning (shown to the admin there, once, and recorded; never shown to an agent). Which types are flagged is
+data (`document_types.esign_warning_required`). See ESIGN-CANON.md §7.
 
 ---
 

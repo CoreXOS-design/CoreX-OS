@@ -11,7 +11,7 @@ class DocumentType extends Model
 
     protected $table = 'document_types';
 
-    protected $fillable = ['slug', 'label', 'sort_order', 'is_active', 'grouping', 'listing_types', 'contact_roles', 'fica_slot', 'buyer_pack_eligible'];
+    protected $fillable = ['slug', 'label', 'sort_order', 'is_active', 'grouping', 'listing_types', 'contact_roles', 'fica_slot', 'buyer_pack_eligible', 'esign_warning_required'];
 
     protected $casts = [
         'sort_order'          => 'integer',
@@ -19,6 +19,7 @@ class DocumentType extends Model
         'listing_types'       => 'array',
         'contact_roles'       => 'array',
         'buyer_pack_eligible' => 'boolean',
+        'esign_warning_required' => 'boolean',
     ];
 
     /**

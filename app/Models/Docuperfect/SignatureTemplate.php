@@ -214,10 +214,10 @@ class SignatureTemplate extends Model
      * their own, which is what puts the checkpoint where doctrine wants it: `sellers → agent`.
      *
      * There is deliberately NO order here for an OTP. Doctrine §4 specifies one
-     * (`purchasers → agent → sellers → agent`), but an OTP is an alienation document: it may not be
-     * e-signed at all under ECTA §13(1) — `Template::isEsignBlocked()` refuses it, and HD-2 closed the
-     * pack path that was letting one through. A group order for a ceremony that can never legally run
-     * would be dead code that looks like a feature. It gets written the day the law changes.
+     * (`purchasers → agent → sellers → agent`), but an OTP is a sale document: e-signing it is
+     * an agency's own decision (a template setting an admin switches on after acknowledging the legal
+     * warning — see ESIGN-CANON §7), and no sale-agreement ceremony order has been specced yet, so none
+     * is written here. A sale document sent for e-signing today takes the generic order.
      */
     public const GROUP_ORDER_MANDATE = [['seller'], ['agent']];
 
