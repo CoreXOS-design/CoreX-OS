@@ -635,8 +635,8 @@ return [
              'affects' => 'How long the "report a fault" window stays open on a new tenancy. 7 days suits most agencies — a report after this window still reaches the agent, it is just their call whether to accept it.'],
             ['key' => 'out_inspection_signing_window_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 7, 'min' => 1, 'max' => 60,
              'label' => 'Days a tenant has to sign an inspection',
-             'explain' => 'Once any inspection (In, Routine, Interim or Out) is ready to sign, the tenant has this many days before an agent may sign on their behalf (with a note recording that they were unreachable or declined).',
-             'affects' => 'How long CoreX waits for the tenant\'s own signature before allowing an agent to close it out on their behalf. 7 days suits most agencies.'],
+             'explain' => 'Once any inspection (In, Routine, Interim or Out) is ready to sign, the tenant has this many days to sign. The inspection shows how many days are left, and the agent is reminded when the window is about to close with someone still outstanding.',
+             'affects' => 'The "days left" the agent sees on a report waiting for signatures, and when the reminder goes out. Nothing happens automatically when it passes. 7 days suits most agencies.'],
             // 2026-09-23 — same saver as the two window fields above
             // (RentalInspectionSettingsController::update() — registered
             // once, above); nullable + has()-guarded there, so this control
@@ -658,6 +658,18 @@ return [
             // §49 — Johan, 8 Oct 2026: are the three signatures (every tenant, the landlord, the agent) needed before an
             // inspection of each type can be completed? Same saver as the controls above
             // (RentalInspectionSettingsController::update(), registered once) — all four has()-guarded there.
+            // §52 — the 8 Oct 2026 walk's rules, generated from ONE list (RentalInspectionSetting::INSPECTION_RULES) so the
+            // settings page, the saver and this step cannot drift. Same saver as above, every field has()-guarded there.
+            ...array_values(array_map(
+                fn (string $column, array $rule) => ['key' => $column, 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => $rule[0] ? 1 : 0,
+                    'label' => $rule[1], 'explain' => $rule[2], 'affects' => $rule[3]],
+                array_keys(\App\Models\RentalInspectionSetting::INSPECTION_RULES),
+                \App\Models\RentalInspectionSetting::INSPECTION_RULES,
+            )),
+            ['key' => 'signing_reminder_lead_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 2, 'min' => 0, 'max' => 30,
+             'label' => 'Days before the signing window closes that the first reminder goes out',
+             'explain' => 'If someone still has not signed, the agent is reminded this many days before the signing window closes (and once more after it has closed).',
+             'affects' => 'How early the agent is nudged. 0 means only once the window has closed. 2 days suits most agencies.'],
             ['key' => 'signatures_required_in', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
              'label' => 'Require every signature before a move-in (In) inspection can be completed',
              'explain' => 'The tenant(s), the landlord and the agent each sign the In-inspection report. With this on, CoreX will not let the agent complete the inspection until all of them have signed (or a refusal is on record).',

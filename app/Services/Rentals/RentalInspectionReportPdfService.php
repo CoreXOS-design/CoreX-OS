@@ -189,6 +189,7 @@ class RentalInspectionReportPdfService
             // §49 — Johan, 8 Oct 2026: every page of an unfinished or not-fully-signed report is stamped "DRAFT - not final";
             // the stamp disappears only on the completed, fully signed report.
             'isDraft' => ! $inspection->isFinalReport(),
+            'branding' => $inspection->reportBranding(),
             'addedAfterSent' => app(RentalInspectionAddedAfterSentService::class)->entriesFor($inspection),
         ])->setPaper('a4', 'portrait');
     }

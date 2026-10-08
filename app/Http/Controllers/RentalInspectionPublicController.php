@@ -187,6 +187,7 @@ class RentalInspectionPublicController extends Controller
             // §49 — a tenant or landlord may print / download this report only once everyone has signed (and it stays
             // available after). Until then the page is for reading on screen only.
             'downloadAllowed' => $inspection->partyCopyAvailable(),
+            'branding' => $inspection->reportBranding(),
             'addedAfterSent' => app(\App\Services\Rentals\RentalInspectionAddedAfterSentService::class)->entriesFor($inspection),
         ];
     }

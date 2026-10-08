@@ -13,7 +13,11 @@
     <div style="padding: 30px 20px; background-color: #ffffff; border: 1px solid #e0e0e0; border-top: none;">
         <p>Hi {{ $recipientName }},</p>
 
-        <p>Attached is the {{ strtolower($documentLabel) }} for <strong>{{ $propertyAddress }}</strong>.</p>
+        @if($pdfPath)
+            <p>Attached is the {{ strtolower($documentLabel) }} for <strong>{{ $propertyAddress }}</strong>.</p>
+        @else
+            <p>The {{ strtolower($documentLabel) }} for <strong>{{ $propertyAddress }}</strong> is ready to read online.</p>
+        @endif
 
         @if($pdfPath)
             <div style="background-color: #f0fff4; border-left: 4px solid #276749; padding: 15px; margin: 20px 0;">

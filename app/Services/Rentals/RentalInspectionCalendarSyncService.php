@@ -32,6 +32,7 @@ class RentalInspectionCalendarSyncService
         $existing = CalendarEvent::withoutGlobalScopes()
             ->where('source_type', RentalInspection::class)
             ->where('source_id', $inspection->id)
+            ->where('category', 'rental_inspection')
             ->first();
 
         if (! $inspection->scheduled_for) {
@@ -42,6 +43,7 @@ class RentalInspectionCalendarSyncService
             if ($existing && $existing->status !== 'dismissed') {
                 $existing->forceFill(['status' => 'dismissed'])->save();
             }
+            $this->syncLeaseAgentEvents($inspection, null, null, 'dismissed');
 
             return $existing;
         }
@@ -83,10 +85,51 @@ class RentalInspectionCalendarSyncService
             $attributes['dismissal_reason_notes'] = $inspection->cancel_reason;
         }
 
-        return CalendarEvent::withoutGlobalScopes()->updateOrCreate(
-            ['source_type' => RentalInspection::class, 'source_id' => $inspection->id],
+        $event = CalendarEvent::withoutGlobalScopes()->updateOrCreate(
+            ['source_type' => RentalInspection::class, 'source_id' => $inspection->id, 'category' => 'rental_inspection'],
             $attributes,
         );
+        $this->syncLeaseAgentEvents($inspection, $inspectorId, $attributes, $status);
+
+        return $event;
+    }
+
+    /**
+     * §52 — the lease's OTHER agents (owner's agent, tenant's agent) see a booked inspection on their own calendar too, so
+     * nobody is surprised by a visit to "their" tenancy. One extra event per agent, same content and status as the inspector's
+     * (category `rental_inspection_lease_agent`, keyed by the agent), dismissed/completed in step with it. Agency rule
+     * `calendar_include_lease_agents` (default on); switching it off dismisses the extras, it never deletes them. An agent who
+     * is also the inspector gets no second event.
+     *
+     * @param  array<string, mixed>|null  $attributes  the inspector's event attributes (null when there is nothing to show)
+     */
+    private function syncLeaseAgentEvents(RentalInspection $inspection, ?int $inspectorId, ?array $attributes, string $status): void
+    {
+        $extras = CalendarEvent::withoutGlobalScopes()
+            ->where('source_type', RentalInspection::class)->where('source_id', $inspection->id)
+            ->where('category', 'rental_inspection_lease_agent')->get();
+
+        $wanted = [];
+        if ($attributes !== null && \App\Models\RentalInspectionSetting::ruleFor($inspection->agency_id, 'calendar_include_lease_agents')) {
+            $lease = $inspection->lease;
+            $wanted = collect([$lease?->owner_agent_user_id, $lease?->tenant_agent_user_id])
+                ->filter()->map(fn ($id) => (int) $id)->unique()
+                ->reject(fn (int $id) => $id === (int) $inspectorId)
+                ->values()->all();
+        }
+
+        foreach ($wanted as $userId) {
+            CalendarEvent::withoutGlobalScopes()->updateOrCreate(
+                ['source_type' => RentalInspection::class, 'source_id' => $inspection->id, 'category' => 'rental_inspection_lease_agent', 'user_id' => $userId],
+                array_merge($attributes ?? [], ['user_id' => $userId, 'category' => 'rental_inspection_lease_agent', 'status' => $status]),
+            );
+        }
+        // An agent no longer wanted (rule switched off, lease agent changed, nothing to show) keeps no live entry.
+        foreach ($extras as $event) {
+            if (! in_array((int) $event->user_id, $wanted, true) && $event->status !== 'dismissed') {
+                $event->forceFill(['status' => 'dismissed'])->save();
+            }
+        }
     }
 
     /** The parties, with contact numbers where on file — shown on the calendar event so the inspector doesn't have to open the inspection to see who they're meeting. */

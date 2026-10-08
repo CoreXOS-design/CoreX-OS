@@ -722,8 +722,9 @@ class RentalCommandCentreService
         // B — lease past end date, still active, no outcome recorded.
         $this->applyPropertyIdScope(
             $applyQueueFilters(
-                Lease::query()->where('status', Lease::STATUS_ACTIVE)->whereNotNull('end_date')
-                    ->where('end_date', '<', $today->toDateString()),
+                // Only where recording the outcome is genuinely the next step (Lease::scopeAwaitingOutcome): not with notice on
+                // file, not already month-to-month / renewed, not while a renewal draft is under way.
+                Lease::query()->awaitingOutcome($today->toDateString()),
                 'end_date'
             )->with('property'),
             $user,
@@ -740,7 +741,8 @@ class RentalCommandCentreService
                 'label' => 'Record outcome',
                 'detail' => 'Tenant: ' . $lease->tenantNames(),
                 'route' => 'corex.leases.show',
-                'route_params' => ['lease' => $lease->id],
+                // the Lease Hub lands with its outcomes menu open — the same place its own "Record outcome" next step goes
+                'route_params' => ['lease' => $lease->id, 'action' => 'outcomes'],
             ]);
         });
 
@@ -871,6 +873,8 @@ class RentalCommandCentreService
             function ($leaseQuery) use ($propertyId, $user, $scope) {
                 $leaseQuery->when($propertyId, fn ($q) => $q->where('leases.property_id', $propertyId));
                 $this->applyPropertyIdScope($leaseQuery, $user, $scope, 'leases.property_id');
+                // the tile counts RENTAL listings only — so the queue lists only those too
+                $this->limitToCommandCentreProperties($leaseQuery, $user, $scope, 'leases.property_id');
             },
             $today
         )->filter(fn (array $i) => $i['state'] !== RentalInspectionDueService::STATE_UPCOMING && $inRange($i['due_on']));
@@ -901,6 +905,7 @@ class RentalCommandCentreService
             ->when($dateTo, fn ($q) => $q->whereDate('rental_inspection_planned_dates.planned_on', '<=', $dateTo))
             ->with(['property' => fn ($q) => $q->withoutGlobalScopes(), 'lease' => fn ($q) => $q->withoutGlobalScopes()->with('tenants.contact')]);
         $this->applyPropertyIdScope($plannedQuery, $user, $scope, 'rental_inspection_planned_dates.property_id');
+        $this->limitToCommandCentreProperties($plannedQuery, $user, $scope, 'rental_inspection_planned_dates.property_id');
         $plannedQuery->get()->each(function (RentalInspectionPlannedDate $date) use (&$items, $today) {
             // Properties are loaded withoutGlobalScopes() above (so the row can still name them);
             // an ARCHIVED property is not stock any more and must not raise a needs-action row —
@@ -946,6 +951,31 @@ class RentalCommandCentreService
                     . ' · Tenant: ' . $lease->tenantNames(),
                 'route' => 'corex.leases.show',
                 'route_params' => ['lease' => $lease->id],
+            ]);
+        });
+
+        // F2 — an inspection that is already OPEN (draft, in progress, awaiting signatures) and needs finishing. "Inspections due" is
+        // ONE definition shared by the tile and this queue: a property with an open inspection OR an In / Out / loaded date due now.
+        // The due ones are rules E above (start …); the open ones are these rows — so every property the tile counts has a row here.
+        $openInspections = RentalInspection::query()
+            ->whereNotIn('status', [RentalInspection::STATUS_COMPLETED, RentalInspection::STATUS_CANCELLED])
+            ->when($propertyId, fn (Builder $q) => $q->where('property_id', $propertyId))
+            ->when($dateFrom, fn (Builder $q) => $q->whereDate('created_at', '>=', $dateFrom))
+            ->when($dateTo, fn (Builder $q) => $q->whereDate('created_at', '<=', $dateTo))
+            ->with(['property' => fn ($q) => $q->withTrashed(), 'lease.tenants.contact']);
+        $this->limitToCommandCentreProperties($openInspections, $user, $scope, 'property_id');
+        $openInspections->get()->each(function (RentalInspection $inspection) use (&$items, $today) {
+            $items->push([
+                'type' => 'open_inspection',
+                'urgency' => 3,
+                'age_days' => (int) abs($today->diffInDays($inspection->created_at->copy()->startOfDay())),
+                'item_date' => $inspection->created_at,
+                'property' => $inspection->property,
+                'lease' => $inspection->lease,
+                'label' => $inspection->status === RentalInspection::STATUS_AWAITING_SIGNATURE ? 'Awaiting signatures' : 'Finish inspection',
+                'detail' => ucfirst(str_replace('_', ' ', (string) $inspection->type)) . ' inspection ' . str_replace('_', ' ', (string) $inspection->status),
+                'route' => 'corex.rental-inspections.show',
+                'route_params' => ['rentalInspection' => $inspection->id],
             ]);
         });
 

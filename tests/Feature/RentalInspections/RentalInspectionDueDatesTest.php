@@ -60,6 +60,8 @@ final class RentalInspectionDueDatesTest extends TestCase
 
         $this->agency = Agency::create(['name' => 'Due Dates Agency', 'slug' => 'due-' . uniqid()]);
         $this->branch = Branch::forceCreate(['agency_id' => $this->agency->id, 'name' => 'Main']);
+        // These fixtures have no checklist; the "empty checklist cannot be signed" and "Routine follows the full checks" rules (spec §52) have their own tests.
+        \App\Models\RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['empty_checklist_blocks_signing' => false, 'routine_follows_full_checks' => false]);
         $this->admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin', 'is_active' => true]);
         $this->agent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent', 'is_active' => true, 'email' => 'agent-' . uniqid() . '@example.test']);
 
@@ -234,7 +236,7 @@ final class RentalInspectionDueDatesTest extends TestCase
         $this->lease->update(['move_out_date' => '2026-11-20']);
         $this->assertSame('upcoming', $this->item('out')['state']);
 
-        RentalInspectionSetting::create(['agency_id' => $this->agency->id, 'out_due_lead_days' => 60]);
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['out_due_lead_days' => 60]);
         $this->assertSame('due', $this->item('out')['state'], 'the agency widened its own window');
 
         RentalInspectionSetting::where('agency_id', $this->agency->id)->update(['out_due_lead_days' => 0]);
@@ -418,7 +420,7 @@ final class RentalInspectionDueDatesTest extends TestCase
         $agent = User::factory()->create(['agency_id' => $other->id, 'branch_id' => $branch->id, 'role' => 'agent', 'is_active' => true]);
         $prop = $this->makeProperty($other, $branch, $agent, '3 Beach Road, Sea Point');
         $lease = $this->makeLease($prop, ['created_by_user_id' => $agent->id]);
-        RentalInspectionSetting::create(['agency_id' => $other->id, 'planned_date_lead_days' => 3]);
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $other->id], ['planned_date_lead_days' => 3]);
 
         $mine = $this->date($this->lease, '2026-10-20');   // default 14-day lead: reached on 2026-10-06
         $theirs = $this->date($lease, '2026-10-20');       // 3-day lead: reached on 2026-10-17
@@ -501,7 +503,7 @@ final class RentalInspectionDueDatesTest extends TestCase
     {
         Notification::fake();
         $this->lease->update(['start_date' => '2026-10-07']);
-        RentalInspectionSetting::create(['agency_id' => $this->agency->id, 'raise_due_inspections_enabled' => false]);
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['raise_due_inspections_enabled' => false]);
 
         $this->assertSame(0, $this->runDue('2026-10-07')['sent']);
         Notification::assertNothingSent();
@@ -1041,7 +1043,7 @@ final class RentalInspectionDueDatesTest extends TestCase
 
     public function test_a_wizard_post_of_a_subset_never_resets_the_other_settings(): void
     {
-        RentalInspectionSetting::create(['agency_id' => $this->agency->id, 'planned_date_lead_days' => 30, 'out_due_lead_days' => 3, 'raise_due_inspections_enabled' => false]);
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['planned_date_lead_days' => 30, 'out_due_lead_days' => 3, 'raise_due_inspections_enabled' => false]);
 
         // the wizard step renders only the toggle for this saver's call
         $this->actingAs($this->admin)->post(route('corex.settings.rental-inspections.due-dates'), ['raise_due_inspections_enabled' => '1'])->assertSessionHasNoErrors();
@@ -1057,7 +1059,7 @@ final class RentalInspectionDueDatesTest extends TestCase
 
     public function test_the_settings_page_renders_the_new_section(): void
     {
-        RentalInspectionSetting::create(['agency_id' => $this->agency->id, 'planned_date_lead_days' => 21]);
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['planned_date_lead_days' => 21]);
 
         $html = $this->actingAs($this->admin)->get(route('corex.settings.rental-inspections.edit'))->assertOk()->getContent();
 
