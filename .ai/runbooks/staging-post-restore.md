@@ -110,7 +110,8 @@ sudo systemctl reload php8.2-fpm
 A restore brings in real client/agent/landlord email addresses **and live's `dev_settings`
 table** (including `mail_intercept_forced`). Since 2026-10-08 that cannot make Staging send:
 `app/Support/OutboundMailGuard.php` decides by **environment configuration** — only
-`production` on `corexos.co.za` / `www.corexos.co.za` sends. Every other environment (Staging,
+`production` on `corexos.co.za` / `www.corexos.co.za` **with `OUTBOUND_MAIL_REAL_SEND=1` in its `.env`** sends — that
+flag lives on the real live server only; never copy it (or live's whole `.env`) to a test box. Every other environment (Staging,
 QA1/QA2, demo, live-testing, local) intercepts, whatever the database says, and agent
 mailboxes' own SMTP/IMAP are redirected to the local Mailpit or simulated. Nothing to flip.
 

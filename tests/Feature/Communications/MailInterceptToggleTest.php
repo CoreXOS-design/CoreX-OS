@@ -83,7 +83,7 @@ final class MailInterceptToggleTest extends TestCase
     public function test_a_super_admin_can_force_the_toggle_over_http(): void
     {
         // Forcing SEND only exists on real production now (every other environment is fixed by configuration).
-        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za']);
+        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za', 'mail.guard.real_send' => true]);
         $owner = $this->superAdmin();
 
         $response = $this->actingAs($owner)->put(route('settings.email-setup.mail-intercept'), [
@@ -169,7 +169,7 @@ final class MailInterceptToggleTest extends TestCase
 
     public function test_force_send_writes_an_audit_row(): void
     {
-        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za']);
+        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za', 'mail.guard.real_send' => true]);
         $owner = $this->superAdmin();
         $service = new MailInterceptToggleService();
 
@@ -191,7 +191,7 @@ final class MailInterceptToggleTest extends TestCase
 
     public function test_clear_override_records_which_direction_the_environment_reverted_to(): void
     {
-        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za']);
+        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za', 'mail.guard.real_send' => true]);
         $owner = $this->superAdmin();
         $service = new MailInterceptToggleService();
 

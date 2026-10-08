@@ -87,7 +87,7 @@ final class OutboundMailGuardTest extends TestCase
 
     public function test_production_behaviour_is_unchanged_including_its_kill_switch(): void
     {
-        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za']);
+        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za', 'mail.guard.real_send' => true]);
 
         $this->assertFalse(OutboundMailGuard::isActive(), 'production sends by default');
 
@@ -111,7 +111,7 @@ final class OutboundMailGuardTest extends TestCase
 
     public function test_production_sends_by_default(): void
     {
-        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za']);
+        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za', 'mail.guard.real_send' => true]);
 
         $this->assertTrue(OutboundMailGuard::isSendingConfirmed());
         $this->assertFalse(OutboundMailGuard::isActive());
@@ -119,7 +119,7 @@ final class OutboundMailGuardTest extends TestCase
 
     public function test_production_www_host_sends_by_default(): void
     {
-        config(['app.env' => 'production', 'app.url' => 'https://www.corexos.co.za']);
+        config(['app.env' => 'production', 'app.url' => 'https://www.corexos.co.za', 'mail.guard.real_send' => true]);
 
         $this->assertTrue(OutboundMailGuard::isSendingConfirmed());
         $this->assertFalse(OutboundMailGuard::isActive());
@@ -129,7 +129,7 @@ final class OutboundMailGuardTest extends TestCase
 
     public function test_forcing_intercept_on_wins_on_production(): void
     {
-        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za']);
+        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za', 'mail.guard.real_send' => true]);
         DevSetting::set(OutboundMailGuard::TOGGLE_KEY, '1');
 
         $this->assertTrue(OutboundMailGuard::isActive(), 'production must be interceptable — the whole point of the kill switch');
@@ -184,9 +184,65 @@ final class OutboundMailGuardTest extends TestCase
         $this->assertSame([], OutboundMailGuard::auditBootConfiguration());
         $this->assertFalse(OutboundMailGuard::isTripped());
 
-        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za', 'mail.mailers.smtp.host' => 'smtp.real-provider.example']);
+        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za', 'mail.guard.real_send' => true, 'mail.mailers.smtp.host' => 'smtp.real-provider.example']);
         $this->assertSame([], OutboundMailGuard::auditBootConfiguration(), 'production is meant to use a real host');
         $this->assertFalse(OutboundMailGuard::isTripped());
+    }
+
+    // ── The real-live flag: a COPY of live (live-testing runs APP_ENV=production, APP_URL=corexos.co.za) must not send ──
+
+    public function test_production_env_and_production_url_without_the_real_send_flag_intercepts(): void
+    {
+        // This is /corex on the demo box (the live-testing copy), and any restore of live's .env.
+        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za', 'mail.guard.real_send' => false]);
+
+        $this->assertTrue(OutboundMailGuard::looksLikeProduction());
+        $this->assertFalse(OutboundMailGuard::isSendingConfirmed());
+        $this->assertTrue(OutboundMailGuard::isActive());
+
+        // ...and no database value restored from live can open it:
+        DevSetting::set(OutboundMailGuard::TOGGLE_KEY, '0');
+        Cache::flush();
+        $this->assertTrue(OutboundMailGuard::isActive());
+    }
+
+    public function test_production_env_and_url_with_the_real_send_flag_sends(): void
+    {
+        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za', 'mail.guard.real_send' => true]);
+
+        $this->assertTrue(OutboundMailGuard::isSendingConfirmed());
+        $this->assertFalse(OutboundMailGuard::isActive());
+    }
+
+    public function test_the_flag_alone_is_not_enough_staging_never_sends(): void
+    {
+        foreach ([['staging', 'https://staging.corexos.co.za'], ['staging', 'https://corexos.co.za'], ['qa', 'https://qatesting1.corexos.co.za'], ['local', 'http://localhost']] as [$env, $url]) {
+            config(['app.env' => $env, 'app.url' => $url, 'mail.guard.real_send' => true]);
+            $this->assertFalse(OutboundMailGuard::isSendingConfirmed(), "{$env} {$url} must never send, flag or not");
+            $this->assertTrue(OutboundMailGuard::isActive());
+        }
+    }
+
+    public function test_a_production_looking_environment_without_the_flag_logs_loudly_at_boot(): void
+    {
+        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za', 'mail.guard.real_send' => false]);
+        \Illuminate\Support\Facades\Log::spy();
+
+        $problems = OutboundMailGuard::auditBootConfiguration();
+
+        $this->assertNotEmpty($problems);
+        \Illuminate\Support\Facades\Log::shouldHaveReceived('critical')
+            ->withArgs(fn ($m) => str_contains((string) $m, 'OUTBOUND_MAIL_REAL_SEND is not set'))->once();
+    }
+
+    public function test_the_flag_reads_only_a_real_boolean_true(): void
+    {
+        foreach ([null, false, 0, '0', 'no', ''] as $off) {
+            config(['mail.guard.real_send' => $off]);
+            $this->assertFalse(OutboundMailGuard::realSendFlag(), var_export($off, true) . ' is not the flag');
+        }
+        config(['mail.guard.real_send' => true]);
+        $this->assertTrue(OutboundMailGuard::realSendFlag());
     }
 
     public function test_which_hosts_count_as_local_catchers(): void
@@ -212,14 +268,14 @@ final class OutboundMailGuardTest extends TestCase
 
     public function test_missing_override_falls_back_to_environment_default_on_production(): void
     {
-        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za']);
+        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za', 'mail.guard.real_send' => true]);
 
         $this->assertFalse(OutboundMailGuard::isActive(), 'a missing override must never silently go silent on production');
     }
 
     public function test_corrupt_override_value_falls_back_to_environment_default(): void
     {
-        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za']);
+        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za', 'mail.guard.real_send' => true]);
         DevSetting::set(OutboundMailGuard::TOGGLE_KEY, 'garbage-not-a-boolean');
 
         // forcedDirection() treats anything not in the truthy list as false —
@@ -232,7 +288,7 @@ final class OutboundMailGuardTest extends TestCase
 
     public function test_clearing_the_override_restores_the_environment_default(): void
     {
-        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za']);
+        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za', 'mail.guard.real_send' => true]);
         DevSetting::set(OutboundMailGuard::TOGGLE_KEY, '1');
         $this->assertTrue(OutboundMailGuard::isActive());
 

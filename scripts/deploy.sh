@@ -336,6 +336,27 @@ read_env_var() {
 ACTUAL_APP_ENV=$(read_env_var "$DIR/.env" APP_ENV)
 [[ "$ACTUAL_APP_ENV" == "$EXPECT_APP_ENV" ]] || fail ".env APP_ENV='$ACTUAL_APP_ENV' but expected '$EXPECT_APP_ENV' for this deploy target."
 
+# preflight_real_send_flag <staging|production> <env-file>
+# OUTBOUND_MAIL_REAL_SEND=1 is the ONE server-side flag that lets the application send real mail (see
+# .ai/specs/outbound-mail-guard.md). Production must carry it - without it the guard intercepts ALL live mail,
+# silently, so refuse the deploy instead. Any other target must NOT carry it (a copied .env must not arm a test box).
+preflight_real_send_flag() {
+    local target="$1" file="$2" val
+    # `|| true`: grep exits 1 when the key is absent, and this script runs under set -euo pipefail - without it the
+    # deploy would die silently HERE instead of printing the refusal below (the exact case this check exists for).
+    val=$(grep -E "^OUTBOUND_MAIL_REAL_SEND=" "$file" | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//" | tr 'A-Z' 'a-z') || true
+    if [[ "$target" == "production" ]]; then
+        if [[ "$val" != "1" && "$val" != "true" ]]; then
+            fail "OUTBOUND_MAIL_REAL_SEND=1 is MISSING from $file. Without it this code intercepts ALL live mail (tenants, landlords, agents would stop receiving anything). Add the line OUTBOUND_MAIL_REAL_SEND=1 to the live .env BY HAND, then re-run. See .ai/runbooks/outbound-mail-real-send-flag.md."
+            return 1
+        fi
+    elif [[ "$val" == "1" || "$val" == "true" ]]; then
+        fail "OUTBOUND_MAIL_REAL_SEND is SET in $file but this deploy target is '$target'. Only the real live server may carry it - remove the line (a copied live .env must not be able to send real mail from a test box)."
+        return 1
+    fi
+}
+preflight_real_send_flag "$ENV_NAME" "$DIR/.env"
+
 # 1e. Resolve the database credentials the BACKUP step will use.
 # Priority order (DEPLOY-2):
 #   1. MYSQL_BACKUP_USER / MYSQL_BACKUP_PASSWORD from /etc/hfc-deploy.env

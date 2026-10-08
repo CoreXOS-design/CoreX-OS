@@ -157,7 +157,7 @@ class SignedDocumentDistributionService
         ?array $onlyEmails = null,
     ): array {
         $agent = $sendAs ?? $doc->distributionAgent();
-        $testOverride = ! app()->environment('production');
+        $testOverride = ! \App\Support\OutboundMailGuard::isSendingConfirmed(); // real production only (flag + env + host), not merely APP_ENV=production
         $results = [];
         $testRecipient = (string) config('mail.non_production_redirect');
 
@@ -242,7 +242,7 @@ class SignedDocumentDistributionService
      */
     public function sendGenericMail(string $toEmail, BaseSignatureMail $mail, ?User $agent = null): array
     {
-        $testOverride = ! app()->environment('production');
+        $testOverride = ! \App\Support\OutboundMailGuard::isSendingConfirmed(); // real production only (flag + env + host), not merely APP_ENV=production
         $testRecipient = (string) config('mail.non_production_redirect');
 
         if ($testOverride && $testRecipient === '') {

@@ -161,6 +161,10 @@ return [
     | the sink and would have hidden a real MAIL_HOST from the boot-time check.
     */
     'guard' => [
+        // The ONE server-side flag that says "this is the real live server". Set by hand in the live .env
+        // (OUTBOUND_MAIL_REAL_SEND=1), absent everywhere else - a copy of live's code, database or even its
+        // APP_ENV/APP_URL cannot carry it by accident. Without it nothing sends, whatever APP_ENV says.
+        'real_send' => filter_var(env('OUTBOUND_MAIL_REAL_SEND', false), FILTER_VALIDATE_BOOLEAN),
         'sink_host' => env('MAIL_GUARD_SINK_HOST', env('MAIL_HOST', '127.0.0.1')),
         'sink_port' => env('MAIL_GUARD_SINK_PORT', env('MAIL_PORT', 1025)),
         'sink_address' => env('MAIL_GUARD_SINK_ADDRESS', 'outbound-guard@localhost.test'),

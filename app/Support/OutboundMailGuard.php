@@ -78,8 +78,18 @@ class OutboundMailGuard
      */
     public const REDIRECTED_HEADER = 'X-CoreX-Mail-Guard-Redirected';
 
-    /** True if THIS environment sends real mail by default (override not set). */
-    public static function isSendingConfirmed(): bool
+    /**
+     * True = the server-side flag OUTBOUND_MAIL_REAL_SEND is set (config mail.guard.real_send). The ONLY thing
+     * that distinguishes the real live server from a copy of it: /corex on the demo box runs with
+     * APP_ENV=production and APP_URL=https://corexos.co.za, which environment + host alone cannot tell apart.
+     */
+    public static function realSendFlag(): bool
+    {
+        return config('mail.guard.real_send') === true;
+    }
+
+    /** True when environment + host say "production" - whether or not the real-send flag is also set. */
+    public static function looksLikeProduction(): bool
     {
         $env = (string) config('app.env', '');
         $host = self::configuredAppHost();
@@ -95,6 +105,16 @@ class OutboundMailGuard
         }
 
         return false;
+    }
+
+    /**
+     * True only on the real live server: APP_ENV=production AND a production host AND the explicit server-side flag
+     * OUTBOUND_MAIL_REAL_SEND=1. Default is intercept. A production-looking environment WITHOUT the flag intercepts
+     * and logs loudly (auditBootConfiguration).
+     */
+    public static function isSendingConfirmed(): bool
+    {
+        return self::realSendFlag() && self::looksLikeProduction();
     }
 
     /** True = outbound mail is being intercepted RIGHT NOW, accounting for any override. */
@@ -264,6 +284,19 @@ class OutboundMailGuard
     public static function auditBootConfiguration(): array
     {
         $problems = self::isSendingConfirmed() ? [] : self::bootProblems();
+
+        if (self::looksLikeProduction() && ! self::realSendFlag()) {
+            // Looks like the live site but does not carry the flag: either a COPY of live (live-testing, a restore)
+            // - correct, it must not send - or the real live server missing the flag, which would silently stop live
+            // mail. Say so, loudly, every boot.
+            $problems[] = 'APP_ENV=production on a production host WITHOUT OUTBOUND_MAIL_REAL_SEND=1';
+            \Illuminate\Support\Facades\Log::critical(
+                'OUTBOUND MAIL GUARD: this environment looks like real production (APP_ENV=production, APP_URL on corexos.co.za) '
+                . 'but OUTBOUND_MAIL_REAL_SEND is not set - ALL MAIL IS BEING INTERCEPTED. If this is a copy (live-testing, restore) '
+                . 'that is correct. If this is the real live server, set OUTBOUND_MAIL_REAL_SEND=1 in its .env and reload config.',
+                ['app_env' => config('app.env'), 'app_url' => config('app.url')],
+            );
+        }
 
         if ($problems !== []) {
             \Illuminate\Support\Facades\Log::critical(

@@ -8,7 +8,14 @@ its kill switch), 2026-09-28 §42 (raw per-mailbox sockets gated on environment)
 ## 1. The rule (2026-10-08, Johan via conductor)
 
 **Only real production sends real mail.** "Real production" = `APP_ENV=production` **and** the app URL host is
-`corexos.co.za` or `www.corexos.co.za`. Every other environment — Staging, QA1, QA2, demo, live-testing
+`corexos.co.za` or `www.corexos.co.za` **and** the explicit server-side flag `OUTBOUND_MAIL_REAL_SEND=1`
+(`config('mail.guard.real_send')`), set by hand on the real live server and on no other. The flag exists because
+environment + host cannot tell a copy from the original: `/corex` on the demo box (the live-testing copy) runs
+`APP_ENV=production`, `APP_URL=https://corexos.co.za`. **Without the flag nothing sends, even with APP_ENV=production:**
+the guard intercepts and logs `OUTBOUND MAIL GUARD: this environment looks like real production … OUTBOUND_MAIL_REAL_SEND
+is not set - ALL MAIL IS BEING INTERCEPTED` at CRITICAL on every boot. `scripts/deploy.sh production` refuses to run
+if the flag is missing from the target `.env` (and `deploy.sh staging` refuses if it is present). **Andre must set it
+on live before this code lands there:** `.ai/runbooks/outbound-mail-real-send-flag.md`. Every other environment — Staging, QA1, QA2, demo, live-testing
 (`APP_ENV=production` but another host), local, testing — **intercepts**, decided by environment configuration
 inside `OutboundMailGuard::isActive()`. No database value is read for such an environment: a `dev_settings` table
 restored from live (`mail_intercept_forced` = `0`, anything else, or absent) cannot switch the guard off.

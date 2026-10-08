@@ -34,7 +34,7 @@ final class OutboundMailGuardCaptureTest extends TestCase
         // must be false here, same as real production.
         config([
             'app.env' => 'production',
-            'app.url' => 'https://corexos.co.za',
+            'app.url' => 'https://corexos.co.za', 'mail.guard.real_send' => true,
             'mail.mailers.smtp.host' => 'smtp.real-provider.example',
             'mail.mailers.smtp.port' => 587,
         ]);
@@ -105,7 +105,7 @@ final class OutboundMailGuardCaptureTest extends TestCase
     {
         // Production + live host + no override: the listener lets the message through (the array/log mailer in
         // the test environment is what "sends"), and nothing is captured.
-        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za']);
+        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za', 'mail.guard.real_send' => true]);
         Cache::flush();
 
         Mail::to('someone@example.test')->send(new QueueBacklogAlertMail(
