@@ -2021,3 +2021,6 @@ Which agent lease mail goes "from" / cc'd to today, and the proposed mapping, is
 Nothing here names an agency: the agent lists, defaults and portal answers are all per the lease's own agency, an agent of another agency is never offered, defaulted or shown, and the wording is neutral.
 
 **Tests:** `tests/Feature/Leases/LeaseAgentsTest.php` (defaults and every fallback, capture dropdowns, change + history, permission, cross-agency, own scope, renewal, back-fill + revert), `tests/Feature/RentalPortalAccess/PortalHomeTest.php` (the right agent per side, fallbacks, another agency's agent never shown).
+
+### 17.x Portal consumer of the agreement terms (8 Oct 2026, QA1)
+`lease_agreement_terms.earliest_termination_date` (row 16 of the §15.12 field map — "earliest date notice may expire") and, where an agency's own agreement map declares them, `extra.notice_period_days` / `extra.early_cancellation_terms`, are now READ by the tenant / owner portal Home FAQ (`rental-portal-access.md` §21, `RentalPortalFaqService`). A lease holding none of them shows no FAQ; nothing is guessed from the agency's standard notice period alone. No capture field was added: there is still no per-lease notice-length or early-cancellation field on the capture screen.

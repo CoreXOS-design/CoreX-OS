@@ -199,5 +199,53 @@
             </form>
         </div>
     </div>
+
+    {{-- §21 — fault photos. --}}
+    <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+            <h3 class="text-sm font-bold" style="color:var(--text-primary);">Fault photos</h3>
+        </div>
+        <div class="p-5 space-y-5">
+            <form method="POST" action="{{ route('corex.settings.rental-portal.fault-photo-max-count') }}" class="space-y-2">
+                @csrf
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Photos per fault report</label>
+                <input type="number" name="fault_photo_max_count" value="{{ old('fault_photo_max_count', $faultPhotoMaxCount) }}"
+                       min="1" max="10" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">The most photos a tenant or owner can add to one fault report from the portal (1&ndash;10).</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.fault-photo-max-mb') }}" class="space-y-2">
+                @csrf
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Largest photo (MB)</label>
+                <input type="number" name="fault_photo_max_mb" value="{{ old('fault_photo_max_mb', $faultPhotoMaxMb) }}"
+                       min="1" max="15" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">The portal shrinks phone photos before sending, so most arrive well under 1 MB. Anything larger than this is refused.</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </form>
+        </div>
+    </div>
+
+    {{-- §21 — the Home FAQ wording. One form, every field optional (blank = the default wording). --}}
+    <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+            <h3 class="text-sm font-bold" style="color:var(--text-primary);">Home page FAQ (notice and early cancellation)</h3>
+        </div>
+        <form method="POST" action="{{ route('corex.settings.rental-portal.faq-texts') }}" class="p-5 space-y-5">
+            @csrf
+            <p class="text-xs" style="color: var(--text-muted);">Your wording, with the lease's own values merged in: <code>{notice_days}</code> <code>{earliest_termination_date}</code> <code>{earliest_notice_date}</code> <code>{lease_end_date}</code> <code>{early_cancellation_terms}</code>. Put a piece in double square brackets, <code>[[like this {lease_end_date}]]</code>, and it is left out whenever the lease does not have that value. A lease with no notice or cancellation terms shows no FAQ at all. Clear a box to go back to the default.</p>
+            @foreach([
+                'faq_tenant_notice' => 'Tenant &middot; question 1', 'faq_tenant_early' => 'Tenant &middot; question 2',
+                'faq_landlord_notice' => 'Owner &middot; question 1', 'faq_landlord_early' => 'Owner &middot; question 2',
+            ] as $base => $heading)
+                <div class="space-y-1">
+                    <p class="text-xs font-semibold" style="color:var(--text-muted);">{!! $heading !!}</p>
+                    <input type="text" name="{{ $base }}_question" value="{{ old($base . '_question', $faqTexts[$base . '_question']) }}" maxlength="200"
+                           class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <textarea name="{{ $base }}_answer" rows="3" maxlength="1500" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">{{ old($base . '_answer', $faqTexts[$base . '_answer']) }}</textarea>
+                </div>
+            @endforeach
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
 </div>
 @endsection

@@ -211,7 +211,12 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
     Route::get('/seller-properties/{property}/insights',   [ClientSellerInsightsController::class, 'show'])->name('client.seller-properties.insights');
 
     // AT-445 — .ai/specs/rental-portal-access.md §9. Tenant rentals.
-    Route::prefix('rentals')->name('client.rentals.')->group(function () {
+    // §21 — `portal.once`: every state-changing request in the tenant / owner portal does its work once (double tap = one record).
+    Route::prefix('rentals')->name('client.rentals.')->middleware('portal.once')->group(function () {
+        // §21 — the agency's logo / name for the portal header (any signed-in tenant or owner).
+        Route::get('/branding', [ClientTenantRentalsController::class, 'branding'])->name('branding');
+        // §21 — a PDF / document on a fault type's first-aid panel (gated to the person's own agency's active fault types).
+        Route::get('/fault-type-documents/{document}/file', [\App\Http\Controllers\Api\V1\ClientFaultTypeDocumentController::class, 'file'])->whereNumber('document')->name('fault-type-documents.file');
         Route::middleware('rental-portal.enabled:tenant')->group(function () {
             // §20 — the portal home: agent contact, inspection dates, lease end / renewal status.
             Route::get('/overview', [ClientTenantRentalsController::class, 'overview'])->name('overview');
@@ -223,7 +228,7 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::get('/inspections', [ClientTenantRentalsController::class, 'inspections'])->name('inspections.index');
             Route::get('/inventories', [ClientTenantRentalsController::class, 'inventories'])->name('inventories.index');
             Route::get('/properties/{property}/fault-types', [ClientTenantRentalsController::class, 'faultTypes'])->name('fault-types.index');
-            Route::post('/properties/{property}/fault-reports', [ClientTenantRentalsController::class, 'faultReportStore'])->name('fault-reports.store');
+            Route::post('/properties/{property}/fault-reports', [ClientTenantRentalsController::class, 'faultReportStore'])->middleware('portal.photos')->name('fault-reports.store');
             Route::get('/fault-reports', [ClientTenantRentalsController::class, 'faultReports'])->name('fault-reports.index');
             Route::get('/fault-reports/{faultReport}', [ClientTenantRentalsController::class, 'faultReportShow'])->name('fault-reports.show');
             Route::get('/work-orders/{workOrder}', [ClientTenantRentalsController::class, 'workOrderShow'])->name('work-orders.show');
@@ -235,7 +240,7 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             // BUILD 3 BEGIN — tenant maintenance-flow routes (.ai/specs/rental-work-orders.md §17.21.5)
             // §17.3.5 — the portal's Jobs are work orders: the tenant's list, and their answer to "is this finished?".
             Route::get('/work-orders', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'tenantIndex'])->name('work-orders.index');
-            Route::post('/work-orders/{workOrder}/completion-response', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'completionResponse'])->name('work-orders.completion-response');
+            Route::post('/work-orders/{workOrder}/completion-response', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'completionResponse'])->middleware('portal.photos')->name('work-orders.completion-response');
             // BUILD 3 END
         });
 
@@ -246,7 +251,7 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::get('/properties/{property}', [ClientLandlordRentalsController::class, 'propertyShow'])->name('properties.show');
             // §15 (AT-447 follow-up) — "Request work / report a problem."
             Route::get('/properties/{property}/fault-types', [ClientLandlordRentalsController::class, 'faultTypes'])->name('fault-types.index');
-            Route::post('/properties/{property}/fault-reports', [ClientLandlordRentalsController::class, 'faultReportStore'])->name('fault-reports.store');
+            Route::post('/properties/{property}/fault-reports', [ClientLandlordRentalsController::class, 'faultReportStore'])->middleware('portal.photos')->name('fault-reports.store');
             Route::get('/fault-reports', [ClientLandlordRentalsController::class, 'faultReports'])->name('fault-reports.index');
             Route::post('/fault-reports/{faultReport}/decision', [ClientLandlordRentalsController::class, 'faultReportDecision'])->name('fault-reports.decision');
             Route::get('/work-orders', [ClientLandlordRentalsController::class, 'workOrders'])->name('work-orders.index');

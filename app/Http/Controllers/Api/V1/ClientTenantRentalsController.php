@@ -150,16 +150,26 @@ class ClientTenantRentalsController extends Controller
             ->orderBy('sort_order')
             ->get();
 
-        $renderer = app(RentalFaultTypeService::class);
+        $view = app(\App\Services\Rentals\RentalFaultTypePortalView::class);
 
         return response()->json([
-            'fault_types' => $types->map(fn ($type) => [
-                'id' => $type->id,
-                'name' => $type->name,
-                'category' => $type->category,
-                'first_aid_steps' => $renderer->renderFirstAidSteps($type, $propertyModel),
-            ])->values(),
+            // §21 — steps for THIS property + urgency + the agency's documents / video links + the valve and DB-board photos.
+            'fault_types' => $view->payload($types, $propertyModel),
+            'limits' => $view->limits((int) $contact->agency_id),
         ]);
+    }
+
+    /** §21 — the agency's logo and name for the portal header (the signed-in person's own agency). */
+    public function branding(Request $request): JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+
+        $b = \App\Models\Agency::publicBrandingFor((int) $contact->agency_id);
+
+        return response()->json(['branding' => ['name' => $b['name'], 'logo_url' => $b['logoUrl']]]);
     }
 
     public function faultReports(Request $request): JsonResponse

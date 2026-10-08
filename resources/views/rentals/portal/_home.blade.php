@@ -44,10 +44,22 @@
                         <div class="muted" x-show="h.tenancy.detail" x-text="h.tenancy.detail"></div>
                         <div class="row" style="margin-top:6px;"><span class="muted">Start</span><strong x-text="fmtDay(h.tenancy.start_date)"></strong></div>
                         <div class="row"><span class="muted">End</span><strong x-text="fmtDay(h.tenancy.end_date)"></strong></div>
-                        <div class="row"><span class="muted">Notice period</span><strong x-text="h.tenancy.notice_period_days + ' days'"></strong></div>
                     </div>
                 </template>
                 <p class="muted" style="margin:0;" x-show="!h.tenancy">No current tenancy.</p>
+            </div>
+
+            {{-- 4. FAQ worked out from the lease's own notice / cancellation terms (§21). Nothing at all when the lease has none. --}}
+            <div class="list-item" data-portal-home-faq x-show="h.faq && h.faq.length">
+                <template x-for="q in (h.faq || [])" :key="h.property.id + q.key">
+                    <div class="faq" data-portal-faq-item>
+                        <button type="button" class="faq-q" :aria-expanded="isFaqOpen(h.property.id, q.key) ? 'true' : 'false'" @click="toggleFaq(h.property.id, q.key)">
+                            <span x-text="q.question"></span>
+                            <span class="faq-mark" x-text="isFaqOpen(h.property.id, q.key) ? '−' : '+'"></span>
+                        </button>
+                        <p class="faq-a" x-show="isFaqOpen(h.property.id, q.key)" x-text="q.answer"></p>
+                    </div>
+                </template>
             </div>
 
             {{-- 2. Inspection dates --}}

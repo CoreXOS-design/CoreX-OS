@@ -149,16 +149,12 @@ class ClientLandlordRentalsController extends Controller
             ->orderBy('sort_order')
             ->get();
 
-        $renderer = app(RentalFaultTypeService::class);
+        $view = app(\App\Services\Rentals\RentalFaultTypePortalView::class);
 
         return response()->json([
-            'fault_types' => $types->map(fn ($type) => [
-                'id' => $type->id,
-                'name' => $type->name,
-                'category' => $type->category,
-                'urgency' => $type->urgency,
-                'first_aid_steps' => $renderer->renderFirstAidSteps($type, $propertyModel),
-            ])->values(),
+            // §21 — the same view the tenant picker reads (steps for THIS property, urgency, documents, valve / board photos).
+            'fault_types' => $view->payload($types, $propertyModel),
+            'limits' => $view->limits((int) $contact->agency_id),
         ]);
     }
 

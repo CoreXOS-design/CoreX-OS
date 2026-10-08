@@ -21,9 +21,10 @@
         * { box-sizing: border-box; }
         body { margin:0; background:var(--bg); color:var(--text); font-family:'Figtree', system-ui, sans-serif; -webkit-font-smoothing:antialiased; }
         .wrap { max-width: 480px; margin: 0 auto; padding: 16px 16px 48px; }
-        header.top { background:var(--brand); color:#fff; padding:18px 16px; display:flex; align-items:center; justify-content:space-between; }
+        header.top { background:#fff; color:var(--brand); padding:10px 16px; min-height:56px; display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:3px solid var(--brand); }
         header.top h1 { font-size:16px; margin:0; font-weight:700; }
-        header.top button { background:transparent; border:1px solid rgba(255,255,255,.4); color:#fff; border-radius:8px; padding:6px 10px; font-size:13px; }
+        header.top .logo { max-height:38px; max-width:200px; object-fit:contain; display:block; }
+        header.top button { background:transparent; border:1px solid var(--border); color:var(--brand); border-radius:8px; padding:6px 10px; font-size:13px; }
         .card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px; margin-bottom:14px; }
         .muted { color:var(--muted); font-size:13px; }
         .row { display:flex; justify-content:space-between; align-items:center; gap:8px; }
@@ -48,12 +49,39 @@
         a.link { color:var(--accent); text-decoration:none; font-weight:600; font-size:13px; }
         .photo-grid { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
         .photo-grid img { width:72px; height:72px; object-fit:cover; border-radius:8px; border:1px solid var(--border); }
+        button:disabled, .btn:disabled { opacity:.55; cursor:not-allowed; }
+        .photo-actions { display:flex; gap:8px; }
+        .photo-actions .pick { margin-top:0; position:relative; overflow:hidden; flex:1 1 0; }
+        .file-hidden { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; font-size:0; }
+        .thumb { position:relative; width:72px; height:72px; }
+        .thumb-x { position:absolute; top:-6px; right:-6px; width:24px; height:24px; border-radius:50%; border:none; background:var(--danger); color:#fff; font-size:16px; line-height:24px; padding:0; cursor:pointer; }
+        .progress { height:6px; border-radius:3px; background:var(--surface-2); overflow:hidden; margin-top:8px; }
+        .progress > span { display:block; height:100%; background:var(--accent); transition:width .15s linear; }
+        .faq { border-top:1px solid var(--border); }
+        .faq:first-child { border-top:none; }
+        .faq-q { width:100%; display:flex; justify-content:space-between; align-items:center; gap:8px; background:none; border:none; padding:10px 0; font:inherit; font-weight:600; font-size:14px; text-align:left; color:var(--text); cursor:pointer; }
+        .faq-mark { color:var(--muted); font-size:18px; line-height:1; }
+        .faq-a { margin:0 0 10px; font-size:14px; color:var(--text); }
+        .aid-urgent { background:#fdecea; color:var(--danger); border:1px solid var(--danger); border-radius:10px; padding:8px 10px; font-weight:700; font-size:13px; margin-bottom:8px; }
+        .aid-steps { white-space:pre-line; margin:0 0 8px; font-size:14px; }
+        .aid-photo { display:inline-flex; flex-direction:column; gap:2px; text-decoration:none; width:96px; font-size:11px; }
+        .aid-photo img { width:96px; height:72px; }
+        .aid-doc { margin-top:8px; display:flex; flex-direction:column; gap:2px; }
+        .aid-doc-img { max-width:100%; max-height:180px; border-radius:8px; border:1px solid var(--border); }
+        .done-card { text-align:center; }
+        .done-card .tick { width:44px; height:44px; border-radius:50%; background:var(--ok); color:#fff; font-size:26px; line-height:44px; margin:0 auto 8px; }
     </style>
 </head>
 <body>
 <div x-data="rentalsPortal()" x-init="init()">
-    <header class="top">
-        <h1>My Rentals</h1>
+    {{-- §21 — the agency's logo on every page (its name when it has no logo; "My Rentals" until the agency is known). --}}
+    <header class="top" data-portal-brand>
+        <template x-if="branding && branding.logo_url">
+            <img class="logo" :src="branding.logo_url" :alt="branding.name || 'Agency logo'" data-portal-logo x-on:error="branding.logo_url = null">
+        </template>
+        <template x-if="!(branding && branding.logo_url)">
+            <h1 data-portal-name x-text="(branding && branding.name) || 'My Rentals'"></h1>
+        </template>
         <button x-show="session.authenticated" @click="logout()">Log out</button>
     </header>
 
@@ -68,14 +96,14 @@
                     <div>
                         <label>Email address</label>
                         <input type="email" x-model="login.email" placeholder="you@example.com">
-                        <button class="btn btn-primary" @click="lookup()">Continue</button>
+                        <button class="btn btn-primary" :disabled="busy.login" @click="lookup()" x-text="busy.login ? 'Please wait…' : 'Continue'"></button>
                     </div>
                 </template>
                 <template x-if="login.step === 'password'">
                     <div>
                         <label>Password</label>
                         <input type="password" x-model="login.password">
-                        <button class="btn btn-primary" @click="passwordLogin()">Sign in</button>
+                        <button class="btn btn-primary" :disabled="busy.login" @click="passwordLogin()" x-text="busy.login ? 'Signing in…' : 'Sign in'"></button>
                         <a class="link" @click.prevent="sendOtp('recovery')" href="#">Forgot password?</a>
                     </div>
                 </template>
@@ -84,7 +112,7 @@
                         <p class="muted">We sent a 6-digit code to <strong x-text="login.email"></strong>.</p>
                         <label>Code</label>
                         <input type="text" inputmode="numeric" maxlength="6" x-model="login.code">
-                        <button class="btn btn-primary" @click="verifyOtp()">Verify</button>
+                        <button class="btn btn-primary" :disabled="busy.login" @click="verifyOtp()" x-text="busy.login ? 'Checking…' : 'Verify'"></button>
                     </div>
                 </template>
                 <template x-if="login.step === 'set-password'">
@@ -94,7 +122,7 @@
                         <input type="password" x-model="login.newPassword">
                         <label>Confirm password</label>
                         <input type="password" x-model="login.newPasswordConfirm">
-                        <button class="btn btn-primary" @click="setPassword()">Save & continue</button>
+                        <button class="btn btn-primary" :disabled="busy.login" @click="setPassword()" x-text="busy.login ? 'Saving…' : 'Save & continue'"></button>
                     </div>
                 </template>
                 <p class="error" x-show="login.error" x-text="login.error"></p>
@@ -128,63 +156,82 @@
 
                         <template x-if="tenantTab === 'lease'">
                             <div>
+                                {{-- §21 — "View details" opens right under the lease it belongs to (inline), and closes again. --}}
                                 <template x-for="lease in tenantLeases" :key="lease.id">
-                                    <div class="card">
+                                    <div class="card" data-lease-card>
                                         <h2 x-text="lease.property_address || ('Lease #' + lease.id)"></h2>
                                         <span class="badge" x-text="lease.status"></span>
-                                        <a class="link" style="display:block;margin-top:8px" @click.prevent="loadLeaseDetail(lease.id)" href="#">View details →</a>
+                                        <a class="link" style="display:block;margin-top:8px" data-lease-toggle @click.prevent="toggleLeaseDetail(lease.id)" href="#" x-text="openLeaseId === lease.id ? 'Hide details ↑' : 'View details ↓'"></a>
+                                        <p class="muted" style="margin:8px 0 0;" x-show="openLeaseId === lease.id && !leaseDetails[lease.id] && !leaseDetailError">Loading…</p>
+                                        <p class="error" x-show="openLeaseId === lease.id && leaseDetailError" x-text="leaseDetailError"></p>
+                                        <template x-if="openLeaseId === lease.id && leaseDetails[lease.id]">
+                                            <div data-lease-detail style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
+                                                <div class="row"><span class="muted">Rent</span><strong x-text="'R ' + (leaseDetails[lease.id].rent_amount ?? 0).toLocaleString()"></strong></div>
+                                                <div class="row"><span class="muted">Deposit</span><strong x-text="'R ' + (leaseDetails[lease.id].deposit_amount ?? 0).toLocaleString()"></strong></div>
+                                                <div class="row"><span class="muted">Start</span><strong x-text="fmtDay(leaseDetails[lease.id].start_date)"></strong></div>
+                                                <div class="row"><span class="muted">End</span><strong x-text="leaseDetails[lease.id].is_month_to_month ? 'Month-to-month' : fmtDay(leaseDetails[lease.id].end_date)"></strong></div>
+                                                <div class="row"><span class="muted">Landlord</span><strong x-text="(leaseDetails[lease.id].landlord_names || []).join(', ') || '—'"></strong></div>
+                                            </div>
+                                        </template>
                                     </div>
                                 </template>
-                                <template x-if="leaseDetail">
-                                    <div class="card">
-                                        <h2>Lease terms</h2>
-                                        <div class="row"><span class="muted">Rent</span><strong x-text="'R ' + (leaseDetail.rent_amount ?? 0).toLocaleString()"></strong></div>
-                                        <div class="row"><span class="muted">Deposit</span><strong x-text="'R ' + (leaseDetail.deposit_amount ?? 0).toLocaleString()"></strong></div>
-                                        <div class="row"><span class="muted">Start</span><strong x-text="leaseDetail.start_date"></strong></div>
-                                        <div class="row"><span class="muted">End</span><strong x-text="leaseDetail.end_date"></strong></div>
-                                        <div class="row"><span class="muted">Landlord</span><strong x-text="(leaseDetail.landlord_names || []).join(', ') || '—'"></strong></div>
-                                    </div>
-                                </template>
+                                <div class="card" x-show="!tenantLeases.length"><p class="muted" style="margin:0;">No leases yet.</p></div>
                             </div>
                         </template>
 
                         <template x-if="tenantTab === 'faults'">
                             <div>
-                                <button class="btn btn-primary" @click="startFaultReport()">Report a fault</button>
+                                <button class="btn btn-primary" x-show="!faultWizard.open" @click="startFaultReport()">Report a fault</button>
 
                                 <template x-if="faultWizard.open">
-                                    <div class="card">
-                                        <template x-if="!faultWizard.faultTypeId">
+                                    <div class="card" data-fault-wizard>
+                                        {{-- Done: a clear success state, nothing left to press twice. --}}
+                                        <template x-if="faultWizard.step === 'done'">
+                                            <div class="done-card" data-fault-done>
+                                                <div class="tick">&#10003;</div>
+                                                <h2 style="margin-bottom:4px;" x-text="faultWizard.doneTitle"></h2>
+                                                <p class="muted" style="margin:0 0 4px;" x-text="faultWizard.doneText"></p>
+                                                <button class="btn btn-primary" @click="closeFaultWizard()">Done</button>
+                                            </div>
+                                        </template>
+
+                                        <template x-if="faultWizard.step !== 'done'">
                                             <div>
-                                                <label>What's the problem?</label>
-                                                <select x-model="faultWizard.faultTypeId" @change="selectFaultType()">
+                                                <label style="margin-top:0;">What's the problem?</label>
+                                                <select x-model="faultWizard.faultTypeId" :disabled="faultWizard.sending" @change="selectFaultType()">
                                                     <option value="">Choose…</option>
-                                                    <template x-for="ft in faultWizard.property ? faultTypesByProperty[faultWizard.property] || [] : []" :key="ft.id">
+                                                    <template x-for="ft in (faultTypesByProperty[faultWizard.property] || [])" :key="ft.id">
                                                         <option :value="ft.id" x-text="ft.name"></option>
                                                     </template>
                                                 </select>
+
+                                                {{-- Before you report: the steps, photos and documents for the chosen fault type. --}}
+                                                <template x-if="faultWizard.faultTypeId && faultWizard.step === 'aid'">
+                                                    <div style="margin-top:12px;" data-fault-aid-step>
+                                                        <h2>Try this first</h2>
+                                                        @include('rentals.portal._fault-aid', ['w' => 'faultWizard'])
+                                                        <button class="btn btn-ok" :disabled="faultWizard.sending" @click="submitFault('first_aid_resolved')" x-text="faultWizard.sending ? 'Sending…' : 'That fixed it'"></button>
+                                                        <button class="btn btn-outline" :disabled="faultWizard.sending" @click="faultWizard.step = 'form'">Still a problem</button>
+                                                    </div>
+                                                </template>
+
+                                                <template x-if="faultWizard.faultTypeId && faultWizard.step === 'form'">
+                                                    <div data-fault-form>
+                                                        <label>Title</label>
+                                                        <input type="text" x-model="faultWizard.title" :disabled="faultWizard.sending">
+                                                        <label>Describe the problem</label>
+                                                        <textarea rows="3" x-model="faultWizard.description" :disabled="faultWizard.sending"></textarea>
+                                                        <label>Photos</label>
+                                                        @include('rentals.portal._photo-picker', ['bind' => 'faultWizard'])
+                                                        <button class="btn btn-danger" data-fault-submit :disabled="faultWizard.sending || faultWizard.photoBusy" @click="submitFault('still_a_problem')"
+                                                                x-text="faultWizard.sending ? ('Sending…' + (faultWizard.progress ? ' ' + faultWizard.progress + '%' : '')) : (faultWizard.photoBusy ? 'Preparing photos…' : 'Submit report')"></button>
+                                                        <div class="progress" x-show="faultWizard.sending"><span :style="'width:' + (faultWizard.progress || 5) + '%'"></span></div>
+                                                    </div>
+                                                </template>
+                                                <p class="error" x-show="faultWizard.error" x-text="faultWizard.error"></p>
+                                                <button class="btn btn-outline" :disabled="faultWizard.sending" @click="closeFaultWizard()">Cancel</button>
                                             </div>
                                         </template>
-                                        <template x-if="faultWizard.faultTypeId && faultWizard.firstAid">
-                                            <div>
-                                                <h2>Try this first</h2>
-                                                <p x-text="faultWizard.firstAid"></p>
-                                                <button class="btn btn-ok" @click="submitFault('first_aid_resolved')">That fixed it</button>
-                                                <button class="btn btn-outline" @click="faultWizard.firstAid=null">Still a problem</button>
-                                            </div>
-                                        </template>
-                                        <template x-if="faultWizard.faultTypeId && !faultWizard.firstAid">
-                                            <div>
-                                                <label>Title</label>
-                                                <input type="text" x-model="faultWizard.title">
-                                                <label>Describe the problem</label>
-                                                <textarea rows="3" x-model="faultWizard.description"></textarea>
-                                                <label>Photos</label>
-                                                <input type="file" accept="image/*" multiple @change="faultWizard.photos = $event.target.files">
-                                                <button class="btn btn-danger" @click="submitFault('still_a_problem')">Submit report</button>
-                                            </div>
-                                        </template>
-                                        <p class="error" x-show="faultWizard.error" x-text="faultWizard.error"></p>
                                     </div>
                                 </template>
 
@@ -225,7 +272,7 @@
                                             <div data-finished-block style="margin-top:12px; padding-top:12px; border-top:1px solid #e3e8ef;">
                                                 <h2>Is this finished?</h2>
                                                 <p class="muted" x-text="(w.awaiting_answer.reported_by || 'The crew') + ' says this work is complete. Please check it' + (w.awaiting_answer.answer_due ? ' — if we do not hear from you by ' + w.awaiting_answer.answer_due.substring(0,10) + ' we will treat it as accepted.' : '.')"></p>
-                                                <button class="btn btn-ok" :disabled="answerBusy" @click="answerCompletion(w, true)">All done, thanks</button>
+                                                <button class="btn btn-ok" :disabled="answerBusy" @click="answerCompletion(w, true)" x-text="answerBusy ? 'Sending…' : 'All done, thanks'"></button>
                                                 <template x-if="!answerForm || answerForm.workOrderId !== w.id">
                                                     <button class="btn btn-outline" @click="openNotComplete(w)">Not complete / still wrong</button>
                                                 </template>
@@ -234,8 +281,8 @@
                                                         <label>What is still wrong?</label>
                                                         <textarea rows="3" x-model="answerForm.note" placeholder="For example: the tap is fixed but it still drips."></textarea>
                                                         <label>Photos (optional)</label>
-                                                        <input type="file" accept="image/*" multiple @change="answerForm.photos = $event.target.files">
-                                                        <button class="btn btn-danger" :disabled="answerBusy" @click="answerCompletion(w, false)">Send — it is not complete</button>
+                                                        @include('rentals.portal._photo-picker', ['bind' => 'answerForm'])
+                                                        <button class="btn btn-danger" :disabled="answerBusy || answerForm.photoBusy" @click="answerCompletion(w, false)" x-text="answerBusy ? 'Sending…' : 'Send — it is not complete'"></button>
                                                     </div>
                                                 </template>
                                                 <p class="error" x-show="answerError" x-text="answerError"></p>
@@ -293,17 +340,17 @@
                                 <template x-for="f in decisions.fault_reports" :key="'f'+f.id">
                                     <div class="card">
                                         <h2 x-text="f.title"></h2>
-                                        <button class="btn btn-ok" @click="decideFault(f.id, 'approve_agency_appoints')">Approve</button>
-                                        <button class="btn btn-outline" @click="handleMyselfNote=''; decideFault(f.id, 'approve_owner_handles', promptNote())">I'll handle it myself</button>
-                                        <button class="btn btn-danger" @click="decideFault(f.id, 'decline')">Decline</button>
+                                        <button class="btn btn-ok" :disabled="busy['fault' + f.id]" @click="decideFault(f.id, 'approve_agency_appoints')" x-text="busy['fault' + f.id] ? 'Sending…' : 'Approve'"></button>
+                                        <button class="btn btn-outline" :disabled="busy['fault' + f.id]" @click="decideFault(f.id, 'approve_owner_handles')">I'll handle it myself</button>
+                                        <button class="btn btn-danger" :disabled="busy['fault' + f.id]" @click="decideFault(f.id, 'decline')">Decline</button>
                                     </div>
                                 </template>
                                 <template x-for="w in decisions.work_orders" :key="'w'+w.id">
                                     <div class="card">
                                         <h2 x-text="w.title"></h2>
                                         <p class="muted">Quote: <strong x-text="'R ' + (w.selected_quote_amount ?? 0)"></strong></p>
-                                        <button class="btn btn-ok" @click="decideWorkOrder(w.id, 'approve')">Approve</button>
-                                        <button class="btn btn-danger" @click="decideWorkOrder(w.id, 'decline')">Decline</button>
+                                        <button class="btn btn-ok" :disabled="busy['wo' + w.id]" @click="decideWorkOrder(w.id, 'approve')" x-text="busy['wo' + w.id] ? 'Sending…' : 'Approve'"></button>
+                                        <button class="btn btn-danger" :disabled="busy['wo' + w.id]" @click="decideWorkOrder(w.id, 'decline')">Decline</button>
                                     </div>
                                 </template>
                                 {{-- BUILD 2 BEGIN — extra work beyond the owner's agreed terms (.ai/specs/rental-work-orders.md §17.7.4): what was approved, the extra work (selling only), the crew's photos and note, the new total, Approve / Decline. --}}
@@ -327,8 +374,8 @@
                                         </div>
                                         <p style="margin-top:10px;">Extra work: <strong x-text="'R ' + Number(v.extra_amount).toFixed(2)"></strong> &middot; New total: <strong x-text="'R ' + Number(v.new_total).toFixed(2)"></strong></p>
                                         <p class="muted" x-show="v.term_text" x-text="v.term_text"></p>
-                                        <button class="btn btn-ok" @click="decideVariation(v, 'approve')">Approve</button>
-                                        <button class="btn btn-danger" @click="decideVariation(v, 'decline')">Decline</button>
+                                        <button class="btn btn-ok" :disabled="busy['var' + v.id]" @click="decideVariation(v, 'approve')" x-text="busy['var' + v.id] ? 'Sending…' : 'Approve'"></button>
+                                        <button class="btn btn-danger" :disabled="busy['var' + v.id]" @click="decideVariation(v, 'decline')">Decline</button>
                                     </div>
                                 </template>
                                 {{-- BUILD 2 END --}}
@@ -401,28 +448,44 @@
                         <template x-if="landlordTab === 'faults'">
                             <div>
                                 <template x-if="landlordFaultWizard.open">
-                                    <div class="card">
-                                        <h2>Request work</h2>
-                                        <label>What's the problem?</label>
-                                        <select x-model="landlordFaultWizard.faultTypeId" @change="selectLandlordFaultType()">
-                                            <option value="">Choose… (or skip and describe it below)</option>
-                                            <template x-for="ft in landlordFaultTypesByProperty[landlordFaultWizard.property] || []" :key="ft.id">
-                                                <option :value="ft.id" x-text="ft.name + (ft.category ? ' (' + ft.category + ')' : '')"></option>
-                                            </template>
-                                        </select>
-                                        <template x-if="landlordFaultWizard.firstAid">
-                                            <p class="muted" x-text="landlordFaultWizard.firstAid"></p>
+                                    <div class="card" data-landlord-fault-wizard>
+                                        <template x-if="landlordFaultWizard.step === 'done'">
+                                            <div class="done-card" data-fault-done>
+                                                <div class="tick">&#10003;</div>
+                                                <h2 style="margin-bottom:4px;">Request sent</h2>
+                                                <p class="muted" style="margin:0 0 4px;">Your agent has been notified.</p>
+                                                <button class="btn btn-primary" @click="closeLandlordFaultWizard()">Done</button>
+                                            </div>
                                         </template>
-                                        <label>Title</label>
-                                        <input type="text" x-model="landlordFaultWizard.title">
-                                        <label>Describe the problem</label>
-                                        <textarea rows="3" x-model="landlordFaultWizard.description"></textarea>
-                                        <label>Photos</label>
-                                        <input type="file" accept="image/*" multiple @change="landlordFaultWizard.photos = $event.target.files">
-                                        <button class="btn btn-danger" @click="submitLandlordFault()">Submit request</button>
-                                        <button class="btn btn-outline" @click="landlordFaultWizard.open=false">Cancel</button>
-                                        <p class="error" x-show="landlordFaultWizard.error" x-text="landlordFaultWizard.error"></p>
-                                        <p class="success" x-show="landlordFaultWizard.success" x-text="landlordFaultWizard.success"></p>
+                                        <template x-if="landlordFaultWizard.step !== 'done'">
+                                            <div>
+                                                <h2>Request work</h2>
+                                                <label>What's the problem?</label>
+                                                <select x-model="landlordFaultWizard.faultTypeId" :disabled="landlordFaultWizard.sending" @change="selectLandlordFaultType()">
+                                                    <option value="">Choose… (or skip and describe it below)</option>
+                                                    <template x-for="ft in (landlordFaultTypesByProperty[landlordFaultWizard.property] || [])" :key="ft.id">
+                                                        <option :value="ft.id" x-text="ft.name + (ft.category ? ' (' + ft.category + ')' : '')"></option>
+                                                    </template>
+                                                </select>
+                                                <template x-if="landlordFaultWizard.faultTypeId && landlordFaultWizard.ftype && landlordFaultWizard.showAid">
+                                                    <div style="margin-top:12px;" data-fault-aid-step>
+                                                        <h2>Before you request work</h2>
+                                                        @include('rentals.portal._fault-aid', ['w' => 'landlordFaultWizard'])
+                                                    </div>
+                                                </template>
+                                                <label>Title</label>
+                                                <input type="text" x-model="landlordFaultWizard.title" :disabled="landlordFaultWizard.sending">
+                                                <label>Describe the problem</label>
+                                                <textarea rows="3" x-model="landlordFaultWizard.description" :disabled="landlordFaultWizard.sending"></textarea>
+                                                <label>Photos</label>
+                                                @include('rentals.portal._photo-picker', ['bind' => 'landlordFaultWizard'])
+                                                <button class="btn btn-danger" data-fault-submit :disabled="landlordFaultWizard.sending || landlordFaultWizard.photoBusy" @click="submitLandlordFault()"
+                                                        x-text="landlordFaultWizard.sending ? ('Sending…' + (landlordFaultWizard.progress ? ' ' + landlordFaultWizard.progress + '%' : '')) : (landlordFaultWizard.photoBusy ? 'Preparing photos…' : 'Submit request')"></button>
+                                                <div class="progress" x-show="landlordFaultWizard.sending"><span :style="'width:' + (landlordFaultWizard.progress || 5) + '%'"></span></div>
+                                                <button class="btn btn-outline" :disabled="landlordFaultWizard.sending" @click="closeLandlordFaultWizard()">Cancel</button>
+                                                <p class="error" x-show="landlordFaultWizard.error" x-text="landlordFaultWizard.error"></p>
+                                            </div>
+                                        </template>
                                     </div>
                                 </template>
 
@@ -472,24 +535,56 @@ async function ensureCsrfCookie() {
     }
 }
 
+// §21 — `options.key` is the form's submission key: the server does the work once per key and replays its answer on a second press.
 async function portalFetch(url, options = {}) {
     await ensureCsrfCookie();
     const headers = Object.assign({
         'Accept': 'application/json',
         'X-XSRF-TOKEN': getCookie('XSRF-TOKEN'),
     }, options.headers || {});
+    if (options.key) headers['X-Submission-Key'] = options.key;
     if (!(options.body instanceof FormData) && options.body) {
         headers['Content-Type'] = 'application/json';
     }
-    const res = await fetch(url, Object.assign({ credentials: 'same-origin' }, options, { headers }));
+    const fetchOptions = Object.assign({ credentials: 'same-origin' }, options, { headers });
+    delete fetchOptions.key;
+    const res = await fetch(url, fetchOptions);
     let data = null;
     try { data = await res.json(); } catch (e) { /* no body */ }
     return { ok: res.ok, status: res.status, data };
 }
 
+// §21 — a form with photos goes by XMLHttpRequest so the person SEES the upload progress (fetch cannot report it).
+async function portalUpload(url, form, key, onProgress) {
+    await ensureCsrfCookie();
+    return new Promise((resolve) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', url);
+        xhr.withCredentials = true;
+        xhr.setRequestHeader('Accept', 'application/json');
+        xhr.setRequestHeader('X-XSRF-TOKEN', getCookie('XSRF-TOKEN'));
+        if (key) xhr.setRequestHeader('X-Submission-Key', key);
+        if (xhr.upload && onProgress) {
+            xhr.upload.onprogress = (e) => { if (e.lengthComputable && e.total > 0) onProgress(Math.min(99, Math.round(e.loaded / e.total * 100))); };
+        }
+        xhr.onload = () => {
+            let data = null;
+            try { data = JSON.parse(xhr.responseText); } catch (e) { /* no body */ }
+            resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, data });
+        };
+        xhr.onerror = () => resolve({ ok: false, status: 0, data: null });
+        xhr.ontimeout = () => resolve({ ok: false, status: 0, data: null });
+        xhr.timeout = 180000;
+        xhr.send(form);
+    });
+}
+
 function rentalsPortal() {
     return {
         loading: true,
+        // §21 — the agency's logo / name. Known before sign-in only when the personal link carried the email.
+        branding: @json($branding ?? null),
+        busy: {},
         session: { authenticated: false },
         roles: [],
         activeRole: null,
@@ -497,19 +592,33 @@ function rentalsPortal() {
         tenantTab: 'home',
         landlordTab: 'home',
         overview: { homes: [], decisions_waiting: 0, loaded: false, error: null },
-        tenantLeases: [], leaseDetail: null,
+        faqOpen: {},
+        tenantLeases: [], openLeaseId: null, leaseDetails: {}, leaseDetailError: null,
         faultReports: [], documents: [],
         docs: { rows: [], meta: null, loaded: false, error: null, q: '', type: '', from: '', to: '', sort: 'date', dir: 'desc', page: 1 },
-        faultWizard: { open: false, property: null, faultTypeId: '', firstAid: null, title: '', description: '', photos: null, error: null },
+        photoSeq: 0,
+        photoLimits: { max_photos: 6, max_photo_mb: 8 },
+        faultWizard: { open: false, step: 'pick', property: null, faultTypeId: '', ftype: null, title: '', description: '', photos: [], photoError: null, photoBusy: false, photoPending: 0, sending: false, progress: 0, error: null, key: null, doneTitle: '', doneText: '' },
         faultTypesByProperty: {},
         decisions: { fault_reports: [], work_orders: [], variations: [] },
         landlordProperties: [], propertyDetail: null,
         landlordFaults: [],
         jobCards: [],
         // BUILD 3 — the portal's Jobs are work orders (§17.3.5); the "is this finished?" answer form (§17.10.4).
-        workOrders: [], answerForm: null, answerBusy: false, answerError: null,
-        landlordFaultWizard: { open: false, property: null, faultTypeId: '', firstAid: null, title: '', description: '', photos: null, error: null, success: null },
+        workOrders: [], answerForm: null, answerBusy: false, answerError: null, answerKeys: {},
+        landlordFaultWizard: { open: false, step: 'form', property: null, faultTypeId: '', ftype: null, showAid: false, title: '', description: '', photos: [], photoError: null, photoBusy: false, photoPending: 0, sending: false, progress: 0, error: null, key: null },
         landlordFaultTypesByProperty: {},
+
+        // §21 — one press does one thing: a named action cannot start again while it is running.
+        async once(name, fn) {
+            if (this.busy[name]) return;
+            this.busy[name] = true;
+            try { return await fn(); } finally { this.busy[name] = false; }
+        },
+        uuid() {
+            if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+            return 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2, 14);
+        },
 
         async init() {
             // rental-portal-access.md §16 — a personal link (?email=…) arrives with the email already filled in.
@@ -524,7 +633,13 @@ function rentalsPortal() {
             this.loading = false;
         },
 
+        async loadBranding() {
+            const r = await portalFetch('/api/v1/client/rentals/branding');
+            if (r.ok && r.data && r.data.branding) this.branding = r.data.branding;
+        },
+
         async detectRoles() {
+            this.loadBranding();
             const roles = [];
             const leases = await portalFetch('/api/v1/client/rentals/leases');
             if (leases.ok && leases.data.leases && leases.data.leases.length) roles.push('tenant');
@@ -544,49 +659,59 @@ function rentalsPortal() {
         },
 
         async lookup() {
-            this.login.error = null;
-            const r = await portalFetch('/api/v1/client-auth/lookup', { method: 'POST', body: JSON.stringify({ email: this.login.email }) });
-            if (!r.ok || !r.data.exists) { this.login.error = r.data?.message || 'Not found.'; return; }
-            if (r.data.requires_password) {
-                this.login.step = 'password';
-            } else {
-                await this.sendOtp('activation');
-            }
+            return this.once('login', async () => {
+                this.login.error = null;
+                const r = await portalFetch('/api/v1/client-auth/lookup', { method: 'POST', body: JSON.stringify({ email: this.login.email }) });
+                if (!r.ok || !r.data.exists) { this.login.error = r.data?.message || 'Not found.'; return; }
+                if (r.data.requires_password) {
+                    this.login.step = 'password';
+                } else {
+                    await this.sendOtp('activation');
+                }
+            });
         },
 
         async sendOtp(purpose) {
-            this.login.error = null;
-            await portalFetch('/api/v1/client-auth/otp/send', { method: 'POST', body: JSON.stringify({ email: this.login.email, purpose }) });
-            this.login.step = 'otp-sent';
+            return this.once('otp', async () => {
+                this.login.error = null;
+                await portalFetch('/api/v1/client-auth/otp/send', { method: 'POST', body: JSON.stringify({ email: this.login.email, purpose }) });
+                this.login.step = 'otp-sent';
+            });
         },
 
         async verifyOtp() {
-            this.login.error = null;
-            const r = await portalFetch('/api/v1/client-auth/otp/verify', { method: 'POST', body: JSON.stringify({ email: this.login.email, code: this.login.code }) });
-            if (!r.ok) { this.login.error = r.data?.message || 'Invalid code.'; return; }
-            this.login.activationToken = r.data.activation_token;
-            this.login.step = 'set-password';
+            return this.once('login', async () => {
+                this.login.error = null;
+                const r = await portalFetch('/api/v1/client-auth/otp/verify', { method: 'POST', body: JSON.stringify({ email: this.login.email, code: this.login.code }) });
+                if (!r.ok) { this.login.error = r.data?.message || 'Invalid code.'; return; }
+                this.login.activationToken = r.data.activation_token;
+                this.login.step = 'set-password';
+            });
         },
 
         async setPassword() {
-            this.login.error = null;
-            if (this.login.newPassword !== this.login.newPasswordConfirm) { this.login.error = 'Passwords do not match.'; return; }
-            const r = await portalFetch('/api/v1/client-auth/password/set', {
-                method: 'POST',
-                headers: { 'Authorization': 'Bearer ' + this.login.activationToken },
-                body: JSON.stringify({ password: this.login.newPassword, password_confirmation: this.login.newPasswordConfirm }),
+            return this.once('login', async () => {
+                this.login.error = null;
+                if (this.login.newPassword !== this.login.newPasswordConfirm) { this.login.error = 'Passwords do not match.'; return; }
+                const r = await portalFetch('/api/v1/client-auth/password/set', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + this.login.activationToken },
+                    body: JSON.stringify({ password: this.login.newPassword, password_confirmation: this.login.newPasswordConfirm }),
+                });
+                if (!r.ok) { this.login.error = r.data?.message || 'Could not set password.'; return; }
+                this.session.authenticated = true;
+                await this.detectRoles();
             });
-            if (!r.ok) { this.login.error = r.data?.message || 'Could not set password.'; return; }
-            this.session.authenticated = true;
-            await this.detectRoles();
         },
 
         async passwordLogin() {
-            this.login.error = null;
-            const r = await portalFetch('/api/v1/client-auth/login', { method: 'POST', body: JSON.stringify({ email: this.login.email, password: this.login.password }) });
-            if (!r.ok) { this.login.error = r.data?.message || 'Invalid credentials.'; return; }
-            this.session.authenticated = true;
-            await this.detectRoles();
+            return this.once('login', async () => {
+                this.login.error = null;
+                const r = await portalFetch('/api/v1/client-auth/login', { method: 'POST', body: JSON.stringify({ email: this.login.email, password: this.login.password }) });
+                if (!r.ok) { this.login.error = r.data?.message || 'Invalid credentials.'; return; }
+                this.session.authenticated = true;
+                await this.detectRoles();
+            });
         },
 
         async logout() {
@@ -600,9 +725,15 @@ function rentalsPortal() {
             const r = await portalFetch('/api/v1/client/rentals/leases');
             if (r.ok) this.tenantLeases = r.data.leases;
         },
-        async loadLeaseDetail(id) {
+        // §21 — the lease's details open directly under that lease, and close again; each lease is fetched once.
+        async toggleLeaseDetail(id) {
+            if (this.openLeaseId === id) { this.openLeaseId = null; return; }
+            this.openLeaseId = id;
+            this.leaseDetailError = null;
+            if (this.leaseDetails[id]) return;
             const r = await portalFetch('/api/v1/client/rentals/leases/' + id);
-            if (r.ok) this.leaseDetail = r.data.lease;
+            if (r.ok) this.leaseDetails[id] = r.data.lease;
+            else this.leaseDetailError = r.data?.message || 'Could not load the lease details.';
         },
         async loadFaultReports() {
             const r = await portalFetch('/api/v1/client/rentals/fault-reports');
@@ -626,24 +757,28 @@ function rentalsPortal() {
                 if (r.ok) this.workOrders = r.data.work_orders;
             }
         },
-        openNotComplete(w) { this.answerError = null; this.answerForm = { workOrderId: w.id, note: '', photos: null }; },
-        // §17.10.4 — confirm ("All done") or say it is NOT complete (a note of at least 5 characters, up to 10 photos).
+        openNotComplete(w) { this.answerError = null; this.answerForm = { workOrderId: w.id, note: '', photos: [], photoError: null, photoBusy: false, photoPending: 0 }; },
+        // §17.10.4 — confirm ("All done") or say it is NOT complete (a note of at least 5 characters, up to the agency's photo limit).
         async answerCompletion(w, fixed) {
+            if (this.answerBusy) return;
             this.answerError = null;
             const form = new FormData();
             form.append('fixed', fixed ? '1' : '0');
+            const photos = (!fixed && this.answerForm && this.answerForm.workOrderId === w.id) ? this.answerForm.photos : [];
             if (!fixed) {
                 const note = (this.answerForm && this.answerForm.workOrderId === w.id ? this.answerForm.note : '').trim();
                 if (note.length < 5) { this.answerError = 'Please tell us what is still wrong (at least 5 characters).'; return; }
                 form.append('note', note);
-                if (this.answerForm && this.answerForm.photos) {
-                    for (const file of this.answerForm.photos) form.append('photos[]', file);
-                }
+                photos.forEach(p => form.append('photos[]', p.file, p.file.name));
             }
+            const slot = w.id + (fixed ? 'y' : 'n');
+            if (!this.answerKeys[slot]) this.answerKeys[slot] = 'answer-' + this.uuid();
             this.answerBusy = true;
-            const r = await portalFetch('/api/v1/client/rentals/work-orders/' + w.id + '/completion-response', { method: 'POST', body: form });
+            const r = await portalFetch('/api/v1/client/rentals/work-orders/' + w.id + '/completion-response', { method: 'POST', body: form, key: this.answerKeys[slot] });
             this.answerBusy = false;
             if (!r.ok) { this.answerError = r.data?.message || 'Could not send your answer.'; return; }
+            delete this.answerKeys[slot];
+            photos.forEach(p => URL.revokeObjectURL(p.url));
             this.answerForm = null;
             await this.loadWorkOrders();
         },
@@ -663,6 +798,9 @@ function rentalsPortal() {
             const x = new Date(String(d).substring(0, 10) + 'T00:00:00');
             return isNaN(x) ? d : x.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
         },
+        // §21 — the Home FAQ: a question opens its answer underneath it.
+        isFaqOpen(propertyId, key) { return !!this.faqOpen[propertyId + ':' + key]; },
+        toggleFaq(propertyId, key) { const k = propertyId + ':' + key; this.faqOpen[k] = !this.faqOpen[k]; },
         // §19 — one Documents panel for both audiences; the list is always the signed-in person's OWN (server-side).
         async loadDocuments() {
             const base = this.activeRole === 'landlord' ? '/api/v1/client/rentals/landlord' : '/api/v1/client/rentals';
@@ -677,34 +815,128 @@ function rentalsPortal() {
             this.docs.loaded = true;
         },
 
-        async startFaultReport() {
-            this.faultWizard = { open: true, property: this.tenantLeases[0]?.property_id || null, faultTypeId: '', firstAid: null, title: '', description: '', photos: null, error: null };
-            const propertyId = this.leaseDetail?.property?.id || this.tenantLeases[0]?.property_id;
-            this.faultWizard.property = propertyId;
-            if (propertyId && !this.faultTypesByProperty[propertyId]) {
-                const r = await portalFetch('/api/v1/client/rentals/properties/' + propertyId + '/fault-types');
-                if (r.ok) this.faultTypesByProperty[propertyId] = r.data.fault_types;
+        // ── §21 — photos: add (camera or gallery, each pick ADDS), shrink in the browser, preview, remove before sending ──
+        photoCountLabel(w) {
+            return w.photoBusy ? 'Preparing photos…' : (w.photos.length + ' of ' + this.photoLimits.max_photos + ' photos');
+        },
+        async addPhotos(w, ev) {
+            const input = ev.target;
+            const files = Array.from(input.files || []);
+            input.value = ''; // so the same picture can be picked again after removing it
+            w.photoError = null;
+            const max = this.photoLimits.max_photos;
+            const maxBytes = this.photoLimits.max_photo_mb * 1024 * 1024;
+            for (const file of files) {
+                if (w.photos.length + (w.photoPending || 0) >= max) { w.photoError = 'You can add up to ' + max + ' photos.'; break; }
+                if (!file.type || file.type.indexOf('image/') !== 0) { w.photoError = 'Only photos can be added.'; continue; }
+                const sig = file.name + '|' + file.size + '|' + file.lastModified;
+                if (w.photos.some(p => p.sig === sig)) continue; // the same picture twice is one picture
+                w.photoPending = (w.photoPending || 0) + 1;
+                w.photoBusy = true;
+                try {
+                    const out = await this.compressPhoto(file);
+                    if (out.size > maxBytes) { w.photoError = 'That photo is too large — the most is ' + this.photoLimits.max_photo_mb + ' MB.'; continue; }
+                    this.photoSeq += 1;
+                    w.photos.push({ id: this.photoSeq, sig: sig, file: out, name: out.name, url: URL.createObjectURL(out) });
+                } finally {
+                    w.photoPending -= 1;
+                    w.photoBusy = w.photoPending > 0;
+                }
             }
         },
+        removePhoto(w, id) {
+            const i = w.photos.findIndex(p => p.id === id);
+            if (i >= 0) { URL.revokeObjectURL(w.photos[i].url); w.photos.splice(i, 1); }
+            w.photoError = null;
+        },
+        // A phone photo is 3-8 MB; the report only needs it clear. Longest side 1600 px, JPEG 80% — and the original is kept when
+        // shrinking would not make it smaller, or when the browser cannot read it.
+        async compressPhoto(file) {
+            const MAX_EDGE = 1600, QUALITY = 0.8, KEEP_UNDER = 1.2 * 1024 * 1024;
+            try {
+                if (file.type === 'image/gif' || file.type === 'image/svg+xml') return file;
+                let bmp;
+                if (window.createImageBitmap) {
+                    try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch (e) { bmp = await createImageBitmap(file); }
+                } else {
+                    return file;
+                }
+                const scale = Math.min(1, MAX_EDGE / Math.max(bmp.width, bmp.height));
+                if (scale === 1 && file.size <= KEEP_UNDER) { if (bmp.close) bmp.close(); return file; }
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.max(1, Math.round(bmp.width * scale));
+                canvas.height = Math.max(1, Math.round(bmp.height * scale));
+                canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+                if (bmp.close) bmp.close();
+                const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', QUALITY));
+                if (!blob || blob.size >= file.size) return file;
+                return new File([blob], (file.name || 'photo').replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg', lastModified: Date.now() });
+            } catch (e) {
+                return file;
+            }
+        },
+        freeWizardPhotos(w) { (w.photos || []).forEach(p => URL.revokeObjectURL(p.url)); },
+
+        // ── tenant: report a fault ──
+        blankFaultWizard(propertyId) {
+            return { open: !!propertyId, step: 'pick', property: propertyId || null, faultTypeId: '', ftype: null, lastTypeName: '', title: '', description: '', photos: [], photoError: null, photoBusy: false, photoPending: 0, sending: false, progress: 0, error: null, key: this.uuid(), doneTitle: '', doneText: '' };
+        },
+        async startFaultReport() {
+            const propertyId = this.tenantLeases[0]?.property_id || null;
+            this.faultWizard = this.blankFaultWizard(propertyId);
+            if (!propertyId) { this.faultWizard.open = true; this.faultWizard.error = 'We could not find your property.'; return; }
+            if (!this.faultTypesByProperty[propertyId]) {
+                const r = await portalFetch('/api/v1/client/rentals/properties/' + propertyId + '/fault-types');
+                if (r.ok) {
+                    this.faultTypesByProperty[propertyId] = r.data.fault_types;
+                    if (r.data.limits) this.photoLimits = r.data.limits;
+                } else {
+                    this.faultWizard.error = r.data?.message || 'Could not load the list of problems.';
+                }
+            }
+        },
+        // The moment a type is chosen the person sees what to try first (steps, photos, documents); a type with nothing to show goes straight to the form.
         selectFaultType() {
-            const types = this.faultTypesByProperty[this.faultWizard.property] || [];
-            const t = types.find(t => String(t.id) === String(this.faultWizard.faultTypeId));
-            this.faultWizard.firstAid = t ? t.first_aid_steps : null;
-            this.faultWizard.title = t ? t.name : '';
+            const w = this.faultWizard;
+            const types = this.faultTypesByProperty[w.property] || [];
+            const t = types.find(t => String(t.id) === String(w.faultTypeId));
+            w.ftype = t || null;
+            w.error = null;
+            if (!t) { w.step = 'pick'; return; }
+            const hasAid = !!(String(t.first_aid_steps || '').trim() || (t.photos || []).length || (t.documents || []).length);
+            w.step = hasAid ? 'aid' : 'form';
+            if (!w.title || w.title === w.lastTypeName) w.title = t.name;
+            w.lastTypeName = t.name;
+        },
+        closeFaultWizard() {
+            this.freeWizardPhotos(this.faultWizard);
+            this.faultWizard = this.blankFaultWizard(null);
         },
         async submitFault(resolution) {
-            this.faultWizard.error = null;
+            const w = this.faultWizard;
+            if (w.sending || w.photoBusy) return; // one press, one report
+            w.error = null;
             const form = new FormData();
-            form.append('rental_fault_type_id', this.faultWizard.faultTypeId);
+            form.append('rental_fault_type_id', w.faultTypeId);
             form.append('resolution', resolution);
-            form.append('title', this.faultWizard.title || 'Fault reported');
-            form.append('description', this.faultWizard.description || '');
-            if (this.faultWizard.photos) {
-                for (const file of this.faultWizard.photos) form.append('photos[]', file);
+            form.append('title', w.title || 'Fault reported');
+            form.append('description', w.description || '');
+            form.append('submission_key', w.key);
+            if (resolution === 'still_a_problem') w.photos.forEach(p => form.append('photos[]', p.file, p.file.name));
+            w.sending = true;
+            w.progress = 0;
+            const r = await portalUpload('/api/v1/client/rentals/properties/' + w.property + '/fault-reports', form, w.key, (pct) => { w.progress = pct; });
+            w.sending = false;
+            if (!r.ok) {
+                w.error = r.status === 0
+                    ? 'No connection — check your signal and press the button again. Nothing is sent twice.'
+                    : (r.data?.message || 'Could not submit. Please try again.');
+                return;
             }
-            const r = await portalFetch('/api/v1/client/rentals/properties/' + this.faultWizard.property + '/fault-reports', { method: 'POST', body: form });
-            if (!r.ok) { this.faultWizard.error = r.data?.message || 'Could not submit.'; return; }
-            this.faultWizard.open = false;
+            this.freeWizardPhotos(w);
+            w.step = 'done';
+            w.doneTitle = resolution === 'first_aid_resolved' ? 'Glad that fixed it' : 'Fault reported';
+            w.doneText = resolution === 'first_aid_resolved' ? 'We have noted it on your file.' : 'Your agent has been notified.';
             this.loadFaultReports();
         },
 
@@ -723,24 +955,40 @@ function rentalsPortal() {
         promptNote() {
             return window.prompt("Add a note (required for 'I'll handle it myself'):") || '';
         },
+        // §21 — each decision is one press: the button is off while it is sent, and the server answers a repeat with the first answer.
         async decideFault(id, decision, note) {
+            const bk = 'fault' + id;
+            if (this.busy[bk]) return;
             if (decision === 'approve_owner_handles' && !note) { note = this.promptNote(); if (!note) return; }
-            const r = await portalFetch('/api/v1/client/rentals/landlord/fault-reports/' + id + '/decision', { method: 'POST', body: JSON.stringify({ decision, note }) });
-            if (r.ok) this.loadDecisions();
-            else alert(r.data?.message || 'Could not record decision.');
+            this.busy[bk] = true;
+            try {
+                const r = await portalFetch('/api/v1/client/rentals/landlord/fault-reports/' + id + '/decision', { method: 'POST', body: JSON.stringify({ decision, note }), key: 'decide-fault-' + id + '-' + decision });
+                if (r.ok) this.loadDecisions();
+                else alert(r.data?.message || 'Could not record decision.');
+            } finally { this.busy[bk] = false; }
         },
         async decideWorkOrder(id, decision) {
-            const r = await portalFetch('/api/v1/client/rentals/landlord/work-orders/' + id + '/decision', { method: 'POST', body: JSON.stringify({ decision }) });
-            if (r.ok) this.loadDecisions();
-            else alert(r.data?.message || 'Could not record decision.');
+            const bk = 'wo' + id;
+            if (this.busy[bk]) return;
+            this.busy[bk] = true;
+            try {
+                const r = await portalFetch('/api/v1/client/rentals/landlord/work-orders/' + id + '/decision', { method: 'POST', body: JSON.stringify({ decision }), key: 'decide-wo-' + id + '-' + decision });
+                if (r.ok) this.loadDecisions();
+                else alert(r.data?.message || 'Could not record decision.');
+            } finally { this.busy[bk] = false; }
         },
         // BUILD 2 BEGIN (§17.7.4) - the decision carries the revision the owner saw; a stale one answers 409 and the list is refreshed.
         async decideVariation(v, decision) {
+            const bk = 'var' + v.id;
+            if (this.busy[bk]) return;
             const note = decision === 'decline' ? (window.prompt('Add a note (optional):') || '') : '';
-            const r = await portalFetch('/api/v1/client/rentals/landlord/variations/' + v.id + '/decision', { method: 'POST', body: JSON.stringify({ decision, revision: v.revision, note }) });
-            if (r.ok) { this.loadDecisions(); return; }
-            alert(r.data?.message || 'Could not record decision.');
-            if (r.status === 409 || r.status === 422) this.loadDecisions();
+            this.busy[bk] = true;
+            try {
+                const r = await portalFetch('/api/v1/client/rentals/landlord/variations/' + v.id + '/decision', { method: 'POST', body: JSON.stringify({ decision, revision: v.revision, note }), key: 'decide-var-' + v.id + '-' + decision + '-' + v.revision });
+                if (r.ok) { this.loadDecisions(); return; }
+                alert(r.data?.message || 'Could not record decision.');
+                if (r.status === 409 || r.status === 422) this.loadDecisions();
+            } finally { this.busy[bk] = false; }
         },
         // BUILD 2 END
 
@@ -754,34 +1002,56 @@ function rentalsPortal() {
             const r = await portalFetch('/api/v1/client/rentals/landlord/fault-reports');
             if (r.ok) this.landlordFaults = r.data.fault_reports;
         },
+        blankLandlordWizard(propertyId) {
+            return { open: !!propertyId, step: 'form', property: propertyId || null, faultTypeId: '', ftype: null, showAid: false, lastTypeName: '', title: '', description: '', photos: [], photoError: null, photoBusy: false, photoPending: 0, sending: false, progress: 0, error: null, key: this.uuid() };
+        },
         async startLandlordFaultReport(propertyId) {
-            this.landlordFaultWizard = { open: true, property: propertyId, faultTypeId: '', firstAid: null, title: '', description: '', photos: null, error: null, success: null };
+            this.landlordFaultWizard = this.blankLandlordWizard(propertyId);
             if (propertyId && !this.landlordFaultTypesByProperty[propertyId]) {
                 const r = await portalFetch('/api/v1/client/rentals/landlord/properties/' + propertyId + '/fault-types');
-                if (r.ok) this.landlordFaultTypesByProperty[propertyId] = r.data.fault_types;
+                if (r.ok) {
+                    this.landlordFaultTypesByProperty[propertyId] = r.data.fault_types;
+                    if (r.data.limits) this.photoLimits = r.data.limits;
+                }
             }
         },
         selectLandlordFaultType() {
-            const types = this.landlordFaultTypesByProperty[this.landlordFaultWizard.property] || [];
-            const t = types.find(t => String(t.id) === String(this.landlordFaultWizard.faultTypeId));
-            this.landlordFaultWizard.firstAid = t ? t.first_aid_steps : null;
-            if (t && !this.landlordFaultWizard.title) this.landlordFaultWizard.title = t.name;
+            const w = this.landlordFaultWizard;
+            const types = this.landlordFaultTypesByProperty[w.property] || [];
+            const t = types.find(t => String(t.id) === String(w.faultTypeId));
+            w.ftype = t || null;
+            w.showAid = !!(t && (String(t.first_aid_steps || '').trim() || (t.photos || []).length || (t.documents || []).length));
+            if (t && (!w.title || w.title === w.lastTypeName)) w.title = t.name;
+            w.lastTypeName = t ? t.name : '';
+        },
+        closeLandlordFaultWizard() {
+            this.freeWizardPhotos(this.landlordFaultWizard);
+            this.landlordFaultWizard = this.blankLandlordWizard(null);
         },
         async submitLandlordFault() {
-            this.landlordFaultWizard.error = null;
-            if (!this.landlordFaultWizard.title) { this.landlordFaultWizard.error = 'Please give it a short title.'; return; }
+            const w = this.landlordFaultWizard;
+            if (w.sending || w.photoBusy) return;
+            w.error = null;
+            if (!w.title) { w.error = 'Please give it a short title.'; return; }
             const form = new FormData();
-            if (this.landlordFaultWizard.faultTypeId) form.append('rental_fault_type_id', this.landlordFaultWizard.faultTypeId);
-            form.append('title', this.landlordFaultWizard.title);
-            form.append('description', this.landlordFaultWizard.description || '');
-            if (this.landlordFaultWizard.photos) {
-                for (const file of this.landlordFaultWizard.photos) form.append('photos[]', file);
+            if (w.faultTypeId) form.append('rental_fault_type_id', w.faultTypeId);
+            form.append('title', w.title);
+            form.append('description', w.description || '');
+            form.append('submission_key', w.key);
+            w.photos.forEach(p => form.append('photos[]', p.file, p.file.name));
+            w.sending = true;
+            w.progress = 0;
+            const r = await portalUpload('/api/v1/client/rentals/landlord/properties/' + w.property + '/fault-reports', form, w.key, (pct) => { w.progress = pct; });
+            w.sending = false;
+            if (!r.ok) {
+                w.error = r.status === 0
+                    ? 'No connection — check your signal and press the button again. Nothing is sent twice.'
+                    : (r.data?.message || 'Could not submit. Please try again.');
+                return;
             }
-            const r = await portalFetch('/api/v1/client/rentals/landlord/properties/' + this.landlordFaultWizard.property + '/fault-reports', { method: 'POST', body: form });
-            if (!r.ok) { this.landlordFaultWizard.error = r.data?.message || 'Could not submit.'; return; }
-            this.landlordFaultWizard.success = 'Request sent — your agent has been notified.';
-            await this.loadLandlordFaults();
-            setTimeout(() => { this.landlordFaultWizard.open = false; }, 1500);
+            this.freeWizardPhotos(w);
+            w.step = 'done';
+            this.loadLandlordFaults();
         },
     };
 }

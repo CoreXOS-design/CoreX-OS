@@ -48,6 +48,11 @@ class RentalPortalSettingsController extends Controller
             'crewPageUpcomingDays' => RentalPortalSetting::crewPageUpcomingDaysFor($agencyId),
             'defaultCrewPageRecentCompletedDays' => RentalPortalSetting::DEFAULT_CREW_PAGE_RECENT_COMPLETED_DAYS,
             'defaultCrewPageUpcomingDays' => RentalPortalSetting::DEFAULT_CREW_PAGE_UPCOMING_DAYS,
+            // rental-portal-access.md §21 — fault photos and the Home FAQ wording.
+            'faultPhotoMaxCount' => RentalPortalSetting::faultPhotoMaxCountFor($agencyId),
+            'faultPhotoMaxMb' => RentalPortalSetting::faultPhotoMaxMbFor($agencyId),
+            'faqTexts' => collect(RentalPortalSetting::FAQ_KEYS)->mapWithKeys(fn ($k) => [$k => RentalPortalSetting::faqTextFor($agencyId, $k)])->all(),
+            'faqDefaults' => RentalPortalSetting::FAQ_DEFAULTS,
         ]);
     }
 
@@ -203,6 +208,47 @@ class RentalPortalSettingsController extends Controller
     public function updateCrewPageUpcomingDays(Request $request): RedirectResponse
     {
         return $this->updateBoundedInt($request, 'crew_page_upcoming_days', 1, 60, 'Upcoming window');
+    }
+
+    /** §21 — photos one fault report may carry. Absent or blank = leave alone (onboarding §6.1). */
+    public function updateFaultPhotoMaxCount(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'fault_photo_max_count', 1, RentalPortalSetting::MAX_FAULT_PHOTO_COUNT, 'Photos per fault report');
+    }
+
+    /** §21 — the size of one fault photo as it reaches the server, in MB. Absent or blank = leave alone. */
+    public function updateFaultPhotoMaxMb(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'fault_photo_max_mb', 1, RentalPortalSetting::MAX_FAULT_PHOTO_MB, 'Largest fault photo (MB)');
+    }
+
+    /**
+     * §21 — the Home FAQ wording (questions and answers, tenant and owner). ONE saver for the eight texts is safe here because
+     * each field is individually has()-guarded: a field the wizard step did not post is left exactly as it was (onboarding §6.1);
+     * a field posted blank goes back to the default wording.
+     */
+    public function updateFaqTexts(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+        $rules = [];
+        foreach (RentalPortalSetting::FAQ_KEYS as $key) {
+            if ($request->has($key)) {
+                $rules[$key] = ['nullable', 'string', 'max:' . (str_ends_with($key, '_question') ? 200 : 1500)];
+            }
+        }
+        if (!$rules) {
+            return redirect()->route('corex.settings.rental-portal.edit');
+        }
+
+        $validated = $request->validate($rules);
+        $update = [];
+        foreach ($validated as $key => $value) {
+            $value = is_string($value) ? trim($value) : '';
+            $update[$key] = $value === '' ? null : $value;
+        }
+        RentalPortalSetting::updateOrCreate(['agency_id' => $agencyId], $update);
+
+        return redirect()->route('corex.settings.rental-portal.edit')->with('success', 'Home page FAQ wording saved.');
     }
 
     private function updateBoundedInt(Request $request, string $field, int $min, int $max, string $label): RedirectResponse

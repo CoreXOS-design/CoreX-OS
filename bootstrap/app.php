@@ -132,6 +132,8 @@ return Application::configure(basePath: dirname(__DIR__))
                 'client.auth' => \App\Http\Middleware\AuthenticateClientPortal::class, // portal auth that a staff session in the same browser cannot answer for
                 'client.ability' => \App\Http\Middleware\EnsureClientAbility::class,
                 'rental-portal.enabled' => \App\Http\Middleware\EnsureRentalPortalEnabled::class, // AT-445
+                'portal.once' => \App\Http\Middleware\EnsurePortalSubmissionOnce::class, // rental-portal-access.md §21 — one press does its work once
+                'portal.photos' => \App\Http\Middleware\EnforcePortalPhotoLimits::class, // rental-portal-access.md §21 — the agency's fault-photo limits
                 // Agency Public API (website API)
                 'website.live' => \App\Http\Middleware\EnsureAgencyWebsiteLive::class,
                 'website.scope' => \App\Http\Middleware\EnsureWebsiteApiScope::class,

@@ -44,6 +44,32 @@ class RentalPortalSetting extends Model
     public const DEFAULT_CREW_PAGE_RECENT_COMPLETED_DAYS = 7;
     public const DEFAULT_CREW_PAGE_UPCOMING_DAYS = 14;
 
+    // .ai/specs/rental-portal-access.md §21 — fault photos from the tenant / owner portal (client-side compression keeps phone photos well under the size).
+    public const DEFAULT_FAULT_PHOTO_MAX_COUNT = 6;
+    public const MAX_FAULT_PHOTO_COUNT = 10;
+    public const DEFAULT_FAULT_PHOTO_MAX_MB = 8;
+    public const MAX_FAULT_PHOTO_MB = 15;
+
+    /**
+     * §21 — the portal Home FAQ. The agency's wording, with the lease's own values merged in: {notice_days}, {earliest_termination_date},
+     * {earliest_notice_date}, {lease_end_date}, {early_cancellation_terms}. A piece in [[double brackets]] is dropped whole when any
+     * {value} inside it is not on the lease — so the portal never states a figure it does not have.
+     */
+    public const FAQ_KEYS = [
+        'faq_tenant_notice_question', 'faq_tenant_notice_answer', 'faq_tenant_early_question', 'faq_tenant_early_answer',
+        'faq_landlord_notice_question', 'faq_landlord_notice_answer', 'faq_landlord_early_question', 'faq_landlord_early_answer',
+    ];
+    public const FAQ_DEFAULTS = [
+        'faq_tenant_notice_question' => 'Can I give notice?',
+        'faq_tenant_notice_answer' => 'Yes, in writing[[, at least {notice_days} days before you want to move out]].[[ Your lease cannot end before {earliest_termination_date}.]][[ The earliest you can give notice is {earliest_notice_date}.]][[ Your lease runs until {lease_end_date}.]]',
+        'faq_tenant_early_question' => 'What happens if I give notice before my lease expires?',
+        'faq_tenant_early_answer' => '[[Notice that would end the lease before {earliest_termination_date} does not end it before then.]][[ {early_cancellation_terms}]] The full terms are in your signed lease under Documents.',
+        'faq_landlord_notice_question' => 'Can the tenant give notice?',
+        'faq_landlord_notice_answer' => 'Yes, in writing[[, at least {notice_days} days before they move out]].[[ The lease cannot end before {earliest_termination_date}.]][[ The earliest the tenant can give notice is {earliest_notice_date}.]][[ The lease runs until {lease_end_date}.]]',
+        'faq_landlord_early_question' => 'What happens if the tenant gives notice before the lease expires?',
+        'faq_landlord_early_answer' => '[[Notice that would end the lease before {earliest_termination_date} does not end it before then.]][[ {early_cancellation_terms}]] The full terms are in the signed lease under Documents.',
+    ];
+
     protected $fillable = [
         'agency_id',
         'tenant_portal_enabled',
@@ -62,6 +88,10 @@ class RentalPortalSetting extends Model
         'crew_standing_link_expiry_days',
         'crew_page_recent_completed_days',
         'crew_page_upcoming_days',
+        'fault_photo_max_count',
+        'fault_photo_max_mb',
+        'faq_tenant_notice_question', 'faq_tenant_notice_answer', 'faq_tenant_early_question', 'faq_tenant_early_answer',
+        'faq_landlord_notice_question', 'faq_landlord_notice_answer', 'faq_landlord_early_question', 'faq_landlord_early_answer',
     ];
 
     protected $casts = [
@@ -80,6 +110,8 @@ class RentalPortalSetting extends Model
         'crew_standing_link_expiry_days' => 'integer',
         'crew_page_recent_completed_days' => 'integer',
         'crew_page_upcoming_days' => 'integer',
+        'fault_photo_max_count' => 'integer',
+        'fault_photo_max_mb' => 'integer',
     ];
 
     private static function boolFor(?int $agencyId, string $column, bool $default): bool
@@ -215,5 +247,36 @@ class RentalPortalSetting extends Model
     public static function notifyLandlordOnCrewCompletionFor(?int $agencyId): bool
     {
         return self::boolFor($agencyId, 'notify_landlord_on_crew_completion', self::DEFAULT_NOTIFY_LANDLORD_ON_CREW_COMPLETION);
+    }
+
+    // ── §21 — portal round 2 ────────────────────────────────────────────
+
+    /** How many photos one fault report may carry (1-10). */
+    public static function faultPhotoMaxCountFor(?int $agencyId): int
+    {
+        $value = $agencyId ? static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('fault_photo_max_count') : null;
+        $n = $value !== null ? (int) $value : self::DEFAULT_FAULT_PHOTO_MAX_COUNT;
+
+        return max(1, min(self::MAX_FAULT_PHOTO_COUNT, $n));
+    }
+
+    /** The size of ONE photo as it reaches the server, in MB (1-15). The page compresses before sending. */
+    public static function faultPhotoMaxMbFor(?int $agencyId): int
+    {
+        $value = $agencyId ? static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('fault_photo_max_mb') : null;
+        $n = $value !== null ? (int) $value : self::DEFAULT_FAULT_PHOTO_MAX_MB;
+
+        return max(1, min(self::MAX_FAULT_PHOTO_MB, $n));
+    }
+
+    /** One FAQ wording (a question or an answer): the agency's own text when saved and not blank, else the default. */
+    public static function faqTextFor(?int $agencyId, string $key): string
+    {
+        if (!array_key_exists($key, self::FAQ_DEFAULTS)) {
+            return '';
+        }
+        $value = $agencyId ? static::withoutGlobalScopes()->where('agency_id', $agencyId)->value($key) : null;
+
+        return is_string($value) && trim($value) !== '' ? $value : self::FAQ_DEFAULTS[$key];
     }
 }

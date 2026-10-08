@@ -1067,3 +1067,6 @@ spec's. Flagged there, not decided unilaterally.
 **Standing instruction, pending confirmation to proceed to build**: this spec file remains as the
 current design of record for Rentals Phase 1 faults/work orders. All four originally-raised questions
 are now settled per Johan's rulings above.
+
+### 8.5 Portal round 2 (8 Oct 2026, QA1) — what the tenant / owner sees after picking a fault type
+Per §2/§3.2/§4.3 the portal now returns, for the chosen fault type and property, the same content the agent picker shows — first-aid steps (line breaks kept), urgency, the property's valve and DB-board photos, the agency's uploaded images / PDFs / video links — via `RentalFaultTypePortalView`, and takes several photos (agency limits). Full detail and the double-submit guard: `rental-portal-access.md` §21.

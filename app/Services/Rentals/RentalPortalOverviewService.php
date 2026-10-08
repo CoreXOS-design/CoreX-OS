@@ -106,6 +106,8 @@ class RentalPortalOverviewService
             'lease_id' => $lease?->id,
             'tenant_names' => $audience === self::AUDIENCE_LANDLORD && $lease && $lease->status === Lease::STATUS_ACTIVE ? $lease->tenantNames() : null,
             'tenancy' => $lease ? $this->tenancy($lease, $audience) : null,
+            // §21 — the FAQ worked out from the lease's own notice / cancellation terms; empty when the lease has none.
+            'faq' => $lease ? app(RentalPortalFaqService::class)->forLease($lease, $audience) : [],
             'contact' => $this->agentContact($lease, $property, $agencyId, $audience),
             'inspections' => $this->inspectionLists($inspections),
         ];
@@ -174,7 +176,8 @@ class RentalPortalOverviewService
 
     /**
      * Where this lease stands, in plain words, from the lease record. `state` is the machine key, `headline` / `detail` are
-     * the wording. `notice_period_days` is the agency's own setting (what a tenant must give).
+     * the wording. `notice_period_days` is the agency's own setting (what a tenant must give) — kept in the payload for the mobile app; the web Home no longer
+     * prints it (§21: the FAQ answers from the lease's own terms instead).
      *
      * @return array<string,mixed>
      */
