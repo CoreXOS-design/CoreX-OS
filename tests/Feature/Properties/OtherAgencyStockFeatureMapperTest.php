@@ -217,8 +217,55 @@ class OtherAgencyStockFeatureMapperTest extends TestCase
     {
         $m = Mapper::map(['not a row', ['k' => 'Furnished'], ['k' => 'Furnished', 'v' => 'Yes'], ['s' => ['x'], 'k' => ['y'], 'v' => [[1]]], null], ['', 7, 'Furnished']);
         $this->assertContains('Furnished', $m['global']['theProperty']);
-        $this->assertSame(['global', 'spaces', 'attributes', 'unmapped'], array_keys($m));
-        $this->assertSame(['global' => array_fill_keys(Mapper::CATEGORIES, []), 'spaces' => [], 'attributes' => [], 'unmapped' => []], Mapper::map([], []));
+        $this->assertSame(['global', 'spaces', 'kitchens', 'attributes', 'unmapped'], array_keys($m));
+        $this->assertSame(['global' => array_fill_keys(Mapper::CATEGORIES, []), 'spaces' => [], 'kitchens' => null, 'attributes' => [], 'unmapped' => []], Mapper::map([], []));
+    }
+
+    // ── Rooms rows: the kitchen count and every other room P24 counts (cc4 follow-up, 2026-10-08) ──
+
+    public function test_the_kitchens_count_is_read_from_the_rooms_row(): void
+    {
+        $this->assertSame(1, $this->mapFixture('townhouse-uvongo-117580701')['kitchens'], '"Kitchens | 1" with no kitchen features listed');
+        $this->assertSame(1, $this->mapFixture('apartment-shakas-rock-117608849')['kitchens']);
+        $this->assertSame(1, $this->mapFixture('house-umhlali-golf-estate-117621889')['kitchens']);
+        // The rental lists the kitchen's contents, not a count; the townhouse and land list no kitchen at all.
+        $this->assertNull($this->mapFixture('rental-apartment-ballito-116824433')['kitchens']);
+        $this->assertNull($this->mapFixture('townhouse-elaleni-117675379')['kitchens']);
+        $this->assertNull($this->mapFixture('vacant-land-lalela-117674295')['kitchens']);
+
+        $this->assertSame(2, Mapper::map([['s' => 'Rooms', 'k' => 'Kitchens', 'v' => ['2', 'One is a scullery']]])['kitchens']);
+        $this->assertNull(Mapper::map([['s' => 'Rooms', 'k' => 'Kitchens', 'v' => ['0']]])['kitchens'], 'zero is not a kitchen');
+        $this->assertNull(Mapper::map([['s' => 'Rooms', 'k' => 'Kitchens', 'v' => ['Open plan']]])['kitchens'], 'a note is not a count');
+    }
+
+    public function test_every_rooms_row_on_the_saved_pages_is_taken_in_or_reported(): void
+    {
+        $owned = ['bedrooms', 'bedroom', 'bathrooms', 'bathroom', 'kitchens', 'kitchen']; // columns / buildSpacesJson()
+        foreach (glob(base_path(self::FIXTURES . '*.payload.json')) as $file) {
+            $d = json_decode(file_get_contents($file), true, 512, JSON_THROW_ON_ERROR);
+            $m = Mapper::map($d['feature_rows'] ?? [], $d['strip_tags'] ?? []);
+            foreach ($d['feature_rows'] ?? [] as $row) {
+                if (($row['s'] ?? '') !== 'Rooms' || in_array(strtolower($row['k']), $owned, true)) {
+                    continue;
+                }
+                $reported = collect($m['unmapped'])->contains(fn ($u) => str_starts_with($u, 'Rooms / ' . $row['k']));
+                $this->assertFalse($reported, basename($file) . ": Rooms / {$row['k']} should map to a CoreX space, not be reported as unmapped");
+            }
+        }
+    }
+
+    public function test_p24_room_labels_map_to_the_corex_space_types(): void
+    {
+        $rows = fn (string $label, string $v = '2') => [['s' => 'Rooms', 'k' => $label, 'v' => [$v]]];
+        foreach ([
+            'Reception Rooms' => 'Reception Room', 'Studies' => 'Study', 'Study' => 'Study', 'Dining Rooms' => 'Dining Room',
+            'Lounges' => 'Lounge', 'Domestic Rooms' => 'Domestic Room', 'Offices' => 'Office', 'TV Rooms' => 'TV Room',
+            'Family/TV Rooms' => 'TV Room', 'Family / TV Room' => 'TV Room', 'Family Rooms' => 'TV Room',
+        ] as $label => $type) {
+            $m = Mapper::map($rows($label));
+            $this->assertSame([['type' => $type, 'count' => 2]], $m['spaces'], "P24 \"{$label}\" -> {$type}");
+            $this->assertSame([], $m['unmapped'], "{$label} is not reported as unmapped");
+        }
     }
 
     // ── payload -> stored property, through the real endpoint ────────────────────
@@ -304,6 +351,40 @@ class OtherAgencyStockFeatureMapperTest extends TestCase
         $p = $this->import($agent, $payload);
         $this->assertContains('Furnished', $p->spaces_json['features']['theProperty']);
     }
+    public function test_a_bare_kitchens_count_creates_the_kitchen_space(): void
+    {
+        // 117580701 lists "Kitchens | 1" and no kitchen features: the property used to end up with no kitchen.
+        $agent = $this->agentWithSuburb();
+        $payload = $this->golden('townhouse-uvongo-117580701');
+        $this->assertSame([], $payload['kitchen_features']);
+        $p = $this->import($agent, $payload);
+
+        $types = collect($p->spaces_json['spaces'])->keyBy('type');
+        $this->assertSame(1, $types['Kitchen']['count']);
+        $this->assertSame([], $types['Kitchen']['featuresAll']);
+        $this->assertSame(2, $types['Reception Room']['count']);
+
+        // A listed count of 2 keeps both; a kitchen listed only by its contents is still one kitchen.
+        foreach ($payload['feature_rows'] as &$row) {
+            if ($row['k'] === 'Kitchens') $row['v'] = ['2'];
+        }
+        unset($row);
+        $two = $this->import($agent, $payload);
+        $this->assertSame(2, collect($two->spaces_json['spaces'])->keyBy('type')['Kitchen']['count']);
+        $this->assertCount(2, collect($two->spaces_json['spaces'])->keyBy('type')['Kitchen']['units']);
+
+        $rental = $this->import($agent, $this->golden('rental-apartment-ballito-116824433'));
+        $this->assertSame(1, collect($rental->spaces_json['spaces'])->keyBy('type')['Kitchen']['count']);
+        $this->assertSame(['Gas Oven', 'Gas Hob'], collect($rental->spaces_json['spaces'])->keyBy('type')['Kitchen']['featuresAll']);
+    }
+
+    public function test_a_listing_with_no_kitchen_gets_no_kitchen_space(): void
+    {
+        $agent = $this->agentWithSuburb();
+        $p = $this->import($agent, $this->golden('townhouse-elaleni-117675379'));
+        $this->assertFalse(collect($p->spaces_json['spaces'])->contains('type', 'Kitchen'));
+    }
+
     public function test_rental_import_fills_the_building_ticks_and_the_columns(): void
     {
         $agent = $this->agentWithSuburb();

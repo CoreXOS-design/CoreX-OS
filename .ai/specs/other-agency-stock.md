@@ -410,6 +410,8 @@ sends no rows leaves them alone.
 | Internet Access ("Fibre", "ADSL", "Satellite") and the "Fibre Internet" tag | Connectivity: Fibre / ADSL / Satellite Internet |
 | Generator Yes; Backup Water ("Water Tank", "Borehole") | Sustainability: Generator; Backup Water + Water Tank / Borehole |
 | Rooms rows with a CoreX space type ("Reception Rooms 2", "Office", "Study" and the Study tag) | a Reception Room / Office / Study space with that count |
+| Rooms "Kitchens 1" (a count, with or without notes) | a Kitchen space with that count (2026-10-08 — before this a bare "Kitchens: 1" with no kitchen features listed created NO kitchen, so the property's space summary left it out). "Kitchen: Gas Oven, Gas Hob" (a list, no count) still makes one Kitchen space carrying those items |
+| Rooms "Lounges", "Dining Rooms", "Studies", "Domestic Rooms", "TV Rooms", "Family/TV Rooms" (also "Family Rooms") | a Lounge / Dining Room / Study / Domestic Room / TV Room space with that count ("Family/TV Room" is P24's wording for CoreX's TV Room). A Rooms label that is none of these is listed as unmapped, never dropped silently |
 
 **Shown by P24 with NO CoreX equivalent — superseded 2026-10-08, see §5f.** (the Building section, number of floors, Lifestyle
 "Complex", Description "Office", No Transfer Duty, Occupation Date, Lease Period and Floor Number are all mapped now.) Still not
