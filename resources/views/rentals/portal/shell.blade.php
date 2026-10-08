@@ -304,7 +304,7 @@
                                         <p x-show="!w.completed_at && w.appointment_at"><strong x-text="w.appointment_at ? 'Appointment: ' + new Date(w.appointment_at).toLocaleString([], {dateStyle:'full', timeStyle:'short'}) : ''"></strong><span class="muted" x-show="w.appointment_note" x-text="w.appointment_note ? ' — ' + w.appointment_note : ''"></span></p>
                                         <div class="photo-grid" x-show="w.photos.length">
                                             <template x-for="ph in w.photos" :key="ph.id">
-                                                <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.url" :alt="ph.photo_type + ' photo'" loading="lazy"></a>
+                                                <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.thumb_url || ph.url" :alt="ph.photo_type + ' photo'" loading="lazy" decoding="async"></a>
                                             </template>
                                         </div>
 
@@ -336,7 +336,7 @@
                                                 <p class="muted" x-show="r.response_note" x-text="r.response_note ? 'You said: ' + r.response_note : ''"></p>
                                                 <div class="photo-grid" x-show="r.photos.length">
                                                     <template x-for="ph in r.photos" :key="ph.id">
-                                                        <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.url" alt="Photo you sent" loading="lazy"></a>
+                                                        <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.thumb_url || ph.url" alt="Photo you sent" loading="lazy" decoding="async"></a>
                                                     </template>
                                                 </div>
                                             </div>
@@ -442,7 +442,7 @@
                                         </template>
                                         <div class="photo-grid" x-show="w.photos.length">
                                             <template x-for="ph in w.photos" :key="ph.id">
-                                                <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.url" :alt="ph.photo_type + ' photo'" loading="lazy"></a>
+                                                <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.thumb_url || ph.url" :alt="ph.photo_type + ' photo'" loading="lazy" decoding="async"></a>
                                             </template>
                                         </div>
                                         {{-- A quote waiting on the owner lives on ITS work order (was the Decisions tab). --}}
@@ -470,7 +470,7 @@
                                 </template>
                                 <div class="photo-grid" x-show="v.photos.length">
                                     <template x-for="ph in v.photos" :key="ph.id">
-                                        <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.url" alt="Photo of the extra work" loading="lazy"></a>
+                                        <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.thumb_url || ph.url" alt="Photo of the extra work" loading="lazy" decoding="async"></a>
                                     </template>
                                 </div>
                                 <p style="margin-top:10px;">Extra work: <strong x-text="'R ' + Number(v.extra_amount).toFixed(2)"></strong> &middot; New total: <strong x-text="'R ' + Number(v.new_total).toFixed(2)"></strong></p>
@@ -486,7 +486,7 @@
                                                 <p class="muted" x-show="r.response_note" x-text="r.response_note ? 'The tenant said: ' + r.response_note : ''"></p>
                                                 <div class="photo-grid" x-show="r.photos.length">
                                                     <template x-for="ph in r.photos" :key="ph.id">
-                                                        <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.url" alt="Photo from the tenant" loading="lazy"></a>
+                                                        <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.thumb_url || ph.url" alt="Photo from the tenant" loading="lazy" decoding="async"></a>
                                                     </template>
                                                 </div>
                                             </div>
@@ -657,6 +657,9 @@ async function portalUpload(url, form, key, onProgress) {
         xhr.send(form);
     });
 }
+
+// One date formatter for the page: creating a new Intl formatter on every call was the biggest cost of rendering a fault's progress line.
+const DAY_FORMAT = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 
 function rentalsPortal() {
     return {
@@ -998,7 +1001,7 @@ function rentalsPortal() {
         fmtDay(d) {
             if (!d) return '—';
             const x = new Date(String(d).substring(0, 10) + 'T00:00:00');
-            return isNaN(x) ? d : x.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+            return isNaN(x) ? d : DAY_FORMAT.format(x);
         },
         // §22 — the Home FAQ: a question opens its answer underneath it.
         isFaqOpen(propertyId, key) { return !!this.faqOpen[propertyId + ':' + key]; },
@@ -1151,7 +1154,6 @@ function rentalsPortal() {
         workOrdersNeedingOwner() { return (this.decisions.work_orders || []).length + (this.decisions.variations || []).length; },
         variationsFor(workOrderId) { return (this.decisions.variations || []).filter(v => v.work_order_id === workOrderId); },
         tenantChecksWaiting() { return (this.workOrders || []).filter(w => w.awaiting_answer).length; },
-        fmtDay(iso) { return iso ? new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }) : ''; },
         async loadLandlordProperties() {
             const r = await portalFetch('/api/v1/client/rentals/landlord/properties');
             if (r.ok) this.landlordProperties = r.data.properties;

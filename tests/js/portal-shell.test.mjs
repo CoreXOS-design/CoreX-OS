@@ -857,3 +857,28 @@ test('the page shows the "someone else signed in" card instead of the portal, an
   assert.match(blade, /x-if="!loading && session\.authenticated && !linkIssue && !sessionChanged"/, 'the portal itself is hidden');
   assert.match(blade, /x-show="session\.authenticated && !sessionChanged" @click="logout\(\)"/, 'a stale tab cannot log the new person out');
 });
+
+// ── 9 Oct 2026 - spec §23: one date function, thumbnails only, lazy images ─────────────────────────────────────────────────────────────
+test('fmtDay is defined ONCE and reads a date the way it is written, whatever the browser time zone', () => {
+  assert.equal((scriptRaw.match(/\n\s+fmtDay\s*\(/g) || []).length, 1, 'two fmtDay in one Alpine object: the later silently wins (it once showed the day before for a date-only value)');
+  const { p } = boot();
+  const want = (y, m, d) => new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(y, m - 1, d));
+  assert.equal(p.fmtDay('2026-10-08'), want(2026, 10, 8), 'a date-only value (lease start, inspection day)');
+  assert.equal(p.fmtDay('2026-10-08T23:42:31+02:00'), want(2026, 10, 8), 'a late-evening moment stays on the day it was written');
+  assert.equal(p.fmtDay('2026-05-31T00:00:00.000000Z'), want(2026, 5, 31));
+  assert.equal(p.fmtDay(null), '—', 'an open end date reads as a dash, not blank');
+  assert.equal(p.fmtDay(''), '—');
+  assert.equal(p.fmtDay('not a date'), 'not a date', 'garbage is shown, never "Invalid Date"');
+});
+
+test('every picture in the portal pages is a server-made thumbnail, opened full-size on click, and loads lazily', () => {
+  const dir = path.join(here, '../../resources/views/rentals/portal');
+  for (const f of fs.readdirSync(dir).filter((n) => n.endsWith('.blade.php'))) {
+    const tags = fs.readFileSync(path.join(dir, f), 'utf8').match(/<img\b[^>]*>/g) || [];
+    for (const t of tags) {
+      if (t.includes('data-portal-logo') || t.includes('"p.url"')) continue;   // header logo has its own small copy; the picker previews a not-yet-sent local file
+      assert.match(t, /:src="[a-z]+\.thumb_url \|\| [a-z]+\.url"/, `${f}: ${t}`);
+      assert.match(t, /loading="lazy"/, `${f}: ${t}`);
+    }
+  }
+});

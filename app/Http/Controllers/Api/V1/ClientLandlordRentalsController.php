@@ -350,7 +350,7 @@ class ClientLandlordRentalsController extends Controller
                 'total' => $l->line_total !== null ? (float) $l->line_total : null,
                 'note' => $l->crew_note,
             ])->values(),
-            'photos' => $photos->map(fn ($p) => ['id' => $p->id, 'url' => $p->storage_path])->values(),
+            'photos' => $photos->map(fn ($p) => ['id' => $p->id] + app(\App\Services\Images\PortalImageService::class)->urls($p->storage_path))->values(),
             'term_text' => (string) $variation->term_text,
         ];
     }
@@ -382,7 +382,7 @@ class ClientLandlordRentalsController extends Controller
             'title' => $version['title'],
             'description' => $version['description'],
             'agent_note' => $version['agent_note'],
-            'photos' => $version['photos']->map(fn ($p) => ['id' => $p->id, 'url' => $p->storage_path])->values(),
+            'photos' => $version['photos']->map(fn ($p) => ['id' => $p->id] + app(\App\Services\Images\PortalImageService::class)->urls($p->storage_path))->values(),
             'property' => $fault->property?->buildDisplayAddress(),
             'category' => $fault->faultType?->category,
             'status' => $fault->status,

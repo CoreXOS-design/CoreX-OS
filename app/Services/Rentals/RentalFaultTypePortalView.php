@@ -6,6 +6,7 @@ use App\Models\Property;
 use App\Models\RentalFaultType;
 use App\Models\RentalFaultTypeDocument;
 use App\Models\RentalPortalSetting;
+use App\Services\Images\PortalImageService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 
@@ -47,8 +48,8 @@ class RentalFaultTypePortalView
             'first_aid_steps' => $this->renderer->renderFirstAidSteps($type, $property),
             // Where the valve / board are — only when the agent recorded a photo for this property.
             'photos' => array_values(array_filter([
-                $valve ? ['label' => 'Main water valve', 'url' => $valve] : null,
-                $board ? ['label' => 'DB board', 'url' => $board] : null,
+                $valve ? ['label' => 'Main water valve'] + app(PortalImageService::class)->urls($valve) : null,
+                $board ? ['label' => 'DB board'] + app(PortalImageService::class)->urls($board) : null,
             ])),
             'documents' => ($docs->get($type->id) ?? collect())->map(fn ($d) => $this->document($d))->filter()->values()->all(),
         ])->values()->all();
@@ -76,7 +77,13 @@ class RentalFaultTypePortalView
                 : route('client.rentals.fault-type-documents.file', ['document' => $d->id]); // PDFs / documents are private: the portal's own gated download
         }
 
-        return $url ? ['type' => $d->document_type, 'caption' => $d->caption, 'url' => $url] : null;
+        if (! $url) {
+            return null;
+        }
+        // §23 - an image the agency attached is shown small in the panel and full-size only when opened.
+        $pair = $d->document_type === RentalFaultTypeDocument::TYPE_IMAGE ? app(PortalImageService::class)->urls($url) : ['url' => $url];
+
+        return ['type' => $d->document_type, 'caption' => $d->caption] + $pair;
     }
 
     /** Is this stored (private) document one the portal may hand to a person of this agency? */

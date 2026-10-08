@@ -112,7 +112,8 @@ class RentalJobCardClientViewService
     {
         return [
             'id' => $photo->id,
-            'url' => $photo->storage_path,
+            // §23 - never the stored original: `url` is the capped full-view copy, `thumb_url` the small one every list / grid shows.
+            ...app(\App\Services\Images\PortalImageService::class)->urls($photo->storage_path),
             'photo_type' => $photo->photo_type,
             'caption' => $photo->getAttribute('caption'),
             'uploaded_at' => $photo->created_at?->toIso8601String(),
