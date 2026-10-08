@@ -458,3 +458,25 @@ rebuild; NOT run on QA1 — no scheduler there, run it by hand) → `DealTwinInt
 saved money lines (`DealMoneyLineRebuilder`, ex-VAT rounded to the cent before the split) differ by 1–2 cents on 22 of 102 QA1 deals.
 `DealMoney` follows the saved lines. The legacy float calculators (`CommissionPoolCalculator`, `computeDealPools`, the rebuilder) are
 untouched (AT-417).
+
+### 22.1 Follow-up rulings (Johan, 8 Oct 2026)
+
+1. **Stale saved copies corrected** with `php artisan deals:align-v2-twins` (`--dry-run` prints every row and before/after and
+   changes nothing; `--confirm --run-by="<name>"` applies; with neither flag it refuses). It aligns, on a v2 row linked to a deal, the
+   splits / external marker / our-share, the price (deal sale price, else property value) and — only if it differs — the commission
+   total, to the **deal of record**. One transaction per v2 row; per changed value a `deal_logs` row (event
+   `dr2_single_source_alignment`) and a `deal_activity_log` row on the v2 row: old value, new value, reason *"aligned to the deal of
+   record - DR2 single source, approved by Johan 8 Oct 2026"*, run-by. Plain column update (no model events, nothing mirrors back); the
+   real deal is never written; idempotent; an archived deal's live v2 row is included; a broken / cross-agency link is skipped and listed.
+2. **Saved figures are the figures of record.** The settlement screen, print and payslip (`Dr2\DealSettlementController`,
+   `Admin\DealController`) now build their rows with `SettlementScreenRows` + `SettlementRowMath` — the same code the saved money
+   lines (`DealMoneyLineRebuilder`) use — and show a saved line whenever it was produced from the deal's current inputs, else the fresh
+   figure (so a stale line is visible and reported). Pools come from `DealMoney` (`computeDealPools` is now a thin view of it). Agents
+   come from the deal's own `deal_user` rows **including a departed agent** (the old screen read the scoped `agents` relation and dropped
+   them, showing double: deals 1746 / 1762 / 1781). No stored figure changes. A FIXED PAYE on an unpaid deal is still previewed on the
+   screen (the line records it once paid) — the only deliberate difference.
+   `SettlementRowMath` keeps the legacy float rounding steps on purpose: whole-cent exact rounding differs from stored lines on exact
+   half-cent ties (24 stored cells on QA1); converting them is AT-417 and needs Johan's go.
+3. **Guard extended.** `deals:parity-check` also compares, for EVERY deal with saved lines (linked or not), what the settlement screen
+   shows against the saved lines, in cents — FAIL on any difference.
+

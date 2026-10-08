@@ -4,7 +4,10 @@ namespace App\Services\DealV2;
 
 use App\Models\Deal;
 use App\Models\DealV2\DealV2;
+use App\Models\DealSettlement;
+use App\Services\DealMoneyLineRebuilder;
 use App\Services\Finance\DealMoney;
+use App\Services\Finance\SettlementScreenRows;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -122,6 +125,98 @@ class DealTwinIntegrityService
             $out[] = $this->finding(self::WARN, 'stored_copy_stale', (int) $deal->id, $no, (int) $twin->id,
                 'the v2 row\'s own saved copy is out of date (nothing displays it): ' . $this->describe($diff),
                 $real['our_total'], $stored['our_total']);
+        }
+
+        return $out;
+    }
+
+    // ── screen = saved ──────────────────────────────────────────────────
+
+    /**
+     * For EVERY deal that has saved money lines (linked to a v2 row or not): works out what the
+     * settlement screen shows — pools and every agent row — and compares it, in cents, with the
+     * saved lines the dashboards, performance and payslip feeds sum. The saved figures are the
+     * figures of record (Johan, 2026-10-08); any difference is a FAIL.
+     *
+     * The one thing deliberately not compared: a FIXED PAYE on a deal not yet paid. The screen
+     * previews it; the saved line records it once paid.
+     *
+     * @return array{deals:int,findings:array<int,array<string,mixed>>}
+     */
+    public function auditScreens(?int $agencyId = null): array
+    {
+        $findings = [];
+        $deals = 0;
+
+        Deal::withoutGlobalScopes()->whereNull('deleted_at')
+            ->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId))
+            ->orderBy('id')
+            ->chunkById(100, function ($chunk) use (&$findings, &$deals) {
+                foreach ($chunk as $deal) {
+                    $lines = DB::table('deal_money_lines')->where('deal_id', $deal->id)->whereNull('deleted_at')->get();
+                    if ($lines->isEmpty()) {
+                        continue;
+                    }
+                    $deals++;
+                    array_push($findings, ...$this->auditScreen($deal, $lines));
+                }
+            });
+
+        return ['deals' => $deals, 'findings' => $findings];
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    public function auditScreen(Deal $deal, $lines): array
+    {
+        $no = (string) ($deal->deal_no ?? $deal->id);
+        $pools = DealMoneyLineRebuilder::computeDealPools($deal);
+        $settlements = DealSettlement::withoutGlobalScopes()->where('deal_id', $deal->id)->get()
+            ->groupBy(fn ($s) => $s->side . ':' . $s->user_id);
+
+        $out = [];
+        foreach (['listing' => $pools['listingPool'], 'selling' => $pools['sellingPool']] as $side => $pool) {
+            $sideLines = $lines->filter(fn ($l) => strtolower(trim((string) $l->side)) === $side);
+            if ($sideLines->isEmpty()) {
+                continue;
+            }
+            $poolCents = DealMoney::scaled($pool, 2);
+            $rows = collect(SettlementScreenRows::build($deal, $side, $pool, $settlements))->filter(fn ($r) => (int) $r['user_id'] !== 0)->keyBy('user_id');
+
+            foreach ($sideLines as $l) {
+                $saved = DealMoney::scaled($l->side_pool_ex_vat, 2);
+                if ($saved !== $poolCents) {
+                    $out[] = $this->finding(self::FAIL, 'screen_differs_from_saved', (int) $deal->id, $no, null,
+                        ucfirst($side) . ' pool: the settlement screen shows R ' . DealMoney::cents($poolCents) . ' but R ' . DealMoney::cents($saved) . ' is saved.', $saved, $poolCents);
+                    break;
+                }
+            }
+
+            foreach ($sideLines as $l) {
+                $row = $rows->get((int) $l->user_id);
+                if (! $row) {
+                    $out[] = $this->finding(self::FAIL, 'screen_differs_from_saved', (int) $deal->id, $no, null,
+                        ucfirst($side) . ' side: agent ' . $l->user_id . ' has a saved line but is missing from the settlement screen.');
+                    continue;
+                }
+                $fixedUnpaid = strtolower(trim((string) $l->paye_method)) !== 'percentage' && ! $l->paid_at;
+                $pairs = ['allocated' => 'pool_share_ex_vat', 'gross' => 'agent_gross_ex_vat', 'company' => 'company_gross_ex_vat']
+                    + ($fixedUnpaid ? [] : ['paye' => 'paye_amount', 'net' => 'agent_net_ex_vat']);
+                foreach ($pairs as $screenKey => $col) {
+                    $shown = DealMoney::scaled($row[$screenKey], 2);
+                    $saved = DealMoney::scaled($l->$col, 2);
+                    if ($shown !== $saved) {
+                        $out[] = $this->finding(self::FAIL, 'screen_differs_from_saved', (int) $deal->id, $no, null,
+                            ucfirst($side) . " side, agent {$l->user_id}, {$screenKey}: the settlement screen shows R " . DealMoney::cents($shown) . ' but R ' . DealMoney::cents($saved) . ' is saved.', $saved, $shown);
+                    }
+                }
+            }
+            $savedUsers = $sideLines->pluck('user_id')->map(fn ($u) => (int) $u)->all();
+            foreach ($rows as $uid => $r) {
+                if (! in_array((int) $uid, $savedUsers, true)) {
+                    $out[] = $this->finding(self::FAIL, 'screen_differs_from_saved', (int) $deal->id, $no, null,
+                        ucfirst($side) . " side: the settlement screen shows agent {$uid} but no money line is saved for them.");
+                }
+            }
         }
 
         return $out;

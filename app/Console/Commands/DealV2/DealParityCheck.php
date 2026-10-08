@@ -76,6 +76,8 @@ class DealParityCheck extends Command
     {
         $agency = $this->option('agency') ? (int) $this->option('agency') : null;
         $result = $integrity->audit($agency);
+        $screens = $integrity->auditScreens($agency);
+        $result['findings'] = array_merge($result['findings'], $screens['findings']);
 
         $fails = array_values(array_filter($result['findings'], fn ($f) => $f['severity'] === DealTwinIntegrityService::FAIL));
         $warns = array_values(array_filter($result['findings'], fn ($f) => $f['severity'] === DealTwinIntegrityService::WARN));
@@ -86,7 +88,7 @@ class DealParityCheck extends Command
         foreach ($warns as $f) {
             $this->line("WARN deal " . ($f['deal_no'] ?? $f['deal_id']) . " (id {$f['deal_id']}" . ($f['v2_id'] ? ", v2 {$f['v2_id']}" : '') . "): {$f['message']}");
         }
-        $this->info("deals:parity-check money — {$result['pairs']} linked deal(s) compared in cents: " . count($fails) . ' FAIL, ' . count($warns) . ' WARN.');
+        $this->info("deals:parity-check money — {$result['pairs']} linked deal(s) compared in cents, {$screens['deals']} deal(s) screen-vs-saved: " . count($fails) . ' FAIL, ' . count($warns) . ' WARN.');
 
         if ($fails) {
             Log::critical('deals:parity-check — a v2 deal no longer matches its real deal', ['fail_count' => count($fails), 'first' => array_slice($fails, 0, 20)]);

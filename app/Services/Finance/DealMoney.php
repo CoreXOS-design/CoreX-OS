@@ -51,10 +51,21 @@ final class DealMoney
     {
         $inc = max(0, self::scaled($incVat, 2));
 
-        return new self($inc, max(0, self::scaled($vatPercent, 2)), [
-            'listing' => self::sideInput($listing),
-            'selling' => self::sideInput($selling),
-        ]);
+        $l = self::sideInput($listing);
+        $s = self::sideInput($selling);
+
+        // The two splits must make 100%. If they do not, they are scaled to (the rule the saved
+        // money lines have always applied), so a deal whose splits were typed as 70/40 reads the
+        // same everywhere. Both zero → 50/50.
+        $sum = $l['pct'] + $s['pct'];
+        if ($sum <= 0) {
+            $l['pct'] = $s['pct'] = 5000;
+        } elseif (abs($sum - 10000) > 1) {
+            $l['pct'] = self::divRound($l['pct'] * 10000, $sum);
+            $s['pct'] = self::divRound($s['pct'] * 10000, $sum);
+        }
+
+        return new self($inc, max(0, self::scaled($vatPercent, 2)), ['listing' => $l, 'selling' => $s]);
     }
 
     /** The real (legacy `deals`) deal's money — the authoritative source. */
@@ -92,6 +103,12 @@ final class DealMoney
     public function isExternal(string $side): bool
     {
         return $this->side[$side]['external'];
+    }
+
+    /** The VAT rate as a plain fraction for views that still take a float: 1500 → 0.15 (text cast, no arithmetic). */
+    public function vatRateFloat(): float
+    {
+        return (float) ('0.' . str_pad((string) $this->vatRateHundredths, 4, '0', STR_PAD_LEFT));
     }
 
     /** The side's split as a percent string, e.g. "50.00". */
