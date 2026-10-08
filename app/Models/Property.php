@@ -365,6 +365,28 @@ class Property extends Model
     }
 
     /**
+     * STANDING RULE (Johan, 2026-10-08): "the listed date is the date the property went live on the
+     * portals." Returns the listed_date attribute to stamp when a portal publish / activation SUCCEEDS:
+     * today, when this is the property's FIRST go-live on any portal, or a RE-publish after it was
+     * deactivated on this portal and is not still live on the other. Empty for a refresh of an advert that
+     * is already live (including an imported listing, whose advert was live before CoreX ever saw it).
+     * Callers merge it into the same update that stamps p24_/pp_activated_at, BEFORE that update is applied.
+     *
+     * @param 'p24'|'pp' $portal the portal that just published / activated
+     * @return array{listed_date?: string}
+     */
+    public function listedDateStampOnGoLive(string $portal): array
+    {
+        $thisStatus  = strtolower((string) ($portal === 'pp' ? $this->pp_syndication_status : $this->p24_syndication_status));
+        $otherStatus = strtolower((string) ($portal === 'pp' ? $this->p24_syndication_status : $this->pp_syndication_status));
+
+        $alreadyLive = $this->p24_activated_at !== null || $this->pp_activated_at !== null;
+        $relisted    = $thisStatus === 'deactivated' && $otherStatus !== 'active';
+
+        return (!$alreadyLive || $relisted) ? ['listed_date' => now()->toDateString()] : [];
+    }
+
+    /**
      * AT-422 — the attributes that turn an imported listing into a normal, new-looking
      * one. Applied when a user changes the status, expiry date or listed date of
      * Imported Stock (PropertyController::update): Listed Date and Loaded become today,

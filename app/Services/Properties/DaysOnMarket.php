@@ -117,8 +117,8 @@ final class DaysOnMarket
     }
 
     /**
-     * listed_date when it is a real date: for imported stock any listing date that is NOT the same
-     * calendar day as the import / created day (those are import artefacts); for CoreX-created stock
+     * listed_date when it is a real date: for imported stock any listing date that is NOT an import
+     * artefact (same calendar day as, or within 24h of, the import / created time); for CoreX-created stock
      * the date CoreX itself stamped. Null otherwise. Only meaningful while the property is on market.
      */
     private function realListedDate(Property $p): ?Carbon
@@ -132,11 +132,8 @@ final class DaysOnMarket
         }
 
         $listed = Carbon::parse($p->listed_date)->startOfDay();
-        if ($p->p24_imported_at !== null) {
-            if ($listed->isSameDay(Carbon::parse($p->p24_imported_at))
-                || ($p->created_at && $listed->isSameDay(Carbon::parse($p->created_at)))) {
-                return null;
-            }
+        if ($p->p24_imported_at !== null && $this->isImportArtefact($p, $listed)) {
+            return null;
         }
 
         return $listed;
@@ -164,7 +161,8 @@ final class DaysOnMarket
             $to   = $t['to'];
             $from = $t['from'];
             if ($to !== null && in_array($to, self::ON_MARKET_STATUSES, true)
-                && ($from === null || !in_array($from, self::ON_MARKET_STATUSES, true))) {
+                && ($from === null || !in_array($from, self::ON_MARKET_STATUSES, true))
+                && !($p->p24_imported_at !== null && $this->isImportArtefact($p, $t['at'], false))) {
                 $boundary = $t['at'];
             }
         }
@@ -210,9 +208,12 @@ final class DaysOnMarket
         // CoreX-created stock with no status history: earliest proof the advert went live, else the
         // listing date CoreX stamped at creation.
         // first_marketed_at is deliberately NOT a proof: loaded stock carries it equal to created_at.
-        $proofs = [$p->published_at, $p->pp_activated_at, $p->p24_activated_at];
-        foreach ($logs['submits'] as $s) {
-            $proofs[] = $s;
+        // An activation / submit stamp within 24h of the import / created time is the load itself, not a go-live.
+        $proofs = [$p->published_at];
+        foreach (array_merge([$p->pp_activated_at, $p->p24_activated_at], $logs['submits']) as $d) {
+            if ($d && !$this->isImportArtefact($p, Carbon::parse($d))) {
+                $proofs[] = $d;
+            }
         }
         $proofs = array_filter(array_map(fn ($d) => $d ? Carbon::parse($d) : null, $proofs));
         if ($proofs !== []) {
@@ -220,6 +221,30 @@ final class DaysOnMarket
         }
 
         return null;
+    }
+
+    /**
+     * Import artefact: the date is the same calendar day as, or within 24 hours of, the time the record
+     * was imported (p24_imported_at) or created. A same-day activation stamp a few hours after the load
+     * (the import's own reconcile / first sync) is still the load, not a go-live.
+     */
+    private function isImportArtefact(Property $p, Carbon $d, bool $includeCreated = true): bool
+    {
+        $anchors = [$p->p24_imported_at];
+        if ($includeCreated) {
+            $anchors[] = $p->created_at;
+        }
+        foreach ($anchors as $a) {
+            if (!$a) {
+                continue;
+            }
+            $a = Carbon::parse($a);
+            if ($d->isSameDay($a) || abs($d->diffInHours($a, false)) < 24) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @param Carbon[] $dates */
