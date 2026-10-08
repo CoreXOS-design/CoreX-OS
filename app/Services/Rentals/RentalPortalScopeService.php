@@ -68,9 +68,12 @@ class RentalPortalScopeService
             return [];
         }
 
+        // A DRAFT lease is the agent's working copy (terms still being changed, not yet signed): the portal shows a
+        // tenancy only once it is live. Every tenant-side query in this service goes through this method.
         return Lease::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
             ->whereNull('deleted_at')
+            ->where('status', '!=', Lease::STATUS_DRAFT)
             ->whereIn('id', $ids)
             ->pluck('id')
             ->all();
@@ -301,6 +304,7 @@ class RentalPortalScopeService
         return Lease::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
             ->whereNull('deleted_at')
+            ->where('status', '!=', Lease::STATUS_DRAFT)
             ->whereIn('property_id', $this->landlordPropertyIds($contact))
             ->orderByDesc('id')
             ->get();
@@ -312,6 +316,7 @@ class RentalPortalScopeService
         return Lease::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
             ->whereNull('deleted_at')
+            ->where('status', '!=', Lease::STATUS_DRAFT)
             ->where('property_id', $propertyId)
             ->whereIn('property_id', $this->landlordPropertyIds($contact))
             ->orderByDesc('id')
