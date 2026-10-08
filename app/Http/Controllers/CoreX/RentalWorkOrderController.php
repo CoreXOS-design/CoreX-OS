@@ -141,7 +141,7 @@ class RentalWorkOrderController extends Controller
             'showArchived' => $showArchived,
             'perPage' => $perPage,
             'perPageOptions' => self::PER_PAGE_OPTIONS,
-            'filters' => $request->only(['q', 'status', 'trade_type', 'priority', 'property_id', 'lease_id', 'paid_by', 'date_from', 'date_to', 'overdue', 'awaiting_owner', 'variation_pending']),
+            'filters' => $request->only(['q', 'status', 'trade_type', 'priority', 'property_id', 'lease_id', 'paid_by', 'date_from', 'date_to', 'overdue', 'awaiting_owner', 'variation_pending', 'open', 'cc_scope']),
             'filteredProperty' => $filteredProperty,
             'filteredLease' => $filteredLease,
             'tileCounts' => $tileCounts,
@@ -208,6 +208,17 @@ class RentalWorkOrderController extends Controller
             // which would drop every record reported ON the end date.
             $query->where('rental_work_orders.reported_at', '<=', preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo) ? $dateTo . ' 23:59:59' : $dateTo);
         }
+        // Rentals cross-cut (8 Oct 2026) — "Open only": the SAME definition of open the rentals command centre counts
+        // (RentalCommandCentreService::WORK_ORDER_OPEN_STATUSES_EXCLUDED), so a link from the command centre lands on exactly the
+        // work orders it counted.
+        if ($request->boolean('open')) {
+            $query->whereNotIn('rental_work_orders.status', \App\Services\Rentals\RentalCommandCentreService::WORK_ORDER_OPEN_STATUSES_EXCLUDED);
+        }
+        // ...and, from the command centre's Open work orders tile, only the properties that tile counted (its own/branch/all choice).
+        if (in_array($request->get('cc_scope'), ['own', 'branch', 'all'], true)) {
+            app(\App\Services\Rentals\RentalCommandCentreService::class)
+                ->limitToCommandCentreProperties($query, $request->user(), $request->get('cc_scope'), 'rental_work_orders.property_id');
+        }
         if ($request->boolean('overdue')) {
             $query->overdue(RentalWorkOrderSetting::overdueReminderDaysFor($user->effectiveAgencyId()));
         }
@@ -239,6 +250,12 @@ class RentalWorkOrderController extends Controller
         }
         if ($paidBy = $request->get('paid_by')) {
             $out['Paid by'] = ucfirst(str_replace('_', ' ', $paidBy));
+        }
+        if ($request->boolean('open')) {
+            $out['Open only'] = 'Yes';
+        }
+        if (in_array($request->get('cc_scope'), ['own', 'branch', 'all'], true)) {
+            $out['Rentals command centre'] = 'Only the properties its tile counted (' . $request->get('cc_scope') . ')';
         }
         if ($request->boolean('overdue')) {
             $out['Overdue'] = 'Yes';

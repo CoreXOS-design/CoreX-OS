@@ -485,6 +485,8 @@ return [
             // can never wipe the others (onboarding spec §6.1). It refuses 403 itself without rental_work_orders.manage_settings.
             ['controller' => \App\Http\Controllers\CoreX\RentalCompletionSettingsController::class, 'method' => 'update'],
             // BUILD 3 END
+            // §17.31 — the two supplier-invoice limits; each written only when present in the request (has()-guarded).
+            ['controller' => \App\Http\Controllers\CoreX\RentalWorkOrderInvoiceSettingsController::class, 'method' => 'update'],
             // Owner's ruling 2026-09-30 — the four rental settings + three lists that
             // were "Pending Johan's ruling" are now in this step. Scalars use
             // has()-guarded canonical savers (credit bureau / tenanted label /
@@ -968,6 +970,16 @@ return [
              'explain' => 'When a tenant says work is not complete, the office normally looks at the complaint first and presses "Send back to crew". Switch this on and CoreX emails your crew a fresh job link, with the tenant\'s note and photos, the moment the tenant disputes the work.',
              'affects' => 'Whether a disputed job reaches the crew automatically or waits for an office decision. Off by default so no one is sent back on a complaint the office has not read. A contractor is always sent back by the office, never automatically.'],
             // BUILD 3 END
+            // §17.31 — supplier invoice upload limits (own narrow saver, has()-guarded, registered in the step's savers above).
+            ['key' => 'invoice_max_file_mb', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 10, 'min' => 1, 'max' => 50, 'step' => 1,
+             'label' => 'Largest supplier invoice file (MB)',
+             'explain' => 'When your office files a supplier\'s invoice against a work order, the file can be at most this many megabytes.',
+             'affects' => 'Whether a large scan or photo is accepted when an invoice is uploaded; a bigger file is refused with a plain message. 10 MB suits most invoices. The most you can set is 50 MB.'],
+            ['key' => 'invoice_allowed_file_types', 'source' => 'rental_work_orders', 'type' => 'select', 'default' => 'pdf_images',
+             'options' => ['pdf' => 'PDF only', 'pdf_images' => 'PDF and photos (JPG, PNG, WebP)', 'pdf_images_heic' => 'PDF and photos, including iPhone HEIC'],
+             'label' => 'File types allowed for a supplier invoice',
+             'explain' => 'Which kinds of file your office can upload as a supplier invoice. Most suppliers send a PDF; some send a phone photo of a paper invoice.',
+             'affects' => 'What the invoice upload on a work order accepts. Choosing "PDF only" refuses photos; "including iPhone HEIC" also accepts photos taken straight from an iPhone.'],
             // Owner's ruling 2026-09-30 — moved in from the §5.1 "Pending" list.
             ['key' => 'show_lease_type_field', 'source' => 'leases', 'type' => 'toggle', 'default' => 0,
              'label' => 'Show the lease type field on a lease',
@@ -1387,6 +1399,8 @@ return [
             // PPRA FFC Employment Letter — .ai/specs/ppra-ffc-employment-letter.md §11.
             // The saver is has()-guarded (§6.1), so a post without the field leaves it alone.
             ['controller' => SettingsController::class, 'method' => 'savePpraEmploymentLetterSettings'],
+            // Rentals cross-cut — FICA time windows; has()-guarded per field (§6.1).
+            ['controller' => FicaOfficerAppointmentsController::class, 'method' => 'saveWindowSettings'],
         ],
         'controls' => [
             ['key' => 'financial_year_start_month', 'source' => 'agency', 'type' => 'select', 'default' => 3,
@@ -1428,6 +1442,23 @@ return [
              'label' => 'PPRA employment letter — who it is addressed to',
              'explain' => 'Each agent needs a signed "Confirmation of Employment" letter from you to renew their Fidelity Fund Certificate. This is the address block at the top of that letter (the "RE:" line). Leave it blank to use the Property Practitioners Regulatory Board\'s own published address — change it only if your agency writes to a different PPRA office.',
              'affects' => 'The addressee printed at the top of every PPRA employment letter your agents and admins generate (My Portal → Documents, and Admin → PPRA Employment Letters). Letters already printed keep what they were printed with.'],
+            // Rentals cross-cut (8 Oct 2026) — the FICA time windows that were literals in code. Plain number inputs; the saver is has()-guarded (§6.1).
+            ['key' => 'fica_link_expiry_days', 'source' => 'agency', 'type' => 'number', 'default' => 14, 'min' => 1, 'max' => 90,
+             'label' => 'FICA link stays valid for (days)',
+             'explain' => 'How long the FICA link emailed to a client works before it expires and has to be re-sent.',
+             'affects' => 'The expiry date printed in the FICA request email and the day the client\'s link stops working.'],
+            ['key' => 'fica_current_months', 'source' => 'agency', 'type' => 'number', 'default' => 11, 'min' => 1, 'max' => 60,
+             'label' => 'An approved FICA counts as current for (months)',
+             'explain' => 'How long an approved FICA is treated as up to date before CoreX flags it as expiring.',
+             'affects' => 'When a contact\'s FICA badge turns to "Expiring", and when a repeat rental applicant is asked for FICA again.'],
+            ['key' => 'fica_validity_months', 'source' => 'agency', 'type' => 'number', 'default' => 24, 'min' => 1, 'max' => 120,
+             'label' => 'An approval is valid for (months)',
+             'explain' => 'The expiry date CoreX stamps on a FICA when your compliance officer approves it.',
+             'affects' => 'The expiry date shown on approved FICA records and on the compliance calendar.'],
+            ['key' => 'fica_expiring_soon_days', 'source' => 'agency', 'type' => 'number', 'default' => 60, 'min' => 1, 'max' => 365,
+             'label' => '"Expiring soon" looks ahead (days)',
+             'explain' => 'How far ahead the "expiring soon" list looks for FICA approvals about to lapse.',
+             'affects' => 'Which FICA approvals appear under "Expiring soon" in document filing.'],
         ],
     ],
 

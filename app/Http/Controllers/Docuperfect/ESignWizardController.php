@@ -3596,7 +3596,7 @@ class ESignWizardController extends Controller
                             // lands in this agent's "Awaiting Agent Review".
                             if (empty($existingDraft->token)) {
                                 $existingDraft->token = Str::random(64);
-                                $existingDraft->token_expires_at = now()->addDays(14);
+                                $existingDraft->token_expires_at = now()->addDays(\App\Services\Compliance\FicaWindows::linkExpiryDays((int) ($existingDraft->agency_id ?: $user->effectiveAgencyId())));
                             }
                             $existingDraft->requested_by = $user->id;
                             if (empty($existingDraft->agency_id)) {
@@ -3628,7 +3628,7 @@ class ESignWizardController extends Controller
                                     'branch_id'        => $user->effectiveBranchId(),
                                     'requested_by'     => $user->id,
                                     'token'            => Str::random(64),
-                                    'token_expires_at' => now()->addDays(14),
+                                    'token_expires_at' => now()->addDays(\App\Services\Compliance\FicaWindows::linkExpiryDays((int) $ficaAgencyId)),
                                     'status'           => 'draft',
                                 ]);
                                 $ficaSubId = $ficaSub->id;

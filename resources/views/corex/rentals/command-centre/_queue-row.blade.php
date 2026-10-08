@@ -24,6 +24,8 @@
         : (str_starts_with($item['route'], 'corex.rental-work-orders.') ? 'rental-work-orders'
         : (str_starts_with($item['route'], 'corex.rental-inspections.') ? 'rental-inspections' : 'rental-leases')))
     @feature($queueFeature)
+    @if(app(\App\Services\Rentals\RentalCommandCentreService::class)->canOpenRoute(auth()->user(), $item['route']))
     <a href="{{ route($item['route'], $item['route_params']) }}" class="corex-btn-outline text-[11px] px-2 py-1 flex-shrink-0">{{ $item['label'] }}</a>
+    @endif
     @endfeature
 </div>

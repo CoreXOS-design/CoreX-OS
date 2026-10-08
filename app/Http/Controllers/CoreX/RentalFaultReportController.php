@@ -136,7 +136,7 @@ class RentalFaultReportController extends Controller
             'showArchived' => $showArchived,
             'perPage' => $perPage,
             'perPageOptions' => self::PER_PAGE_OPTIONS,
-            'filters' => $request->only(['q', 'status', 'outcome', 'property_id', 'lease_id', 'date_from', 'date_to', 'open_no_work_order']),
+            'filters' => $request->only(['q', 'status', 'outcome', 'property_id', 'lease_id', 'date_from', 'date_to', 'open_no_work_order', 'open', 'cc_scope']),
             'filteredProperty' => $filteredProperty,
             'filteredLease' => $filteredLease,
             'tileCounts' => $tileCounts,
@@ -186,6 +186,18 @@ class RentalFaultReportController extends Controller
             ])->whereDoesntHave('workOrder');
         }
 
+        // Rentals cross-cut (8 Oct 2026) — "Open only": the SAME definition of open the rentals command centre counts
+        // (RentalCommandCentreService::FAULT_OPEN_STATUSES_EXCLUDED), so a link from the command centre lands on exactly the
+        // faults it counted.
+        if ($request->boolean('open')) {
+            $query->whereNotIn('rental_fault_reports.status', \App\Services\Rentals\RentalCommandCentreService::FAULT_OPEN_STATUSES_EXCLUDED);
+        }
+        // ...and, from the command centre's Open faults tile, only the properties that tile counted (its own/branch/all choice).
+        if (in_array($request->get('cc_scope'), ['own', 'branch', 'all'], true)) {
+            app(\App\Services\Rentals\RentalCommandCentreService::class)
+                ->limitToCommandCentreProperties($query, $request->user(), $request->get('cc_scope'), 'rental_fault_reports.property_id');
+        }
+
         // Navigation, 2026-09-22 — reached from a property/lease/contact's
         // own detail page (Johan: "every feature needs a navigation link
         // where the work happens"), not picked from a dropdown.
@@ -229,6 +241,12 @@ class RentalFaultReportController extends Controller
         }
         if ($request->boolean('open_no_work_order')) {
             $out['Open, no work order'] = 'Yes';
+        }
+        if ($request->boolean('open')) {
+            $out['Open only'] = 'Yes';
+        }
+        if (in_array($request->get('cc_scope'), ['own', 'branch', 'all'], true)) {
+            $out['Rentals command centre'] = 'Only the properties its tile counted (' . $request->get('cc_scope') . ')';
         }
         if ($df = $request->get('date_from')) {
             $out['Reported from'] = $df;

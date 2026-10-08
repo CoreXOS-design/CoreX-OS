@@ -182,6 +182,71 @@ class RentalCommandCentreService
     }
 
     /**
+     * Would opening this named route pass its own `permission:` middleware for $user? A needs-action row whose action the viewer's role
+     * cannot open shows no button (it would only answer 403). Group and route middleware both count; several keys in one
+     * `permission:` entry are OR, separate entries are AND — exactly CheckPermission.
+     */
+    public function canOpenRoute(?User $user, string $routeName): bool
+    {
+        $route = \Illuminate\Support\Facades\Route::getRoutes()->getByName($routeName);
+        if (! $user || ! $route) {
+            return false;
+        }
+
+        foreach ($route->gatherMiddleware() as $middleware) {
+            if (! is_string($middleware) || ! str_starts_with($middleware, 'permission:')) {
+                continue;
+            }
+            $keys = array_map('trim', explode(',', substr($middleware, strlen('permission:'))));
+            if (! collect($keys)->contains(fn (string $key) => $user->hasPermission($key))) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * "Only what the command centre counted" — limits a fault / work-order list query to properties inside the command centre's
+     * own property set for $requestedScope (rental listings, own/branch/all clamped to the viewer's command-centre ceiling), the
+     * exact set the open-faults / open-work-orders tiles add up. A viewer with no command-centre access gets the query back unchanged.
+     */
+    public function limitToCommandCentreProperties(Builder $query, User $user, ?string $requestedScope, string $propertyIdColumn): Builder
+    {
+        if (PermissionService::getDataScope($user, 'rental_command_centre') === null) {
+            return $query;
+        }
+
+        return $query->whereIn($propertyIdColumn, $this->basePropertyQuery($user, $this->resolveScope($user, $requestedScope))->select('properties.id'));
+    }
+
+    /**
+     * The viewer's own/branch/agency data scope for a record type, as an `AND …` fragment + bindings for a correlated
+     * sub-select over that record's table (alias $alias, joined to the outer `properties` row). Mirrors
+     * RentalFaultReport::scopeVisibleTo / RentalWorkOrder::scopeVisibleTo exactly: all = nothing, branch = the property's branch,
+     * own = records the viewer created.
+     *
+     * @return array{0:string,1:array<int,mixed>}
+     */
+    private function recordScopeSql(User $user, string $module, string $alias): array
+    {
+        // No scope row for the module = no access to that list: its count is 0 (never a 403 from a count).
+        $scope = PermissionService::getDataScope($user, $module);
+
+        return match ($scope) {
+            'all' => ['', []],
+            'branch' => [' AND properties.branch_id = ?', [$user->effectiveBranchId()]],
+            'own' => (function () use ($user, $alias) {
+                $ids = array_values(array_filter($user->dataIdentityIds()));
+
+                return $ids === [] ? [' AND 1 = 0', []] : [" AND {$alias}.created_by_user_id IN (" . implode(',', array_fill(0, count($ids), '?')) . ')', $ids];
+            })(),
+            default => [' AND 1 = 0', []],
+        };
+    }
+
+
+    /**
      * The derived, FILTERABLE property set — the active-lease join (one
      * row max per property, leases.md's one-active-lease-per-property
      * invariant, enforced by LeaseActivationService::activate()) plus
@@ -197,6 +262,9 @@ class RentalCommandCentreService
 
     private function buildDerivedInnerQuery(User $user, string $scope): QueryBuilder
     {
+        $faultScope = $this->recordScopeSql($user, 'rental_fault_reports', 'rfr');
+        $woScope = $this->recordScopeSql($user, 'rental_work_orders', 'rwo');
+
         $query = DB::table('properties')
             ->whereRaw(
                 'LOWER(TRIM(properties.listing_type)) IN (' . implode(',', array_fill(0, count(self::RENTAL_LISTING_TYPES), '?')) . ')',
@@ -219,15 +287,17 @@ class RentalCommandCentreService
                 // null) exactly; see tileCounts()/applyTile() below.
                 'active_lease.notice_date as active_notice_date',
             ])
+            // The F / WO counts follow the viewer's OWN fault / work-order data scope (the same one those lists apply), so the
+            // "N F" / "N WO" link lands on exactly the rows it counted (rentals cross-cut, 8 Oct 2026).
             ->selectRaw(
                 '(SELECT COUNT(*) FROM rental_fault_reports rfr WHERE rfr.property_id = properties.id '
-                . 'AND rfr.deleted_at IS NULL AND rfr.status NOT IN (?, ?, ?)) as open_faults_count',
-                self::FAULT_OPEN_STATUSES_EXCLUDED
+                . 'AND rfr.deleted_at IS NULL AND rfr.status NOT IN (?, ?, ?)' . $faultScope[0] . ') as open_faults_count',
+                array_merge(self::FAULT_OPEN_STATUSES_EXCLUDED, $faultScope[1])
             )
             ->selectRaw(
                 '(SELECT COUNT(*) FROM rental_work_orders rwo WHERE rwo.property_id = properties.id '
-                . 'AND rwo.deleted_at IS NULL AND rwo.status NOT IN (?, ?)) as open_work_orders_count',
-                self::WORK_ORDER_OPEN_STATUSES_EXCLUDED
+                . 'AND rwo.deleted_at IS NULL AND rwo.status NOT IN (?, ?)' . $woScope[0] . ') as open_work_orders_count',
+                array_merge(self::WORK_ORDER_OPEN_STATUSES_EXCLUDED, $woScope[1])
             )
             ->selectRaw(
                 '(SELECT MAX(ri.completed_at) FROM rental_inspections ri WHERE ri.property_id = properties.id '

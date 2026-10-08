@@ -145,6 +145,9 @@ final class RentalCommandCentreServiceTest extends TestCase
         $this->makeFaultReport($agency, $branch, $property, RentalFaultReport::STATUS_DECLINED);
 
         $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        // the F / WO counts follow the viewer's own fault / work-order scope (rentals cross-cut)
+        $this->grantAllScope($agent, 'rental_fault_reports', $agency->id);
+        $this->grantAllScope($agent, 'rental_work_orders', $agency->id);
         $this->actingAs($agent);
 
         $tiles = $this->service->tileCounts($agent, 'all');
@@ -161,6 +164,9 @@ final class RentalCommandCentreServiceTest extends TestCase
         $this->makeWorkOrder($agency, $branch, $property, RentalWorkOrder::STATUS_COMPLETED, now());
 
         $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        // the F / WO counts follow the viewer's own fault / work-order scope (rentals cross-cut)
+        $this->grantAllScope($agent, 'rental_fault_reports', $agency->id);
+        $this->grantAllScope($agent, 'rental_work_orders', $agency->id);
         $this->actingAs($agent);
 
         $tiles = $this->service->tileCounts($agent, 'all');
@@ -186,6 +192,9 @@ final class RentalCommandCentreServiceTest extends TestCase
         $this->makeWorkOrder($agency, $branch, $propertyTwo, RentalWorkOrder::STATUS_IN_PROGRESS, now());
 
         $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        // the F / WO counts follow the viewer's own fault / work-order scope (rentals cross-cut)
+        $this->grantAllScope($agent, 'rental_fault_reports', $agency->id);
+        $this->grantAllScope($agent, 'rental_work_orders', $agency->id);
         $this->actingAs($agent);
 
         $tiles = $this->service->tileCounts($agent, 'all');
@@ -211,6 +220,9 @@ final class RentalCommandCentreServiceTest extends TestCase
         $this->makeFaultReport($agency, $branch, $propertyTwo, RentalFaultReport::STATUS_APPROVED);
 
         $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        // the F / WO counts follow the viewer's own fault / work-order scope (rentals cross-cut)
+        $this->grantAllScope($agent, 'rental_fault_reports', $agency->id);
+        $this->grantAllScope($agent, 'rental_work_orders', $agency->id);
         $this->actingAs($agent);
 
         $tiles = $this->service->tileCounts($agent, 'all');
@@ -591,6 +603,9 @@ final class RentalCommandCentreServiceTest extends TestCase
         $this->makeRentalProperty($agency, $branch, $agent); // no faults
 
         $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        // the F / WO counts follow the viewer's own fault / work-order scope (rentals cross-cut)
+        $this->grantAllScope($agent, 'rental_fault_reports', $agency->id);
+        $this->grantAllScope($agent, 'rental_work_orders', $agency->id);
         $this->actingAs($agent);
 
         $tiles = $this->service->tileCounts($agent, 'all');
@@ -1036,6 +1051,9 @@ final class RentalCommandCentreServiceTest extends TestCase
         $this->makeWorkOrder($agency, $branch, $property, RentalWorkOrder::STATUS_ORDERED, now());
 
         $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        // the F / WO counts follow the viewer's own fault / work-order scope (rentals cross-cut)
+        $this->grantAllScope($agent, 'rental_fault_reports', $agency->id);
+        $this->grantAllScope($agent, 'rental_work_orders', $agency->id);
         $this->actingAs($agent);
 
         $row = $this->service->tableQuery($agent, 'all', [])->where('id', $property->id)

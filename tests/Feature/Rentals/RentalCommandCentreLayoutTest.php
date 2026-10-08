@@ -39,7 +39,13 @@ final class RentalCommandCentreLayoutTest extends TestCase
 
         foreach (array_keys(RentalCommandCentreService::TILES) as $key) {
             $this->assertStringContainsString('data-qa="rcc-tile-' . $key . '"', $html, "tile {$key} is still there");
-            $this->assertStringContainsString('tile=' . $key, $html, "tile {$key} still filters the list on click");
+            // the two record-total tiles open the fault / work-order list itself (open only); every other tile filters this list
+            $target = match ($key) {
+                'open_faults' => 'rental-fault-reports?open=1',
+                'open_work_orders' => 'rental-work-orders?open=1',
+                default => 'tile=' . $key,
+            };
+            $this->assertStringContainsString($target, $html, "tile {$key} opens what it counted on click");
         }
         $this->assertStringContainsString('Inactive / off market', $html, 'the label stays in full');
     }

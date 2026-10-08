@@ -433,6 +433,8 @@ class Contact extends Model
      */
     public function ficaStatus(): string
     {
+        $currentMonths = \App\Services\Compliance\FicaWindows::currentMonths($this->agency_id ? (int) $this->agency_id : null);
+
         // Check new FICA submission system first
         $approvedSubmission = $this->ficaSubmissions()
             ->where('status', 'approved')
@@ -441,7 +443,7 @@ class Contact extends Model
 
         if ($approvedSubmission) {
             $verifiedAt = $approvedSubmission->verified_at;
-            if ($verifiedAt && $verifiedAt->diffInMonths(now()) >= 11) {
+            if ($verifiedAt && $verifiedAt->diffInMonths(now()) >= $currentMonths) {
                 return 'expiring';
             }
             return 'complete';
@@ -455,7 +457,7 @@ class Contact extends Model
         $latest = $ficaDocs->sortByDesc('pivot.signed_at')->first();
         if ($latest && $latest->pivot->signed_at) {
             $signedAt = \Carbon\Carbon::parse($latest->pivot->signed_at);
-            if ($signedAt->diffInMonths(now()) >= 11) {
+            if ($signedAt->diffInMonths(now()) >= $currentMonths) {
                 return 'expiring';
             }
             return 'complete';

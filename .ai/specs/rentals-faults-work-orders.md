@@ -496,6 +496,8 @@ rental_work_order_invoices
   created_at, updated_at, deleted_at      -- soft-delete only.
 ```
 
+**Built 8 Oct 2026 (cc6, QA1) as the office-side half — see `rental-work-orders.md` §17.31:** the agent files the supplier's invoice (number, date, amount, file; limits are agency settings) on the work order, the owner sees it only when the agent ticks "share with owner", the tenant never does. The contractor's own secure-link upload (§7.3) is still not built. Table name and columns there are the built ones (they differ from the sketch above: `invoice_number`, `share_with_owner`, a nullable supplier).
+
 **Deliberately NOT a financial feature** — same evidence-trail-only treatment `cost_amount`/`paid_by`
 already get (`rental-work-orders.md §5.1`, unchanged by this spec, explicitly named again in §6 below).
 The invoice amount is NOT automatically written to `rental_work_orders.cost_amount` — an agent

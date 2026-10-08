@@ -118,14 +118,14 @@
                     <div>
                         <label>Email address</label>
                         <input type="email" x-model="login.email" placeholder="you@example.com">
-                        <button class="btn btn-primary" :disabled="busy.login" @click="lookup()" x-text="busy.login ? 'Please wait…' : 'Continue'"></button>
+                        <button class="btn btn-primary" :disabled="!!(busy.login)" @click="lookup()" x-text="busy.login ? 'Please wait…' : 'Continue'"></button>
                     </div>
                 </template>
                 <template x-if="login.step === 'password'">
                     <div>
                         <label>Password</label>
                         <input type="password" x-model="login.password">
-                        <button class="btn btn-primary" :disabled="busy.login" @click="passwordLogin()" x-text="busy.login ? 'Signing in…' : 'Sign in'"></button>
+                        <button class="btn btn-primary" :disabled="!!(busy.login)" @click="passwordLogin()" x-text="busy.login ? 'Signing in…' : 'Sign in'"></button>
                         <a class="link" @click.prevent="sendOtp('recovery')" href="#">Forgot password?</a>
                     </div>
                 </template>
@@ -134,7 +134,7 @@
                         <p class="muted">We sent a 6-digit code to <strong x-text="login.email"></strong>.</p>
                         <label>Code</label>
                         <input type="text" inputmode="numeric" maxlength="6" x-model="login.code">
-                        <button class="btn btn-primary" :disabled="busy.login" @click="verifyOtp()" x-text="busy.login ? 'Checking…' : 'Verify'"></button>
+                        <button class="btn btn-primary" :disabled="!!(busy.login)" @click="verifyOtp()" x-text="busy.login ? 'Checking…' : 'Verify'"></button>
                     </div>
                 </template>
                 <template x-if="login.step === 'set-password'">
@@ -144,7 +144,7 @@
                         <input type="password" x-model="login.newPassword">
                         <label>Confirm password</label>
                         <input type="password" x-model="login.newPasswordConfirm">
-                        <button class="btn btn-primary" :disabled="busy.login" @click="setPassword()" x-text="busy.login ? 'Saving…' : 'Save & continue'"></button>
+                        <button class="btn btn-primary" :disabled="!!(busy.login)" @click="setPassword()" x-text="busy.login ? 'Saving…' : 'Save & continue'"></button>
                     </div>
                 </template>
                 <p class="error" x-show="login.error" x-text="login.error"></p>
@@ -232,7 +232,7 @@
                                         <template x-if="faultWizard.step !== 'done'">
                                             <div>
                                                 <label style="margin-top:0;">What's the problem?</label>
-                                                <select x-model="faultWizard.faultTypeId" :disabled="faultWizard.sending" @change="selectFaultType()">
+                                                <select x-model="faultWizard.faultTypeId" :disabled="!!(faultWizard.sending)" @change="selectFaultType()">
                                                     <option value="">Choose…</option>
                                                     <template x-for="ft in (faultTypesByProperty[faultWizard.property] || [])" :key="ft.id">
                                                         <option :value="ft.id" x-text="ft.name"></option>
@@ -244,26 +244,26 @@
                                                     <div style="margin-top:12px;" data-fault-aid-step>
                                                         <h2>Try this first</h2>
                                                         @include('rentals.portal._fault-aid', ['w' => 'faultWizard'])
-                                                        <button class="btn btn-ok" :disabled="faultWizard.sending" @click="submitFault('first_aid_resolved')" x-text="faultWizard.sending ? 'Sending…' : 'That fixed it'"></button>
-                                                        <button class="btn btn-outline" :disabled="faultWizard.sending" @click="faultWizard.step = 'form'">Still a problem</button>
+                                                        <button class="btn btn-ok" :disabled="!!(faultWizard.sending)" @click="submitFault('first_aid_resolved')" x-text="faultWizard.sending ? 'Sending…' : 'That fixed it'"></button>
+                                                        <button class="btn btn-outline" :disabled="!!(faultWizard.sending)" @click="faultWizard.step = 'form'">Still a problem</button>
                                                     </div>
                                                 </template>
 
                                                 <template x-if="faultWizard.faultTypeId && faultWizard.step === 'form'">
                                                     <div data-fault-form>
                                                         <label>Title</label>
-                                                        <input type="text" x-model="faultWizard.title" :disabled="faultWizard.sending">
+                                                        <input type="text" x-model="faultWizard.title" :disabled="!!(faultWizard.sending)">
                                                         <label>Describe the problem</label>
-                                                        <textarea rows="3" x-model="faultWizard.description" :disabled="faultWizard.sending"></textarea>
+                                                        <textarea rows="3" x-model="faultWizard.description" :disabled="!!(faultWizard.sending)"></textarea>
                                                         <label>Photos</label>
                                                         @include('rentals.portal._photo-picker', ['bind' => 'faultWizard'])
-                                                        <button class="btn btn-danger" data-fault-submit :disabled="faultWizard.sending || faultWizard.photoBusy" @click="submitFault('still_a_problem')"
+                                                        <button class="btn btn-danger" data-fault-submit :disabled="!!(faultWizard.sending || faultWizard.photoBusy)" @click="submitFault('still_a_problem')"
                                                                 x-text="faultWizard.sending ? ('Sending…' + (faultWizard.progress ? ' ' + faultWizard.progress + '%' : '')) : (faultWizard.photoBusy ? 'Preparing photos…' : 'Submit report')"></button>
                                                         <div class="progress" x-show="faultWizard.sending"><span :style="'width:' + (faultWizard.progress || 5) + '%'"></span></div>
                                                     </div>
                                                 </template>
                                                 <p class="error" x-show="faultWizard.error" x-text="faultWizard.error"></p>
-                                                <button class="btn btn-outline" :disabled="faultWizard.sending" @click="closeFaultWizard()">Cancel</button>
+                                                <button class="btn btn-outline" :disabled="!!(faultWizard.sending)" @click="closeFaultWizard()">Cancel</button>
                                             </div>
                                         </template>
                                     </div>
@@ -303,7 +303,7 @@
                                             <div data-finished-block style="margin-top:12px; padding-top:12px; border-top:1px solid #e3e8ef;">
                                                 <h2>Is this finished?</h2>
                                                 <p class="muted" x-text="(w.awaiting_answer.reported_by || 'The crew') + ' says this work is complete. Please check it' + (w.awaiting_answer.answer_due ? ' — if we do not hear from you by ' + w.awaiting_answer.answer_due.substring(0,10) + ' we will treat it as accepted.' : '.')"></p>
-                                                <button class="btn btn-ok" :disabled="answerBusy" @click="answerCompletion(w, true)" x-text="answerBusy ? 'Sending…' : 'All done, thanks'"></button>
+                                                <button class="btn btn-ok" :disabled="!!(answerBusy)" @click="answerCompletion(w, true)" x-text="answerBusy ? 'Sending…' : 'All done, thanks'"></button>
                                                 <template x-if="!answerForm || answerForm.workOrderId !== w.id">
                                                     <button class="btn btn-outline" @click="openNotComplete(w)">Not complete / still wrong</button>
                                                 </template>
@@ -313,7 +313,7 @@
                                                         <textarea rows="3" x-model="answerForm.note" placeholder="For example: the tap is fixed but it still drips."></textarea>
                                                         <label>Photos (optional)</label>
                                                         @include('rentals.portal._photo-picker', ['bind' => 'answerForm'])
-                                                        <button class="btn btn-danger" :disabled="answerBusy || answerForm.photoBusy" @click="answerCompletion(w, false)" x-text="answerBusy ? 'Sending…' : 'Send — it is not complete'"></button>
+                                                        <button class="btn btn-danger" :disabled="!!(answerBusy || answerForm.photoBusy)" @click="answerCompletion(w, false)" x-text="answerBusy ? 'Sending…' : 'Send — it is not complete'"></button>
                                                     </div>
                                                 </template>
                                                 <p class="error" x-show="answerError" x-text="answerError"></p>
@@ -401,6 +401,20 @@
                                         <a class="link" href="#" x-show="w.rental_fault_report_id" @click.prevent="landlordTab='faults'; loadLandlordFaults(); openFault(w.rental_fault_report_id)">See the fault →</a>
                                         <p class="muted" x-show="w.contractor_phone" x-text="w.contractor_phone ? 'Contractor phone: ' + w.contractor_phone : ''"></p>
                                         <p class="muted" x-show="w.owner_facing_amount !== null && w.owner_facing_amount !== undefined" x-text="'Amount: R ' + w.owner_facing_amount"></p>
+                                        {{-- §17.31 — supplier invoices the agent has chosen to share with the owner (never shown to a tenant). --}}
+                                        <div data-wo-invoices x-show="(w.invoices || []).length" style="margin-top:10px; padding-top:10px; border-top:1px solid #eef1f6;">
+                                            <p class="muted"><strong>Supplier invoices</strong></p>
+                                            <template x-for="inv in (w.invoices || [])" :key="inv.id">
+                                                <div class="list-item" data-wo-invoice>
+                                                    <div class="row"><strong x-text="'Invoice ' + inv.invoice_number"></strong><span x-text="'R ' + Number(inv.amount).toFixed(2)"></span></div>
+                                                    <div class="muted" x-text="[inv.supplier, inv.invoice_date].filter(Boolean).join(' · ')"></div>
+                                                    <div style="display:flex; gap:14px; margin-top:6px;">
+                                                        <a class="link" :href="inv.view_url" target="_blank" rel="noopener">View</a>
+                                                        <a class="link" :href="inv.download_url">Download</a>
+                                                    </div>
+                                                </div>
+                                            </template>
+                                        </div>
                                         {{-- W6 (8 Oct 2026): the owner may also set the appointment and report progress; the tenant is told. The agency's own team reports through its job card. --}}
                                         <template x-if="w.stage !== 'completed' && w.stage !== 'cancelled'">
                                             <div data-owner-appointment style="margin-top:10px; padding-top:10px; border-top:1px solid #eef1f6;">
@@ -426,8 +440,8 @@
                                             <div data-wo-decision style="margin-top:10px; padding-top:10px; border-top:1px solid #eef1f6;">
                                                 <p class="badge" style="background:#fdecea; color:#b3261e;">Needs your decision</p>
                                                 <p class="muted">Quote: <strong x-text="'R ' + (w.owner_facing_amount ?? 0)"></strong></p>
-                                                <button class="btn btn-ok" :disabled="busy['wo' + w.id]" @click="decideWorkOrder(w.id, 'approve')" x-text="busy['wo' + w.id] ? 'Sending…' : 'Approve'"></button>
-                                                <button class="btn btn-danger" :disabled="busy['wo' + w.id]" @click="decideWorkOrder(w.id, 'decline')">Decline</button>
+                                                <button class="btn btn-ok" :disabled="!!(busy['wo' + w.id])" @click="decideWorkOrder(w.id, 'approve')" x-text="busy['wo' + w.id] ? 'Sending…' : 'Approve'"></button>
+                                                <button class="btn btn-danger" :disabled="!!(busy['wo' + w.id])" @click="decideWorkOrder(w.id, 'decline')">Decline</button>
                                             </div>
                                         </template>
                         {{-- BUILD 2 BEGIN — extra work beyond the owner's agreed terms (.ai/specs/rental-work-orders.md §17.7.4): what was approved, the extra work (selling only), the crew's photos and note, the new total, Approve / Decline. --}}
@@ -451,8 +465,8 @@
                                 </div>
                                 <p style="margin-top:10px;">Extra work: <strong x-text="'R ' + Number(v.extra_amount).toFixed(2)"></strong> &middot; New total: <strong x-text="'R ' + Number(v.new_total).toFixed(2)"></strong></p>
                                 <p class="muted" x-show="v.term_text" x-text="v.term_text"></p>
-                                <button class="btn btn-ok" :disabled="busy['var' + v.id]" @click="decideVariation(v, 'approve')" x-text="busy['var' + v.id] ? 'Sending…' : 'Approve'"></button>
-                                <button class="btn btn-danger" :disabled="busy['var' + v.id]" @click="decideVariation(v, 'decline')">Decline</button>
+                                <button class="btn btn-ok" :disabled="!!(busy['var' + v.id])" @click="decideVariation(v, 'approve')" x-text="busy['var' + v.id] ? 'Sending…' : 'Approve'"></button>
+                                <button class="btn btn-danger" :disabled="!!(busy['var' + v.id])" @click="decideVariation(v, 'decline')">Decline</button>
                             </div>
                         </template>
                         {{-- BUILD 2 END --}}
@@ -508,7 +522,7 @@
                                             <div>
                                                 <h2>Request work</h2>
                                                 <label>What's the problem?</label>
-                                                <select x-model="landlordFaultWizard.faultTypeId" :disabled="landlordFaultWizard.sending" @change="selectLandlordFaultType()">
+                                                <select x-model="landlordFaultWizard.faultTypeId" :disabled="!!(landlordFaultWizard.sending)" @change="selectLandlordFaultType()">
                                                     <option value="">Choose… (or skip and describe it below)</option>
                                                     <template x-for="ft in (landlordFaultTypesByProperty[landlordFaultWizard.property] || [])" :key="ft.id">
                                                         <option :value="ft.id" x-text="ft.name + (ft.category ? ' (' + ft.category + ')' : '')"></option>
@@ -521,15 +535,15 @@
                                                     </div>
                                                 </template>
                                                 <label>Title</label>
-                                                <input type="text" x-model="landlordFaultWizard.title" :disabled="landlordFaultWizard.sending">
+                                                <input type="text" x-model="landlordFaultWizard.title" :disabled="!!(landlordFaultWizard.sending)">
                                                 <label>Describe the problem</label>
-                                                <textarea rows="3" x-model="landlordFaultWizard.description" :disabled="landlordFaultWizard.sending"></textarea>
+                                                <textarea rows="3" x-model="landlordFaultWizard.description" :disabled="!!(landlordFaultWizard.sending)"></textarea>
                                                 <label>Photos</label>
                                                 @include('rentals.portal._photo-picker', ['bind' => 'landlordFaultWizard'])
-                                                <button class="btn btn-danger" data-fault-submit :disabled="landlordFaultWizard.sending || landlordFaultWizard.photoBusy" @click="submitLandlordFault()"
+                                                <button class="btn btn-danger" data-fault-submit :disabled="!!(landlordFaultWizard.sending || landlordFaultWizard.photoBusy)" @click="submitLandlordFault()"
                                                         x-text="landlordFaultWizard.sending ? ('Sending…' + (landlordFaultWizard.progress ? ' ' + landlordFaultWizard.progress + '%' : '')) : (landlordFaultWizard.photoBusy ? 'Preparing photos…' : 'Submit request')"></button>
                                                 <div class="progress" x-show="landlordFaultWizard.sending"><span :style="'width:' + (landlordFaultWizard.progress || 5) + '%'"></span></div>
-                                                <button class="btn btn-outline" :disabled="landlordFaultWizard.sending" @click="closeLandlordFaultWizard()">Cancel</button>
+                                                <button class="btn btn-outline" :disabled="!!(landlordFaultWizard.sending)" @click="closeLandlordFaultWizard()">Cancel</button>
                                                 <p class="error" x-show="landlordFaultWizard.error" x-text="landlordFaultWizard.error"></p>
                                             </div>
                                         </template>
@@ -629,6 +643,7 @@ async function portalUpload(url, form, key, onProgress) {
 function rentalsPortal() {
     return {
         loading: true,
+        initStarted: false,
         // §22 — the agency's logo / name. Known before sign-in only when the personal link carried the email.
         branding: @json($branding ?? null),
         busy: {},
@@ -672,6 +687,10 @@ function rentalsPortal() {
         },
 
         async init() {
+            // Alpine calls an x-data object's own init() by itself, and this page ALSO says x-init="init()": without this guard every load
+            // ran it twice at once (two session checks, two role detections, two copies of every list request racing on a cold server).
+            if (this.initStarted) return;
+            this.initStarted = true;
             // rental-portal-access.md §16 — a personal link (?email=…) arrives with the email already filled in.
             // Only pre-fills the field: nothing is looked up or sent until the person presses Continue.
             const linked = (new URLSearchParams(window.location.search).get('email') || '').trim();

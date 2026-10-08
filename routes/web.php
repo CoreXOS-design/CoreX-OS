@@ -4179,6 +4179,20 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Private disk, gated — NOT the public-disk photo pattern. §3.4c.
         Route::get('/{rentalWorkOrder}/quotes/{quote}/download', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'download'])
             ->middleware('deny_assistant_download')->name('corex.rental-work-orders.quotes.download');
+
+        // §17.31 — the supplier's invoice documents on a work order (file, change / replace, share with owner, archive, restore, download).
+        Route::post('/{rentalWorkOrder}/invoices', [\App\Http\Controllers\CoreX\RentalWorkOrderInvoiceController::class, 'store'])
+            ->middleware('permission:rental_work_orders.manage_invoices')->name('corex.rental-work-orders.invoices.store');
+        Route::put('/{rentalWorkOrder}/invoices/{invoice}', [\App\Http\Controllers\CoreX\RentalWorkOrderInvoiceController::class, 'update'])
+            ->whereNumber('invoice')->middleware('permission:rental_work_orders.manage_invoices')->name('corex.rental-work-orders.invoices.update');
+        Route::post('/{rentalWorkOrder}/invoices/{invoice}/share', [\App\Http\Controllers\CoreX\RentalWorkOrderInvoiceController::class, 'share'])
+            ->whereNumber('invoice')->middleware('permission:rental_work_orders.manage_invoices')->name('corex.rental-work-orders.invoices.share');
+        Route::delete('/{rentalWorkOrder}/invoices/{invoice}', [\App\Http\Controllers\CoreX\RentalWorkOrderInvoiceController::class, 'destroy'])
+            ->whereNumber('invoice')->middleware('permission:rental_work_orders.manage_invoices')->name('corex.rental-work-orders.invoices.destroy');
+        Route::post('/{rentalWorkOrder}/invoices/{invoice}/restore', [\App\Http\Controllers\CoreX\RentalWorkOrderInvoiceController::class, 'restore'])
+            ->whereNumber('invoice')->middleware('permission:rental_work_orders.manage_invoices')->name('corex.rental-work-orders.invoices.restore');
+        Route::get('/{rentalWorkOrder}/invoices/{invoice}/file', [\App\Http\Controllers\CoreX\RentalWorkOrderInvoiceController::class, 'download'])
+            ->whereNumber('invoice')->middleware(['permission:rental_work_orders.manage_invoices', 'deny_assistant_download'])->name('corex.rental-work-orders.invoices.download');
     });
 
     // §17.21.1 — marker blocks: each maintenance-flow build adds ITS routes only between its own markers (wrap them in
@@ -4248,6 +4262,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // §17.14 — the four completion-check settings (Settings → Rental Work Orders; also a Setup Wizard saver).
     Route::post('/settings/rental-work-orders/completion-check', [\App\Http\Controllers\CoreX\RentalCompletionSettingsController::class, 'update'])
         ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.completion-check');
+    // §17.31 — the two supplier-invoice upload limits (Settings → Rental Work Orders; also a Setup Wizard saver).
+    Route::post('/settings/rental-work-orders/invoice-limits', [\App\Http\Controllers\CoreX\RentalWorkOrderInvoiceSettingsController::class, 'update'])
+        ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.invoice-limits');
     // BUILD 3 END
 
     // AT-442 — the agency's own parts & labour catalogue. Settings-area
@@ -4706,6 +4723,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:manage_compliance_officer')->name('corex.settings.fica-officers.end');
     Route::post('/settings/fica-referral', [\App\Http\Controllers\Compliance\FicaOfficerAppointmentsController::class, 'saveReferralSettings'])
         ->middleware('permission:manage_compliance_officer')->name('corex.settings.fica-referral.save');
+    Route::post('/settings/fica-windows', [\App\Http\Controllers\Compliance\FicaOfficerAppointmentsController::class, 'saveWindowSettings'])
+        ->middleware('permission:manage_compliance_officer')->name('corex.settings.fica-windows.save');
 
     // ── Phase 9c-2 — Information Officer Appointments (POPIA s55) ──
     Route::post('/settings/information-officers/primary', [\App\Http\Controllers\Compliance\InformationOfficerAppointmentsController::class, 'savePrimary'])

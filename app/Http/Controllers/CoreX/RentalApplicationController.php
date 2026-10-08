@@ -418,8 +418,9 @@ class RentalApplicationController extends Controller
      */
     private function applyFicaBucketFilter($query, string $bucket): void
     {
-        $query->whereDoesntHave('contact.ficaSubmissions', function ($q) {
-            $q->where('status', 'approved')->where('verified_at', '>=', now()->subMonths(11));
+        $currentMonths = \App\Services\Compliance\FicaWindows::currentMonths(auth()->user()?->effectiveAgencyId());
+        $query->whereDoesntHave('contact.ficaSubmissions', function ($q) use ($currentMonths) {
+            $q->where('status', 'approved')->where('verified_at', '>=', now()->subMonths($currentMonths));
         });
 
         $applicantStatuses = ['draft', 'corrections_requested'];

@@ -47,10 +47,22 @@
 --}}
 
 @php
-    $tileHref = fn ($key) => route('corex.rentals.command-centre.index', array_merge(
-        request()->except(['tile', 'page']),
-        $filters['tile'] === $key ? ['tile' => null] : ['tile' => $key]
-    ));
+    // The Open faults / Open work orders tiles show a RECORD total, so they open the fault / work-order list itself, open ones only and
+    // limited to this screen's own/branch/all property set — the list then shows exactly the number on the tile. Every other tile
+    // counts properties and filters this table.
+    $tileHref = function ($key) use ($scope, $filters) {
+        if ($key === 'open_faults' && auth()->user()?->hasFeature('rental-faults')) {
+            return route('corex.rental-fault-reports.index', ['open' => 1, 'cc_scope' => $scope]);
+        }
+        if ($key === 'open_work_orders' && auth()->user()?->hasFeature('rental-work-orders')) {
+            return route('corex.rental-work-orders.index', ['open' => 1, 'cc_scope' => $scope]);
+        }
+
+        return route('corex.rentals.command-centre.index', array_merge(
+            request()->except(['tile', 'page']),
+            $filters['tile'] === $key ? ['tile' => null] : ['tile' => $key]
+        ));
+    };
     $sortLink = fn ($col) => route('corex.rentals.command-centre.index', array_merge(
         request()->except('page'),
         ['sort' => $col, 'direction' => ($sort === $col && $direction === 'asc') ? 'desc' : 'asc']
@@ -372,13 +384,13 @@
                             <td class="px-3 py-2 whitespace-nowrap">{{ $property->active_end_date ? \Illuminate\Support\Carbon::parse($property->active_end_date)->format('Y-m-d') : ($property->active_month_to_month ? 'Month-to-month' : '—') }}</td>
                             <td class="px-3 py-2 whitespace-nowrap">
                                 @if((int) $property->open_faults_count > 0)
-                                    @feature('rental-faults')<a href="{{ route('corex.rental-fault-reports.index', ['property_id' => $property->id]) }}">{{ (int) $property->open_faults_count }} F</a>@else {{ (int) $property->open_faults_count }} F @endfeature
+                                    @feature('rental-faults')<a href="{{ route('corex.rental-fault-reports.index', ['property_id' => $property->id, 'open' => 1]) }}">{{ (int) $property->open_faults_count }} F</a>@else {{ (int) $property->open_faults_count }} F @endfeature
                                 @else
                                     <span style="color: var(--text-muted);">0 F</span>
                                 @endif
                                 ·
                                 @if((int) $property->open_work_orders_count > 0)
-                                    @feature('rental-work-orders')<a href="{{ route('corex.rental-work-orders.index', ['property_id' => $property->id]) }}">{{ (int) $property->open_work_orders_count }} WO</a>@else {{ (int) $property->open_work_orders_count }} WO @endfeature
+                                    @feature('rental-work-orders')<a href="{{ route('corex.rental-work-orders.index', ['property_id' => $property->id, 'open' => 1]) }}">{{ (int) $property->open_work_orders_count }} WO</a>@else {{ (int) $property->open_work_orders_count }} WO @endfeature
                                 @else
                                     <span style="color: var(--text-muted);">0 WO</span>
                                 @endif

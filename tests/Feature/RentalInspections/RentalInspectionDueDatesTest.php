@@ -791,6 +791,74 @@ final class RentalInspectionDueDatesTest extends TestCase
         $this->assertStringContainsString('loaded by me', $html);
     }
 
+    public function test_a_date_the_user_loaded_cannot_be_acted_on_once_its_lease_is_outside_their_reach(): void
+    {
+        // The date is visible to $mine (they loaded it) but the tenancy is a colleague's — nothing may be changed through it.
+        $mine = $this->ownScopeAgent();
+        $theirs = $this->date($this->lease, '2026-12-04', ['note' => 'loaded by me', 'created_by_user_id' => $mine->id]);
+
+        foreach (['update', 'skip', 'reopen', 'archive', 'restore'] as $action) {
+            $this->actingAs($mine)->post(route("corex.rental-inspections.planned-dates.{$action}", $theirs->id), ['note' => 'changed', 'skipped_reason' => 'x', 'planned_on' => '2027-01-01'])
+                ->assertNotFound();
+        }
+        $theirs = $theirs->fresh();
+        $this->assertSame('planned', $theirs->status);
+        $this->assertSame('loaded by me', $theirs->note);
+        $this->assertSame('2026-12-04', $theirs->planned_on->toDateString());
+        $this->assertNull($theirs->deleted_at);
+
+        // the agency-wide user and the property's own agent still can
+        Role::create(['name' => 'admin', 'label' => 'Admin', 'agency_id' => $this->agency->id]);
+        foreach (['rental_inspections.view', 'rental_inspections.manage_planned_dates'] as $key) {
+            RolePermission::updateOrCreate(['role' => 'admin', 'permission_key' => $key, 'agency_id' => $this->agency->id], ['scope' => 'all']);
+        }
+        PermissionService::clearCache();
+        $this->actingAs($this->admin)->post(route('corex.rental-inspections.planned-dates.update', $theirs->id), ['note' => 'admin edit'])->assertSessionHasNoErrors();
+        $this->assertSame('admin edit', $theirs->fresh()->note);
+        $this->actingAs($this->agent)->post(route('corex.rental-inspections.planned-dates.update', $theirs->id), ['note' => 'agent edit'])->assertSessionHasNoErrors();
+        $this->assertSame('agent edit', $theirs->fresh()->note);
+    }
+
+    public function test_a_branch_scope_user_acts_only_on_leases_in_their_own_branch(): void
+    {
+        Role::create(['name' => 'branch_mgr', 'label' => 'Branch manager', 'agency_id' => $this->agency->id]);
+        foreach (['rental_inspections.view', 'rental_inspections.create', 'rental_inspections.manage_planned_dates'] as $key) {
+            RolePermission::updateOrCreate(['role' => 'branch_mgr', 'permission_key' => $key, 'agency_id' => $this->agency->id], ['scope' => 'branch']);
+        }
+        PermissionService::clearCache();
+        $otherBranch = Branch::forceCreate(['agency_id' => $this->agency->id, 'name' => 'North']);
+        $manager = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $otherBranch->id, 'role' => 'branch_mgr', 'is_active' => true]);
+
+        // a date on the MAIN branch's tenancy, which the North manager once created
+        $date = $this->date($this->lease, '2026-12-05', ['created_by_user_id' => $manager->id]);
+        $this->actingAs($manager)->post(route('corex.rental-inspections.planned-dates.skip', $date->id), ['skipped_reason' => 'x'])->assertNotFound();
+        $this->assertSame('planned', $date->fresh()->status);
+
+        // and cannot load one against it either
+        $this->load(['2027-02-02'], $this->lease, [], $manager)->assertSessionHasErrors('lease_id');
+
+        // their own branch's tenancy is fine
+        $northProp = $this->makeProperty($this->agency, $otherBranch, $this->agent, '9 North Street');
+        $northLease = $this->makeLease($northProp);
+        $this->load(['2027-02-02'], $northLease, [], $manager)->assertSessionHasNoErrors();
+        $this->assertSame(1, RentalInspectionPlannedDate::where('lease_id', $northLease->id)->count());
+    }
+
+    public function test_a_lease_the_user_created_can_have_dates_loaded_and_moved_even_on_a_colleagues_property(): void
+    {
+        // one definition of "a lease I may act on": the lease's own people count, not only the property's agent
+        $mine = $this->ownScopeAgent();
+        $myLease = $this->makeLease($this->property, ['created_by_user_id' => $mine->id]);
+
+        $this->load(['2027-03-03'], $myLease, [], $mine)->assertSessionHasNoErrors();
+        $date = RentalInspectionPlannedDate::where('lease_id', $myLease->id)->firstOrFail();
+
+        $this->actingAs($mine)->post(route('corex.rental-inspections.planned-dates.update', $date->id), ['planned_on' => '2027-03-10'])->assertSessionHasNoErrors();
+        $this->assertSame('2027-03-10', $date->fresh()->planned_on->toDateString());
+        $this->actingAs($mine)->post(route('corex.rental-inspections.planned-dates.archive', $date->id))->assertRedirect();
+        $this->assertNotNull(RentalInspectionPlannedDate::withTrashed()->find($date->id)->deleted_at);
+    }
+
     public function test_another_agencys_date_is_a_404_by_direct_url(): void
     {
         $other = Agency::create(['name' => 'Cape Town Rentals', 'slug' => 'cpt-' . uniqid()]);
