@@ -192,7 +192,7 @@ class RentalPortalAccessService
                 return ['state' => 'no_email', 'label' => 'No email on the contact'] + $base;
             }
 
-            return ['can_set_up' => true, 'url' => $this->portalUrl($contactEmail, PortalLink::viewForRole($role))] + $base;
+            return ['can_set_up' => true, 'url' => $this->portalUrl($contactEmail, PortalLink::viewForRole($role), [], (int) $contact->id)] + $base;
         }
 
         $managedBy = null;
@@ -207,7 +207,7 @@ class RentalPortalAccessService
             return [
                 'state' => 'email_changed',
                 'label' => $placeholderLogin ? 'Login is a placeholder address' : 'Contact email changed',
-                'tone' => 'warning', 'can_switch' => true, 'url' => $this->portalUrl($login->email, PortalLink::viewForRole($role)),
+                'tone' => 'warning', 'can_switch' => true, 'url' => $this->portalUrl($login->email, PortalLink::viewForRole($role), [], (int) $contact->id),
             ] + $base;
         }
 
@@ -219,14 +219,14 @@ class RentalPortalAccessService
 
         return [
             'state' => $state, 'label' => $label, 'tone' => $tone, 'managed_by' => $managedBy,
-            'can_share' => true, 'url' => $this->portalUrl($login->email, PortalLink::viewForRole($role)),
+            'can_share' => true, 'url' => $this->portalUrl($login->email, PortalLink::viewForRole($role), [], (int) $contact->id),
         ] + $base;
     }
 
     /** The personal link: the portal, with the person's email already filled in and the side it is for (the code is still what proves it is them). Built by PortalLink. */
-    public function portalUrl(string $email, string $view = PortalLink::VIEW_TENANT, array $target = []): string
+    public function portalUrl(string $email, string $view = PortalLink::VIEW_TENANT, array $target = [], int $contactId = 0): string
     {
-        return PortalLink::personal($email, $view, $target);
+        return PortalLink::personal($email, $view, $target, $contactId);
     }
 
     /**
@@ -249,7 +249,7 @@ class RentalPortalAccessService
         $roles = $lease ? $this->rolesOnLease($lease, $contact) : [$role];
         app(RentalMailDispatcher::class)->send(
             $contact->email,
-            (new RentalPortalInviteMail($contact, $roles ?: [$role], $this->portalUrl($login->email, PortalLink::viewForRole($role)), $agent))->fromAgent($agent)
+            (new RentalPortalInviteMail($contact, $roles ?: [$role], $this->portalUrl($login->email, PortalLink::viewForRole($role), [], (int) $contact->id), $agent))->fromAgent($agent)
         );
 
         $this->auth->log($login, (int) $contact->agency_id, $contact->id, 'portal_invite_sent', $request ?? request(), [
@@ -315,7 +315,7 @@ class RentalPortalAccessService
      *
      * @return array{url:string, roles:array<int,string>, offers:array<int,string>}|null
      */
-    public function mailBlockForLease(Lease $lease, string $signerEmail): ?array
+    public function mailBlockForLease(Lease $lease, string $signerEmail, int $recipientContactId = 0): ?array
     {
         $email = strtolower(trim($signerEmail));
         if ($email === '' || $this->isPlaceholderEmail($email)
@@ -325,12 +325,17 @@ class RentalPortalAccessService
 
         $lease->loadMissing(['tenants.contact', 'property']);
         $roles = [];
+        $signerContactId = 0;   // the party this copy is for: the link names THEM, not just the address (two people can share one)
         foreach ([self::ROLE_TENANT => $lease->tenantContacts(), self::ROLE_LANDLORD => $lease->landlordContacts()] as $role => $contacts) {
             if (! $this->enabledFor((int) $lease->agency_id, $role)) {
                 continue;
             }
-            if ($contacts->contains(fn (Contact $c) => $this->contactCarriesEmail($c, $email))) {
+            // when the caller knows which party the copy is addressed to (two parties can share one address), that party; else the first
+            $carrier = ($recipientContactId > 0 ? $contacts->first(fn (Contact $c) => (int) $c->id === $recipientContactId && $this->contactCarriesEmail($c, $email)) : null)
+                ?? $contacts->first(fn (Contact $c) => $this->contactCarriesEmail($c, $email));
+            if ($carrier) {
                 $roles[] = $role;
+                $signerContactId = $signerContactId ?: (int) $carrier->id;
             }
         }
         if ($roles === []) {
@@ -339,7 +344,7 @@ class RentalPortalAccessService
 
         return [
             // a MAIL: the person, the side it is for, opening on this lease
-            'url' => $this->portalUrl($email, PortalLink::viewForRole($roles[0]), ['lease' => $lease->id]),
+            'url' => $this->portalUrl($email, PortalLink::viewForRole($roles[0]), ['lease' => $lease->id], $signerContactId),
             'roles' => $roles,
             'offers' => array_map(fn (string $r) => self::OFFERS[$r], $roles),
         ];

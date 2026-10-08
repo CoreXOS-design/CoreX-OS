@@ -98,18 +98,10 @@
         <template x-if="!(branding && branding.logo_url)">
             <h1 data-portal-name x-text="(branding && branding.name) || 'My Rentals'"></h1>
         </template>
-        <button x-show="session.authenticated" @click="logout()">Log out</button>
+        <button x-show="session.authenticated && !sessionChanged" @click="logout()">Log out</button>
     </header>
-    {{-- Another tab signed in as someone else: this page is showing the previous person - say so and offer the reload, never act on it. --}}
-    <div class="wrap" x-show="sessionChanged" x-cloak data-session-changed>
-        <div class="card">
-            <h2>You signed in as someone else</h2>
-            <p>In another window or tab of this browser you signed in as a different person. This page was showing the previous person's information, so nothing here will work any more.</p>
-            <button class="btn btn-primary" @click="window.location.reload()">Reload this page</button>
-        </div>
-    </div>
     {{-- Who is signed in and which side of the portal is on screen - always, one compact line (a shared browser must never leave this unclear). --}}
-    <div class="whoami" data-portal-who x-show="session.authenticated && me" x-cloak>
+    <div class="whoami" data-portal-who x-show="session.authenticated && me && !sessionChanged" x-cloak>
         <span class="muted">Signed in as</span>
         <span class="who-name" data-who-name :title="whoEmail()" x-text="whoName()"></span>
         <span class="who-role" data-who-role x-show="roleLabel()" x-text="'· ' + roleLabel() + ' view'"></span>
@@ -159,8 +151,17 @@
             </div>
         </template>
 
+        {{-- Another tab signed somebody else in (or out) on this browser: this page must not keep acting as the person it shows. --}}
+        <template x-if="sessionChanged">
+            <div class="card" data-session-changed>
+                <h2>Someone else signed in on this browser</h2>
+                <p>This page was showing <strong x-text="whoName()"></strong>, but the browser is now signed in as somebody else (or was signed out), so nothing on this page can be used safely.</p>
+                <button class="btn btn-primary" @click="reloadPage()">Reload</button>
+            </div>
+        </template>
+
         {{-- The link was made for someone else (or for a repair this person has no part in): never show the signed-in person's portal as if it were the link's. --}}
-        <template x-if="!loading && session.authenticated && linkIssue">
+        <template x-if="!loading && session.authenticated && linkIssue && !sessionChanged">
             <div class="card" data-link-mismatch>
                 <h2>This link is not for this account</h2>
                 <p>You are signed in as <strong x-text="whoName()"></strong>.</p>
@@ -172,7 +173,7 @@
         </template>
 
         {{-- ── AUTHENTICATED ───────────────────────────────────────── --}}
-        <template x-if="!loading && session.authenticated && !linkIssue">
+        <template x-if="!loading && session.authenticated && !linkIssue && !sessionChanged">
             <div>
                 {{-- One login that is both tenant and owner: a clear switch, remembering the last choice. --}}
                 <template x-if="roles.length > 1">
@@ -629,31 +630,20 @@ async function portalFetch(url, options = {}) {
         'X-XSRF-TOKEN': getCookie('XSRF-TOKEN'),
     }, options.headers || {});
     if (options.key) headers['X-Submission-Key'] = options.key;
+    // the contact the LINK named (a signed link says who it is for): the server uses it to choose among this login's own contacts, never for access
+    if (window.__portalContact) headers['X-Portal-Contact'] = String(window.__portalContact);
+    // which login THIS page believes it is acting as: if the browser's session has become somebody else's (another tab signed in), the server refuses
+    if (window.__portalExpect) headers['X-Portal-Expect'] = String(window.__portalExpect);
     if (!(options.body instanceof FormData) && options.body) {
         headers['Content-Type'] = 'application/json';
     }
     const fetchOptions = Object.assign({ credentials: 'same-origin' }, options, { headers });
     delete fetchOptions.key;
     const res = await fetch(url, fetchOptions);
-    if (portalClientChanged(res.headers && res.headers.get ? res.headers.get('X-Portal-Client') : null)) {
-        return { ok: false, status: 409, data: { message: 'You signed in as someone else in another window. Please reload this page.', session_changed: true } };
-    }
     let data = null;
     try { data = await res.json(); } catch (e) { /* no body */ }
+    if (res.status === 409 && data && data.session_changed && window.__portalOnSessionChanged) window.__portalOnSessionChanged();
     return { ok: res.ok, status: res.status, data };
-}
-
-// A browser holds ONE portal session. The server names the person who answered (X-Portal-Client); if it is not the person this page was
-// drawn for, another tab has signed in as someone else - this page must not keep offering the old person's buttons.
-let portalClientId = null;
-function portalClientChanged(id) {
-    if (!id) return false;
-    if (portalClientId && portalClientId !== id) {
-        if (typeof window.__portalSessionChanged === 'function') window.__portalSessionChanged();
-        return true;
-    }
-    portalClientId = id;
-    return false;
 }
 
 // §22 — a form with photos goes by XMLHttpRequest so the person SEES the upload progress (fetch cannot report it).
@@ -665,17 +655,16 @@ async function portalUpload(url, form, key, onProgress) {
         xhr.withCredentials = true;
         xhr.setRequestHeader('Accept', 'application/json');
         xhr.setRequestHeader('X-XSRF-TOKEN', getCookie('XSRF-TOKEN'));
+        if (window.__portalContact) xhr.setRequestHeader('X-Portal-Contact', String(window.__portalContact));
+        if (window.__portalExpect) xhr.setRequestHeader('X-Portal-Expect', String(window.__portalExpect));
         if (key) xhr.setRequestHeader('X-Submission-Key', key);
         if (xhr.upload && onProgress) {
             xhr.upload.onprogress = (e) => { if (e.lengthComputable && e.total > 0) onProgress(Math.min(99, Math.round(e.loaded / e.total * 100))); };
         }
         xhr.onload = () => {
-            if (portalClientChanged(xhr.getResponseHeader ? xhr.getResponseHeader('X-Portal-Client') : null)) {
-                resolve({ ok: false, status: 409, data: { message: 'You signed in as someone else in another window. Please reload this page.', session_changed: true } });
-                return;
-            }
             let data = null;
             try { data = JSON.parse(xhr.responseText); } catch (e) { /* no body */ }
+            if (xhr.status === 409 && data && data.session_changed && window.__portalOnSessionChanged) window.__portalOnSessionChanged();
             resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, data });
         };
         xhr.onerror = () => resolve({ ok: false, status: 0, data: null });
@@ -695,6 +684,9 @@ function rentalsPortal() {
         session: { authenticated: false },
         me: null,          // who /client/me says is signed in
         linkIssue: null,   // {kind:'email'|'fault', masked} when the link is not for this account
+        sessionChanged: false,   // another tab signed somebody else in (or out): this page stops acting as the person it shows
+        linkEmail: '',     // the address the link was written for ('' when it names nobody)
+        linkContactId: @json($linkedContactId ?? null),   // the contact the link was written for, from the signed reference
         roles: [],
         activeRole: null,
         login: { step: 'email', email: '', password: '', code: '', newPassword: '', newPasswordConfirm: '', error: null, mustSetPassword: false },
@@ -716,7 +708,7 @@ function rentalsPortal() {
         faultForm: { decision: '', handled_by: '', contractor_name: '', contractor_phone: '', agency_service_provider_id: '', note: '', error: null, busy: false },
         apptDraft: {},
         // BUILD 3 — the portal's Jobs are work orders (§17.3.5); the "is this finished?" answer form (§17.10.4).
-        workOrders: [], declineOpen: {}, declineNote: {}, declineError: {}, sessionChanged: false, answerForm: null, answerBusy: false, answerError: null, answerKeys: {},
+        workOrders: [], declineOpen: {}, declineNote: {}, declineError: {}, answerForm: null, answerBusy: false, answerError: null, answerKeys: {},
         landlordFaultWizard: { open: false, step: 'form', property: null, faultTypeId: '', ftype: null, showAid: false, title: '', description: '', photos: [], photoError: null, photoBusy: false, photoPending: 0, sending: false, progress: 0, error: null, key: null },
         landlordFaultTypesByProperty: {},
 
@@ -736,21 +728,25 @@ function rentalsPortal() {
             // ran it twice at once (two session checks, two role detections, two copies of every list request racing on a cold server).
             if (this.initStarted) return;
             this.initStarted = true;
-            this.watchSession();
             // rental-portal-access.md §16 — a personal link (?email=…) arrives with the email already filled in.
             // Only pre-fills the field: nothing is looked up or sent until the person presses Continue.
             // WHO the link is for: the server read a mail link's SIGNED recipient reference (?r=...) and hands the address over; the
             // lease screen's copy link carries ?email= instead (App\Support\PortalLink).
             const linked = String(@json($linkedEmail ?? null) || new URLSearchParams(window.location.search).get('email') || '').trim();
-            if (linked && linked.length <= 255 && /^[^\s@]+@[^\s@]+$/.test(linked)) this.login.email = linked;
+            if (linked && linked.length <= 255 && /^[^\s@]+@[^\s@]+$/.test(linked)) { this.login.email = linked; this.linkEmail = linked; }
+            window.__portalContact = this.linkContactId || null;
+            window.__portalOnSessionChanged = () => { this.sessionChanged = true; };
+            // coming back to this tab: has the browser's login changed under it while it sat in the background?
+            if (typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') this.recheckSession(); });
+            if (typeof window.addEventListener === 'function') window.addEventListener('focus', () => this.recheckSession());
             const me = await portalFetch('/api/v1/client/me');
             if (me.ok) {
                 this.session.authenticated = true;
                 this.me = me.data;
+                window.__portalExpect = (me.data && me.data.client && me.data.client.id) || null;
                 // A link made for ANOTHER person must never silently show this person's portal: say whose session this is.
-                const signedInAs = String((me.data && me.data.client && me.data.client.email) || '').toLowerCase();
-                if (this.login.email && signedInAs && this.login.email.toLowerCase() !== signedInAs) {
-                    this.linkIssue = { kind: 'email', masked: this.maskEmail(this.login.email) };
+                if (this.linkIsForSomeoneElse(me.data)) {
+                    this.linkIssue = { kind: 'email', masked: this.maskEmail(this.linkEmail) };
                 } else {
                     await this.detectRoles();
                 }
@@ -758,8 +754,47 @@ function rentalsPortal() {
             this.loading = false;
         },
 
+        // Is the link for somebody other than the person signed in? By address, unless the server says the contact the link names is theirs
+        // (their login can sit on another address than the contact's). A link that names nobody is for nobody in particular.
+        linkIsForSomeoneElse(me) {
+            const signedInAs = String((me && me.client && me.client.email) || '').toLowerCase();
+            if (!this.linkEmail || !signedInAs) return false;
+            if (this.linkEmail.toLowerCase() === signedInAs) return false;
+            if (this.linkContactId && me && me.owns_linked_contact === true) return false;
+            return true;
+        },
+
+        // Is the browser still signed in as the person this page is showing? Checked whenever the tab comes back into view.
+        async recheckSession() {
+            if (this.sessionChanged || !this.session.authenticated || !this.me || !this.me.client) return;
+            const r = await portalFetch('/api/v1/client/me');
+            if (!r.ok) { if (r.status === 401) this.sessionChanged = true; return; }
+            if (r.data && r.data.client && r.data.client.id !== this.me.client.id) this.sessionChanged = true;
+        },
+        reloadPage() { window.location.reload(); },
+
+        // Right after signing in on this page (code + password, or password): the same two things a page load does - learn who this is,
+        // and check the link was for them - BEFORE showing anything. Without it the header said nothing and a link for one person could
+        // be signed into as another.
+        async afterSignIn() {
+            this.linkIssue = null;
+            this.session.authenticated = true;
+            window.__portalExpect = null;   // whoever signs in now is the one this page acts as
+            const me = await portalFetch('/api/v1/client/me');
+            if (me.ok) {
+                this.me = me.data;
+                window.__portalExpect = (me.data && me.data.client && me.data.client.id) || null;
+                if (this.linkIsForSomeoneElse(me.data)) {
+                    this.linkIssue = { kind: 'email', masked: this.maskEmail(this.linkEmail) };
+                    return;
+                }
+            }
+            await this.detectRoles();
+        },
+
         // ── who is signed in, which side is on screen, and links made for somebody else ──
-        whoName() { const c = (this.me && this.me.contact) || {}; return (c.full_name || [c.first_name, c.last_name].filter(Boolean).join(' ') || (this.me && this.me.client && this.me.client.email) || 'you').trim(); },
+        // The name on the side on screen: a login that carries two contacts (one as tenant, one as owner) is greeted by the one that holds THIS side.
+        whoName() { const sc = (this.me && this.me.side_contacts) || {}; const side = this.activeRole === 'landlord' ? 'landlord' : (this.activeRole === 'tenant' ? 'tenant' : null); const c = (!this.linkIssue && side && sc[side]) || (this.me && this.me.contact) || {}; return (c.full_name || [c.first_name, c.last_name].filter(Boolean).join(' ') || (this.me && this.me.client && this.me.client.email) || 'you').trim(); },
         whoEmail() { return (this.me && this.me.client && this.me.client.email) || ''; },
         roleLabel() { return this.linkIssue ? '' : (this.activeRole === 'landlord' ? 'Owner' : (this.activeRole === 'tenant' ? 'Tenant' : '')); },
         maskEmail(e) {
@@ -774,9 +809,6 @@ function rentalsPortal() {
             const r = await portalFetch('/api/v1/client/rentals/branding');
             if (r.ok && r.data && r.data.branding) this.branding = r.data.branding;
         },
-
-        // §27 - when another tab of this browser signs in as someone else, portalFetch() sees a different person answering and calls this.
-        watchSession() { window.__portalSessionChanged = () => { this.sessionChanged = true; }; },
 
         async detectRoles() {
             this.loadBranding();
@@ -881,8 +913,7 @@ function rentalsPortal() {
                     body: JSON.stringify({ password: this.login.newPassword, password_confirmation: this.login.newPasswordConfirm }),
                 });
                 if (!r.ok) { this.login.error = r.data?.message || 'Could not set password.'; return; }
-                this.session.authenticated = true;
-                await this.detectRoles();
+                await this.afterSignIn();
             });
         },
 
@@ -891,13 +922,13 @@ function rentalsPortal() {
                 this.login.error = null;
                 const r = await portalFetch('/api/v1/client-auth/login', { method: 'POST', body: JSON.stringify({ email: this.login.email, password: this.login.password }) });
                 if (!r.ok) { this.login.error = r.data?.message || 'Invalid credentials.'; return; }
-                this.session.authenticated = true;
-                await this.detectRoles();
+                await this.afterSignIn();
             });
         },
 
         async logout() {
             await portalFetch('/api/v1/client-auth/logout', { method: 'POST' });
+            window.__portalExpect = null;
             this.session.authenticated = false;
             this.roles = [];
             window.location.reload();

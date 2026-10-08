@@ -27,28 +27,44 @@ class RentalPortalShellController extends Controller
 {
     public function show(Request $request): View
     {
-        $email = $this->linkedEmail($request);
+        [$email, $contactId] = $this->linkedRecipient($request);
 
-        return view('rentals.portal.shell', ['branding' => $this->brandingFor($email), 'linkedEmail' => $email]);
+        return view('rentals.portal.shell', [
+            'branding' => $this->brandingFor($email),
+            'linkedEmail' => $email,
+            'linkedContactId' => $contactId,
+        ]);
     }
 
     /**
-     * WHO the link is for. A mail link carries a SIGNED recipient reference (`r`, App\Support\PortalLink); the lease screen's copy
-     * link carries `?email=`. Either way this is the address the sign-in is pre-filled with and the "this link is for somebody
-     * else" card names. A tampered or unreadable `r` is ignored (null), never trusted.
+     * WHO the link is for: the sign-in address, and (when the link names one) the contact. A mail link carries a SIGNED recipient
+     * reference (`r`, App\Support\PortalLink); the lease screen's copy link carries `?email=` (and `r`). A tampered or unreadable `r`
+     * is ignored (null), never trusted.
+     *
+     * The sign-in is pre-filled with the address the mail was written to. The contact the link names rides along separately: the page
+     * asks the server whether the signed-in login OWNS that contact, so the right person is never called a stranger just because the
+     * login sits on another address than the contact's (an email changed since, or an agent-made placeholder login).
+     *
+     * @return array{0:?string, 1:?int}
      */
-    private function linkedEmail(Request $request): ?string
+    private function linkedRecipient(Request $request): array
     {
         $recipient = \App\Support\PortalLink::parse($request->query('r'));
         if ($recipient) {
-            return $recipient['email'];
+            $email = $recipient['email'];
+            $contactId = null;
+            if ($recipient['contact_id'] > 0) {
+                $contactId = Contact::withoutGlobalScopes()->whereNull('deleted_at')->whereKey($recipient['contact_id'])->exists() ? (int) $recipient['contact_id'] : null;
+            }
+
+            return [$email, $contactId];
         }
         $email = $request->query('email');
         if (is_string($email) && strlen($email) <= 255 && preg_match('/^[^\s@]+@[^\s@]+$/', trim($email))) {
-            return strtolower(trim($email));
+            return [strtolower(trim($email)), null];
         }
 
-        return null;
+        return [null, null];
     }
 
     /** @return array{name:string,logo_url:?string}|null */

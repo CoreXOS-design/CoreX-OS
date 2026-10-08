@@ -343,15 +343,10 @@ final class NightFlowFixesTest extends TestCase
         $this->assertSame('done', $t['appointment_set']['state'], 'now the appointment is real');
     }
 
-    public function test_every_portal_answer_names_who_answered_so_a_page_drawn_for_someone_else_can_stop(): void
+    public function test_the_tenants_session_pressing_an_owner_button_is_a_plain_refusal_never_an_action(): void
     {
-        $owner = $this->clientFor($this->landlord);
-        Sanctum::actingAs($owner, ['client']);
-
-        $this->getJson(self::L . '/work-orders')->assertOk()->assertHeader('X-Portal-Client', (string) $owner->id);
-        $this->getJson('/api/v1/client/me')->assertOk()->assertHeader('X-Portal-Client', (string) $owner->id);
-
-        // and a tenant-session press on an owner endpoint is a plain refusal (what the stale owner tab got) - not data, not an action
+        // (the stale-tab guard itself - X-Portal-Expect / 409 session_changed - is cc1's, rental-portal-access.md section 28)
+        // a tenant-session press on an owner endpoint is a plain refusal (what the stale owner tab got) - not data, not an action
         $tenantContact = \App\Models\Contact::create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'first_name' => 'Tina', 'last_name' => 'Tenant', 'email' => 'tina-' . uniqid() . '@example.invalid']);
         $wo = $this->externalWorkOrder(['status' => RentalWorkOrder::STATUS_ORDERED]);
         Sanctum::actingAs($this->clientFor($tenantContact), ['client']);

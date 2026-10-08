@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Concerns;
 use App\Models\ClientUser;
 use App\Models\Contact;
 use App\Services\ClientAuthService;
+use App\Services\Rentals\PortalIdentityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -36,7 +37,11 @@ trait ResolvesPortalContact
             return response()->json(['message' => 'Select an agency first.'], 409);
         }
 
-        $contact = app(ClientAuthService::class)->contactForAgency($client, $agencyId);
+        // The contact for the SIDE this route serves (tenant / owner), preferring the one the link named: a login that carries more than
+        // one contact in the agency must not act as the lowest-id one on both sides (PortalIdentityService, spec section 28).
+        $contact = app(PortalIdentityService::class)->contactFor(
+            $client, (int) $agencyId, PortalIdentityService::sideForRoute($request->route()?->getName()), PortalIdentityService::hintFrom($request)
+        );
         if (!$contact) {
             return response()->json(['message' => 'No contact record in this agency.'], 404);
         }

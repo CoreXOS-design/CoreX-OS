@@ -39,23 +39,27 @@ final class PortalLink
         return self::build((string) $contact->email, $view, $target, (int) $contact->id);
     }
 
-    /** A link for a person known only by the address the mail goes to. */
-    public static function forEmail(string $email, string $view, array $target = []): string
+    /**
+     * A link for a person known by the address the mail goes to - and, when the caller has it, the contact it is for ($contactId). Pass
+     * the contact id whenever there is one: two people can share one address (and so one login), and the id is what tells the portal
+     * WHICH of them this link is for (the name in the header, who a repair report is filed under).
+     */
+    public static function forEmail(string $email, string $view, array $target = [], int $contactId = 0): string
     {
-        return self::build($email, $view, $target, 0);
+        return self::build($email, $view, $target, $contactId);
     }
 
     /**
      * The personal link (the lease screen's COPY link, the portal invite, the signed-lease copy): `?email=` readable - the form every
      * link of this kind has always had - plus the signed reference and the view. The portal reads either the same way.
      */
-    public static function personal(string $email, string $view, array $target = []): string
+    public static function personal(string $email, string $view, array $target = [], int $contactId = 0): string
     {
         $email = strtolower(trim($email));
         $query = ['email' => $email];
         // ...plus the signed reference, so the page can tell a genuine link from a hand-typed address
         if (preg_match('/^[^\s@]+@[^\s@]+$/', $email)) {
-            $payload = rtrim(strtr(base64_encode(json_encode(['c' => 0, 'e' => $email])), '+/', '-_'), '=');
+            $payload = rtrim(strtr(base64_encode(json_encode(['c' => max(0, $contactId), 'e' => $email])), '+/', '-_'), '=');
             $query['r'] = $payload . '.' . self::sign($payload);
         }
         $query['as'] = $view === self::VIEW_OWNER ? self::VIEW_OWNER : self::VIEW_TENANT;
