@@ -56,9 +56,23 @@
     .blank-sig-block { margin-top: 4pt; }
     .blank-sig-line { border-bottom: 0.75pt solid #333; height: 18pt; margin-top: 10pt; }
     .blank-sig-caption { font-size: 7pt; color: #666; }
+    {{-- §49 (Johan, 8 Oct 2026) — "every page is clearly stamped DRAFT - not final" until the report is completed and fully
+         signed. position:fixed repeats on EVERY page in DomPDF: a bold band in the top margin plus a faint diagonal across
+         the page body, so neither a crop nor a photocopy loses it. --}}
+    .draft-stamp-top { position: fixed; top: -30pt; left: 0; right: 0; text-align: center; color: #c41e3a; font-weight: bold; font-size: 11pt; letter-spacing: 1pt; }
+    .draft-stamp-diag { position: fixed; top: 300pt; left: 0; right: 0; text-align: center; color: #c41e3a; font-weight: bold; font-size: 58pt; opacity: 0.13; transform: rotate(-32deg); }
+    {{-- §49 — what was added after the report was sent: its own block, boxed and labelled, apart from the locked body. --}}
+    .after-sent { margin-top: 18pt; border: 1.5pt solid #b45309; padding: 8pt; }
+    .after-sent h2 { font-size: 10pt; margin: 0 0 3pt 0; color: #b45309; text-transform: uppercase; letter-spacing: 0.5pt; }
+    .after-sent table { width: 100%; border-collapse: collapse; margin-top: 4pt; }
+    .after-sent td { font-size: 8.5pt; border-top: 0.5pt solid #e5c9a0; padding: 3pt 4pt; vertical-align: top; }
 </style>
 </head>
 <body>
+    @if($isDraft)
+        <div class="draft-stamp-top">DRAFT - not final</div>
+        <div class="draft-stamp-diag">DRAFT - not final</div>
+    @endif
     @if($forSignature)
         <div class="for-signature-banner">For signature — this document is not yet complete</div>
     @endif
@@ -68,7 +82,7 @@
         <p class="muted">
             {{ $inspection->scheduled_for?->format('d M Y') ?? $inspection->created_at->format('d M Y') }}
             @if($inspection->completed_at) &middot; Completed {{ $inspection->completed_at->format('d M Y') }} @endif
-            @if($inspection->previousInspection) &middot; Compared against the {{ $inspection->previousInspection->type }}-inspection of {{ $inspection->previousInspection->scheduled_for?->format('d M Y') ?? $inspection->previousInspection->created_at->format('d M Y') }} @endif
+            @if($inspection->previousInspection) &middot; Compared against the {{ strtolower(\App\Models\RentalInspection::typeName($inspection->previousInspection->type)) }} of {{ $inspection->previousInspection->scheduled_for?->format('d M Y') ?? $inspection->previousInspection->created_at->format('d M Y') }} @endif
         </p>
 
         @if($publicUrl)
@@ -241,5 +255,27 @@
             </tr>
         @endforeach
     </table>
+
+    {{-- §49 — Johan, 8 Oct 2026: after a report is sent, a tenant fault report inside the window and move-out comparison
+         findings may still be added; each is shown CLEARLY MARKED, with the date and who, apart from the locked report
+         body above. Nothing here changes a line of the body. --}}
+    @if($addedAfterSent->isNotEmpty())
+        <div class="after-sent">
+            <h2>{{ \App\Services\Rentals\RentalInspectionAddedAfterSentService::MARK }}</h2>
+            <p class="muted" style="font-size:7.5pt; margin:0;">The report above is exactly as it was sent. The entries below were added afterwards and are not part of it.</p>
+            <table>
+                @foreach($addedAfterSent as $entry)
+                    <tr>
+                        <td style="width:24%;"><strong>{{ $entry['kind_label'] }}</strong><br><span class="muted">{{ $entry['at']?->format('d M Y, H:i') }}<br>by {{ $entry['by'] }}</span></td>
+                        <td>
+                            {{ $entry['room'] ? $entry['room'] . ' — ' : '' }}{{ $entry['item'] }}: <strong>{{ $entry['headline'] }}</strong>
+                            @if($entry['note'])<div class="notes-callout notes-callout-amber">{{ $entry['note'] }}</div>@endif
+                            @if($entry['photos']->isNotEmpty())<div class="muted" style="font-size:7.5pt;">{{ $entry['photos']->count() }} photo(s) attached{{ $publicUrl ? ' — see ' . $publicUrl : '' }}</div>@endif
+                        </td>
+                    </tr>
+                @endforeach
+            </table>
+        </div>
+    @endif
 </body>
 </html>

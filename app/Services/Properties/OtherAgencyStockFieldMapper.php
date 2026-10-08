@@ -375,7 +375,7 @@ class OtherAgencyStockFieldMapper
      * the way a re-import replaces every other imported advert field) and `extra_spaces` (rooms P24 counts
      * that CoreX also has as a space type: Reception Room, Office, Study …).
      *
-     * @param  array{beds?: ?int, baths?: int|float|null (total, 2.5 = 2 + half), garages?: ?int, bathroom_features?: string[], parking_count?: ?int, parking_features?: string[], pool?: bool, garden?: bool, kitchen_features?: string[], garden_features?: string[], security_features?: string[], global_features?: ?array<string, string[]>, extra_spaces?: array<int, array{type: string, count: int}>}  $signals
+     * @param  array{beds?: ?int, baths?: int|float|null (total, 2.5 = 2 + half), garages?: ?int, bathroom_features?: string[], parking_count?: ?int, parking_features?: string[], pool?: bool, garden?: bool, kitchen_count?: ?int, kitchen_features?: string[], garden_features?: string[], security_features?: string[], global_features?: ?array<string, string[]>, extra_spaces?: array<int, array{type: string, count: int}>}  $signals
      */
     public static function buildSpacesJson(array $signals, ?array $existingSpacesJson = null): array
     {
@@ -426,9 +426,12 @@ class OtherAgencyStockFieldMapper
             $setSpace('Pool', 1, []);
         }
 
+        // P24's "Kitchens | N" count and/or its kitchen feature list: either one makes the Kitchen space. A bare
+        // "Kitchens: 1" (no features listed) used to leave the property with no kitchen at all.
         $kitchenFeatures = array_values(array_filter($signals['kitchen_features'] ?? []));
-        if (! empty($kitchenFeatures)) {
-            $setSpace('Kitchen', 1, $kitchenFeatures);
+        $kitchenCount = (int) ($signals['kitchen_count'] ?? 0);
+        if ($kitchenCount > 0 || ! empty($kitchenFeatures)) {
+            $setSpace('Kitchen', max($kitchenCount, 1), $kitchenFeatures);
         }
 
         $gardenFeatures = array_values(array_filter($signals['garden_features'] ?? []));

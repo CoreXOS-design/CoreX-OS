@@ -155,13 +155,37 @@ final class PortalDocumentsTest extends TestCase
         ]));
     }
 
-    private function inspectionDoc(Lease $lease, string $status, string $type, bool $sentCopy = false): Document
+    /** §49 — every party (each lease tenant and the agent) holds a live signature, as a report that was properly signed does. */
+    private function signEveryone(RentalInspection $inspection): void
+    {
+        foreach (\App\Models\LeaseTenant::where('lease_id', $inspection->lease_id)->pluck('contact_id') as $contactId) {
+            \App\Models\RentalInspectionSignature::forceCreate([
+                'agency_id' => $inspection->agency_id, 'rental_inspection_id' => $inspection->id, 'party_role' => 'tenant',
+                'party_contact_id' => $contactId, 'disposition' => 'signed', 'party_signature_path' => 'signatures/t.png', 'disposition_recorded_at' => now(),
+            ]);
+        }
+        if ($landlord = $inspection->property()->first()?->sellerOwnerContact()) {
+            \App\Models\RentalInspectionSignature::forceCreate([
+                'agency_id' => $inspection->agency_id, 'rental_inspection_id' => $inspection->id, 'party_role' => 'landlord',
+                'party_contact_id' => $landlord->id, 'disposition' => 'signed', 'party_signature_path' => 'signatures/l.png', 'disposition_recorded_at' => now(),
+            ]);
+        }
+        \App\Models\RentalInspectionSignature::forceCreate([
+            'agency_id' => $inspection->agency_id, 'rental_inspection_id' => $inspection->id, 'party_role' => 'agent',
+            'disposition' => 'signed', 'party_signature_path' => 'signatures/a.png', 'disposition_recorded_at' => now(),
+        ]);
+    }
+
+    private function inspectionDoc(Lease $lease, string $status, string $type, bool $sentCopy = false, bool $signed = true): Document
     {
         $inspection = RentalInspection::create([
             'agency_id' => $this->agency->id, 'lease_id' => $lease->id, 'property_id' => $lease->property_id,
             'type' => $type, 'status' => $status, 'created_by_user_id' => $this->staff->id,
             'completed_at' => $status === 'completed' ? now()->subDay() : null,
         ]);
+        if ($signed && ($status === 'completed' || $sentCopy)) {
+            $this->signEveryone($inspection);
+        }
         if ($sentCopy) {
             SignedDocumentDistributionLog::create([
                 'agency_id' => $this->agency->id, 'distributable_type' => RentalInspection::class, 'distributable_id' => $inspection->id,
@@ -220,7 +244,7 @@ final class PortalDocumentsTest extends TestCase
         $json = collect($json['documents']);
         $this->assertSame('Lease renewal', $json->firstWhere('id', $this->docs['l1r']->id)['type']);
         $this->assertSame('Lease agreement', $json->firstWhere('id', $this->docs['l1']->id)['type']);
-        $this->assertSame('Move-in', $json->firstWhere('id', $this->docs['i_done']->id)['subtype']);
+        $this->assertSame('In', $json->firstWhere('id', $this->docs['i_done']->id)['subtype']);
         $this->assertSame('Lease agreement — ' . $this->p1->buildDisplayAddress(), $json->firstWhere('id', $this->docs['l1']->id)['name']);
         $this->assertSame('Lease 1 Nov 2025 – 31 Oct 2026', $json->firstWhere('id', $this->docs['l1']->id)['belongs_to']['lease_label']);
         $this->assertSame('/api/v1/client/rentals/documents/' . $this->docs['l1']->id . '/file', $json->firstWhere('id', $this->docs['l1']->id)['view_url']);
@@ -261,6 +285,42 @@ final class PortalDocumentsTest extends TestCase
     }
 
     // ── owner ────────────────────────────────────────────────────────────────────────────────
+
+    public function test_a_sent_report_is_offered_only_once_everyone_has_signed_and_uses_the_shared_type_wording(): void
+    {
+        $l1 = \App\Models\Lease::withoutGlobalScopes()->find(RentalInspection::withoutGlobalScopes()->find($this->docs['i_done']->source_id)->lease_id);
+        $unsigned = $this->inspectionDoc($l1, 'completed', RentalInspection::TYPE_OUT, signed: false);
+        $routineNoSignatures = $this->inspectionDoc($l1, 'completed', RentalInspection::TYPE_AD_HOC, signed: false);
+        $refusal = $this->inspectionDoc($l1, 'completed', RentalInspection::TYPE_INTERIM, signed: false);
+        \App\Models\RentalInspectionSignature::forceCreate([
+            'agency_id' => $this->agency->id, 'rental_inspection_id' => $refusal->source_id, 'party_role' => 'tenant',
+            'party_contact_id' => $this->tenant->id, 'disposition' => 'refused', 'refusal_reason_preset' => 'other', 'refusal_reason_note' => 'x', 'disposition_recorded_at' => now(),
+        ]);
+        $this->asPortal($this->tenant);
+
+        $json = $this->portalGet('/api/v1/client/rentals/documents')->assertOk()->json();
+        $ids = $this->ids($json);
+        $rows = collect($json['documents']);
+
+        $this->assertNotContains($unsigned->id, $ids, 'sent but nobody signed, and signatures are required for an Out: not offered');
+        $this->assertNotContains($refusal->id, $ids, 'a refusal is not a signature: not offered');
+        $this->assertContains($routineNoSignatures->id, $ids, 'Routine signatures are optional by default: sent is enough');
+        $this->assertContains($this->docs['i_done']->id, $ids, 'fully signed and sent: offered');
+
+        // the ONE shared type wording — never "Ad hoc", never a portal-only "Move-in"
+        $routine = $rows->firstWhere('id', $routineNoSignatures->id);
+        $this->assertSame('Routine', $routine['subtype']);
+        $this->assertStringStartsWith('Routine inspection report', $routine['name']);
+        $this->assertStringStartsWith('In-inspection report', $rows->firstWhere('id', $this->docs['i_done']->id)['name']);
+        $this->assertStringNotContainsString('Ad hoc', json_encode($json));
+
+        // making Routine require signatures hides it again — the per-type setting is honoured
+        \App\Models\RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['signatures_required_routine' => true]);
+        $this->assertNotContains($routineNoSignatures->id, $this->ids($this->portalGet('/api/v1/client/rentals/documents')->json()));
+
+        // and the file route refuses it too, not just the list
+        $this->portalGet('/api/v1/client/rentals/documents/' . $unsigned->id . '/file')->assertNotFound();
+    }
 
     public function test_an_owner_sees_the_signed_leases_and_distributed_reports_of_their_own_properties(): void
     {

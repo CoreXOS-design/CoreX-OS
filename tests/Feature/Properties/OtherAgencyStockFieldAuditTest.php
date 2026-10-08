@@ -133,6 +133,18 @@ class OtherAgencyStockFieldAuditTest extends TestCase
         $this->assertSame(['Electric entrance gate', 'Electric fence around the complex walls'], $spaces['features']['security']);
     }
 
+    public function test_build_spaces_json_makes_the_kitchen_from_a_bare_count_or_from_features(): void
+    {
+        $byType = fn (array $signals) => collect(OtherAgencyStockFieldMapper::buildSpacesJson($signals)['spaces'])->keyBy('type');
+
+        $this->assertSame(1, $byType(['kitchen_count' => 1])['Kitchen']['count'], 'P24 "Kitchens: 1", no features listed');
+        $this->assertSame([], $byType(['kitchen_count' => 1])['Kitchen']['featuresAll']);
+        $this->assertSame(2, $byType(['kitchen_count' => 2, 'kitchen_features' => ['BIC']])['Kitchen']['count']);
+        $this->assertSame(1, $byType(['kitchen_features' => ['BIC']])['Kitchen']['count'], 'features alone = one kitchen, as before');
+        $this->assertFalse($byType(['kitchen_count' => 0])->has('Kitchen'));
+        $this->assertFalse($byType(['kitchen_count' => null])->has('Kitchen'));
+    }
+
     public function test_build_spaces_json_every_signal_absent_returns_empty_shape_not_an_error(): void
     {
         $spaces = OtherAgencyStockFieldMapper::buildSpacesJson([]);

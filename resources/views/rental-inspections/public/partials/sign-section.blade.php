@@ -37,7 +37,7 @@
                 <p class="mt-1">You told us you do not agree or cannot sign, on {{ $signing['outcome_at']?->format('d M Y \a\t H:i') }}. The agent has it on record.</p>
             @endif
         </div>
-        <a href="{{ $signing['pdf_url'] }}" class="mt-3 inline-block text-sm font-semibold px-4 py-2 rounded-md bg-slate-800 text-white" data-qa="download-report">Download the report (PDF)</a>
+        @include('rental-inspections.public.partials.download-link', ['signing' => $signing])
     @elseif(($signing['reason'] ?? null) === 'agent_link')
         <p class="text-sm text-slate-600">{{ $signing['message'] }}</p>
         @if(! empty($signing['agent_open_url']))
@@ -45,7 +45,7 @@
         @endif
     @elseif(! $signing['can_sign'])
         <p class="text-sm text-slate-600" data-qa="sign-unavailable">{{ $signing['message'] }}</p>
-        <a href="{{ $signing['pdf_url'] }}" class="mt-3 inline-block text-sm font-semibold px-4 py-2 rounded-md bg-slate-100 text-slate-700 border border-slate-200" data-qa="download-report">Download the report (PDF)</a>
+        @include('rental-inspections.public.partials.download-link', ['signing' => $signing, 'cls' => 'bg-slate-100 text-slate-700 border border-slate-200'])
     @else
         <div x-data="inspectionLinkSigner({
                 submitUrl: @js($signing['submit_url']),
@@ -116,8 +116,8 @@
 
             <div x-show="done" x-cloak class="rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-900 p-4 text-sm" data-qa="sign-confirmation">
                 <p class="font-semibold" x-text="doneOutcome === 'signed' ? 'Thank you — your signature is recorded.' : 'Your response is recorded.'"></p>
-                <p class="mt-1">The agent has it on record. You can keep a copy of the report below.</p>
-                <a href="{{ $signing['pdf_url'] }}" class="mt-3 inline-block text-sm font-semibold px-4 py-2 rounded-md bg-slate-800 text-white" data-qa="download-report">Download the report (PDF)</a>
+                <p class="mt-1">The agent has it on record.</p>
+                @include('rental-inspections.public.partials.download-link', ['signing' => $signing])
                 @if($isDevice && ! empty($signing['back_url']))
                     <a href="{{ $signing['back_url'] }}" class="mt-3 ml-2 inline-block text-sm font-semibold underline">Back to CoreX</a>
                 @endif

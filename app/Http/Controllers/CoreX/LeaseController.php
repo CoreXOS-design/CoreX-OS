@@ -15,6 +15,7 @@ use App\Models\Property;
 use App\Models\PropertySettingItem;
 use App\Models\RentalApplication;
 use App\Services\Rentals\LeaseActivationService;
+use App\Services\Rentals\LeaseAgentService;
 use App\Services\Rentals\LeaseArchiveService;
 use App\Services\Rentals\LeaseAgreementTemplateGuard;
 use App\Services\Rentals\LeaseAgreementValuesReader;
@@ -165,7 +166,7 @@ class LeaseController extends Controller
 
         $query = Lease::query()
             ->visibleTo($user, $request->get('scope'))
-            ->with(['property.contacts', 'tenants.contact']);
+            ->with(['property.contacts', 'tenants.contact', 'ownerAgent', 'tenantAgent']);
 
         if ($onlyArchived) {
             $query->onlyTrashed();
@@ -278,6 +279,8 @@ class LeaseController extends Controller
             'ref' => $p->property_number,
             // leases.md §15.12.5 #22 — the letting commission % the capture screen starts from.
             'commission_percent' => $p->commission_percent,
+            // leases.md §17 — the owner's agent on the capture screen starts as the property's agent.
+            'agent_id' => $p->agent_id,
         ])));
     }
 
@@ -376,11 +379,13 @@ class LeaseController extends Controller
             ->orderBy('leases.end_date')
             ->get();
 
-        $headers = ['Property', 'Tenant(s)', 'Landlord', 'Status', 'Start', 'End', 'Rent', 'Agreement status', 'Signed on'];
+        $headers = ['Property', 'Tenant(s)', 'Landlord', "Owner's agent", "Tenant's agent", 'Status', 'Start', 'End', 'Rent', 'Agreement status', 'Signed on'];
         $rows = $leases->map(fn (Lease $lease) => [
             $lease->property?->buildDisplayAddress() ?? 'Unknown property',
             $lease->tenantNames(),
             $lease->landlordNames(),
+            $lease->ownerAgent?->name ?? '',
+            $lease->tenantAgent?->name ?? '',
             ucfirst($lease->status),
             $lease->start_date?->format('Y-m-d') ?? '',
             $lease->end_date?->format('Y-m-d') ?? ($lease->is_month_to_month ? 'Month-to-month' : ''),
@@ -616,7 +621,71 @@ class LeaseController extends Controller
             'timelineTypes' => LeaseTimelineService::TYPES,
             'timelineFilters' => $filters,
             'jobCards' => $jobCards,
+            // leases.md §17 — the lease's two agents (shown on the Agents card) and, for someone who may edit the lease,
+            // the people they can be changed to.
+            'leaseAgents' => $this->leaseAgentRows($lease),
+            'agentOptions' => $user->hasPermission('leases.create')
+                ? app(LeaseAgentService::class)->selectableAgents((int) $lease->agency_id, $lease->branch_id)->all()
+                : [],
         ]);
+    }
+
+    /**
+     * The Agents card's two rows. A lease whose columns were never filled (created before leases carried agents and not
+     * yet back-filled) shows who the default rules give — flagged `derived` so the screen can say it is the default, not
+     * a recorded choice.
+     *
+     * @return list<array{side:string,label:string,id:?int,name:?string,derived:bool}>
+     */
+    private function leaseAgentRows(Lease $lease): array
+    {
+        $service = app(LeaseAgentService::class);
+        $effective = $service->effectiveIds($lease);
+        $names = \App\Models\User::withoutGlobalScopes()->withTrashed()
+            ->whereIn('id', array_filter($effective))
+            ->pluck('name', 'id');
+
+        $rows = [];
+        foreach (LeaseAgentService::SIDES as $side) {
+            $id = $effective[$side];
+            $rows[] = [
+                'side' => $side,
+                'label' => LeaseAgentService::sideLabel($side),
+                'id' => $id,
+                'name' => $id ? trim((string) ($names[$id] ?? '')) ?: 'User #' . $id : null,
+                'derived' => $lease->{LeaseAgentService::column($side)} === null,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * leases.md §17 — change the owner's agent and/or the tenant's agent. Same permission as editing the lease
+     * (leases.create) and the same own/branch/agency guard as every other lease action; only an active user of the
+     * lease's own agency can be chosen; each change is written to the lease history (who, from, to, when).
+     */
+    public function updateAgents(Request $request, Lease $lease): RedirectResponse
+    {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
+        $validated = $request->validate([
+            'owner_agent_user_id' => ['required', 'integer'],
+            'tenant_agent_user_id' => ['required', 'integer'],
+        ], [
+            'owner_agent_user_id.required' => "Choose the owner's agent from the list.",
+            'owner_agent_user_id.integer' => "Choose the owner's agent from the list.",
+            'tenant_agent_user_id.required' => "Choose the tenant's agent from the list.",
+            'tenant_agent_user_id.integer' => "Choose the tenant's agent from the list.",
+        ]);
+
+        $changed = app(LeaseAgentService::class)->assign($lease, [
+            LeaseAgentService::SIDE_OWNER => $validated['owner_agent_user_id'],
+            LeaseAgentService::SIDE_TENANT => $validated['tenant_agent_user_id'],
+        ], $request->user());
+
+        return redirect()->route('corex.leases.show', $lease)
+            ->with('success', $changed === [] ? 'The agents were already set that way.' : 'Agents updated.');
     }
 
     /**

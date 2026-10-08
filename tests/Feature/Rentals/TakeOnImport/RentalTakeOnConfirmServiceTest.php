@@ -47,6 +47,9 @@ final class RentalTakeOnConfirmServiceTest extends TestCase
         self::assertSame('rental_take_on_import_rows', $lease->migrated_from_table);
         self::assertSame($row->id, $lease->migrated_from_id);
         self::assertSame(9500.0, (float) $lease->rental_amount);
+        // leases.md §17 — an imported lease gets both agents too: the property's agent, and the row's agent.
+        self::assertSame((int) Property::withoutGlobalScopes()->find($row->target_property_id)->agent_id, (int) $lease->owner_agent_user_id);
+        self::assertNotNull($lease->tenant_agent_user_id);
 
         $property = Property::withoutGlobalScopes()->find($row->target_property_id);
         self::assertNotNull($property);

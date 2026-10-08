@@ -106,7 +106,7 @@ class RentalPortalOverviewService
             'lease_id' => $lease?->id,
             'tenant_names' => $audience === self::AUDIENCE_LANDLORD && $lease && $lease->status === Lease::STATUS_ACTIVE ? $lease->tenantNames() : null,
             'tenancy' => $lease ? $this->tenancy($lease, $audience) : null,
-            'contact' => $this->agentContact($lease, $property, $agencyId),
+            'contact' => $this->agentContact($lease, $property, $agencyId, $audience),
             'inspections' => $this->inspectionLists($inspections),
         ];
     }
@@ -114,17 +114,21 @@ class RentalPortalOverviewService
     // ── 1. Who to call ───────────────────────────────────────────────────────────────────────
 
     /**
-     * The managing agent: the agent on the lease, else the property's agent, else the branch alone. The lease carries no
-     * agent field of its own, so "the agent on the lease" is the agent who approved its signed agreement, else the one who
-     * captured it. Anyone who is no longer an active user of this agency is skipped. The office block (agency + branch) is
-     * always returned, so there is somebody to call even when no agent qualifies.
+     * Who to call: the lease's OWN agent for this side — the tenant portal shows the TENANT'S agent, the owner portal the
+     * OWNER'S agent (leases.md §17, Johan 8 Oct 2026) — else the property's agent, else the branch alone. A lease whose
+     * agents were never filled in gets the same default rules' answer (LeaseAgentService::effectiveIds), so an old lease
+     * and a new one read the same way. Anyone who is no longer an active user of this agency is skipped. The office block
+     * (agency + branch) is always returned, so there is somebody to call even when no agent qualifies.
      *
      * @return array{agent:?array<string,mixed>,office:array<string,mixed>}
      */
-    public function agentContact(?Lease $lease, Property $property, int $agencyId): array
+    public function agentContact(?Lease $lease, Property $property, int $agencyId, string $audience = self::AUDIENCE_TENANT): array
     {
+        $side = $audience === self::AUDIENCE_LANDLORD ? LeaseAgentService::SIDE_OWNER : LeaseAgentService::SIDE_TENANT;
+        $leaseAgentId = $lease ? app(LeaseAgentService::class)->effectiveIds($lease)[$side] : null;
+
         $agent = null;
-        foreach ([$lease?->accepted_by_user_id, $lease?->created_by_user_id, $property->agent_id] as $userId) {
+        foreach ([$leaseAgentId, $property->agent_id] as $userId) {
             if (! $userId) {
                 continue;
             }

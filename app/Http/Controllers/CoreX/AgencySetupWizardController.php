@@ -726,6 +726,11 @@ class AgencySetupWizardController extends Controller
                     'public_link_expiry_days' => \App\Models\RentalInspectionSetting::publicLinkExpiryDaysFor($agency->id),
                     'signing_link_enabled' => \App\Models\RentalInspectionSetting::signingLinkEnabledFor($agency->id),
                     'signing_link_expiry_days' => \App\Models\RentalInspectionSetting::signingLinkExpiryDaysFor($agency->id),
+                    // §49 — signatures required to complete an inspection, per type.
+                    'signatures_required_in' => \App\Models\RentalInspectionSetting::signaturesRequiredFor($agency->id, 'in'),
+                    'signatures_required_out' => \App\Models\RentalInspectionSetting::signaturesRequiredFor($agency->id, 'out'),
+                    'signatures_required_interim' => \App\Models\RentalInspectionSetting::signaturesRequiredFor($agency->id, 'interim'),
+                    'signatures_required_routine' => \App\Models\RentalInspectionSetting::signaturesRequiredFor($agency->id, 'ad_hoc'),
                     'auto_pair_photos_enabled' => \App\Models\RentalInspectionSetting::autoPairPhotosEnabledFor($agency->id),
                     'auto_send_report_enabled' => \App\Models\RentalInspectionSetting::autoSendReportEnabledFor($agency->id),
                     // §45.6 (Build I-4) — who else is copied on the completed report.

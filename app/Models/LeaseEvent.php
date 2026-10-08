@@ -49,6 +49,11 @@ class LeaseEvent extends Model
     public const TYPE_RENT_ABOVE_APPROVED_CONFIRMED = 'rent_above_approved_confirmed';
     // LEASE-AGREEMENT END
 
+    /** leases.md §17 — the owner's agent or the tenant's agent changed (who, from, to, when). One row per side changed. */
+    public const TYPE_LEASE_AGENT_CHANGED = 'lease_agent_changed';
+    /** leases.md §17.6 — an existing lease's two agents filled in by `leases:backfill-agents` (reversible; the rule used is in metadata). */
+    public const TYPE_LEASE_AGENTS_BACKFILLED = 'lease_agents_backfilled';
+
     protected $fillable = [
         'lease_id',
         'event_type',

@@ -36,6 +36,9 @@ class RentalInspectionSettingsController extends Controller
             'signingLinkEnabled' => RentalInspectionSetting::signingLinkEnabledFor($agencyId),
             'signingLinkExpiryDays' => RentalInspectionSetting::signingLinkExpiryDaysFor($agencyId),
             'defaultSigningLinkExpiryDays' => RentalInspectionSetting::DEFAULT_SIGNING_LINK_EXPIRY_DAYS,
+            // §49 — are the three signatures required to complete an inspection of each type? (keyed by stored type)
+            'signaturesRequired' => collect(array_keys(RentalInspectionSetting::SIGNATURE_REQUIREMENT_COLUMNS))
+                ->mapWithKeys(fn ($type) => [$type => RentalInspectionSetting::signaturesRequiredFor($agencyId, $type)])->all(),
             // §15.6 — editable here, NOT in the Setup Wizard: the wizard's
             // generic control types (number/select/text/textarea/toggle)
             // have no repeater/list type, and building one is out of scope
@@ -145,6 +148,11 @@ class RentalInspectionSettingsController extends Controller
             // §46 — signing by personal link; both has()-guarded below so a wizard step that renders only one is safe.
             'signing_link_enabled' => ['nullable', 'boolean'],
             'signing_link_expiry_days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            // §49 — signatures required to complete, per type; each has()-guarded below (a wizard step renders only some).
+            'signatures_required_in' => ['nullable', 'boolean'],
+            'signatures_required_out' => ['nullable', 'boolean'],
+            'signatures_required_interim' => ['nullable', 'boolean'],
+            'signatures_required_routine' => ['nullable', 'boolean'],
             'omr_mark_threshold' => ['nullable', 'numeric', 'min:0.05', 'max:0.95'],
         ]);
 
@@ -167,6 +175,12 @@ class RentalInspectionSettingsController extends Controller
         // §46 — same hidden-0-then-checkbox control and the same has() guard; the expiry saves only when filled.
         if ($request->has('signing_link_enabled')) {
             $attributes['signing_link_enabled'] = $request->boolean('signing_link_enabled');
+        }
+        // §49 — same hidden-0-then-checkbox control and the same has() guard, one per inspection type.
+        foreach (RentalInspectionSetting::SIGNATURE_REQUIREMENT_COLUMNS as $column) {
+            if ($request->has($column)) {
+                $attributes[$column] = $request->boolean($column);
+            }
         }
         if ($request->filled('signing_link_expiry_days')) {
             $attributes['signing_link_expiry_days'] = (int) $validated['signing_link_expiry_days'];

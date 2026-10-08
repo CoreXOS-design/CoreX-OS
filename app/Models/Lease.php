@@ -96,6 +96,9 @@ class Lease extends Model
         'previous_lease_id',
         'renewed_lease_id',
         'created_by_user_id',
+        // leases.md §17 — the lease's own two agents (owner's side / tenant's side).
+        'owner_agent_user_id',
+        'tenant_agent_user_id',
         'cancelled_at',
         'cancelled_by_user_id',
         'cancel_reason',
@@ -430,6 +433,22 @@ class Lease extends Model
         return $this->belongsTo(User::class, 'created_by_user_id');
     }
 
+    /**
+     * leases.md §17 — the landlord-side agent. Global scopes off and trashed kept, so a screen shows the name of an
+     * agent in another branch (or one who has since left) instead of a blank; WHO may be chosen is
+     * LeaseAgentService's job, not this relation's.
+     */
+    public function ownerAgent(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'owner_agent_user_id')->withoutGlobalScopes()->withTrashed();
+    }
+
+    /** leases.md §17 — the tenant-side agent. Same reasoning as ownerAgent(). */
+    public function tenantAgent(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'tenant_agent_user_id')->withoutGlobalScopes()->withTrashed();
+    }
+
     public function cancelledByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'cancelled_by_user_id');
@@ -606,9 +625,28 @@ class Lease extends Model
             return $query->where('leases.branch_id', $user->effectiveBranchId());
         }
         if ($scope === 'own') {
-            return $query->whereIn('leases.created_by_user_id', $user->dataIdentityIds());
+            // leases.md §17.5 — "my" leases are the ones I created AND the ones I am the owner's or the tenant's agent on.
+            $ids = $user->dataIdentityIds();
+
+            return $query->where(fn ($own) => $own
+                ->whereIn('leases.created_by_user_id', $ids)
+                ->orWhereIn('leases.owner_agent_user_id', $ids)
+                ->orWhereIn('leases.tenant_agent_user_id', $ids));
         }
 
         return $query->whereRaw('1 = 0');
+    }
+
+    /**
+     * Whether $user is among this lease's own people (leases.md §17.5) — the per-record twin of the 'own' branch of
+     * scopeVisibleTo(), used by AuthorizesRentalRecordScope so a direct URL never grants less (or more) than the list.
+     */
+    public function isOwnedBy(User $user): bool
+    {
+        $ids = $user->dataIdentityIds();
+
+        return in_array((int) $this->created_by_user_id, $ids, true)
+            || ($this->owner_agent_user_id !== null && in_array((int) $this->owner_agent_user_id, $ids, true))
+            || ($this->tenant_agent_user_id !== null && in_array((int) $this->tenant_agent_user_id, $ids, true));
     }
 }

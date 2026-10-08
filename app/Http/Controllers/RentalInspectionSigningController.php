@@ -98,6 +98,12 @@ class RentalInspectionSigningController extends Controller
         $link = RentalInspectionSigningLink::findLiveByToken($token);
         abort_if(! $link, 404);
 
+        // §49 — Johan, 8 Oct 2026: a tenant / landlord PDF is available ONLY once every party has signed (and stays
+        // available after). Before that the report is for reading on screen — the server refuses, not just the button.
+        if (! $link->inspection->partyCopyAvailable()) {
+            return $this->report->privateHeaders(response()->view('rental-inspections.public.download-not-ready', [], 403));
+        }
+
         $service = app(RentalInspectionReportPdfService::class);
         try {
             $bytes = $service->generate($link->inspection)->output();
@@ -142,6 +148,8 @@ class RentalInspectionSigningController extends Controller
             'reason' => $check['reason'],
             'submit_url' => $submitUrl ?? route('rental-inspections.sign.submit', $link->token),
             'pdf_url' => route('rental-inspections.sign.pdf', $link->token),
+            // §49 — the PDF is offered only once every party has signed.
+            'pdf_available' => $inspection->partyCopyAvailable(),
             'presets' => collect(RentalInspectionSetting::refusalReasonPresetsFor($inspection->agency_id))->values()->all(),
             'outcome' => $link->outcome,
             'outcome_at' => $link->outcome_at,

@@ -137,7 +137,7 @@ class RentalInspectionController extends Controller
         // actually start working, not on a dead end they'd have to navigate
         // away from immediately.
         return redirect()->route('corex.properties.show', ['property' => $inspection->property_id, 'tab' => 'inspections'])
-            ->with('success', ucfirst($validated['type']) . '-inspection started.');
+            ->with('success', RentalInspection::typeName($validated['type']) . ' started.');
     }
 
     /**
@@ -588,6 +588,10 @@ class RentalInspectionController extends Controller
             'notifications.recipientContact', 'notifications.recipientUser',
         ]);
 
+        // §49 — a sent (or signed) report keeps the checklist wording it was sent with. In memory only; nothing written back.
+        $rentalInspection->applyWordingSnapshot($rentalInspection->observations->map->item->filter());
+        $rentalInspection->applyWordingSnapshot($rentalInspection->discrepancies->map->item->filter());
+
         // §15 (AT-447) — the Follow-up block: every marked-faulty/damaged
         // observation on this inspection, plus which of them already have a
         // fault report / work order (and its job card) raised against them,
@@ -628,6 +632,8 @@ class RentalInspectionController extends Controller
                 ->orderByDesc('id')
                 ->limit(200)
                 ->get(),
+            // §49 — what was added after the report was sent (a tenant fault report, a move-out finding), marked as such.
+            'addedAfterSent' => app(\App\Services\Rentals\RentalInspectionAddedAfterSentService::class)->entriesFor($rentalInspection),
             'followUpObservations' => $followUpObservations,
             'followUpMarkers' => $followUpService->comparisonMarkersFor($rentalInspection, $followUpObservations),
             'followUpFaultReportsByObservation' => $followUpLinked['fault_reports'],
@@ -702,8 +708,9 @@ class RentalInspectionController extends Controller
             ->listedOnReportOf($rentalInspection->id)
             ->with('room')
             ->get();
+        $rentalInspection->applyWordingSnapshot($items);
 
-        $currentByItem = $rentalInspection->observations->groupBy('rental_inspection_item_id')
+        $currentByItem = $rentalInspection->bodyObservations()->groupBy('rental_inspection_item_id')
             ->map(fn ($group) => $group->sortByDesc('created_at')->first());
         $predecessorByItem = $rentalInspection->previousInspection->observations->groupBy('rental_inspection_item_id')
             ->map(fn ($group) => $group->sortByDesc('created_at')->first());
@@ -820,7 +827,7 @@ class RentalInspectionController extends Controller
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $validated = $request->validate([
-            'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_OUT, RentalInspection::TYPE_INTERIM, RentalInspection::TYPE_AD_HOC])],
+            'type' => ['required', 'in:' . implode(',', array_keys(RentalInspection::TYPE_PICKER))], // §49 — all four (In is refused once the tenancy has one)
         ]);
 
         try {
@@ -830,7 +837,7 @@ class RentalInspectionController extends Controller
         }
 
         return redirect()->route('corex.rental-inspections.show', $next)
-            ->with('success', ucfirst($validated['type']) . '-inspection started, compared against this one.');
+            ->with('success', RentalInspection::typeName($validated['type']) . ' started, compared against this one.');
     }
 
     /**

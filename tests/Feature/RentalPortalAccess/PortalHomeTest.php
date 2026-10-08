@@ -217,6 +217,52 @@ final class PortalHomeTest extends TestCase
         $this->assertSame('021 111 1111', $home['contact']['office']['phone']);
     }
 
+    public function test_each_side_sees_its_own_agent_the_tenant_the_tenants_agent_and_the_owner_the_owners_agent(): void
+    {
+        // leases.md §17 — Johan, 8 Oct 2026: the property's listing agent is the owner's agent; a different agent looks
+        // after the tenant; the lease says so, and each portal link shows its own side.
+        $maggie = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent', 'name' => 'Maggie Tenantside', 'cell' => '083 555 6666', 'is_active' => true]);
+        $this->l1->forceFill(['owner_agent_user_id' => $this->propAgent->id, 'tenant_agent_user_id' => $maggie->id])->saveQuietly();
+
+        $this->assertSame('Maggie Tenantside', $this->tenantHome($this->tenant)['homes'][0]['contact']['agent']['name']);
+        $this->assertSame('0835556666', $this->tenantHome($this->tenant)['homes'][0]['contact']['agent']['phone']);
+
+        $this->asPortal($this->owner1);
+        $homes = collect($this->portalGet('/api/v1/client/rentals/landlord/overview')->assertOk()->json('homes'))->keyBy('property.id');
+        $this->assertSame('Pieter Prop', $homes[$this->p1->id]['contact']['agent']['name'], 'the owner is never told the tenant\'s agent');
+        $this->assertStringNotContainsString('Maggie', json_encode($homes[$this->p1->id]));
+
+        // The approver / creator fallback is gone: the lease's creator (Anele) is no longer anybody's contact.
+        $this->assertStringNotContainsString('Anele', json_encode($this->tenantHome($this->tenant)));
+    }
+
+    public function test_a_side_whose_agent_has_left_falls_to_the_propertys_agent_then_the_branch(): void
+    {
+        $maggie = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent', 'name' => 'Maggie Tenantside', 'is_active' => true]);
+        $this->l1->forceFill(['owner_agent_user_id' => $this->agent->id, 'tenant_agent_user_id' => $maggie->id])->saveQuietly();
+        $maggie->forceFill(['is_active' => false])->saveQuietly();
+        $this->agent->delete();
+
+        $this->assertSame('Pieter Prop', $this->tenantHome($this->tenant)['homes'][0]['contact']['agent']['name'], 'tenant\'s agent left → the property\'s agent');
+
+        $this->asPortal($this->owner1);
+        $homes = collect($this->portalGet('/api/v1/client/rentals/landlord/overview')->assertOk()->json('homes'))->keyBy('property.id');
+        $this->assertSame('Pieter Prop', $homes[$this->p1->id]['contact']['agent']['name'], 'owner\'s agent removed → the property\'s agent');
+
+        $this->propAgent->forceFill(['is_active' => false])->saveQuietly();
+        $this->assertNull($this->tenantHome($this->tenant)['homes'][0]['contact']['agent']);
+    }
+
+    public function test_a_stored_agent_of_another_agency_is_never_shown_to_either_side(): void
+    {
+        $stranger = User::factory()->create(['agency_id' => $this->other->id, 'role' => 'agent', 'name' => 'Stranger Danger', 'cell' => '083 999 9999', 'is_active' => true]);
+        $this->l1->forceFill(['owner_agent_user_id' => $stranger->id, 'tenant_agent_user_id' => $stranger->id])->saveQuietly();
+
+        $home = $this->tenantHome($this->tenant)['homes'][0];
+        $this->assertSame('Pieter Prop', $home['contact']['agent']['name'], 'skipped → the property\'s agent');
+        $this->assertStringNotContainsString('Stranger', json_encode($home));
+    }
+
     public function test_a_branch_without_its_own_details_falls_back_to_the_agency(): void
     {
         $this->branch->forceFill(['phone' => null, 'email' => null, 'address' => null])->saveQuietly();
@@ -423,7 +469,9 @@ final class PortalHomeTest extends TestCase
         $this->assertSame([$this->p1->id, $this->p3->id], $homes->keys()->sort()->values()->all());
 
         $h1 = $homes[$this->p1->id];
-        $this->assertSame('Anele Agent', $h1['contact']['agent']['name']);
+        // leases.md §17 — the OWNER's portal shows the owner's agent (the property's agent by default); the tenant's
+        // portal shows the tenant's agent (Anele, who captured the lease). See LeaseAgentsTest for every combination.
+        $this->assertSame('Pieter Prop', $h1['contact']['agent']['name']);
         $this->assertSame('running', $h1['tenancy']['state']);
         $this->assertSame('Ayanda Test', $h1['tenant_names']);
         $this->assertSame([$booked->id], array_column($h1['inspections']['upcoming'], 'id'));

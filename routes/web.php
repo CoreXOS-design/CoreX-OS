@@ -3563,6 +3563,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{lease}/tenancy-report', [\App\Http\Controllers\CoreX\LeaseController::class, 'tenancyReportPdf'])->name('corex.leases.tenancy-report');
         Route::put('/{lease}', [\App\Http\Controllers\CoreX\LeaseController::class, 'update'])
             ->middleware('permission:leases.create')->name('corex.leases.update');
+        // leases.md §17 — change the lease's owner's agent / tenant's agent (same permission as editing the lease; logged).
+        Route::put('/{lease}/agents', [\App\Http\Controllers\CoreX\LeaseController::class, 'updateAgents'])
+            ->middleware('permission:leases.create')->name('corex.leases.agents.update');
         Route::post('/{lease}/activate', [\App\Http\Controllers\CoreX\LeaseController::class, 'activate'])
             ->middleware('permission:leases.create')->name('corex.leases.activate');
         // LEASE-CAPTURE BEGIN (leases.md §15.13 — Build L3a): "Prepare again" after a declined / voided / expired agreement.

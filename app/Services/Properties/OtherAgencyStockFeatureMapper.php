@@ -17,6 +17,8 @@ namespace App\Services\Properties;
  *                Connectivity, Sustainability) — `spaces_json.features.*`;
  *  - `spaces`  : extra rooms P24 counts that CoreX also has as a space type (Reception Rooms,
  *                Office, Study …);
+ *  - `kitchens`: P24's "Kitchens | N" count (null when the page gives no count) — buildSpacesJson() turns it into the
+ *                Kitchen space, so a bare "Kitchens: 1" is not lost when P24 lists no kitchen features;
  *  - `attributes`: single facts that live in a property column, not a tick (number_of_floors, floor_number,
  *                occupation_date, lease_period) — applied by OtherAgencyStockImportService;
  *  - `unmapped`: rows P24 shows that have NO CoreX equivalent, as "Section / Label = value", so
@@ -24,7 +26,8 @@ namespace App\Services\Properties;
  *
  * Only labels that exist in CoreX's own picker are ever emitted — {@see catalog()} — so nothing
  * here can create a feature the property page does not offer. Beds, baths, garages, parking,
- * kitchen, garden and pool are NOT handled here (OtherAgencyStockFieldMapper::buildSpacesJson).
+ * kitchen, garden and pool are NOT handled here (OtherAgencyStockFieldMapper::buildSpacesJson) — except that the
+ * "Kitchens | 2" COUNT is read here (`kitchens`) because only the raw rows carry it.
  */
 final class OtherAgencyStockFeatureMapper
 {
@@ -106,9 +109,19 @@ final class OtherAgencyStockFeatureMapper
     private const HANDLED_ELSEWHERE = [
         'listing number', 'type of property', 'street address', 'listing date', 'floor size', 'erf size',
         'levies', 'rates and taxes', 'zoning', 'price per m²',
-        'bedrooms', 'bedroom', 'bathrooms', 'bathroom', 'kitchens', 'kitchen',
+        'bedrooms', 'bedroom', 'bathrooms', 'bathroom',
         'garage', 'garages', 'parking', 'covered parking', 'carport', 'carports',
         'pool', 'garden', 'gardens',
+    ];
+
+    /**
+     * P24 room labels that name a CoreX space type under different words (singular, lower-case, spacing around "/"
+     * normalised). "Family/TV Room" is P24's wording for what CoreX calls a TV Room.
+     */
+    private const ROOM_ALIASES = [
+        'family room'    => 'TV Room',
+        'family/tv room' => 'TV Room',
+        'tv/family room' => 'TV Room',
     ];
 
     /** Spaces buildSpacesJson() already owns — never added again from a row or tag. */
@@ -135,12 +148,13 @@ final class OtherAgencyStockFeatureMapper
     /**
      * @param  array<int, array{s?: mixed, k?: mixed, v?: mixed}>  $rows      every accordion row: section, label, values
      * @param  string[]                                            $stripTags  the tags beside the icon strip ("Furnished", "Pet Friendly" …)
-     * @return array{global: array<string, string[]>, spaces: array<int, array{type: string, count: int}>, attributes: array<string, int|string>, unmapped: string[]}
+     * @return array{global: array<string, string[]>, spaces: array<int, array{type: string, count: int}>, kitchens: ?int, attributes: array<string, int|string>, unmapped: string[]}
      */
     public static function map(array $rows, array $stripTags = []): array
     {
         $global = array_fill_keys(self::CATEGORIES, []);
         $spaces = [];
+        $kitchens = null;
         $attributes = [];
         $unmapped = [];
 
@@ -174,6 +188,16 @@ final class OtherAgencyStockFeatureMapper
             }
             $first = strtolower($values[0]);
             $where = ($section !== '' ? "{$section} / " : '') . $label;
+
+            // "Kitchens | 1 | Open plan …": the count is the first value; a "Kitchen | Gas Oven, Gas Hob" list has
+            // no count (its items reach buildSpacesJson() as kitchen_features, which also makes the Kitchen space).
+            if ($key === 'kitchens' || $key === 'kitchen') {
+                if (ctype_digit($values[0]) && (int) $values[0] > 0) {
+                    $kitchens = (int) $values[0];
+                }
+
+                continue;
+            }
 
             if (in_array($key, self::HANDLED_ELSEWHERE, true)) {
                 continue;
@@ -266,6 +290,7 @@ final class OtherAgencyStockFeatureMapper
         return [
             'global'     => $global,
             'spaces'     => array_values($spaces),
+            'kitchens'   => $kitchens,
             'attributes' => $attributes,
             'unmapped'   => array_values(array_unique($unmapped)),
         ];
@@ -363,7 +388,15 @@ final class OtherAgencyStockFeatureMapper
     private static function isRoomKey(string $key, ?string &$type = null): bool
     {
         $type = null;
+        $key = preg_replace('/\s*\/\s*/', '/', $key);
         $candidates = [$key, rtrim($key, 's'), preg_replace('/ies$/', 'y', $key), preg_replace('/es$/', '', $key)];
+        foreach ($candidates as $c) {
+            if (isset(self::ROOM_ALIASES[$c])) {
+                $type = self::ROOM_ALIASES[$c];
+
+                return true;
+            }
+        }
         foreach ((array) config('property-spaces.all_space_types', []) as $space) {
             if (in_array($space, self::OWNED_SPACES, true)) {
                 continue;

@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\ValidatesDocumentUploads;
 use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalApplication;
+use App\Services\Rentals\LeaseAgentService;
 use App\Services\Rentals\LeaseCaptureService;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -105,6 +106,17 @@ class LeaseCaptureRequest extends FormRequest
             'agreement_id' => ['nullable', 'integer'],
             'signed_document' => $isPaper ? $this->documentUploadRule(20480) : ['nullable', 'file'],
         ];
+
+        // leases.md §17 — the owner's and the tenant's agent: optional here (a blank side gets the default), but a value
+        // must be an active user of the lease's own agency — the SAME rule the dropdown is built from.
+        $agentAgencyId = (int) ($previous?->agency_id ?? $user->effectiveAgencyId());
+        foreach (LeaseAgentService::SIDES as $side) {
+            $rules[LeaseAgentService::column($side)] = ['nullable', 'integer', function (string $attribute, mixed $value, \Closure $fail) use ($agentAgencyId, $side) {
+                if ($value !== null && $value !== '' && ! app(LeaseAgentService::class)->isSelectable((int) $value, $agentAgencyId)) {
+                    $fail('Choose ' . strtolower(LeaseAgentService::sideLabel($side)) . ' from the list.');
+                }
+            }];
+        }
 
         if ($this->filled('previous_lease_id') && ! $previous) {
             $rules['previous_lease_id'] = [function (string $attribute, mixed $value, \Closure $fail) {

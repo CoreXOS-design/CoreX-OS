@@ -5376,10 +5376,16 @@
                                 <span x-show="nextError" x-cloak class="text-xs" style="color:#ef4444;" x-text="nextError"></span>
                                 <span class="text-xs font-semibold" style="color:var(--text-secondary);"
                                       title="Compares against this inspection's own recorded condition, room by room.">Next inspection:</span>
-                                <select x-model="nextType" class="prop-input text-xs" style="max-width:11rem;">
-                                    <option value="ad_hoc">Routine — unplanned check</option>
-                                    <option value="interim">Interim — planned</option>
-                                    <option value="out">Out</option>
+                                {{-- §49 — Johan, 8 Oct 2026: all four types, with the meaning beside each; an In is greyed out
+                                     (and says why) once the tenancy already has one. --}}
+                                <select x-model="nextType" class="prop-input text-xs" style="max-width:15rem;" data-qa="next-type">
+                                    @foreach(\App\Models\RentalInspection::typePickerOptions() as $opt)
+                                        @if($opt['value'] === 'in')
+                                            <option value="in" :disabled="!!(chainTail && chainTail.lease_in_inspection_id)" x-text="'{{ $opt['text'] }}' + ((chainTail && chainTail.lease_in_inspection_id) ? ' — already recorded for this tenancy' : '')">{{ $opt['text'] }}</option>
+                                        @else
+                                            <option value="{{ $opt['value'] }}">{{ $opt['text'] }}</option>
+                                        @endif
+                                    @endforeach
                                 </select>
                                 <button type="button" data-qa="next-inspection" :disabled="nextBusy" @click="nextInspection(nextType)"
                                         class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);"
@@ -5463,10 +5469,18 @@
                              predecessor (RentalInspection::startNext()). --}}
                         <template x-if="!chainTail">
                             <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
-                                <div x-show="startError['in']" x-cloak class="text-xs mb-2" style="color:#ef4444;" x-text="startError['in']"></div>
-                                <button type="button" :disabled="isStartBusy('in')" @click="startInspection('in')"
-                                        class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
-                                        x-text="isStartBusy('in') ? 'Starting…' : 'Start In-Inspection'"></button>
+                                {{-- §49 — Johan, 8 Oct 2026: the first inspection of a property can be any of the four types, not only an In. --}}
+                                <div x-show="startError[startType]" x-cloak class="text-xs mb-2" style="color:#ef4444;" x-text="startError[startType]"></div>
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <select x-model="startType" class="prop-input text-xs" style="max-width:20rem;" data-qa="start-type">
+                                        @foreach(\App\Models\RentalInspection::typePickerOptions() as $opt)
+                                            <option value="{{ $opt['value'] }}">{{ $opt['text'] }}</option>
+                                        @endforeach
+                                    </select>
+                                    <button type="button" :disabled="isStartBusy(startType)" @click="startInspection(startType)" data-qa="start-inspection"
+                                            class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
+                                            x-text="isStartBusy(startType) ? 'Starting…' : 'Start inspection'"></button>
+                                </div>
                             </div>
                         </template>
 
@@ -7619,6 +7633,7 @@
                 nextBusy: false,
                 nextError: '',
                 nextType: 'ad_hoc',
+                startType: 'in', // §49 — which type the first-inspection picker will start
                 // §41, 2026-09-28 — the "Resend report" confirm popover's
                 // own state, top-level (not local to the popover's markup)
                 // since sendReportResend() below is a method on THIS
