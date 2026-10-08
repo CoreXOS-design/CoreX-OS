@@ -2103,6 +2103,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::patch('/calendar/{calendarEvent}/reschedule', [CommandCenterCalendarController::class, 'reschedule'])->name('command-center.calendar.reschedule');
         Route::get('/calendar/{calendarEvent}/feedback', [CommandCenterCalendarController::class, 'showFeedback'])->name('command-center.calendar.feedback.show');
         Route::post('/calendar/{calendarEvent}/feedback', [CommandCenterCalendarController::class, 'storeFeedback'])->name('command-center.calendar.feedback.store');
+        // Viewing feedback archive / restore (R8) - soft delete only, permission + scope enforced in the controller.
+        Route::post('/calendar/{calendarEvent}/feedback/{feedbackId}/archive', [CommandCenterCalendarController::class, 'archiveFeedback'])->whereNumber('feedbackId')->name('command-center.calendar.feedback.archive');
+        Route::post('/calendar/{calendarEvent}/feedback/{feedbackId}/restore', [CommandCenterCalendarController::class, 'restoreFeedback'])->whereNumber('feedbackId')->name('command-center.calendar.feedback.restore');
         Route::get('/calendar/search/attendees', [CommandCenterCalendarController::class, 'searchAttendees'])->name('command-center.calendar.search.attendees');
         Route::get('/calendar/properties/{property}/owners', [CommandCenterCalendarController::class, 'propertyOwners'])->name('command-center.calendar.property-owners');
 

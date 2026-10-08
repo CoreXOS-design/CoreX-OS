@@ -9999,6 +9999,12 @@
                             <span class="font-semibold ml-1" style="color: var(--text-primary);">{{ $feedbackRollup['viewings_with_feedback'] }}</span>
                         </div>
                     </div>
+                    @if(($feedbackRollup['declined_on_arrival'] ?? 0) > 0)
+                        <div class="mt-3 text-xs">
+                            <span style="color: var(--text-muted);">Buyers who arrived but chose not to view (not counted as viewings):</span>
+                            <span class="font-semibold ml-1" style="color: var(--text-primary);">{{ $feedbackRollup['declined_on_arrival'] }}</span>
+                        </div>
+                    @endif
                     @if(!empty($feedbackRollup['top_concern_labels']))
                         <div class="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
                             <span style="color: var(--text-muted);">Concerns raised:</span>
@@ -10043,6 +10049,9 @@
                                     @if($rv['feedback']->isNotEmpty())
                                         @foreach($rv['feedback'] as $fb)
                                             <div class="mt-2 rounded px-2 py-1.5" style="background: var(--surface-2);">
+                                                @if(($fb['viewing_status'] ?? 'viewed') !== 'viewed')
+                                                    <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:rgba(239,68,68,.12); color:#b91c1c;">{{ $fb['status_label'] }}</span>
+                                                @endif
                                                 @if($fb['outcome_label'] ?? null)
                                                     <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:rgba(16,185,129,.15); color:#059669;">{{ $fb['outcome_label'] }}</span>
                                                 @endif
@@ -10050,11 +10059,17 @@
                                                     <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded" style="background:rgba(245,158,11,.15); color:#b45309;">{{ $concernLabel }}</span>
                                                 @endforeach
                                                 @if($fb['seller_notes'] ?? null)
-                                                    <p class="text-xs mt-1" style="color: var(--text-secondary);">{{ $fb['seller_notes'] }}</p>
+                                                    <p class="text-xs mt-1" style="color: var(--text-secondary);"><span class="font-medium">Seller comment:</span> {{ $fb['seller_notes'] }}</p>
                                                 @endif
                                                 @if($fb['internal_notes'] ?? null)
-                                                    <p class="text-[11px] mt-1" style="color: var(--text-muted);"><span class="font-medium">Internal:</span> {{ $fb['internal_notes'] }}</p>
+                                                    <p class="text-[11px] mt-1" style="color: var(--text-muted);"><span class="font-medium">Internal comment:</span> {{ $fb['internal_notes'] }}</p>
                                                 @endif
+                                                <p class="text-[10px] mt-1" style="color: var(--text-muted);">
+                                                    Captured by {{ $fb['captured_by'] ?? 'unknown' }}@if($fb['captured_at']) · {{ $fb['captured_at']->format('j M Y, H:i') }}@endif
+                                                    @if($fb['last_edited_at'])
+                                                        · last edited by {{ $fb['last_edited_by'] ?? 'unknown' }} · {{ $fb['last_edited_at']->format('j M Y, H:i') }}
+                                                    @endif
+                                                </p>
                                             </div>
                                         @endforeach
                                     @else

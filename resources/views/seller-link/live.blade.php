@@ -422,10 +422,18 @@
              data) first, then the actual seller-visible written notes.
              Absent entirely when there have been no viewings; "no feedback
              yet" stays honest when there have been viewings but no notes. --}}
-        @if(($feedbackRollup['total_viewings'] ?? 0) > 0)
+        @php($declinedOnArrival = (int) ($feedbackRollup['declined_on_arrival'] ?? 0))
+        @if(($feedbackRollup['total_viewings'] ?? 0) > 0 || $declinedOnArrival > 0)
         <section class="surface-card p-5">
             <h2 class="text-base font-bold mb-1" style="color: var(--text-primary);">What buyers said</h2>
-            <p class="text-xs mb-4" style="color: var(--text-muted);">{{ $feedbackRollup['total_viewings'] }} viewing{{ $feedbackRollup['total_viewings'] === 1 ? '' : 's' }} recorded so far.</p>
+            @if(($feedbackRollup['total_viewings'] ?? 0) > 0)
+                <p class="text-xs mb-1" style="color: var(--text-muted);">{{ $feedbackRollup['total_viewings'] }} viewing{{ $feedbackRollup['total_viewings'] === 1 ? '' : 's' }} recorded so far.</p>
+            @endif
+            @if($declinedOnArrival > 0)
+                {{-- R6: a buyer who arrived but chose not to view is feedback, shown on its own line - never added to the viewings-held count. --}}
+                <p class="text-xs mb-1" style="color: var(--text-muted);">{{ $declinedOnArrival }} {{ $declinedOnArrival === 1 ? 'buyer arrived but chose not to view' : 'buyers arrived but chose not to view' }}.</p>
+            @endif
+            <div class="mb-3"></div>
 
             @if($feedbackThemesLines->isNotEmpty())
                 <div class="flex flex-wrap gap-2 mb-4">
@@ -455,7 +463,7 @@
                         </div>
                     @endforeach
                 </div>
-            @elseif($feedbackThemesLines->isEmpty())
+            @elseif($feedbackThemesLines->isEmpty() && ($feedbackRollup['total_viewings'] ?? 0) > 0)
                 {{-- Only when NOTHING is shown above: with a themes line present this
                      sentence would contradict it ("1 of 1 mentioned X" + "no feedback"). --}}
                 <p class="text-sm" style="color: var(--text-secondary);">

@@ -708,6 +708,12 @@ return [
         // role (default OFF) — the tile is FLAGGED HIDDEN behind the DR2 hold and
         // lights up when an admin grants this after DR2 ships (no rebuild).
         ['key' => 'calendar.tile.my_deals',          'label' => 'Calendar Deck — My Deals Tile',  'section' => 'command-center',  'type' => 'action',  'module' => 'command_center_calendar', 'sort_order' => 18],
+        // Viewing feedback - who may CAPTURE / EDIT / ARCHIVE / RESTORE the feedback on a viewing appointment
+        // (Johan 2026-10-08, R3). `.view` is the SCOPED key (Role Manager None/Own/Branch/All):
+        //   Own = appointments the user created; Branch = appointments in their branch (branch managers);
+        //   All = the whole agency (admins). Everyone else who can SEE the appointment gets read-only.
+        // Enforced server-side by App\Services\Properties\ViewingFeedbackService::canEdit().
+        ['key' => 'viewing_feedback_edit.view',      'label' => 'Edit Viewing Feedback (own / branch / all appointments)', 'section' => 'command-center', 'type' => 'action', 'module' => 'viewing_feedback_edit', 'sort_order' => 19],
 
         // ── Contact Governance ──
         ['key' => 'contact_governance.manage',       'label' => 'Manage Contact Governance Settings', 'section' => 'contact-governance', 'type' => 'access', 'module' => 'contact_governance', 'sort_order' => 50],
@@ -928,6 +934,7 @@ return [
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile
                 'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view', 'manage_targets',
                 'view_rentals', 'manage_rentals', 'view_daily_activity', 'manage_tv_messages',
+                'viewing_feedback_edit.view', // viewing feedback edit - scope branch (scope_defaults)
                 'deals.view', 'deals.create', 'deals.edit',
                 'listings.view', 'listings.create', 'listings.edit',
                 'rentals.view', 'rentals.create', 'rentals.edit',
@@ -1094,6 +1101,7 @@ return [
                 'view_rentals', 'manage_rentals', 'view_daily_activity',
                 'deals.view', 'deals.create',
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile (agent's working surface)
+                'viewing_feedback_edit.view', // viewing feedback edit - scope own (appointments they created)
                 'listings.view',
                 'rentals.view', 'rentals.create', 'rentals.edit',
                 // AT-392 — see branch_manager's identical block above for the full

@@ -653,9 +653,10 @@ class ContactController extends Controller
                 ->whereIn('id', $buyerEventIds)->get()->keyBy('id');
             $props = \App\Models\Property::withoutGlobalScopes()
                 ->whereIn('id', $propLinks->pluck('linkable_id')->unique())->get()->keyBy('id');
-            $feedbackRows = \DB::table('calendar_event_feedback')
-                ->where('contact_id', $contact->id)
-                ->whereIn('calendar_event_id', $buyerEventIds)->get()->groupBy('calendar_event_id');
+            // ONE store, read through PropertyViewings (spec calendar-viewing-feedback.md): a row belongs to the
+            // property it was recorded against - never the appointment's "first" row (mismatch 11).
+            $feedbackRows = \App\Services\Properties\PropertyViewings::capturesByEvent($buyerEventIds);
+            $propCountByEvent = $propLinks->groupBy('calendar_event_id')->map->count();
             $agents = \App\Models\User::withoutGlobalScopes()
                 ->whereIn('id', $events->pluck('user_id')->unique()->filter())->pluck('name', 'id');
             // 2026-08-18 (Johan, AT-calendar-buttons §D) — unioned across BOTH
@@ -670,8 +671,10 @@ class ContactController extends Controller
                 $ev = $events->get($pl->calendar_event_id);
                 $pr = $props->get($pl->linkable_id);
                 if (!$ev || !$pr) continue;
-                $fb = ($feedbackRows->get($pl->calendar_event_id, collect()))->firstWhere('property_id', $pl->linkable_id)
-                    ?? ($feedbackRows->get($pl->calendar_event_id, collect()))->first();
+                $fb = \App\Services\Properties\PropertyViewings::pick(
+                    $feedbackRows->get($pl->calendar_event_id), (int) $pl->linkable_id,
+                    ($propCountByEvent->get($pl->calendar_event_id, 0) <= 1), (int) $contact->id
+                );
                 $buyerViewings->push([
                     'property_id' => $pr->id,
                     'address' => method_exists($pr, 'buildDisplayAddress') ? $pr->buildDisplayAddress() : ($pr->title ?? "Property #{$pr->id}"),
@@ -688,12 +691,12 @@ class ContactController extends Controller
                         // label string in kind_specific_data.outcome instead. Fall back to
                         // that so per-property feedback (now viewing's default too, §C)
                         // still renders a label instead of going blank.
-                        'outcome_label' => $fb->outcome_option_id
-                            ? $outcomeLabels->get($fb->outcome_option_id)
-                            : (json_decode($fb->kind_specific_data ?? 'null', true)['outcome'] ?? null),
-                        'seller_notes' => $fb->seller_visible_notes,
-                        'internal_notes' => $fb->internal_notes,
-                        'captured_at' => $fb->captured_at,
+                        'outcome_label' => $fb['status'] !== 'viewed'
+                            ? \App\Services\Properties\PropertyViewings::STATUS_LABELS[$fb['status']]
+                            : ($fb['outcome_option_id'] ? $outcomeLabels->get($fb['outcome_option_id']) : null),
+                        'seller_notes' => $fb['seller_comment'],
+                        'internal_notes' => $fb['internal_comment'],
+                        'captured_at' => $fb['captured_at'],
                     ] : null,
                 ]);
             }
@@ -737,12 +740,7 @@ class ContactController extends Controller
                     ->whereIn('id', $ownedPropertyIds)->get()->keyBy('id');
                 // Filter internal_only feedback: only BM/admin/super_admin can see
                 $viewerCanSeeInternal = in_array($request->user()->role ?? 'agent', ['super_admin', 'admin', 'owner', 'branch_manager']);
-                $sFeedbackQuery = \DB::table('calendar_event_feedback')
-                    ->whereIn('calendar_event_id', $sellerEventIds);
-                if (!$viewerCanSeeInternal) {
-                    $sFeedbackQuery->where('visibility', '!=', 'internal_only');
-                }
-                $sFeedback = $sFeedbackQuery->get()->groupBy('calendar_event_id');
+                $sFeedback = \App\Services\Properties\PropertyViewings::capturesByEvent($sellerEventIds);
                 $sAgents = \App\Models\User::withoutGlobalScopes()
                     ->whereIn('id', $sEvents->pluck('user_id')->unique()->filter())->pluck('name', 'id');
                 // 2026-08-18 (Johan, AT-calendar-buttons §D) — see the matching buyer-
@@ -759,7 +757,11 @@ class ContactController extends Controller
                     $sEv = $sEvents->get($sl->calendar_event_id);
                     $sPr = $sProps->get($sl->linkable_id);
                     if (!$sEv || !$sPr) continue;
-                    $sFb = ($sFeedback->get($sl->calendar_event_id, collect()))->first();
+                    // The feedback recorded for THIS property on the appointment - not the event's first row.
+                    $sFb = \App\Services\Properties\PropertyViewings::pick(
+                        $sFeedback->get($sl->calendar_event_id), (int) $sl->linkable_id,
+                        ($sPropLinks->where('calendar_event_id', $sl->calendar_event_id)->count() <= 1), null, !$viewerCanSeeInternal
+                    );
                     $sellerViewings->push([
                         'property_id' => $sPr->id,
                         'address' => method_exists($sPr, 'buildDisplayAddress') ? $sPr->buildDisplayAddress() : ($sPr->title ?? "Property #{$sPr->id}"),
@@ -772,11 +774,11 @@ class ContactController extends Controller
                             // See the buyer-perspective block above — per-property
                             // captures store the outcome as a label string in
                             // kind_specific_data.outcome, not outcome_option_id.
-                            'outcome_label' => $sFb->outcome_option_id
-                                ? $sOutcomes->get($sFb->outcome_option_id)
-                                : (json_decode($sFb->kind_specific_data ?? 'null', true)['outcome'] ?? null),
-                            'seller_notes' => $sFb->seller_visible_notes,
-                            'captured_at' => $sFb->captured_at,
+                            'outcome_label' => $sFb['status'] !== 'viewed'
+                                ? \App\Services\Properties\PropertyViewings::STATUS_LABELS[$sFb['status']]
+                                : ($sFb['outcome_option_id'] ? $sOutcomes->get($sFb['outcome_option_id']) : null),
+                            'seller_notes' => $sFb['seller_comment'],
+                            'captured_at' => $sFb['captured_at'],
                         ] : null,
                     ]);
                 }

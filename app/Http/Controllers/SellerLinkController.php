@@ -197,7 +197,7 @@ class SellerLinkController extends Controller
      */
     private function buildSellerSafeFeedback(int $propertyId): array
     {
-        return app(\App\Services\Properties\PropertyViewings::class)->sellerNotes($propertyId, 5);
+        return app(\App\Services\Properties\PropertyViewings::class)->sellerNotes($propertyId);
     }
 
     /**
