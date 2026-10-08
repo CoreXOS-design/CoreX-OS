@@ -167,6 +167,12 @@ final class RentalFaultReportLifecycleTest extends TestCase
     {
         $faultReport = $this->faultReport();
 
+        // Fault flow F2 (8 Oct 2026): sending to the owner needs the agent's reviewed owner version first.
+        $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.request-approval', $faultReport))
+            ->assertSessionHasErrors('rental_fault_report');
+        $this->assertSame(RentalFaultReport::STATUS_REPORTED, $faultReport->fresh()->status);
+
+        $faultReport->saveOwnerVersion(['owner_title' => $faultReport->title], $this->admin);
         $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.request-approval', $faultReport))
             ->assertRedirect();
 

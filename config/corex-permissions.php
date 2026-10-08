@@ -232,6 +232,8 @@ return [
         // an owner's decision, or making an outcome final, is a heavier call
         // than logging or editing what was reported.
         ['key' => 'rental_fault_reports.record_approval', 'label' => 'Record Owner Approval', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_reports', 'sort_order' => 4],
+        // Fault flow F2 (2026-10-08) - sending the prepared fault report to the owner is the moment the owner first sees it.
+        ['key' => 'rental_fault_reports.send_to_owner',   'label' => 'Send Fault Report to Owner', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_reports', 'sort_order' => 7],
         ['key' => 'rental_fault_reports.resolve',         'label' => 'Set Fault Outcome',      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_reports', 'sort_order' => 5],
         // Stage 4 — raising a real work order from an already-approved
         // fault report (the agency_appoints route, §3a.1) is a distinct,
@@ -1099,7 +1101,7 @@ return [
                 // sign_on_behalf deliberately NOT granted (owner's ruling 2026-09-30: admin only).
                 'rental_inspections.review_deposit_comparison',
                 'rental_fault_reports.view', 'rental_fault_reports.create', 'rental_fault_reports.cancel',
-                'rental_fault_reports.record_approval', 'rental_fault_reports.resolve', 'rental_fault_reports.raise_work_order',
+                'rental_fault_reports.record_approval', 'rental_fault_reports.send_to_owner', 'rental_fault_reports.resolve', 'rental_fault_reports.raise_work_order',
                 'rental_work_orders.view', 'rental_work_orders.create', 'rental_work_orders.record_approval',
                 'rental_work_orders.complete', 'rental_work_orders.cancel', 'rental_work_orders.manage_quotes',
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',
@@ -1260,7 +1262,7 @@ return [
                 'leases.view', 'leases.create', 'leases.renew',
                 'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.record_attendance', 'rental_inspections.manage_planned_dates',
                 'rental_inspections.edit_details', 'rental_inspections.archive', 'rental_inspections.restore', 'rental_inspections.cancel', 'rental_inspections.reschedule', 'rental_inspections.public_link', 'rental_inspections.export',
-                'rental_fault_reports.view', 'rental_fault_reports.create', 'rental_fault_reports.raise_work_order',
+                'rental_fault_reports.view', 'rental_fault_reports.create', 'rental_fault_reports.send_to_owner', 'rental_fault_reports.raise_work_order',
                 'rental_work_orders.view', 'rental_work_orders.create', 'rental_work_orders.complete',
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',
                 'targets.view',

@@ -27,6 +27,8 @@ class RentalFaultReportUpdate extends Model
     public const TYPE_NOTE = 'note';
     public const TYPE_ARCHIVED = 'archived';
     public const TYPE_RESTORED = 'restored';
+    /** Fault flow F2 - the agent saved the sanitised version the owner will see. */
+    public const TYPE_OWNER_VERSION_SAVED = 'owner_version_saved';
 
     protected $fillable = [
         'agency_id',

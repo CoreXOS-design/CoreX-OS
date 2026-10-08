@@ -48,6 +48,8 @@ class RentalFaultReport extends Model
     public const CHANNEL_OTHER = 'other';
 
     public const STATUS_REPORTED = 'reported';
+    /** Fault flow F2 - the agent is reviewing it / preparing the owner's version. The owner cannot see it yet. */
+    public const STATUS_UNDER_REVIEW = 'under_review';
     public const STATUS_AWAITING_APPROVAL = 'awaiting_approval';
     public const STATUS_APPROVED = 'approved';
     public const STATUS_DECLINED = 'declined';
@@ -92,6 +94,14 @@ class RentalFaultReport extends Model
         'captured_by_user_id',
         'title',
         'description',
+        'owner_title',
+        'owner_description',
+        'owner_agent_note',
+        'owner_photo_ids',
+        'owner_version_saved_at',
+        'owner_version_saved_by_user_id',
+        'sent_to_owner_at',
+        'sent_to_owner_by_user_id',
         'status',
         'owner_approval_status',
         'approval_route',
@@ -108,6 +118,9 @@ class RentalFaultReport extends Model
 
     protected $casts = [
         'repaired_at' => 'date',
+        'owner_photo_ids' => 'array',
+        'owner_version_saved_at' => 'datetime',
+        'sent_to_owner_at' => 'datetime',
         'reported_at' => 'datetime',
         'resolved_at' => 'datetime',
         'cancelled_at' => 'datetime',
@@ -229,7 +242,8 @@ class RentalFaultReport extends Model
                 'at' => $update->created_at,
                 'actor' => $update->createdByUser?->name,
                 'action' => match ($update->update_type) {
-                    RentalFaultReportUpdate::TYPE_APPROVAL_REQUESTED => 'Owner approval requested',
+                    RentalFaultReportUpdate::TYPE_APPROVAL_REQUESTED => 'Sent to owner for a decision',
+                    RentalFaultReportUpdate::TYPE_OWNER_VERSION_SAVED => 'Owner version prepared',
                     RentalFaultReportUpdate::TYPE_APPROVAL_RECORDED => 'Approval decision recorded',
                     RentalFaultReportUpdate::TYPE_WORK_ORDER_RAISED => 'Work order raised',
                     RentalFaultReportUpdate::TYPE_OUTCOME_SET => 'Outcome set',
@@ -248,11 +262,12 @@ class RentalFaultReport extends Model
         foreach ($this->approvals as $approval) {
             $entries->push([
                 'at' => $approval->created_at,
-                'actor' => $approval->recordedByUser?->name,
+                'actor' => $approval->recordedByUser?->name
+                    ?? ($approval->recordedByContact ? trim(($approval->recordedByContact->first_name ?? '') . ' ' . ($approval->recordedByContact->last_name ?? '')) . ' (owner, on the portal)' : null),
                 'action' => $approval->decision === RentalApproval::DECISION_APPROVED ? 'Approved' : 'Declined',
                 'from' => null,
                 'to' => $approval->approval_route ? ucfirst(str_replace('_', ' ', $approval->approval_route)) : null,
-                'note' => $approval->evidence_text,
+                'note' => trim(($approval->evidence_text ?? '') . ($approval->contractorLine() ? ' — ' . $approval->contractorLine() : '')) ?: null,
             ]);
         }
 
@@ -335,23 +350,205 @@ class RentalFaultReport extends Model
      */
     public function requestApproval(User $by): void
     {
+        // Fault flow F2: this IS "send to the owner". The agent has reviewed it and prepared what the owner will
+        // see (saveOwnerVersion()); only now does the owner see it - in the portal, and by email.
         if (in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
             throw new \LogicException('This fault report is already closed.');
         }
         if ($this->owner_approval_status === self::APPROVAL_APPROVED || $this->owner_approval_status === self::APPROVAL_DECLINED) {
             throw new \LogicException('A decision has already been recorded for this fault report.');
         }
+        if ($this->sent_to_owner_at !== null && $this->owner_approval_status === self::APPROVAL_PENDING) {
+            throw new \LogicException('This fault report has already been sent to the owner.');
+        }
+
+        // A caller that never prepared a separate version (API / older code paths) sends the original wording
+        // unchanged; the agent screen always requires the explicit review step first (controller).
+        if ($this->owner_version_saved_at === null) {
+            $this->saveOwnerVersion([
+                'owner_title' => $this->title,
+                'owner_description' => $this->description,
+                'owner_agent_note' => null,
+                'owner_photo_ids' => $this->photos()->pluck('id')->all(),
+            ], $by);
+        }
 
         $this->forceFill([
             'status' => self::STATUS_AWAITING_APPROVAL,
             'owner_approval_status' => self::APPROVAL_PENDING,
+            'sent_to_owner_at' => now(),
+            'sent_to_owner_by_user_id' => $by->id,
         ])->save();
 
-        $this->logUpdate(RentalFaultReportUpdate::TYPE_APPROVAL_REQUESTED, $by);
+        $this->logUpdate(RentalFaultReportUpdate::TYPE_APPROVAL_REQUESTED, $by, null, null, self::STATUS_AWAITING_APPROVAL);
 
-        // AT-445 — .ai/specs/rental-portal-access.md §6. A decision is now
-        // waiting in the landlord's portal.
+        // AT-445 - .ai/specs/rental-portal-access.md §6. A decision is now waiting in the landlord's portal.
         app(\App\Services\Rentals\RentalPortalNotificationService::class)->notifyLandlordDecisionNeeded($this);
+    }
+
+    /**
+     * Fault flow F2 - the status in the words Johan named: reported, under agent review, sent to owner, owner decided
+     * (agent-side wording).
+     */
+    public function statusLabel(): string
+    {
+        return match ($this->status) {
+            self::STATUS_REPORTED => 'Reported',
+            self::STATUS_UNDER_REVIEW => 'Under agent review',
+            self::STATUS_AWAITING_APPROVAL => 'Sent to owner',
+            self::STATUS_APPROVED => 'Owner decided - approved',
+            self::STATUS_DECLINED => 'Owner decided - declined',
+            self::STATUS_OWNER_HANDLING => 'Owner decided - owner arranges the repair',
+            self::STATUS_WORK_ORDER_RAISED => 'Work order raised',
+            self::STATUS_RESOLVED => 'Resolved',
+            self::STATUS_CANCELLED => 'Cancelled',
+            default => ucfirst(str_replace('_', ' ', (string) $this->status)),
+        };
+    }
+
+    /** The same status for the OWNER's screens: an unsent report is only ever "with your agent". */
+    public function ownerStatusLabel(): string
+    {
+        return match ($this->status) {
+            self::STATUS_REPORTED, self::STATUS_UNDER_REVIEW => 'With your agent',
+            self::STATUS_AWAITING_APPROVAL => 'Waiting for your decision',
+            self::STATUS_APPROVED, self::STATUS_DECLINED, self::STATUS_OWNER_HANDLING => 'You decided',
+            default => $this->statusLabel(),
+        };
+    }
+
+    /**
+     * Fault flow F2 - the agent prepares what the owner will see: a title and description they have edited, the
+     * photos they chose, and an agent note/recommendation. The tenant's ORIGINAL (title, description, photos) is never
+     * touched. Only before the report is sent: once the owner can see a version, it is fixed.
+     *
+     * @param array{owner_title:string, owner_description?:?string, owner_agent_note?:?string, owner_photo_ids?:array<int>} $attributes
+     */
+    public function saveOwnerVersion(array $attributes, User $by): void
+    {
+        if (in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
+            throw new \LogicException('This fault report is already closed.');
+        }
+        if ($this->sent_to_owner_at !== null || in_array($this->owner_approval_status, [self::APPROVAL_APPROVED, self::APPROVAL_DECLINED], true)) {
+            throw new \LogicException('This fault report has already been sent to the owner - the version they see can no longer be changed.');
+        }
+        $title = trim((string) ($attributes['owner_title'] ?? ''));
+        if ($title === '') {
+            throw new \InvalidArgumentException('The owner version needs a title.');
+        }
+
+        // Photos: only this report's own, de-duplicated, order kept.
+        $own = $this->photos()->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $photoIds = array_values(array_unique(array_filter(
+            array_map('intval', (array) ($attributes['owner_photo_ids'] ?? [])),
+            fn ($id) => in_array($id, $own, true)
+        )));
+
+        $fromStatus = $this->status;
+        $this->forceFill([
+            'owner_title' => $title,
+            'owner_description' => $attributes['owner_description'] ?? null,
+            'owner_agent_note' => $attributes['owner_agent_note'] ?? null,
+            'owner_photo_ids' => $photoIds,
+            'owner_version_saved_at' => now(),
+            'owner_version_saved_by_user_id' => $by->id,
+            'status' => $this->status === self::STATUS_REPORTED ? self::STATUS_UNDER_REVIEW : $this->status,
+        ])->save();
+
+        $this->logUpdate(
+            RentalFaultReportUpdate::TYPE_OWNER_VERSION_SAVED,
+            $by,
+            null,
+            $fromStatus !== $this->status ? $fromStatus : null,
+            $fromStatus !== $this->status ? $this->status : null
+        );
+    }
+
+    /**
+     * What the owner is allowed to see of this fault: the agent's sanitised version only (falling back to the
+     * reporter's own words ONLY for a report the owner submitted themselves). Never the tenant's original.
+     *
+     * @return array{title:string, description:?string, agent_note:?string, photos:\Illuminate\Support\Collection}
+     */
+    public function ownerVersion(): array
+    {
+        if ($this->owner_version_saved_at === null) {
+            return [
+                'title' => $this->reported_by_type === self::REPORTED_BY_LANDLORD ? (string) $this->title : 'Fault reported',
+                'description' => $this->reported_by_type === self::REPORTED_BY_LANDLORD ? $this->description : null,
+                'agent_note' => null,
+                'photos' => collect(),
+            ];
+        }
+
+        $ids = (array) ($this->owner_photo_ids ?? []);
+
+        return [
+            'title' => (string) ($this->owner_title ?: $this->title),
+            'description' => $this->owner_description,
+            'agent_note' => $this->owner_agent_note,
+            'photos' => $this->photos()->whereIn('id', $ids ?: [0])->get(),
+        ];
+    }
+
+    /**
+     * Fault flow F2/F7 - the ONE visibility rule for the owner (portal list, detail, counts, API): a fault is the
+     * owner's to see once the agent SENT it, once a decision exists (so the owner can read it back, whoever took
+     * it), or when the owner reported it themselves. An unsent fault is invisible to them.
+     */
+    public function scopeVisibleToOwner(Builder $query): Builder
+    {
+        return $query->where(function (Builder $q) {
+            $q->whereNotNull('rental_fault_reports.sent_to_owner_at')
+                ->orWhereIn('rental_fault_reports.owner_approval_status', [self::APPROVAL_PENDING, self::APPROVAL_APPROVED, self::APPROVAL_DECLINED])
+                ->orWhere('rental_fault_reports.reported_by_type', self::REPORTED_BY_LANDLORD);
+        });
+    }
+
+    public function isVisibleToOwner(): bool
+    {
+        return $this->sent_to_owner_at !== null
+            || in_array($this->owner_approval_status, [self::APPROVAL_PENDING, self::APPROVAL_APPROVED, self::APPROVAL_DECLINED], true)
+            || $this->reported_by_type === self::REPORTED_BY_LANDLORD;
+    }
+
+    /** The decision that settled this fault (latest row of the append-only log), or null while undecided. */
+    public function decision(): ?RentalApproval
+    {
+        if (! in_array($this->owner_approval_status, [self::APPROVAL_APPROVED, self::APPROVAL_DECLINED], true)) {
+            return null;
+        }
+
+        return $this->approvals()->with(['recordedByUser', 'recordedByContact', 'contractorSupplier'])->first();
+    }
+
+    /**
+     * Fault flow F7 - the same plain read-only summary on both sides: who decided, how, when, why, and the contractor.
+     *
+     * @return array{decision:string, by:string, how:string, via_link:bool, at:?\Illuminate\Support\Carbon, reason:?string, route:?string, contractor:?string}|null
+     */
+    public function decisionSummary(): ?array
+    {
+        $d = $this->decision();
+        if (! $d) {
+            return null;
+        }
+        $viaLink = $d->evidence_type === RentalApproval::EVIDENCE_PORTAL;
+        $by = $d->recordedByUser?->name
+            ?? ($d->recordedByContact ? trim(($d->recordedByContact->first_name ?? '') . ' ' . ($d->recordedByContact->last_name ?? '')) : 'the owner');
+
+        return [
+            'decision' => $d->decision,
+            'by' => $by,
+            'how' => $viaLink
+                ? 'Decided by the owner on the portal link'
+                : 'Captured by the agent (' . str_replace('_', ' ', $d->evidence_type) . ')',
+            'via_link' => $viaLink,
+            'at' => $d->decided_at ?? $d->created_at,
+            'reason' => $d->decision === RentalApproval::DECISION_DECLINED ? $d->evidence_text : null,
+            'route' => $d->approval_route,
+            'contractor' => $d->contractorLine(),
+        ];
     }
 
     /**
@@ -372,55 +569,95 @@ class RentalFaultReport extends Model
      */
     public function recordApproval(User|\App\Models\Contact $recordedBy, array $attributes): RentalApproval
     {
-        if (in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
-            throw new \LogicException('This fault report is already closed.');
-        }
-        // Once a work order has been raised the decision is spent: a second
-        // approval would reset status to approved and let a second work order
-        // be raised, orphaning the first (audit M3).
-        if ($this->rental_work_order_id !== null || $this->status === self::STATUS_WORK_ORDER_RAISED) {
-            throw new \LogicException('A work order has already been raised for this fault report — its approval decision can no longer be changed.');
-        }
+        // Fault flow F7 - ONE decision, ever: the owner on the link and the agent on the screen race each other, so the
+        // check runs on a locked fresh row. Whoever is second is told who decided and how.
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($recordedBy, $attributes) {
+            $fresh = static::withoutGlobalScopes()->lockForUpdate()->find($this->id);
+            if ($fresh) {
+                $this->setRawAttributes($fresh->getAttributes(), true);
+            }
 
-        $decision = $attributes['decision'];
-        $route = $attributes['approval_route'] ?? null;
+            if (in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
+                throw new \LogicException('This fault report is already closed.');
+            }
+            if (in_array($this->owner_approval_status, [self::APPROVAL_APPROVED, self::APPROVAL_DECLINED], true)) {
+                $summary = $this->decisionSummary();
+                throw new \LogicException('A decision has already been recorded for this fault report'
+                    . ($summary ? ' (' . strtolower($summary['how']) . ', ' . ($summary['at']?->format('j M Y H:i') ?? '') . ')' : '') . '.');
+            }
+            // Once a work order has been raised the decision is spent: a second approval would reset status to
+            // approved and let a second work order be raised, orphaning the first (audit M3).
+            if ($this->rental_work_order_id !== null || $this->status === self::STATUS_WORK_ORDER_RAISED) {
+                throw new \LogicException('A work order has already been raised for this fault report — its approval decision can no longer be changed.');
+            }
 
-        if ($decision === self::APPROVAL_APPROVED && ! in_array($route, [self::ROUTE_AGENCY_APPOINTS, self::ROUTE_OWNER_HANDLES], true)) {
-            throw new \InvalidArgumentException('approval_route (agency_appoints or owner_handles) is required when the decision is approved.');
-        }
-        if ($decision === self::APPROVAL_DECLINED) {
-            $route = null; // never meaningful on a decline
-        }
+            $decision = $attributes['decision'];
+            $route = $attributes['approval_route'] ?? null;
 
-        $approval = $this->approvals()->create([
-            'agency_id' => $this->agency_id,
-            'decision' => $decision,
-            'approval_route' => $route,
-            'evidence_type' => $attributes['evidence_type'],
-            'evidence_text' => $attributes['evidence_text'] ?? null,
-            'evidence_file_path' => $attributes['evidence_file_path'] ?? null,
-            'decided_at' => $attributes['decided_at'] ?? now(),
-            'recorded_by_user_id' => $recordedBy instanceof User ? $recordedBy->id : null,
-            'recorded_by_contact_id' => $recordedBy instanceof \App\Models\Contact ? $recordedBy->id : null,
-        ]);
+            if ($decision === self::APPROVAL_APPROVED && ! in_array($route, [self::ROUTE_AGENCY_APPOINTS, self::ROUTE_OWNER_HANDLES], true)) {
+                throw new \InvalidArgumentException('approval_route (agency_appoints or owner_handles) is required when the decision is approved.');
+            }
+            if ($decision === self::APPROVAL_DECLINED) {
+                $route = null; // never meaningful on a decline
+                if (trim((string) ($attributes['evidence_text'] ?? '')) === '') {
+                    throw new \InvalidArgumentException('A reason is required when a fault is declined.');
+                }
+            }
 
-        $newStatus = match (true) {
-            $decision === self::APPROVAL_DECLINED => self::STATUS_DECLINED,
-            $route === self::ROUTE_OWNER_HANDLES => self::STATUS_OWNER_HANDLING,
-            $route === self::ROUTE_AGENCY_APPOINTS => self::STATUS_APPROVED,
-            default => $this->status,
-        };
+            // Who handles the repair (F3/F4/F5). Owner's own contractor: optional name + phone. Agency contractor:
+            // a supplier of THIS agency from the supplier list. A decline carries no contractor.
+            $contractorSource = null;
+            $contractorName = null;
+            $contractorPhone = null;
+            $supplierId = null;
+            if ($decision === self::APPROVAL_APPROVED && $route === self::ROUTE_OWNER_HANDLES) {
+                $contractorSource = RentalApproval::CONTRACTOR_OWN;
+                $contractorName = trim((string) ($attributes['contractor_name'] ?? '')) ?: null;
+                $contractorPhone = trim((string) ($attributes['contractor_phone'] ?? '')) ?: null;
+            } elseif ($decision === self::APPROVAL_APPROVED && ! empty($attributes['agency_service_provider_id'])) {
+                $supplierId = (int) $attributes['agency_service_provider_id'];
+                $ok = \App\Models\DealV2\AgencyServiceProvider::withoutGlobalScopes()
+                    ->where('agency_id', $this->agency_id)->where('is_active', true)->whereNull('deleted_at')->whereKey($supplierId)->exists();
+                if (! $ok) {
+                    throw new \InvalidArgumentException('That contractor is not on this agency\'s supplier list.');
+                }
+                $contractorSource = RentalApproval::CONTRACTOR_AGENCY;
+            }
 
-        $this->forceFill([
-            'status' => $newStatus,
-            'owner_approval_status' => $decision === self::APPROVAL_APPROVED ? self::APPROVAL_APPROVED : self::APPROVAL_DECLINED,
-            'approval_route' => $route,
-        ])->save();
+            $approval = $this->approvals()->create([
+                'agency_id' => $this->agency_id,
+                'decision' => $decision,
+                'approval_route' => $route,
+                'contractor_source' => $contractorSource,
+                'contractor_name' => $contractorName,
+                'contractor_phone' => $contractorPhone,
+                'agency_service_provider_id' => $supplierId,
+                'evidence_type' => $attributes['evidence_type'],
+                'evidence_text' => $attributes['evidence_text'] ?? null,
+                'evidence_file_path' => $attributes['evidence_file_path'] ?? null,
+                'decided_at' => $attributes['decided_at'] ?? now(),
+                'recorded_by_user_id' => $recordedBy instanceof User ? $recordedBy->id : null,
+                'recorded_by_contact_id' => $recordedBy instanceof \App\Models\Contact ? $recordedBy->id : null,
+            ]);
 
-        // AT-445 — .ai/specs/rental-portal-access.md §6.
-        app(\App\Services\Rentals\RentalPortalNotificationService::class)->notifyTenantStatusChanged($this);
+            $newStatus = match (true) {
+                $decision === self::APPROVAL_DECLINED => self::STATUS_DECLINED,
+                $route === self::ROUTE_OWNER_HANDLES => self::STATUS_OWNER_HANDLING,
+                $route === self::ROUTE_AGENCY_APPOINTS => self::STATUS_APPROVED,
+                default => $this->status,
+            };
 
-        return $approval;
+            $this->forceFill([
+                'status' => $newStatus,
+                'owner_approval_status' => $decision === self::APPROVAL_APPROVED ? self::APPROVAL_APPROVED : self::APPROVAL_DECLINED,
+                'approval_route' => $route,
+            ])->save();
+
+            // AT-445 - .ai/specs/rental-portal-access.md §6.
+            app(\App\Services\Rentals\RentalPortalNotificationService::class)->notifyTenantStatusChanged($this);
+
+            return $approval;
+        });
     }
 
     /**

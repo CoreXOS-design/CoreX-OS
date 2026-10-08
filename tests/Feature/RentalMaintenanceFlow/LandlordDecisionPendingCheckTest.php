@@ -127,7 +127,8 @@ final class LandlordDecisionPendingCheckTest extends TestCase
     {
         $fault = $this->fault(RentalFaultReport::APPROVAL_NOT_REQUIRED);
 
-        $this->postJson(self::L . '/fault-reports/' . $fault->id . '/decision', ['decision' => 'approve_agency_appoints'])->assertStatus(422);
+        // Fault flow F2 (8 Oct 2026): a fault the agent never sent is invisible to the owner, so the answer is 404.
+        $this->postJson(self::L . '/fault-reports/' . $fault->id . '/decision', ['decision' => 'approve_agency_appoints'])->assertStatus(404);
 
         $this->assertSame(RentalFaultReport::APPROVAL_NOT_REQUIRED, $fault->fresh()->owner_approval_status);
         $this->assertSame(RentalFaultReport::STATUS_REPORTED, $fault->fresh()->status);

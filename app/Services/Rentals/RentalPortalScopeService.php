@@ -332,7 +332,8 @@ class RentalPortalScopeService
 
     public function landlordFaultReport(Contact $contact, int $faultReportId): ?RentalFaultReport
     {
-        return RentalFaultReport::withoutGlobalScopes()
+        // Fault flow F2: an unsent fault does not exist as far as the owner is concerned (visibleToOwner()).
+        return RentalFaultReport::withoutGlobalScopes()->visibleToOwner()
             ->where('agency_id', $contact->agency_id)
             ->whereNull('deleted_at')
             ->whereIn('property_id', $this->landlordPropertyIds($contact))
@@ -342,7 +343,7 @@ class RentalPortalScopeService
     /** Live fault reports and work orders waiting on THIS landlord's decision (the "needs my decision" list). */
     public function landlordPendingFaultReports(Contact $contact)
     {
-        return RentalFaultReport::withoutGlobalScopes()
+        return RentalFaultReport::withoutGlobalScopes()->visibleToOwner()
             ->where('agency_id', $contact->agency_id)
             ->whereNull('deleted_at')
             ->whereIn('property_id', $this->landlordPropertyIds($contact))
@@ -390,7 +391,7 @@ class RentalPortalScopeService
 
     public function landlordFaultReports(Contact $contact)
     {
-        return RentalFaultReport::withoutGlobalScopes()
+        return RentalFaultReport::withoutGlobalScopes()->visibleToOwner()
             ->where('agency_id', $contact->agency_id)
             ->whereNull('deleted_at')
             ->whereIn('property_id', $this->landlordPropertyIds($contact))

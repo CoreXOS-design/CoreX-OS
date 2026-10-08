@@ -1067,3 +1067,27 @@ spec's. Flagged there, not decided unilaterally.
 **Standing instruction, pending confirmation to proceed to build**: this spec file remains as the
 current design of record for Rentals Phase 1 faults/work orders. All four originally-raised questions
 are now settled per Johan's rulings above.
+
+---
+
+## 15. Fault report → owner → decision (Johan's rulings F1–F7, 8 Oct 2026, QA1)
+
+Builds on §3a of `rental-work-orders.md` (the fault report + its append-only `rental_approvals` log) and the owner portal (`rental-portal-access.md`). Work-order / job-card internals are untouched.
+
+**F1 — who reports.** The tenant (portal) or the agent (CoreX); also the owner for their own request. Any of them creates a normal `rental_fault_reports` row, status `reported`.
+
+**F2 — the owner does NOT see it until the agent sends it.**
+- Statuses (agent wording, `RentalFaultReport::statusLabel()`): **Reported** (`reported`) → **Under agent review** (`under_review`, set when the owner version is saved) → **Sent to owner** (`awaiting_approval`) → **Owner decided** (`approved` / `declined` / `owner_handling`), then work order / resolved as before.
+- The agent prepares a SEPARATE owner version on the fault screen ("Owner version" card): `owner_title`, `owner_description`, `owner_agent_note`, `owner_photo_ids` (none shared unless ticked). The tenant's original (`title`, `description`, photos) is never edited; a tenant's / owner's own report cannot be edited in place at all (409).
+- "Send to owner" (`POST …/send-to-owner`, permission `rental_fault_reports.send_to_owner`, new) requires a saved owner version; sets `sent_to_owner_at/_by_user_id`, `owner_approval_status=pending`, emails the owner (`RentalLandlordDecisionNeededMail`, sanitised title + portal link). After sending, the version is fixed. `RentalFaultReport::requestApproval()` is this action (a caller with no prepared version sends the original wording unchanged — API/legacy only; the screen forces the review step).
+- ONE visibility rule for the owner, `RentalFaultReport::scopeVisibleToOwner()` / `RentalPortalScopeService::landlord*`: a fault is visible once SENT, once DECIDED (by anyone), or when the owner reported it. Applied to the list, detail, "needs my decision" and the decision endpoint (unsent → 404). Migration `2026_10_08_120000` backfills `sent_to_owner_at` for faults already pending.
+
+**F3/F4 — the owner decides on the portal** (`GET …/landlord/fault-reports/{id}` + `POST …/{id}/decision`): Approve, or Decline (reason REQUIRED). If approving, who handles it: `own` (own contractor, optional name + phone → route `owner_handles`), `list` (a supplier from the list for this type of work → `agency_appoints` + `agency_service_provider_id`), or `agency` (my agent arranges it → `agency_appoints`, no supplier; the way out when the list is empty). Old payload values `approve_agency_appoints` / `approve_owner_handles` still work (note no longer required).
+- The supplier list = `RentalFaultContractorService`: active agency suppliers carrying an agency service type (`AgencyServiceType` code/label) that matches the fault type's category (equal after normalising, or one contains the other). No category / no matching type = EMPTY list; screens say so and offer the other routes. The same service validates both the owner's and the agent's choice.
+- The owner's pick is stored on the append-only `rental_approvals` row: `contractor_source` (`own`/`agency`), `contractor_name`, `contractor_phone`, `agency_service_provider_id`.
+
+**F5/F6 — the agent records the decision** on the existing "Owner decision" card: approved / declined (reason required), who appoints (owner: optional name + number; agency: pick from the same list), evidence type + what the owner said. Buttons **Save decision** and **Save decision and create work order**. The second only redirects to the fault screen with the EXISTING work-order form opened and pre-filled (external contractor, trade, the chosen supplier in a hidden field); the work order is created only when the agent confirms that form, through the existing `fromFaultReport()`; the supplier is stored as a pre-selection (an update row says so) — ordering still follows the quote/authorisation gates (§17.6.5). The button is offered only on the agency route; where the existing rule blocks a work order (owner arranges it, declined) the decision is saved and the reason shown.
+
+**F7 — one decision, read-only on the other side.** `recordApproval()` runs in a transaction on a locked row and refuses a second decision from either side, naming who decided and how. `RentalFaultReport::decisionSummary()` feeds both screens: decision, who, how ("Decided by the owner on the portal link" / "Captured by the agent (verbal note…)"), when, reason, contractor. The agent's record form disappears once decided; the owner's detail shows `awaiting_decision:false`. History (`history()`) lists the owner-version, send and decision steps with actor (owner portal decisions show the owner's name). No hard deletes; own/branch/agency scoping on the fault list unchanged (`scopeVisibleTo`).
+
+**Tests:** `tests/Feature/RentalFaultFlow/FaultOwnerFlowTest.php`. **Not in this build:** internal crew, the work-order-as-owner-view, a work order for the owner's own contractor (existing rule: "owner handling" blocks it — business question raised).

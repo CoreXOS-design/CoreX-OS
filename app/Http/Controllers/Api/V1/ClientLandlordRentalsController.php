@@ -14,6 +14,7 @@ use App\Services\Rentals\RentalApprovalGateService;
 use App\Services\Rentals\StaleVariationRevision;
 use App\Services\Images\PropertyImageStorer;
 use App\Services\Rentals\RentalFaultReportService;
+use App\Services\Rentals\RentalFaultContractorService;
 use App\Services\Rentals\RentalFaultTypeService;
 use App\Services\Rentals\RentalJobCardClientViewService;
 use App\Services\Rentals\RentalPortalDocumentService;
@@ -226,10 +227,13 @@ class ClientLandlordRentalsController extends Controller
         }
 
         return response()->json([
+            // Fault flow F2: the owner only ever sees faults the agent SENT (or that they reported / that are decided),
+            // and only the agent's sanitised wording - never the tenant's original.
             'fault_reports' => $this->scope->landlordFaultReports($contact)->map(fn ($f) => [
                 'id' => $f->id,
-                'title' => $f->title,
+                'title' => $f->ownerVersion()['title'],
                 'status' => $f->status,
+                'status_label' => $f->ownerStatusLabel(),
                 'owner_approval_status' => $f->owner_approval_status,
                 'reported_at' => $f->reported_at?->toIso8601String(),
             ])->values(),
@@ -342,7 +346,7 @@ class ClientLandlordRentalsController extends Controller
 
         return response()->json([
             'fault_reports' => $faultReports->map(fn ($f) => [
-                'id' => $f->id, 'title' => $f->title, 'kind' => 'fault_report',
+                'id' => $f->id, 'title' => $f->ownerVersion()['title'], 'kind' => 'fault_report',
             ])->values(),
             'work_orders' => $workOrders->map(fn ($w) => [
                 'id' => $w->id, 'title' => $w->title, 'kind' => 'work_order',
@@ -386,10 +390,62 @@ class ClientLandlordRentalsController extends Controller
     }
 
     /**
-     * §3 — Approve (agency_appoints) / Decline / "I'll handle it myself"
-     * (owner_handles, note required). This is the FAULT-REPORT-level
-     * decision — the one that decides whether a contractor gets involved
-     * at all, made before any work order exists.
+     * Fault flow F2/F3/F7 - ONE fault as the owner may see it: the agent's sanitised version (title, description,
+     * chosen photos, agent note), where it stands in plain words, the contractor choices when a decision is waiting,
+     * and - once decided, by anyone - the decision read-only (who, how, when, reason, contractor). The tenant's
+     * original wording and photos are never part of this payload.
+     */
+    public function faultReportShow(Request $request, int $faultReport): JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+
+        $fault = $this->scope->landlordFaultReport($contact, $faultReport);
+        if (! $fault) {
+            return response()->json(['message' => 'Fault report not found.'], 404);
+        }
+
+        $version = $fault->ownerVersion();
+        $awaiting = $fault->owner_approval_status === RentalFaultReport::APPROVAL_PENDING;
+        $summary = $fault->decisionSummary();
+
+        return response()->json(['fault_report' => [
+            'id' => $fault->id,
+            'title' => $version['title'],
+            'description' => $version['description'],
+            'agent_note' => $version['agent_note'],
+            'photos' => $version['photos']->map(fn ($p) => ['id' => $p->id, 'url' => $p->storage_path])->values(),
+            'property' => $fault->property?->buildDisplayAddress(),
+            'category' => $fault->faultType?->category,
+            'status' => $fault->status,
+            'status_label' => $fault->ownerStatusLabel(),
+            'reported_at' => $fault->reported_at?->toIso8601String(),
+            'sent_to_owner_at' => $fault->sent_to_owner_at?->toIso8601String(),
+            'awaiting_decision' => $awaiting,
+            // The supplier list for THIS type of work (empty = the owner is offered the other routes only).
+            'contractors' => $awaiting ? app(RentalFaultContractorService::class)->optionsFor($fault)->values() : [],
+            'decision' => $summary ? [
+                'decision' => $summary['decision'],
+                'by' => $summary['by'],
+                'how' => $summary['how'],
+                'via_link' => $summary['via_link'],
+                'at' => $summary['at']?->toIso8601String(),
+                'reason' => $summary['reason'],
+                'contractor' => $summary['contractor'],
+            ] : null,
+        ]]);
+    }
+
+    /**
+     * §3 / fault flow F3-F4 - the owner decides: Approve or Decline (a reason is REQUIRED). If approving, who handles
+     * the repair: their OWN contractor (optional name + phone, so the agent can talk to them), a contractor picked from
+     * the agency's list for this type of work, or "my agent arranges it" (the way out when the list is empty).
+     *
+     * Payload: decision=approve|decline; handled_by=own|list|agency (approve only); contractor_name / contractor_phone
+     * (own); agency_service_provider_id (list); note (decline reason, required). The pre-flow values
+     * approve_agency_appoints / approve_owner_handles are still accepted. One decision, ever: whoever is second is told.
      */
     public function faultReportDecision(Request $request, int $faultReport): JsonResponse
     {
@@ -403,25 +459,49 @@ class ClientLandlordRentalsController extends Controller
             return response()->json(['message' => 'Fault report not found.'], 404);
         }
 
-        // §17.6.6 — a decision is only taken on a record that is actually waiting for one.
+        // §17.6.6 - a decision is only taken on a record that is actually waiting for one.
         if ($fault->owner_approval_status !== RentalFaultReport::APPROVAL_PENDING) {
             return response()->json(['message' => 'This is not waiting for your decision any more.'], 422);
         }
 
         $data = $request->validate([
-            'decision' => 'required|in:approve_agency_appoints,approve_owner_handles,decline',
+            'decision' => 'required|in:approve,decline,approve_agency_appoints,approve_owner_handles',
+            'handled_by' => 'nullable|in:own,list,agency',
+            'contractor_name' => 'nullable|string|max:191',
+            'contractor_phone' => 'nullable|string|max:40',
+            'agency_service_provider_id' => 'nullable|integer',
             'note' => 'nullable|string|max:2000',
         ]);
 
-        if ($data['decision'] === 'approve_owner_handles' && empty($data['note'])) {
-            return response()->json(['message' => 'A note is required for "I\'ll handle it myself".'], 422);
+        // Map the pre-flow values onto the new shape.
+        $handledBy = $data['handled_by'] ?? null;
+        if ($data['decision'] === 'approve_owner_handles') {
+            $data['decision'] = 'approve';
+            $handledBy = 'own';
+        } elseif ($data['decision'] === 'approve_agency_appoints') {
+            $data['decision'] = 'approve';
+            $handledBy = $handledBy ?: (! empty($data['agency_service_provider_id']) ? 'list' : 'agency');
         }
 
-        [$decision, $route] = match ($data['decision']) {
-            'approve_agency_appoints' => [RentalFaultReport::APPROVAL_APPROVED, RentalFaultReport::ROUTE_AGENCY_APPOINTS],
-            'approve_owner_handles' => [RentalFaultReport::APPROVAL_APPROVED, RentalFaultReport::ROUTE_OWNER_HANDLES],
-            'decline' => [RentalFaultReport::APPROVAL_DECLINED, null],
-        };
+        if ($data['decision'] === 'decline') {
+            if (trim((string) ($data['note'] ?? '')) === '') {
+                return response()->json(['message' => 'Please tell us why you are declining.'], 422);
+            }
+            $decision = RentalFaultReport::APPROVAL_DECLINED;
+            $route = null;
+        } else {
+            if (! in_array($handledBy, ['own', 'list', 'agency'], true)) {
+                return response()->json(['message' => 'Please say who should handle the repair.'], 422);
+            }
+            $decision = RentalFaultReport::APPROVAL_APPROVED;
+            $route = $handledBy === 'own' ? RentalFaultReport::ROUTE_OWNER_HANDLES : RentalFaultReport::ROUTE_AGENCY_APPOINTS;
+            if ($handledBy === 'list') {
+                $supplierId = (int) ($data['agency_service_provider_id'] ?? 0);
+                if ($supplierId <= 0 || ! app(RentalFaultContractorService::class)->isOption($fault, $supplierId)) {
+                    return response()->json(['message' => 'Please choose a contractor from the list.'], 422);
+                }
+            }
+        }
 
         try {
             $fault->recordApproval($contact, [
@@ -429,6 +509,9 @@ class ClientLandlordRentalsController extends Controller
                 'approval_route' => $route,
                 'evidence_type' => \App\Models\RentalApproval::EVIDENCE_PORTAL,
                 'evidence_text' => $data['note'] ?? null,
+                'contractor_name' => $handledBy === 'own' ? ($data['contractor_name'] ?? null) : null,
+                'contractor_phone' => $handledBy === 'own' ? ($data['contractor_phone'] ?? null) : null,
+                'agency_service_provider_id' => $handledBy === 'list' ? ($data['agency_service_provider_id'] ?? null) : null,
             ]);
         } catch (\Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 422);
@@ -437,6 +520,7 @@ class ClientLandlordRentalsController extends Controller
         return response()->json(['fault_report' => [
             'id' => $fault->id,
             'status' => $fault->status,
+            'status_label' => $fault->ownerStatusLabel(),
             'owner_approval_status' => $fault->owner_approval_status,
         ]]);
     }

@@ -611,3 +611,9 @@ branch; branch without details → the agency's; an agent of another agency neve
 and renewal window; draft / cancelled / archived lease is no home; upcoming + past inspections, nothing unsent, no report link, newest ten + count; the list endpoint
 (tenant and owner) returns sent + booked only and keeps the mobile keys; the owner home (one block per property, vacant property, tenant names); tenant ↔ tenant,
 owner ↔ owner, tenant ↔ owner, another agency; no session / staff session alone = 401; the portal switch closes each audience; the page has the Home panel for both.
+
+---
+
+## 21. The owner's fault view and decision (8 Oct 2026, QA1 — fault flow F2/F3/F4/F7)
+
+The owner's portal Faults / Decisions tabs show a fault only after the agent has SENT it (or it is decided, or the owner reported it): `RentalFaultReport::scopeVisibleToOwner()`, used by every `RentalPortalScopeService::landlord*FaultReport*` method. They show the agent's sanitised version only — title, description, shared photos, agent note — never the tenant's original. New endpoint `GET /api/v1/client/rentals/landlord/fault-reports/{id}` (detail + contractor list for this type of work + read-only decision) and an extended `POST …/decision` (Approve/Decline with required reason; own contractor with optional name/phone; a listed contractor; or "my agent arranges it"). The shell's Decisions tab opens a review-and-decide card; "My requests" opens the same card read-only. Full rules: `rentals-faults-work-orders.md` §15.

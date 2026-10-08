@@ -4068,8 +4068,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Stage 2 (§3a.1/§3a.2, §0c) — the lifecycle: request/record approval,
         // set the outcome. Separately permissioned per §10 — a decision
         // becoming final is a heavier call than logging or editing a report.
+        // Fault flow (Johan 2026-10-08, F2): the agent reviews and prepares the owner's version, THEN sends it. Only a sent
+        // fault is visible to the owner (portal + email). request-approval is kept as the same "send to owner" action.
+        Route::post('/{rentalFaultReport}/owner-version', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'saveOwnerVersion'])
+            ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.owner-version.store');
+        Route::post('/{rentalFaultReport}/send-to-owner', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'requestApproval'])
+            ->middleware('permission:rental_fault_reports.send_to_owner')->name('corex.rental-fault-reports.send-to-owner');
         Route::post('/{rentalFaultReport}/request-approval', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'requestApproval'])
-            ->middleware('permission:rental_fault_reports.record_approval')->name('corex.rental-fault-reports.request-approval');
+            ->middleware('permission:rental_fault_reports.send_to_owner')->name('corex.rental-fault-reports.request-approval');
         Route::post('/{rentalFaultReport}/approval', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'recordApproval'])
             ->middleware('permission:rental_fault_reports.record_approval')->name('corex.rental-fault-reports.approval.store');
         Route::post('/{rentalFaultReport}/outcome', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'setOutcome'])
