@@ -127,6 +127,7 @@ class OtherAgencyStockImportService
                 'parking_features'  => $data['parking_features'] ?? [],
                 'pool'              => $data['pool'] ?? false,
                 'garden'            => $data['garden'] ?? false,
+                'kitchen_count'     => $featureMap['kitchens'] ?? null,
                 'kitchen_features'  => $data['kitchen_features'] ?? [],
                 'garden_features'   => $data['garden_features'] ?? [],
                 'security_features' => $data['security_features'] ?? [],
