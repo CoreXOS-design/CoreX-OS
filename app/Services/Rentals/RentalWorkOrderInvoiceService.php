@@ -47,6 +47,17 @@ class RentalWorkOrderInvoiceService
         $stored = $this->storeFile($workOrder, $file);
         $share = (bool) ($data['share_with_owner'] ?? false);
 
+        try {
+            return $this->createRow($workOrder, $data, $number, $stored, $share, $by);
+        } catch (\Throwable $e) {
+            Storage::disk('local')->delete($stored['document_storage_path']);   // a failed save never leaves an orphan file behind
+            throw $e;
+        }
+    }
+
+    /** @param array<string, mixed> $data @param array<string, mixed> $stored */
+    private function createRow(RentalWorkOrder $workOrder, array $data, string $number, array $stored, bool $share, User $by): RentalWorkOrderInvoice
+    {
         return DB::transaction(function () use ($workOrder, $data, $number, $stored, $share, $by) {
             $invoice = $workOrder->invoices()->create([
                 'agency_id' => $workOrder->agency_id,
@@ -100,6 +111,19 @@ class RentalWorkOrderInvoiceService
             $replaced = true;
         }
 
+        try {
+            return $this->saveChanges($invoice, $workOrder, $changes, $replaced, $before, $by, $data);
+        } catch (\Throwable $e) {
+            if ($replaced) {
+                Storage::disk('local')->delete($changes['document_storage_path']);   // the new file was never taken into use
+            }
+            throw $e;
+        }
+    }
+
+    /** @param array<string, mixed> $changes @param array<string, mixed> $data */
+    private function saveChanges(RentalWorkOrderInvoice $invoice, RentalWorkOrder $workOrder, array $changes, bool $replaced, string $before, User $by, array $data): RentalWorkOrderInvoice
+    {
         return DB::transaction(function () use ($invoice, $workOrder, $changes, $replaced, $before, $by, $data) {
             $invoice->forceFill($changes);
             $changed = $replaced || $invoice->isDirty();
@@ -219,6 +243,7 @@ class RentalWorkOrderInvoiceService
             $required ? 'required' : 'nullable',
             'file',
             'mimes:' . implode(',', RentalWorkOrderSetting::invoiceAllowedExtensionsFor($agencyId)),
+            'min:1',   // an empty (0 KB) file is not an invoice
             'max:' . $kb,
         ];
     }
