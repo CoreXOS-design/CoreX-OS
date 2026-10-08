@@ -421,6 +421,14 @@
                                  above. --}}
                             <a href="{{ route('corex.rental-applications.review', $application) }}" class="corex-btn-outline text-xs">Send approval</a>
                         @endif
+                        @if($application->status === 'approved' && $application->property_id && ! in_array($application->id, $leasedApplicationIds, true))
+                            @permission('leases.create')
+                            @feature('rental-leases')
+                            <a href="{{ route('corex.leases.create', ['property_id' => $application->property_id, 'rental_application_id' => $application->id]) }}"
+                               class="corex-btn-primary text-xs" data-test="row-create-lease">Create lease</a>
+                            @endfeature
+                            @endpermission
+                        @endif
                         <a href="{{ route('corex.rental-applications.show', $application) }}" class="corex-btn-outline text-xs">{{ in_array($application->status, \App\Models\RentalApplication::AGENT_EDIT_LOCKED_STATUSES, true) ? 'View' : 'Edit' }}</a>
                         {{-- REGRESSION FIX (2026-09-11, broadened 2026-09-12) —
                              declined/withdrawn's own explicit door back, since

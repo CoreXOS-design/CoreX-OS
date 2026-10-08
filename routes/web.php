@@ -3318,6 +3318,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/rental-applications/identity-gate', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateIdentityGate'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.identity-gate');
     // Item 2 follow-up, 2026-09-10 — lock the property link once submitted for authorisation.
+    // Rentals front-half decisions (8 Oct 2026) - six has()-guarded switches in one narrow saver (also a Setup Wizard saver).
+    Route::post('/settings/rental-applications/front-half', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateFrontHalfDefaults'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.front-half');
+
     Route::post('/settings/rental-applications/property-lock', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updatePropertyLock'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.property-lock');
     // Contact-type ruling, 2026-09-11 — tag the contact "Tenant" on approval.
@@ -3485,6 +3489,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::put('/{rentalApplication}', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'update'])->name('corex.rental-applications.update');
         Route::post('/{rentalApplication}/send', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'send'])
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.send');
+        Route::post('/{rentalApplication}/share-link', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'shareLinkManually'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.share-link');
         Route::get('/{rentalApplication}/pdf', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'pdf'])->name('corex.rental-applications.pdf');
         Route::get('/{rentalApplication}/pdf-inline', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'pdfInline'])->name('corex.rental-applications.pdf-inline');
         Route::get('/{rentalApplication}/documents/{document}', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'downloadDocument'])->name('corex.rental-applications.documents.download');

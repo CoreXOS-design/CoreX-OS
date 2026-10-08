@@ -169,6 +169,44 @@
 
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Signing and month-to-month</h3>
+            </div>
+            <div class="p-5 space-y-4">
+                <div>
+                    <input type="hidden" name="require_end_or_month_to_month_for_signing" value="0">
+                    <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                        <input type="checkbox" name="require_end_or_month_to_month_for_signing" value="1" @checked(old('require_end_or_month_to_month_for_signing', $requireEndOrMonthToMonthForSigning))>
+                        Ask for an end date (or month-to-month) before "prepare for signing"
+                    </label>
+                    <p class="text-xs mt-1" style="color: var(--text-muted);">On by default. A lease with neither cannot go out for signing, so the agreement never prints a blank term. "Create lease only" is always free.</p>
+                </div>
+                <div>
+                    <input type="hidden" name="restore_end_date_on_leaving_month_to_month" value="0">
+                    <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                        <input type="checkbox" name="restore_end_date_on_leaving_month_to_month" value="1" @checked(old('restore_end_date_on_leaving_month_to_month', $restoreEndDateOnLeavingMonthToMonth))>
+                        Put the original end date back when month-to-month is reversed
+                    </label>
+                    <p class="text-xs mt-1" style="color: var(--text-muted);">On by default. Only where the earlier end date is on record (every switch made from now on records it) and is still ahead - a date already past would send the lease straight back to month-to-month.</p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Sentence added to the signed-copy email when the lease cannot go live yet</label>
+                    <textarea name="signed_copy_not_live_note" rows="2" maxlength="{{ \App\Models\LeaseSetting::SIGNED_COPY_NOT_LIVE_NOTE_MAX }}"
+                              class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">{{ old('signed_copy_not_live_note', $signedCopyNotLiveNote) }}</textarea>
+                    <p class="text-xs mt-1" style="color: var(--text-muted);">The tenant still gets their signed copy; this line tells them it is not active yet. Leave empty to say nothing extra.</p>
+                </div>
+                @if($recentFrontHalfChanges->isNotEmpty())
+                    <div class="text-xs" style="color: var(--text-muted);">
+                        <div class="font-semibold mb-1">Recent changes</div>
+                        @foreach($recentFrontHalfChanges as $change)
+                            <div>{{ $change->created_at?->format('j M Y H:i') }} - {{ $change->user?->name ?? 'System' }} changed {{ str_replace('_', ' ', $change->setting_key) }}: {{ \Illuminate\Support\Str::limit((string) $change->old_value, 40) }} &rarr; {{ \Illuminate\Support\Str::limit((string) $change->new_value, 40) }}{{ $change->source === 'wizard' ? ' (setup wizard)' : '' }}</div>
+                        @endforeach
+                    </div>
+                @endif
+            </div>
+        </div>
+
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">Active rental stock (Command Centre)</h3>
             </div>
             <div class="p-5 space-y-3">

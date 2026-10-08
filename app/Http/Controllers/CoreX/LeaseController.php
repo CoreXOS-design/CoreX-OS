@@ -496,7 +496,19 @@ class LeaseController extends Controller
             ? round($rent * $months, 2)
             : ($property?->deposit_amount !== null ? round((float) $property->deposit_amount, 2) : null);
 
+        // Rentals front-half decision D14 (8 Oct 2026, agency setting `prefill_lease_from_application`, default on): the date the
+        // applicant asked to move in and the term they asked for are SUGGESTED as start and end date; the agent can change both.
+        // The end date is the day before the same date N months later (1 Nov + 12 months = 31 Oct).
+        $startDate = null;
+        $endDate = null;
+        if (\App\Models\RentalApplicationQualifyingSetting::prefillLeaseFromApplicationFor((int) $application->agency_id) && $application->occupation_date) {
+            $startDate = $application->occupation_date->copy();
+            $endDate = $application->rental_term_months ? $startDate->copy()->addMonthsNoOverflow((int) $application->rental_term_months)->subDay() : null;
+        }
+
         return [
+            'start_date' => $startDate?->toDateString(),
+            'end_date' => $endDate?->toDateString(),
             'rental_amount' => $rent,
             'deposit_amount' => $deposit,
             'deposit_months' => $months,

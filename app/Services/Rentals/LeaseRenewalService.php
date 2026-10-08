@@ -173,18 +173,42 @@ class LeaseRenewalService
      */
     public function recordMonthToMonth(Lease $lease, ?string $note, User $user): Lease
     {
+        // The end date being cleared is kept on the history line, so reversing can put it back (D12, 8 Oct 2026).
+        $previousEnd = $lease->end_date?->toDateString();
         $lease->update(['is_month_to_month' => true, 'end_date' => null]);
 
-        $this->logEvent($lease, LeaseEvent::TYPE_MONTH_TO_MONTH_SET, 'Lease set to month-to-month' . ($note ? " — {$note}" : ''), $user, ['note' => $note]);
+        $this->logEvent($lease, LeaseEvent::TYPE_MONTH_TO_MONTH_SET, 'Lease set to month-to-month' . ($note ? " — {$note}" : ''), $user, ['note' => $note, 'previous_end_date' => $previousEnd]);
 
         return $lease->fresh();
     }
 
+    /**
+     * Reverses month-to-month. Rentals front-half decision D12 (8 Oct 2026, agency setting
+     * `restore_end_date_on_leaving_month_to_month`, default on): the end date the lease had before it went month-to-month - kept on
+     * the switch's history line, by the agent's switch and by the automatic one alike - comes back, when there is one on record, it is
+     * still ahead, and the lease has no end date now. A lease switched before this existed has none on record and stays without an end date, as before.
+     */
     public function reverseMonthToMonth(Lease $lease, User $user): Lease
     {
-        $lease->update(['is_month_to_month' => false]);
+        $updates = ['is_month_to_month' => false];
+        $restored = null;
 
-        $this->logEvent($lease, LeaseEvent::TYPE_MONTH_TO_MONTH_REVERSED, 'Month-to-month reversed', $user);
+        if (! $lease->end_date && \App\Models\LeaseSetting::restoreEndDateOnLeavingMonthToMonthFor((int) $lease->agency_id)) {
+            $set = LeaseEvent::query()->where('lease_id', $lease->id)->where('event_type', LeaseEvent::TYPE_MONTH_TO_MONTH_SET)
+                ->orderByDesc('id')->first();
+            $previous = $set?->metadata['previous_end_date'] ?? null;
+            // Only a date still ahead: an end date already past would send the lease straight back to month-to-month tonight
+            // (the automatic switch), undoing the reversal the agent just made.
+            if ($previous && \Carbon\Carbon::parse($previous)->startOfDay()->gte(now()->startOfDay())) {
+                $updates['end_date'] = $restored = $previous;
+            }
+        }
+
+        $lease->update($updates);
+
+        $this->logEvent($lease, LeaseEvent::TYPE_MONTH_TO_MONTH_REVERSED,
+            'Month-to-month reversed' . ($restored ? ' - the original end date (' . \Carbon\Carbon::parse($restored)->format('j M Y') . ') was put back' : ''),
+            $user, $restored ? ['restored_end_date' => $restored] : []);
 
         return $lease->fresh();
     }

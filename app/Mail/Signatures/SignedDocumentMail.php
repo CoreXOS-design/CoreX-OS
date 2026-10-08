@@ -30,6 +30,8 @@ class SignedDocumentMail extends BaseSignatureMail
          * @var array{url:string, roles:array<int,string>, offers:array<int,string>}|null
          */
         public ?array $portal = null,
+        /** Rentals front-half D13 - one sentence for a signed lease that cannot go live yet; null otherwise. */
+        public ?string $leaseNote = null,
     ) {}
 
     public function envelope(): Envelope

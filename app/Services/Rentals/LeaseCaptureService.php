@@ -269,6 +269,12 @@ class LeaseCaptureService
             foreach ($this->missingNoticeForSigning($agreement, $input, $agencyId, $previous) as $gap) {
                 $missing[] = $gap;
             }
+            // Rentals front-half decision D8 (agency setting `require_end_or_month_to_month_for_signing`, default on): a lease sent for
+            // signing says how long it runs - an end date, or month-to-month ticked. "Create lease only" is never held to this.
+            if (\App\Models\LeaseSetting::requireEndOrMonthToMonthForSigningFor($agencyId)
+                && empty($input['end_date']) && ! filter_var($input['is_month_to_month'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+                $missing[] = ['key' => 'end_date', 'label' => 'An end date, or month-to-month ticked', 'fix_url' => null];
+            }
             if ($missing !== []) {
                 throw LeaseCaptureIncompleteException::forMissing($missing);
             }
