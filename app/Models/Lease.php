@@ -615,6 +615,28 @@ class Lease extends Model
      * mechanism.
      */
     /**
+     * Recording an outcome is the NEXT step: an active lease whose end date has passed and that has nothing on file yet —
+     * no notice (either side), not already month-to-month, not renewed, and no renewal draft under way. The one definition behind
+     * the rentals needs-action queue's "Record outcome" rows (the Lease Hub's own next-step card is the same rule minus the
+     * month-to-month and renewal-draft exclusions, which it never needed because it is shown one lease at a time).
+     */
+    public function scopeAwaitingOutcome($query, ?string $today = null)
+    {
+        return $query->where('leases.status', self::STATUS_ACTIVE)
+            ->whereNotNull('leases.end_date')
+            ->where('leases.end_date', '<', $today ?? now()->toDateString())
+            ->whereNull('leases.notice_date')
+            ->whereNull('leases.renewed_lease_id')
+            ->where(fn ($m) => $m->whereNull('leases.is_month_to_month')->orWhere('leases.is_month_to_month', false))
+            ->whereNotExists(function ($sub) {
+                $sub->selectRaw('1')->from('leases as renewal')
+                    ->whereColumn('renewal.previous_lease_id', 'leases.id')
+                    ->where('renewal.status', self::STATUS_DRAFT)
+                    ->whereNull('renewal.deleted_at');
+            });
+    }
+
+    /**
      * leases.md §18.7 — leases whose notice terms no agent has confirmed against the signed lease (none on record, or only an
      * agency default). The "to check" list on the lease list and the rentals needs-action queue share this one definition.
      */

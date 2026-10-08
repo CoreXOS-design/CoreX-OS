@@ -11,6 +11,7 @@ use App\Models\Lease;
 use App\Models\LeaseTenant;
 use App\Models\Property;
 use App\Models\RentalFaultReport;
+use App\Models\RentalInspection;
 use App\Models\RentalWorkOrder;
 use App\Models\RolePermission;
 use App\Models\User;
@@ -281,5 +282,139 @@ final class RentalCommandCentreLinkParityTest extends TestCase
         \App\Services\PermissionService::clearCache();
         $this->assertTrue($this->service()->canOpenRoute($this->agent->fresh(), 'corex.rental-inspections.create'));
         $this->actingAs($this->agent)->get(route('corex.rental-inspections.create', $inspectionRow['route_params']))->assertOk();
+    }
+
+    // ── "Inspections due": the tile and the queue are one definition ─────────────
+
+    private function lease(Property $p, array $over = []): Lease
+    {
+        $lease = Lease::create(array_merge([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $p->id, 'status' => Lease::STATUS_ACTIVE,
+            'rental_amount' => 9000, 'start_date' => now()->subMonths(3)->toDateString(), 'end_date' => now()->addYear()->toDateString(),
+            'source' => 'manual', 'created_by_user_id' => $this->agent->id,
+        ], $over));
+        $contact = Contact::create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'first_name' => 'Tess', 'last_name' => 'T' . uniqid(), 'email' => uniqid() . '@example.test']);
+        LeaseTenant::create(['lease_id' => $lease->id, 'contact_id' => $contact->id, 'is_primary' => true]);
+
+        return $lease;
+    }
+
+    private function inspection(Lease $lease, string $type, string $status): RentalInspection
+    {
+        return RentalInspection::create([
+            'agency_id' => $this->agency->id, 'lease_id' => $lease->id, 'property_id' => $lease->property_id,
+            'type' => $type, 'status' => $status, 'created_by_user_id' => $this->agent->id,
+        ]);
+    }
+
+    private const INSPECTION_ROW_TYPES = ['start_inspection', 'start_out_inspection', 'interim_inspection_due', 'open_inspection'];
+
+    /** @dataProvider scopes */
+    public function test_the_inspections_due_tile_counts_exactly_the_properties_the_queue_lists(string $scope): void
+    {
+        $this->grant($this->agent, ['rental_command_centre' => 'all', 'rental_inspections' => 'all', 'leases' => 'all']);
+
+        // 1. an open (draft) inspection on a lease that has already had its move-in done — in the tile, and now in the queue
+        $openOnly = $this->property($this->agent);
+        $l1 = $this->lease($openOnly);
+        $this->inspection($l1, RentalInspection::TYPE_IN, RentalInspection::STATUS_COMPLETED);
+        $this->inspection($l1, RentalInspection::TYPE_OUT, RentalInspection::STATUS_AWAITING_SIGNATURE);
+        // 2. no move-in ever done on an active lease: due (start) — counted once even with two rows
+        $dueOnly = $this->property($this->agent);
+        $this->lease($dueOnly);
+        // 3. both open AND due: still ONE property
+        $both = $this->property($this->agent);
+        $this->inspection($this->lease($both), RentalInspection::TYPE_IN, RentalInspection::STATUS_IN_PROGRESS);
+        // 4. healthy: move-in completed, nothing open
+        $healthy = $this->property($this->agent);
+        $this->inspection($this->lease($healthy), RentalInspection::TYPE_IN, RentalInspection::STATUS_COMPLETED);
+        // 5. cancelled inspection only, move-in done: neither open nor due
+        $cancelled = $this->property($this->agent);
+        $l5 = $this->lease($cancelled);
+        $this->inspection($l5, RentalInspection::TYPE_IN, RentalInspection::STATUS_COMPLETED);
+        $this->inspection($l5, RentalInspection::TYPE_OUT, RentalInspection::STATUS_CANCELLED);
+        // 6. a colleague's property with an open inspection (counts under all/branch, not under own)
+        $theirsOpen = $this->property($this->colleague);
+        $l6 = $this->lease($theirsOpen);
+        $this->inspection($l6, RentalInspection::TYPE_IN, RentalInspection::STATUS_COMPLETED);
+        $this->inspection($l6, RentalInspection::TYPE_OUT, RentalInspection::STATUS_DRAFT);
+        // 7. not a rental listing at all: in neither the tile nor the queue
+        $sale = $this->property($this->agent, ['listing_type' => 'sale']);
+        $this->inspection($this->lease($sale), RentalInspection::TYPE_IN, RentalInspection::STATUS_DRAFT);
+
+        $this->actingAs($this->agent);
+        $tile = $this->service()->tileCounts($this->agent, $scope)['inspections_due'];
+        $listed = $this->service()->tableQuery($this->agent, $scope, ['tile' => 'inspections_due'])->count();
+        $queued = $this->service()->queueItems($this->agent, $scope)
+            ->filter(fn ($i) => in_array($i['type'], self::INSPECTION_ROW_TYPES, true))
+            ->map(fn ($i) => $i['property']?->id)->filter()->unique()->count();
+
+        $this->assertSame($tile, $listed, "tile vs its opened list at scope={$scope}");
+        $this->assertSame($tile, $queued, "tile vs the properties the queue lists at scope={$scope}");
+        $this->assertGreaterThan(0, $tile);
+    }
+
+    public function test_every_property_the_tile_counts_has_a_queue_row_and_the_open_rows_open_that_inspection(): void
+    {
+        $this->grant($this->agent, ['rental_command_centre' => 'all', 'rental_inspections' => 'all']);
+        $open = $this->property($this->agent);
+        $l = $this->lease($open);
+        $this->inspection($l, RentalInspection::TYPE_IN, RentalInspection::STATUS_COMPLETED);
+        $insp = $this->inspection($l, RentalInspection::TYPE_OUT, RentalInspection::STATUS_IN_PROGRESS);
+
+        $this->actingAs($this->agent);
+        $row = $this->service()->queueItems($this->agent, 'all')->first(fn ($i) => $i['type'] === 'open_inspection');
+        $this->assertNotNull($row);
+        $this->assertSame($open->id, $row['property']->id);
+        $this->assertSame('corex.rental-inspections.show', $row['route']);
+        $this->assertSame(['rentalInspection' => $insp->id], $row['route_params']);
+        $this->assertSame('Finish inspection', $row['label']);
+        $this->actingAs($this->agent)->get(route($row['route'], $row['route_params']))->assertOk();
+
+        $this->assertSame([], $this->service()->queueItems($this->agent, 'all')->filter(fn ($i) => $i['type'] === 'open_inspection' && $i['property']->id !== $open->id)->all());
+
+        $insp->update(['status' => RentalInspection::STATUS_COMPLETED]);
+        $this->assertNull($this->service()->queueItems($this->agent, 'all')->first(fn ($i) => $i['type'] === 'open_inspection'), 'finished = off the list');
+    }
+
+    // ── "Record outcome": only where it is the next step ──────────────────────────
+
+    public function test_record_outcome_lists_only_leases_where_recording_an_outcome_is_the_next_step(): void
+    {
+        $this->grant($this->agent, ['rental_command_centre' => 'all', 'rental_inspections' => 'all', 'leases' => 'all']);
+        $ended = fn (array $over = []) => $this->lease($this->property($this->agent), array_merge(['start_date' => now()->subYear()->toDateString(), 'end_date' => now()->subDays(5)->toDateString()], $over));
+        $withMoveIn = function (Lease $l) {
+            $this->inspection($l, RentalInspection::TYPE_IN, RentalInspection::STATUS_COMPLETED);
+            $this->inspection($l, RentalInspection::TYPE_OUT, RentalInspection::STATUS_COMPLETED);
+
+            return $l;
+        };
+
+        $plain = $withMoveIn($ended());                                                                  // ended, nothing on file → LISTED
+        $notice = $withMoveIn($ended(['notice_date' => now()->subDays(40)->toDateString(), 'notice_given_by' => Lease::NOTICE_BY_TENANT]));
+        $monthly = $withMoveIn($ended(['is_month_to_month' => true]));
+        $renewed = $withMoveIn($ended());
+        $renewed->forceFill(['renewed_lease_id' => $plain->id])->save();
+        $hasDraft = $withMoveIn($ended());
+        $this->lease($hasDraft->property, ['status' => Lease::STATUS_DRAFT, 'previous_lease_id' => $hasDraft->id, 'start_date' => now()->addDay()->toDateString(), 'end_date' => now()->addYear()->toDateString()]);
+        $future = $withMoveIn($this->lease($this->property($this->agent)));                              // not ended yet
+        $draftLease = $this->lease($this->property($this->agent), ['status' => Lease::STATUS_DRAFT, 'end_date' => now()->subDays(5)->toDateString()]);
+        $expired = $this->lease($this->property($this->agent), ['status' => Lease::STATUS_EXPIRED, 'end_date' => now()->subDays(5)->toDateString()]);
+
+        $this->actingAs($this->agent);
+        $rows = $this->service()->queueItems($this->agent, 'all')->filter(fn ($i) => $i['type'] === 'record_outcome');
+        $ids = $rows->map(fn ($i) => $i['lease']->id)->all();
+
+        $this->assertSame([$plain->id], $ids, 'only the ended lease with nothing on file');
+        foreach ([$notice, $monthly, $renewed, $hasDraft, $future, $draftLease, $expired] as $lease) {
+            $this->assertNotContains($lease->id, $ids, "lease {$lease->id} is not awaiting an outcome");
+        }
+
+        // and for every row the Lease Hub's own next step IS "Record outcome"
+        $hub = app(\App\Services\Rentals\LeaseHubService::class);
+        foreach ($rows as $row) {
+            $this->assertSame('Record outcome', $hub->nextStep($row['lease']->fresh(), $this->agent)['label']);
+            $this->assertSame(['lease' => $row['lease']->id, 'action' => 'outcomes'], $row['route_params'], 'opens the hub with the outcomes menu');
+        }
     }
 }
