@@ -75,12 +75,12 @@ trait AuthorizesRentalRecordScope
             return;
         }
 
-        // ...and the people on the inspection's LEASE (owner's agent, tenant's agent, lease creator) — the per-record
+        // ...and the inspection's LEASE AGENTS (owner's agent, tenant's agent) — the per-record
         // twin of the lease clause in RentalInspection::scopeVisibleTo() 'own'.
         if ($scope === 'own'
             && $record instanceof \App\Models\RentalInspection
             && $record->lease
-            && $record->lease->isOwnedBy($user)) {
+            && $record->lease->isAgentedBy($user)) {
             return;
         }
 

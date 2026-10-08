@@ -975,14 +975,14 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             // working exactly as before for every pre-existing row (no
             // inspector set) and for anyone who still books their own.
             //
-            // Rentals walk, 8 Oct 2026 — and the people on the LEASE: its owner's agent and its tenant's agent (and
-            // whoever created the lease) are on every inspection of that tenancy too (Lease::scopeInvolvingUsers),
-            // not only the creator/inspector. Same rule as the per-record guard, the due board and the planned dates.
+            // Rentals walk, 8 Oct 2026 — and the lease's own AGENTS: its owner's agent and its tenant's agent are on every
+            // inspection of that tenancy too (Lease::scopeAgentedBy), not only the creator/inspector. Same rule as the
+            // per-record guard and the planned dates.
             $identityIds = $user->dataIdentityIds();
             return $query->where(fn (Builder $q) => $q
                 ->whereIn('rental_inspections.created_by_user_id', $identityIds)
                 ->orWhereIn('rental_inspections.inspector_user_id', $identityIds)
-                ->orWhereHas('lease', fn (Builder $l) => $l->involvingUsers($identityIds)));
+                ->orWhereHas('lease', fn (Builder $l) => $l->agentedBy($identityIds)));
         }
 
         return $query->whereRaw('1 = 0');

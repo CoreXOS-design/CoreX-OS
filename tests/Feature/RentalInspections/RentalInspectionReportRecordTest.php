@@ -224,8 +224,10 @@ final class RentalInspectionReportRecordTest extends TestCase
         $this->assertStringNotContainsString("'In' : 'Routine'", $html);
         // Every header goes through the helper.
         $this->assertStringContainsString('inspectionTypeLabel(chainTail.type)', $html);
-        $this->assertStringContainsString("this.inspectionTypeLabel(insp.type)", $html);
-        $this->assertStringContainsString("inspectionTypeLabel(chainPredecessor.type) + '-inspection", $html);
-        $this->assertStringContainsString("inspectionTypeLabel(tailSection()) + '-inspection", $html);
+        $this->assertStringContainsString("this.inspectionTypeName(insp.type)", $html);
+        $this->assertStringContainsString("inspectionTypeName(chainPredecessor.type)", $html);
+        $this->assertStringContainsString("inspectionTypeName(tailSection())", $html);
+        // …and the sentence form is "Routine inspection" / "In-inspection", never "Routine-inspection".
+        $this->assertStringContainsString("(type === 'in' || type === 'out') ? l + '-inspection' : l + ' inspection'", $html);
     }
 }
