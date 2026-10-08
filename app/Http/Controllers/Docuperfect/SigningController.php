@@ -15,6 +15,7 @@ use App\Models\Docuperfect\SignatureMarker;
 use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Docuperfect\SignatureTemplate;
 use App\Models\FicaSubmission;
+use App\Services\Compliance\FicaGate;
 use App\Services\Docuperfect\DocumentFlattener;
 use App\Services\Docuperfect\SignatureService;
 use App\Services\Docuperfect\LetterheadRefresher;
@@ -139,13 +140,13 @@ class SigningController extends Controller
             }
         }
 
-        // FICA gate — external signers must have submitted FICA before signing
+        // FICA gate — external signers must have SUBMITTED FICA before signing (Johan, 2026-10-08: the
+        // gate lifts on submitted, not only on approved). The one rule lives in FicaGate — sales and
+        // rentals both ask it; this is the one place sales genuinely hard-stops.
         if ($signingRequest->fica_required && $signingRequest->contact_id) {
-            $ficaApproved = FicaSubmission::where('contact_id', $signingRequest->contact_id)
-                ->whereIn('status', ['submitted', 'under_review', 'agent_approved', 'approved'])
-                ->exists();
+            $ficaGateOpen = FicaGate::isOpen((int) $signingRequest->contact_id);
 
-            if (! $ficaApproved) {
+            if (! $ficaGateOpen) {
                 $ficaSub = $signingRequest->fica_submission_id
                     ? FicaSubmission::find($signingRequest->fica_submission_id)
                     : FicaSubmission::where('contact_id', $signingRequest->contact_id)

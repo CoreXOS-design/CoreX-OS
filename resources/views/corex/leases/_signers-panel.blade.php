@@ -22,6 +22,9 @@
                         <span x-show="t.needs.length === 0" x-cloak style="color: var(--ds-green, #16a34a);">— ready to sign</span>
                         <span x-show="t.needs.length > 0" x-cloak style="color: var(--ds-crimson);" x-text="'— needs ' + t.needs.join(' and ')"></span>
                         <a x-show="t.needs.length > 0" x-cloak :href="t.url" target="_blank" rel="noopener" class="underline">update contact</a>
+                        {{-- FICA is a warning, never a stop (Johan, 2026-10-08): submitted or further = nothing to say. --}}
+                        <span x-show="t.fica && !t.fica.open" x-cloak style="color: var(--ds-amber, #b45309);" data-qa="fica-warning" x-text="'— ' + t.fica.label.toLowerCase() + ' (you can carry on)'"></span>
+                        <a x-show="t.fica && !t.fica.open && t.fica.url" x-cloak :href="t.fica && t.fica.url" target="_blank" rel="noopener" class="underline" data-qa="fica-link">request / complete FICA</a>
                     </li>
                 </template>
             </ul>
@@ -41,6 +44,9 @@
                         <span x-show="l.needs.length === 0" x-cloak style="color: var(--ds-green, #16a34a);">— ready to sign</span>
                         <span x-show="l.needs.length > 0" x-cloak style="color: var(--ds-crimson);" x-text="'— needs ' + l.needs.join(' and ')"></span>
                         <a x-show="l.needs.length > 0" x-cloak :href="l.url" target="_blank" rel="noopener" class="underline">update contact</a>
+                        {{-- FICA is a warning, never a stop (Johan, 2026-10-08): submitted or further = nothing to say. --}}
+                        <span x-show="l.fica && !l.fica.open" x-cloak style="color: var(--ds-amber, #b45309);" data-qa="fica-warning" x-text="'— ' + l.fica.label.toLowerCase() + ' (you can carry on)'"></span>
+                        <a x-show="l.fica && !l.fica.open && l.fica.url" x-cloak :href="l.fica && l.fica.url" target="_blank" rel="noopener" class="underline" data-qa="fica-link">request / complete FICA</a>
                     </li>
                 </template>
             </ul>

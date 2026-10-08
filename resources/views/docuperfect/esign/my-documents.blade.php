@@ -544,9 +544,12 @@
                                                 <span class="text-[10px]" style="color: var(--text-muted);" title="Held by {{ $req->signer_name }} for this long">for {{ $heldSince->diffForHumans(null, true) }}</span>
                                             @endif
                                             @if($req->fica_required && $req->contact_id)
-                                                @php $ficaDone = \App\Models\FicaSubmission::where('contact_id', $req->contact_id)->where('status', 'approved')->exists(); @endphp
-                                                @if($ficaDone)
+                                                {{-- The one FICA gate (Johan, 2026-10-08): submitted lifts it, so a submitted FICA is not "Awaiting FICA". --}}
+                                                @php $ficaGateState = \App\Services\Compliance\FicaGate::stateFor($req->contact_id); @endphp
+                                                @if($ficaGateState === \App\Services\Compliance\FicaGate::STATE_APPROVED)
                                                     <span class="ml-1 font-medium" style="color: var(--ds-green);">FICA OK</span>
+                                                @elseif($ficaGateState === \App\Services\Compliance\FicaGate::STATE_SUBMITTED)
+                                                    <span class="ml-1 font-medium" style="color: var(--ds-green);" title="Submitted — with us for review; it does not hold the signer up">FICA submitted</span>
                                                 @else
                                                     <a href="{{ $req->fica_submission_id ? route('compliance.fica.show', $req->fica_submission_id) : '#' }}" class="ml-1 font-medium hover:underline" style="color: var(--ds-amber);">Awaiting FICA</a>
                                                 @endif
@@ -558,9 +561,12 @@
                                             <span class="capitalize" style="color: var(--text-muted);">{{ $req->party_role ?? 'Party' }}</span>
                                             <span style="color: var(--text-muted);">waiting</span>
                                             @if($req->fica_required && $req->contact_id)
-                                                @php $ficaDone = \App\Models\FicaSubmission::where('contact_id', $req->contact_id)->where('status', 'approved')->exists(); @endphp
-                                                @if($ficaDone)
+                                                {{-- The one FICA gate (Johan, 2026-10-08): submitted lifts it, so a submitted FICA is not "Awaiting FICA". --}}
+                                                @php $ficaGateState = \App\Services\Compliance\FicaGate::stateFor($req->contact_id); @endphp
+                                                @if($ficaGateState === \App\Services\Compliance\FicaGate::STATE_APPROVED)
                                                     <span class="ml-1 font-medium" style="color: var(--ds-green);">FICA OK</span>
+                                                @elseif($ficaGateState === \App\Services\Compliance\FicaGate::STATE_SUBMITTED)
+                                                    <span class="ml-1 font-medium" style="color: var(--ds-green);" title="Submitted — with us for review; it does not hold the signer up">FICA submitted</span>
                                                 @else
                                                     <a href="{{ $req->fica_submission_id ? route('compliance.fica.show', $req->fica_submission_id) : '#' }}" class="ml-1 font-medium hover:underline" style="color: var(--ds-amber);">Awaiting FICA</a>
                                                 @endif
