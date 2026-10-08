@@ -121,6 +121,11 @@ class RentalInspectionSettingsController extends Controller
             'plannedDateLeadDays' => RentalInspectionSetting::plannedDateLeadDaysFor($agencyId),
             'outDueLeadDays' => RentalInspectionSetting::outDueLeadDaysFor($agencyId),
             'raiseDueInspectionsEnabled' => RentalInspectionSetting::raiseDueInspectionsEnabledFor($agencyId),
+            // §52 — the walk's rules (value per column) and the reminder lead.
+            'inspectionRules' => collect(RentalInspectionSetting::INSPECTION_RULES)->map(fn ($rule, $column) => [
+                'value' => RentalInspectionSetting::ruleFor($agencyId, $column), 'label' => $rule[1], 'explain' => $rule[2], 'default' => $rule[0],
+            ])->all(),
+            'signingReminderLeadDays' => RentalInspectionSetting::signingReminderLeadDaysFor($agencyId),
         ]);
     }
 
@@ -154,7 +159,9 @@ class RentalInspectionSettingsController extends Controller
             'signatures_required_interim' => ['nullable', 'boolean'],
             'signatures_required_routine' => ['nullable', 'boolean'],
             'omr_mark_threshold' => ['nullable', 'numeric', 'min:0.05', 'max:0.95'],
-        ]);
+            // §52 — the walk's rules, each has()-guarded below; the reminder lead saves only when filled.
+            'signing_reminder_lead_days' => ['nullable', 'integer', 'min:0', 'max:30'],
+        ] + array_fill_keys(array_keys(RentalInspectionSetting::INSPECTION_RULES), ['nullable', 'boolean']));
 
         $attributes = [
             'fault_report_window_days' => $validated['fault_report_window_days'],
@@ -184,6 +191,16 @@ class RentalInspectionSettingsController extends Controller
         }
         if ($request->filled('signing_link_expiry_days')) {
             $attributes['signing_link_expiry_days'] = (int) $validated['signing_link_expiry_days'];
+        }
+        // §52 — same hidden-0-then-checkbox control and the same has() guard, one per rule; the reminder lead saves only
+        // when filled (0 is a real answer: "remind only once it has passed").
+        foreach (array_keys(RentalInspectionSetting::INSPECTION_RULES) as $column) {
+            if ($request->has($column)) {
+                $attributes[$column] = $request->boolean($column);
+            }
+        }
+        if ($request->filled('signing_reminder_lead_days')) {
+            $attributes['signing_reminder_lead_days'] = (int) $validated['signing_reminder_lead_days'];
         }
         // Blank/absent leaves the stored value (and therefore the model's own
         // default) alone; a number saves.

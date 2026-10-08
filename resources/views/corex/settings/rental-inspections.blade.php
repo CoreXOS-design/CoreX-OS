@@ -102,6 +102,24 @@
                         working — the agent can issue a new one from the inspection.
                     </p>
                 </div>
+                <div data-qa="inspection-rules">
+                    <p class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Rules for reminders, cancelling, photos, checks, branding and the completion email</p>
+                    <p class="text-xs mb-2" style="color: var(--text-muted);">Each rule starts at the recommended value shown. Nothing here deletes anything; turn a rule off and the old behaviour returns at once.</p>
+                    @foreach($inspectionRules as $field => $rule)
+                        <div class="mb-3">
+                            <label class="flex items-start gap-2 text-sm font-semibold" style="color:var(--text-primary);">
+                                <input type="hidden" name="{{ $field }}" value="0">
+                                <input type="checkbox" name="{{ $field }}" value="1" class="mt-1" @checked(old($field, $rule['value']))>
+                                <span>{{ $rule['label'] }}</span>
+                            </label>
+                            <p class="text-xs mt-1 ml-6" style="color: var(--text-muted);">{{ $rule['explain'] }} Recommended: {{ $rule['default'] ? 'on' : 'off' }}.</p>
+                        </div>
+                    @endforeach
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Days before the signing window closes that the first reminder goes out</label>
+                    <input type="number" name="signing_reminder_lead_days" value="{{ old('signing_reminder_lead_days', $signingReminderLeadDays) }}" min="0" max="30"
+                           class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">Recommended {{ \App\Models\RentalInspectionSetting::DEFAULT_SIGNING_REMINDER_LEAD_DAYS }}. 0 means: remind only once the window has closed.</p>
+                </div>
                 <div data-qa="signatures-required">
                     <p class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Signatures needed before an inspection can be completed</p>
                     <p class="text-xs mb-2" style="color: var(--text-muted);">

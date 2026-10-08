@@ -760,6 +760,8 @@ class AgencySetupWizardController extends Controller
                     'public_link_expiry_days' => \App\Models\RentalInspectionSetting::publicLinkExpiryDaysFor($agency->id),
                     'signing_link_enabled' => \App\Models\RentalInspectionSetting::signingLinkEnabledFor($agency->id),
                     'signing_link_expiry_days' => \App\Models\RentalInspectionSetting::signingLinkExpiryDaysFor($agency->id),
+                    // §52 — the walk's rules and the reminder lead.
+                    'signing_reminder_lead_days' => \App\Models\RentalInspectionSetting::signingReminderLeadDaysFor($agency->id),
                     // §49 — signatures required to complete an inspection, per type.
                     'signatures_required_in' => \App\Models\RentalInspectionSetting::signaturesRequiredFor($agency->id, 'in'),
                     'signatures_required_out' => \App\Models\RentalInspectionSetting::signaturesRequiredFor($agency->id, 'out'),
@@ -786,6 +788,15 @@ class AgencySetupWizardController extends Controller
                     'raise_due_inspections_enabled' => \App\Models\RentalInspectionSetting::raiseDueInspectionsEnabledFor($agency->id),
                     'planned_date_lead_days' => \App\Models\RentalInspectionSetting::plannedDateLeadDaysFor($agency->id),
                     'out_due_lead_days' => \App\Models\RentalInspectionSetting::outDueLeadDaysFor($agency->id),
+                    // §52 — the rules, named one by one (a missing arm would silently show the hardcoded default).
+                    'signing_window_reminders_enabled' => \App\Models\RentalInspectionSetting::ruleFor($agency->id, 'signing_window_reminders_enabled'),
+                    'calendar_include_lease_agents' => \App\Models\RentalInspectionSetting::ruleFor($agency->id, 'calendar_include_lease_agents'),
+                    'cancel_signed_requires_edit' => \App\Models\RentalInspectionSetting::ruleFor($agency->id, 'cancel_signed_requires_edit'),
+                    'photos_required_to_sign' => \App\Models\RentalInspectionSetting::ruleFor($agency->id, 'photos_required_to_sign'),
+                    'empty_checklist_blocks_signing' => \App\Models\RentalInspectionSetting::ruleFor($agency->id, 'empty_checklist_blocks_signing'),
+                    'routine_follows_full_checks' => \App\Models\RentalInspectionSetting::ruleFor($agency->id, 'routine_follows_full_checks'),
+                    'hold_pdf_when_refused' => \App\Models\RentalInspectionSetting::ruleFor($agency->id, 'hold_pdf_when_refused'),
+                    'report_shows_agency_branding' => \App\Models\RentalInspectionSetting::ruleFor($agency->id, 'report_shows_agency_branding'),
                     default => $control['default'] ?? null,
                 },
                 // §41-follow-up (Job 3, 2026-09-28) — this wizard step's own
