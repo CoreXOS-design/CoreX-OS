@@ -681,3 +681,18 @@ The `GET …/landlord/decisions` endpoint is unchanged (the shell reads it for t
 **Agent-reported faults** are invisible to the owner (list, detail → 404, no email) until "Save and send to owner"; the one mail then carries the fault link. Proven in `OwnerFaultScreenTest`.
 
 **Tests:** `tests/Feature/RentalFaultFlow/OwnerFaultScreenTest.php`.
+
+---
+
+## 25. Who is signed in, links made for somebody else, and the Tenant / Owner switch (8 Oct 2026, QA1 — Johan's identity ruling)
+
+**Suspected and DISPROVED: "the owner link opens the tenant's information".** Two genuinely separate sessions on QA1 for lease 94 (tenant `mtoloayanda93`, owner `ndlovu5308`), each signed in through the real sign-in path (look-up → emailed code → set password → browser-style session), then every portal endpoint fetched per session: the tenant's session resolved only the tenant role (leases 94 and 93; every `landlord/*` list empty), the owner's only the owner role (every tenant list empty). No owner name / phone / email / agent note / decision / contractor list reached the tenant; no tenant phone / email / original wording / documents reached the owner (the owner's property card shows the tenant's first name only, by design — §3). The tenant's own text on a fault is blank where the owner sees the agent's version. Locked in by `tests/Feature/RentalPortalAccess/PortalIdentityTest.php`.
+
+**What actually went wrong.** The page showed only a logo and "Log out", and `/portal?email=<owner>` with a session already signed in IGNORED the email (`init()` only pre-filled the sign-in form, which a signed-in browser never shows): the tenant's portal opened with nothing saying whose it was.
+
+**Built (all in `rentals/portal/shell.blade.php`, mobile-first):**
+1. **A "Signed in as <name> · Tenant|Owner view" line under the header, always** (name from `/client/me`; the role in view; the full email on press-and-hold/hover).
+2. **A link for someone else is never silently shown as this person's portal.** If the link's `?email=` is not the signed-in login → a card: "You are signed in as <name>. This link is for <masked email>." with ONE button, "Sign out and sign in as <masked email>" — it signs out and reloads on the same link, so the sign-in opens pre-filled. Nothing of the signed-in person's portal is fetched while the card is up. Same card for an owner fault link (`?fault=<id>`) when the person has no part in that repair ("This link is for a repair on a property you have no part in").
+3. **One login that is both tenant and owner** (e.g. can.assurance on Lease 21): a **Tenant | Owner** switch at the top (replaces "My Tenancy / My Properties"), the last side used is remembered (browser storage, per login, safe if blocked), and the owner email's "Review and decide" link always lands on the **Owner** view on that fault whichever side was last used (and makes Owner the remembered side). Both sides' data is loaded at sign-in, so switching is instant.
+
+**Tests:** `tests/js/portal-shell.test.mjs` (8 new: header line, wrong-email card, same email any case, nobody signed in, sign-out reload, fault link for the wrong person, remembered side + owner link override, properties on switch), `PortalIdentityTest` (4).

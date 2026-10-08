@@ -27,6 +27,12 @@
         header.top button { background:transparent; border:1px solid var(--border); color:var(--brand); border-radius:8px; padding:6px 10px; font-size:13px; }
         .card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px; margin-bottom:14px; }
         .muted { color:var(--muted); font-size:13px; }
+        .whoami { background:#fff; border-bottom:1px solid var(--border); padding:6px 16px; font-size:13px; color:var(--text); display:flex; gap:6px; align-items:baseline; white-space:nowrap; overflow:hidden; }
+        .whoami .who-name { font-weight:700; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+        .whoami .who-role { color:var(--muted); flex:0 0 auto; }
+        .roleswitch { display:flex; gap:0; margin:0 0 12px; border:1px solid var(--border); border-radius:10px; overflow:hidden; background:#fff; }
+        .roleswitch button { flex:1; border:0; background:transparent; padding:11px 8px; font-size:15px; font-weight:600; color:var(--muted); }
+        .roleswitch button.active { background:var(--brand); color:#fff; }
         .steps { margin:8px 0 2px; }
         .step { display:flex; align-items:baseline; gap:10px; padding:5px 0; color:var(--muted); font-size:14px; flex-wrap:wrap; }
         .step .dot { width:10px; height:10px; border-radius:50%; border:2px solid #c3cad6; flex:0 0 10px; align-self:center; }
@@ -94,6 +100,12 @@
         </template>
         <button x-show="session.authenticated" @click="logout()">Log out</button>
     </header>
+    {{-- Who is signed in and which side of the portal is on screen - always, one compact line (a shared browser must never leave this unclear). --}}
+    <div class="whoami" data-portal-who x-show="session.authenticated && me" x-cloak>
+        <span class="muted">Signed in as</span>
+        <span class="who-name" data-who-name :title="whoEmail()" x-text="whoName()"></span>
+        <span class="who-role" data-who-role x-show="roleLabel()" x-text="'· ' + roleLabel() + ' view'"></span>
+    </div>
 
     <div class="wrap">
         <template x-if="loading"><p class="muted">Loading…</p></template>
@@ -139,13 +151,25 @@
             </div>
         </template>
 
+        {{-- The link was made for someone else (or for a repair this person has no part in): never show the signed-in person's portal as if it were the link's. --}}
+        <template x-if="!loading && session.authenticated && linkIssue">
+            <div class="card" data-link-mismatch>
+                <h2>This link is not for this account</h2>
+                <p>You are signed in as <strong x-text="whoName()"></strong>.</p>
+                <p x-show="linkIssue.kind === 'email'">This link is for <strong x-text="linkIssue.masked"></strong>.</p>
+                <p x-show="linkIssue.kind === 'fault'">This link is for a repair on a property you have no part in.</p>
+                <button class="btn btn-primary" @click="logout()" x-text="linkIssue.masked ? 'Sign out and sign in as ' + linkIssue.masked : 'Sign out and sign in again'"></button>
+            </div>
+        </template>
+
         {{-- ── AUTHENTICATED ───────────────────────────────────────── --}}
-        <template x-if="!loading && session.authenticated">
+        <template x-if="!loading && session.authenticated && !linkIssue">
             <div>
+                {{-- One login that is both tenant and owner: a clear switch, remembering the last choice. --}}
                 <template x-if="roles.length > 1">
-                    <div class="tabs">
-                        <button :class="{active: activeRole==='tenant'}" @click="setRole('tenant')" x-show="roles.includes('tenant')">My Tenancy</button>
-                        <button :class="{active: activeRole==='landlord'}" @click="setRole('landlord')" x-show="roles.includes('landlord')">My Properties</button>
+                    <div class="roleswitch" data-role-switch role="tablist">
+                        <button :class="{active: activeRole==='tenant'}" @click="setRole('tenant')" x-show="roles.includes('tenant')" data-role-tenant>Tenant</button>
+                        <button :class="{active: activeRole==='landlord'}" @click="setRole('landlord')" x-show="roles.includes('landlord')" data-role-owner>Owner</button>
                     </div>
                 </template>
 
@@ -609,6 +633,8 @@ function rentalsPortal() {
         branding: @json($branding ?? null),
         busy: {},
         session: { authenticated: false },
+        me: null,          // who /client/me says is signed in
+        linkIssue: null,   // {kind:'email'|'fault', masked} when the link is not for this account
         roles: [],
         activeRole: null,
         login: { step: 'email', email: '', password: '', code: '', newPassword: '', newPasswordConfirm: '', error: null, mustSetPassword: false },
@@ -648,15 +674,34 @@ function rentalsPortal() {
         async init() {
             // rental-portal-access.md §16 — a personal link (?email=…) arrives with the email already filled in.
             // Only pre-fills the field: nothing is looked up or sent until the person presses Continue.
-            const linked = new URLSearchParams(window.location.search).get('email');
-            if (linked && linked.length <= 255 && /^[^\s@]+@[^\s@]+$/.test(linked)) this.login.email = linked.trim();
+            const linked = (new URLSearchParams(window.location.search).get('email') || '').trim();
+            if (linked && linked.length <= 255 && /^[^\s@]+@[^\s@]+$/.test(linked)) this.login.email = linked;
             const me = await portalFetch('/api/v1/client/me');
             if (me.ok) {
                 this.session.authenticated = true;
-                await this.detectRoles();
+                this.me = me.data;
+                // A link made for ANOTHER person must never silently show this person's portal: say whose session this is.
+                const signedInAs = String((me.data && me.data.client && me.data.client.email) || '').toLowerCase();
+                if (this.login.email && signedInAs && this.login.email.toLowerCase() !== signedInAs) {
+                    this.linkIssue = { kind: 'email', masked: this.maskEmail(this.login.email) };
+                } else {
+                    await this.detectRoles();
+                }
             }
             this.loading = false;
         },
+
+        // ── who is signed in, which side is on screen, and links made for somebody else ──
+        whoName() { const c = (this.me && this.me.contact) || {}; return (c.full_name || [c.first_name, c.last_name].filter(Boolean).join(' ') || (this.me && this.me.client && this.me.client.email) || 'you').trim(); },
+        whoEmail() { return (this.me && this.me.client && this.me.client.email) || ''; },
+        roleLabel() { return this.linkIssue ? '' : (this.activeRole === 'landlord' ? 'Owner' : (this.activeRole === 'tenant' ? 'Tenant' : '')); },
+        maskEmail(e) {
+            const [u, d] = String(e).split('@');
+            if (!d) return '';
+            return (u.length <= 2 ? u[0] + '*' : u[0] + '*'.repeat(Math.min(6, u.length - 2)) + u[u.length - 1]) + '@' + d;
+        },
+        rememberedRole() { try { return window.localStorage.getItem('portal.role.' + ((this.me && this.me.client && this.me.client.id) || '')) || null; } catch (e) { return null; } },
+        rememberRole(role) { try { window.localStorage.setItem('portal.role.' + ((this.me && this.me.client && this.me.client.id) || ''), role); } catch (e) { /* private window: the choice just is not remembered */ } },
 
         async loadBranding() {
             const r = await portalFetch('/api/v1/client/rentals/branding');
@@ -671,25 +716,33 @@ function rentalsPortal() {
             const props = await portalFetch('/api/v1/client/rentals/landlord/properties');
             if (props.ok && props.data.properties && props.data.properties.length) roles.push('landlord');
             this.roles = roles;
-            this.activeRole = roles[0] || null;
-            if (this.activeRole === 'tenant') { this.tenantLeases = leases.data.leases; this.loadOverview(); this.loadWorkOrders(); this.loadFaultReports(); }
-            if (this.activeRole === 'landlord') { this.landlordProperties = props.data.properties; this.loadOverview(); this.loadDecisions(); this.loadLandlordFaults(); this.loadWorkOrders(); }
+            if (leases.ok && leases.data.leases) this.tenantLeases = leases.data.leases;
+            if (props.ok && props.data.properties) this.landlordProperties = props.data.properties;
+            // The last side this person used (one login can be both tenant and owner); otherwise the first they have.
+            const remembered = this.rememberedRole();
+            this.activeRole = (remembered && roles.includes(remembered)) ? remembered : (roles[0] || null);
 
-            // The owner's email links to /portal?fault=<id>: whoever follows it is the OWNER for this visit (one login can be both a
-            // tenant and an owner), and lands on that exact fault with the decision controls.
+            // The owner's email links to /portal?fault=<id>: whoever follows it is the OWNER for this visit, whichever side was last
+            // used, and lands on that exact fault with the decision controls. A person with no part in that repair is told so.
             const linkedFault = parseInt(new URLSearchParams(window.location.search).get('fault') || '', 10);
-            if (linkedFault > 0 && roles.includes('landlord')) {
+            if (linkedFault > 0) {
+                const opened = roles.includes('landlord') ? await portalFetch('/api/v1/client/rentals/landlord/fault-reports/' + linkedFault) : { ok: false };
+                if (!opened.ok) { this.linkIssue = { kind: 'fault', masked: null }; return; }
                 this.activeRole = 'landlord';
-                this.landlordProperties = props.data.properties;
+                this.rememberRole('landlord');
                 this.landlordTab = 'faults';
-                this.loadOverview();
-                this.loadLandlordFaults();
-                this.openFault(linkedFault);
+                this.loadOverview(); this.loadDecisions(); this.loadLandlordFaults(); this.loadWorkOrders();
+                this.faultDetail = opened.data.fault_report;
+                this.$nextTick(() => { const el = document.querySelector('[data-fault-detail]'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+                return;
             }
+            if (this.activeRole === 'tenant') { this.loadOverview(); this.loadWorkOrders(); this.loadFaultReports(); }
+            if (this.activeRole === 'landlord') { this.loadOverview(); this.loadDecisions(); this.loadLandlordFaults(); this.loadWorkOrders(); }
         },
 
         setRole(role) {
             this.activeRole = role;
+            this.rememberRole(role);
             if (role === 'tenant') { this.tenantTab = 'home'; this.tenantLeases.length || this.loadTenantLeases(); this.loadWorkOrders(); this.loadFaultReports(); }
             if (role === 'landlord') { this.landlordTab = 'home'; this.loadDecisions(); this.loadLandlordFaults(); this.loadWorkOrders(); }
             this.loadOverview();

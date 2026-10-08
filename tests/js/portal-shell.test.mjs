@@ -14,8 +14,8 @@ const blade = fs.readFileSync(path.join(here, '../../resources/views/rentals/por
 const script = blade.slice(blade.lastIndexOf('<script>') + 8, blade.lastIndexOf('</script>')).replace('@json($branding ?? null)', 'null');
 
 /** A stub browser; `calls` records every network request. */
-function boot({ fetchImpl } = {}) {
-  const calls = { xhr: [], fetch: [] };
+function boot({ fetchImpl, search = '', storage = {} } = {}) {
+  const calls = { xhr: [], fetch: [], reloaded: false };
   const urls = new Set();
   class FakeXHR {
     constructor() { this.upload = {}; this.headers = {}; calls.xhr.push(this); }
@@ -26,7 +26,10 @@ function boot({ fetchImpl } = {}) {
   }
   FakeXHR.auto = true; FakeXHR.status = 201; FakeXHR.reply = { fault_report: { id: 7 } };
   const sandbox = {
-    window: { location: { search: '' }, crypto: null, confirm: () => true },
+    window: {
+      location: { search, reload: () => { calls.reloaded = true; } }, crypto: null, confirm: () => true,
+      localStorage: { getItem: (k) => (k in storage ? storage[k] : null), setItem: (k, v) => { storage[k] = String(v); } },
+    },
     document: { cookie: 'XSRF-TOKEN=tok', createElement: () => ({}) },
     fetch: async (url, opts) => { calls.fetch.push({ url, opts }); return fetchImpl ? fetchImpl(url, opts) : { ok: true, status: 200, json: async () => ({}) }; },
     XMLHttpRequest: FakeXHR, URL: Object.assign(function () {}, { createObjectURL: () => { const u = 'blob:' + urls.size; urls.add(u); return u; }, revokeObjectURL: (u) => urls.delete(u) }),
@@ -37,6 +40,7 @@ function boot({ fetchImpl } = {}) {
   vm.runInContext(script + '\nthis.__portal = rentalsPortal();', sandbox);
   const p = sandbox.__portal;
   p.photoLimits = { max_photos: 3, max_photo_mb: 1 };
+  p.$nextTick = () => {};   // Alpine's helper: the page scrolls after render, nothing to do in Node
   return { p, calls, FakeXHR, urls };
 }
 
@@ -253,3 +257,105 @@ test('the Home FAQ opens one answer at a time per question', () => {
   p.toggleFaq(5, 'notice');
   assert.equal(p.isFaqOpen(5, 'notice'), false);
 });
+
+// ── Johan, 8 Oct 2026: who is signed in, links made for somebody else, and the Tenant / Owner switch ──
+function portalApi({ me, leases = [], properties = [], faultOk = true, calls = [] } = {}) {
+  return async (url, opts) => {
+    calls.push(url);
+    const reply = (ok, data, status = ok ? 200 : 404) => ({ ok, status, json: async () => data });
+    if (url.endsWith('/api/v1/client/me')) return me ? reply(true, me) : reply(false, {}, 401);
+    if (url.endsWith('/rentals/leases')) return reply(true, { leases });
+    if (url.endsWith('/rentals/landlord/properties')) return reply(true, { properties });
+    if (/\/landlord\/fault-reports\/\d+$/.test(url)) return faultOk ? reply(true, { fault_report: { id: 50, title: 'Power tripping', awaiting_decision: true } }) : reply(false, { message: 'not found' });
+    return reply(true, { fault_reports: [], work_orders: [], variations: [], documents: [], homes: [], branding: null });
+  };
+}
+const TENANT_ME = { client: { id: 29, email: 'tina@example.com' }, contact: { id: 1, full_name: 'Tina Tenant' } };
+const OWNER_ME = { client: { id: 30, email: 'ndlovu5308@gmail.com' }, contact: { id: 2, full_name: 'Siyabonga Simamane' } };
+
+test('the header always says who is signed in and which side is on screen', async () => {
+  const { p } = boot({ fetchImpl: portalApi({ me: TENANT_ME, leases: [{ id: 94 }] }) });
+  await p.init(); await settle();
+  assert.equal(p.whoName(), 'Tina Tenant');
+  assert.equal(p.roleLabel(), 'Tenant');
+  const o = boot({ fetchImpl: portalApi({ me: OWNER_ME, properties: [{ id: 6 }] }) });
+  await o.p.init(); await settle();
+  assert.equal(o.p.whoName(), 'Siyabonga Simamane');
+  assert.equal(o.p.roleLabel(), 'Owner');
+});
+
+test('a link for ANOTHER email never shows the signed-in person\'s portal: it says who is signed in and whose link it is', async () => {
+  const calls = [];
+  const { p } = boot({ search: '?email=ndlovu5308%40gmail.com', fetchImpl: portalApi({ me: TENANT_ME, leases: [{ id: 94 }], calls }) });
+  await p.init(); await settle();
+  assert.equal(p.linkIssue.kind, 'email');
+  assert.equal(p.linkIssue.masked, 'n******8@gmail.com');
+  assert.equal(p.roles.length, 0, 'no portal data was loaded for the wrong person');
+  assert.ok(!calls.some((u) => u.endsWith('/rentals/leases')), 'the tenant\'s leases were not even fetched');
+  assert.equal(p.whoName(), 'Tina Tenant');
+  assert.equal(p.roleLabel(), '', 'no role is claimed while the link does not match');
+});
+
+test('the same email on the link (any capitals) is the normal portal', async () => {
+  const { p } = boot({ search: '?email=TINA%40example.com', fetchImpl: portalApi({ me: TENANT_ME, leases: [{ id: 94 }] }) });
+  await p.init(); await settle();
+  assert.equal(p.linkIssue, null);
+  assert.equal(p.roles.join(','), 'tenant');
+});
+
+test('nobody signed in: the link\'s email is pre-filled on the sign-in form', async () => {
+  const { p } = boot({ search: '?email=ndlovu5308%40gmail.com', fetchImpl: portalApi({ me: null }) });
+  await p.init();
+  assert.equal(p.session.authenticated, false);
+  assert.equal(p.login.email, 'ndlovu5308@gmail.com');
+});
+
+test('signing out from the mismatch card reloads on the same link, so the sign-in opens pre-filled', async () => {
+  const { p, calls } = boot({ search: '?email=ndlovu5308%40gmail.com', fetchImpl: portalApi({ me: TENANT_ME, leases: [{ id: 94 }] }) });
+  await p.init(); await settle();
+  await p.logout();
+  assert.ok(calls.fetch.some((c) => c.url.endsWith('/client-auth/logout') && c.opts.method === 'POST'));
+  assert.equal(calls.reloaded, true);
+});
+
+test('an owner fault link for a person with no part in that repair is told so, not shown their own portal', async () => {
+  const { p } = boot({ search: '?fault=50', fetchImpl: portalApi({ me: TENANT_ME, leases: [{ id: 94 }] }) });
+  await p.init(); await settle();
+  assert.equal(p.linkIssue.kind, 'fault');
+  assert.equal(p.faultDetail, null);
+  const o = boot({ search: '?fault=999&email=ndlovu5308%40gmail.com', fetchImpl: portalApi({ me: OWNER_ME, properties: [{ id: 6 }], faultOk: false }) });
+  await o.p.init(); await settle();
+  assert.equal(o.p.linkIssue.kind, 'fault', 'an owner whose property does not include that fault is told so too');
+});
+
+test('one login that is both tenant and owner: the last side is remembered, and the owner\'s fault link always lands on the owner side', async () => {
+  const both = { me: { client: { id: 31, email: 'can.assurance@gmail.com' }, contact: { id: 3, full_name: 'Test Both' } }, leases: [{ id: 21 }], properties: [{ id: 5 }] };
+  const storage = {};
+  const a = boot({ storage, fetchImpl: portalApi(both) });
+  await a.p.init(); await settle();
+  assert.equal(a.p.roles.join(','), 'tenant,landlord');
+  assert.equal(a.p.activeRole, 'tenant', 'first visit: the first side');
+  a.p.setRole('landlord'); await settle();
+  assert.equal(storage['portal.role.31'], 'landlord');
+  // next visit opens on the Owner side (the choice was remembered)
+  const b = boot({ storage, fetchImpl: portalApi(both) });
+  await b.p.init(); await settle();
+  assert.equal(b.p.activeRole, 'landlord');
+  // Tenant was last used, but the owner email's link goes to the Owner view on that fault
+  storage['portal.role.31'] = 'tenant';
+  const c = boot({ storage, search: '?fault=50&email=can.assurance%40gmail.com', fetchImpl: portalApi(both) });
+  await c.p.init(); await settle();
+  assert.equal(c.p.activeRole, 'landlord');
+  assert.equal(c.p.landlordTab, 'faults');
+  assert.equal(c.p.faultDetail.id, 50);
+  assert.equal(storage['portal.role.31'], 'landlord', 'and Owner is now the remembered side');
+});
+
+test('the Properties list is there when the second side is switched to', async () => {
+  const both = { me: TENANT_ME, leases: [{ id: 21 }], properties: [{ id: 5, address: 'x' }] };
+  const { p } = boot({ fetchImpl: portalApi(both) });
+  await p.init(); await settle();
+  p.setRole('landlord');
+  assert.equal(p.landlordProperties.length, 1);
+});
+
