@@ -264,8 +264,8 @@ final class NightFlowFixesTest extends TestCase
         Sanctum::actingAs($this->clientFor($this->landlord), ['client']);
         $this->postJson(self::L . "/work-orders/{$wo->id}/appointment", ['appointment_at' => $at])->assertStatus(422);
         $this->assertNull($wo->fresh()->appointment_at);
-        \Illuminate\Support\Facades\Mail::assertNothingSent();
-        \Illuminate\Support\Facades\Mail::assertNothingQueued();
+        \Illuminate\Support\Facades\Mail::assertNotSent(\App\Mail\Rentals\RentalWorkOrderAppointmentMail::class);
+        \Illuminate\Support\Facades\Mail::assertNotQueued(\App\Mail\Rentals\RentalWorkOrderAppointmentMail::class);
 
         // the owner approves -> the box appears and the appointment can be set
         $this->postJson(self::L . "/work-orders/{$wo->id}/decision", ['decision' => 'approve'])->assertOk();

@@ -330,7 +330,15 @@ class OwnerFaultScreenTest extends TestCase
         $this->assertSame('Sent to our maintenance team for scheduling', $p['current_label']);
         $this->assertNotNull(collect($p['steps'])->firstWhere('key', 'sent_to_contractor')['at']);
 
-        app(RentalWorkOrderService::class)->setAppointment($wo, now()->addDays(3)->setTime(10, 30), null, $this->agent);
+        // 9 Oct 2026 (Johan): an appointment only once the job is approved - refused until the owner's go-ahead is recorded
+        try {
+            app(RentalWorkOrderService::class)->setAppointment($wo, now()->addDays(3)->setTime(10, 30), null, $this->agent);
+            $this->fail('an unapproved job must not get an appointment');
+        } catch (\LogicException $e) {
+            $this->assertStringContainsString('once the job has been approved', $e->getMessage());
+        }
+        $wo->fresh()->recordApproval($this->agent, ['decision' => 'approved', 'evidence_type' => \App\Models\RentalApproval::EVIDENCE_VERBAL_NOTE, 'evidence_text' => 'owner agreed by phone']);
+        app(RentalWorkOrderService::class)->setAppointment($wo->fresh(), now()->addDays(3)->setTime(10, 30), null, $this->agent);
         $p = $this->progress($fault->fresh());
         $step = collect($p['steps'])->firstWhere('key', 'appointment_set');
         $this->assertSame('appointment_set', $p['current']);

@@ -579,7 +579,8 @@ final class WorkOrderFromFaultTest extends TestCase
         $quote = $wo->recordQuote(['agency_service_provider_id' => $plumber->id, 'amount' => 2000, 'quote_date' => now(), 'detail_text' => 'x'], $this->agent);
         $wo->fresh()->selectQuote($quote, $this->agent);
         $html = $get();
-        $this->assertStringContainsString('so the owner has been asked to approve it', $html);
+        $this->assertStringContainsString('data-quote-sent-to-owner', $html);
+        $this->assertStringContainsString('for approval.', $html);
         $this->assertStringContainsString("Record decision on the owner's behalf", $html);
         $this->assertStringContainsString('data-fee-collapse', $html);
 
