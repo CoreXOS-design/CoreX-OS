@@ -172,7 +172,7 @@ Route::prefix('v1/client-auth')->middleware([\Laravel\Sanctum\Http\Middleware\En
     });
 
     // Client sanctum token only
-    Route::middleware(['client.auth', 'client.ability'])->group(function () {
+    Route::middleware(['client.auth', 'client.ability', 'portal.same-login'])->group(function () {
         Route::post('/password/change', [ClientAuthController::class, 'changePassword'])->name('client-auth.password.change');
         Route::post('/agency/select',   [ClientAuthController::class, 'selectAgency'])->name('client-auth.agency.select');
         Route::post('/logout',          [ClientAuthController::class, 'logout'])->name('client-auth.logout');
@@ -212,7 +212,7 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
 
     // AT-445 — .ai/specs/rental-portal-access.md §9. Tenant rentals.
     // §22 — `portal.once`: every state-changing request in the tenant / owner portal does its work once (double tap = one record).
-    Route::prefix('rentals')->name('client.rentals.')->middleware('portal.once')->group(function () {
+    Route::prefix('rentals')->name('client.rentals.')->middleware(['portal.same-login', 'portal.once'])->group(function () {
         // §22 — the agency's logo / name for the portal header (any signed-in tenant or owner).
         Route::get('/branding', [ClientTenantRentalsController::class, 'branding'])->name('branding');
         // §22 — a PDF / document on a fault type's first-aid panel (gated to the person's own agency's active fault types).

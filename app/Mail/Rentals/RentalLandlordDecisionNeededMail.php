@@ -25,7 +25,7 @@ class RentalLandlordDecisionNeededMail extends Mailable implements ShouldQueue
     public string $title;
     public string $portalUrl;
 
-    public function __construct(public RentalFaultReport|RentalWorkOrder $decisionSubject, string $recipientName, ?string $recipientEmail = null)
+    public function __construct(public RentalFaultReport|RentalWorkOrder $decisionSubject, string $recipientName, ?string $recipientEmail = null, ?\App\Models\Contact $recipient = null)
     {
         $this->onQueue('mail');
         $this->recipientName = $recipientName ?: 'there';
@@ -36,7 +36,7 @@ class RentalLandlordDecisionNeededMail extends Mailable implements ShouldQueue
         // (signed recipient reference + view + target), never by hand.
         $target = $decisionSubject instanceof RentalFaultReport ? ['fault' => $decisionSubject->id] : ['wo' => $decisionSubject->id];
         $this->portalUrl = $recipientEmail
-            ? \App\Support\PortalLink::forEmail($recipientEmail, \App\Support\PortalLink::VIEW_OWNER, $target)
+            ? \App\Support\PortalLink::forEmail($recipientEmail, \App\Support\PortalLink::VIEW_OWNER, $target, (int) $recipient?->id)
             : \App\Support\PortalLink::unaddressed(\App\Support\PortalLink::VIEW_OWNER, $target);
     }
 

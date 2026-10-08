@@ -208,7 +208,7 @@ class RentalInspectionNotificationService
             return route('corex.rental-inspections.show', $inspection);
         }
 
-        return \App\Support\PortalLink::forEmail((string) $recipient['email'], \App\Support\PortalLink::viewForRole((string) $recipient['role']), ['insp' => $inspection->id]);
+        return \App\Support\PortalLink::forEmail((string) $recipient['email'], \App\Support\PortalLink::viewForRole((string) $recipient['role']), ['insp' => $inspection->id], (int) ($recipient['contact_id'] ?? 0));
     }
 
     private function sendMail(RentalInspection $inspection, array $recipient, string $eventLabel, ?string $reason): void

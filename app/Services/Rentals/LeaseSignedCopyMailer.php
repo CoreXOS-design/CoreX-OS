@@ -76,7 +76,7 @@ class LeaseSignedCopyMailer
                     pdfPath: $path,
                     pdfFilename: $name,
                     documents: [['path' => $path, 'name' => $name, 'mime' => $document->mime_type ?: 'application/pdf']],
-                    portal: $this->portal->mailBlockForLease($lease, $email),
+                    portal: $this->portal->mailBlockForLease($lease, $email, (int) $contact->id),
                 ))->fromAgent($agent);
 
                 $this->dispatcher->send($email, $mail);

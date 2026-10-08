@@ -35,7 +35,7 @@ class RentalPortalNotificationService
 
         foreach ($landlords as $landlord) {
             if ($landlord->email) {
-                Mail::to($landlord->email)->send(new RentalLandlordDecisionNeededMail($subject, $landlord->first_name ?? '', $landlord->email));
+                Mail::to($landlord->email)->send(new RentalLandlordDecisionNeededMail($subject, $landlord->first_name ?? '', $landlord->email, $landlord));
             }
         }
     }

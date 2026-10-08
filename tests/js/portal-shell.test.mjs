@@ -14,8 +14,8 @@ const blade = fs.readFileSync(path.join(here, '../../resources/views/rentals/por
 const scriptRaw = blade.slice(blade.lastIndexOf('<script>') + 8, blade.lastIndexOf('</script>')).replace('@json($branding ?? null)', 'null');
 
 /** A stub browser; `calls` records every network request. */
-function boot({ fetchImpl, search = '', storage = {}, linkedEmail = null } = {}) {
-  const script = scriptRaw.replace('@json($linkedEmail ?? null)', JSON.stringify(linkedEmail));   // the address the SERVER read from a mail link's signed reference
+function boot({ fetchImpl, search = '', storage = {}, linkedEmail = null, linkedContactId = null } = {}) {
+  const script = scriptRaw.replace('@json($linkedEmail ?? null)', JSON.stringify(linkedEmail)).replace('@json($linkedContactId ?? null)', JSON.stringify(linkedContactId));   // the address the SERVER read from a mail link's signed reference
   const calls = { xhr: [], fetch: [], reloaded: false };
   const urls = new Set();
   class FakeXHR {
@@ -682,4 +682,178 @@ test('every method a template calls while DRAWING is pure: no state written, no 
     checked.push(name);
   }
   assert.ok(checked.length >= 8, 'the scan found the render-time methods: ' + checked.join(','));
+});
+
+
+// ── 9 Oct 2026 - portal identity, end to end (spec section 28). One browser, several people: whoever a link was written for is who
+// the page is for, by name, side and contact - or the page says the link is for somebody else. ──────────────────────────────────────
+const AYANDA_ME = { client: { id: 29, email: 'mtoloayanda93@gmail.com' }, contact: { id: 8966, full_name: 'Ayanda' }, side_contacts: { tenant: { id: 8966, full_name: 'Ayanda' }, landlord: null }, owns_linked_contact: null };
+const SIYA_ME = { client: { id: 30, email: 'ndlovu5308@gmail.com' }, contact: { id: 16432, full_name: 'Siyabonga Simamane' }, side_contacts: { tenant: null, landlord: { id: 16432, full_name: 'Siyabonga Simamane' } }, owns_linked_contact: null };
+// one login, two contact rows with different names (the same person captured twice, or two people on one address)
+const TWO_NAMES_ME = { client: { id: 40, email: 'shared@example.com' }, contact: { id: 19078, full_name: 'Thandi Tenant' }, side_contacts: { tenant: { id: 19078, full_name: 'Thandi Tenant' }, landlord: { id: 19079, full_name: 'Pieter Landlord' } }, owns_linked_contact: null };
+
+/** Every entry-point link shape a rentals mail or the lease screen produces: [label, query string, target kind]. */
+const LINKS = [
+  ['tenant fault', '?as=tenant&fault=9'], ['tenant work order', '?as=tenant&wo=4'], ['tenant inspection', '?as=tenant&insp=3'], ['tenant lease', '?as=tenant&lease=21'], ['tenant documents', '?as=tenant&docs=1'], ['tenant home (invite)', '?as=tenant'],
+  ['owner fault', '?as=owner&fault=9'], ['owner work order', '?as=owner&wo=4'], ['owner inspection', '?as=owner&insp=3'], ['owner documents', '?as=owner&docs=1'], ['owner home (invite)', '?as=owner'],
+];
+
+test('every entry-point link, opened while ANOTHER portal person is signed in, shows the card for the link\'s person and loads nothing of the signed-in person', async () => {
+  for (const [label, search] of LINKS) {
+    for (const [who, me, extra] of [['tenant signed in', AYANDA_ME, { leases: [{ id: 21 }] }], ['owner signed in', SIYA_ME, { properties: [{ id: 6 }] }]]) {
+      const calls = [];
+      const forWho = search.includes('as=owner') ? 'owner@example.com' : 'tenant@example.com';
+      const { p } = boot({ search, linkedEmail: forWho, linkedContactId: 77, fetchImpl: linkApi({ me, calls, ...extra }) });
+      await p.init(); await settle();
+      assert.equal(p.linkIssue && p.linkIssue.kind, 'email', `${label} / ${who}: the card`);
+      assert.match(p.linkIssue.masked, /@example\.com$/, `${label} / ${who}: names whose link it is`);
+      assert.equal(p.roleLabel(), '', `${label} / ${who}: no side claimed`);
+      assert.ok(!calls.some((u) => /landlord|work-orders|fault-reports|leases|documents|overview/.test(u)), `${label} / ${who}: nothing of the signed-in person was loaded: ${calls.join(',')}`);
+    }
+  }
+});
+
+test('every entry-point link, opened by the person it was written for, lands on its side - no card', async () => {
+  for (const [label, search] of LINKS) {
+    const owner = search.includes('as=owner');
+    const me = owner ? SIYA_ME : AYANDA_ME;
+    const { p } = boot({
+      search, linkedEmail: me.client.email, linkedContactId: me.contact.id,
+      fetchImpl: linkApi({ me, leases: owner ? [] : [{ id: 21 }], properties: owner ? [{ id: 6 }] : [], tenantFaults: [{ id: 9 }], workOrders: [{ id: 4 }], landlordWos: [{ id: 4 }] }),
+    });
+    await p.init(); await settle();
+    if (/fault=9/.test(search) && owner) { assert.ok(p.linkIssue === null || p.linkIssue.kind === 'fault', label); continue; }   // the owner fault detail needs the fault endpoint, covered below
+    assert.equal(p.linkIssue, null, `${label}: no card for the right person`);
+    assert.equal(p.activeRole, owner ? 'landlord' : 'tenant', `${label}: the side the link was written for`);
+    assert.equal(p.whoName(), me.contact.full_name, `${label}: greeted by their own name`);
+  }
+});
+
+test('staff signed in on the same browser changes nothing for the page: the portal asks as a portal person (the staff session is not a portal login)', async () => {
+  // the server answers /client/me with 401 when only a staff session exists - the page is signed out, the link is pre-filled
+  const { p } = boot({ search: '?as=tenant&fault=9', linkedEmail: 'tenant@example.com', linkedContactId: 77, fetchImpl: linkApi({ me: null }) });
+  await p.init(); await settle();
+  assert.equal(p.session.authenticated, false);
+  assert.equal(p.login.email, 'tenant@example.com');
+  assert.equal(p.linkIssue, null);
+});
+
+test('one login with two contacts: the header greets the side on screen by that side\'s own contact, and follows the Tenant / Owner switch', async () => {
+  const { p } = boot({ search: '?as=owner', linkedEmail: 'shared@example.com', linkedContactId: 19079, fetchImpl: linkApi({ me: TWO_NAMES_ME, leases: [{ id: 21 }], properties: [{ id: 6 }] }) });
+  await p.init(); await settle();
+  assert.equal(p.activeRole, 'landlord');
+  assert.equal(p.whoName(), 'Pieter Landlord', 'the owner view is greeted by the owner contact, not the lowest-id one');
+  p.setRole('tenant'); await settle();
+  assert.equal(p.whoName(), 'Thandi Tenant');
+  p.setRole('landlord'); await settle();
+  assert.equal(p.whoName(), 'Pieter Landlord');
+});
+
+test('the contact the link names is sent with every portal request, so the server files things under the right person; a link naming nobody sends nothing', async () => {
+  const seen = [];
+  const api = linkApi({ me: TWO_NAMES_ME, leases: [{ id: 21 }], properties: [{ id: 6 }] });
+  const { p } = boot({ search: '?as=tenant', linkedEmail: 'shared@example.com', linkedContactId: 19078, fetchImpl: async (url, opts) => { seen.push((opts && opts.headers && opts.headers['X-Portal-Contact']) || null); return api(url, opts); } });
+  await p.init(); await settle();
+  assert.ok(seen.length > 2 && seen.every((h) => h === '19078'), 'every request carries the link\'s contact: ' + seen.join(','));
+
+  const bare = [];
+  const none = boot({ fetchImpl: async (url, opts) => { bare.push((opts && opts.headers && opts.headers['X-Portal-Contact']) || null); return api(url, opts); } });
+  await none.p.init(); await settle();
+  assert.ok(bare.every((h) => h === null), 'a link that names nobody sends no hint');
+});
+
+test('the link names a contact the signed-in login OWNS but on another address (email changed since): the right person is not called a stranger', async () => {
+  const me = { ...AYANDA_ME, owns_linked_contact: true };
+  const { p } = boot({ search: '?as=tenant&wo=4', linkedEmail: 'ayanda.old@example.com', linkedContactId: 8966, fetchImpl: linkApi({ me, leases: [{ id: 21 }], workOrders: [{ id: 4 }] }) });
+  await p.init(); await settle();
+  assert.equal(p.linkIssue, null);
+  assert.equal(p.activeRole, 'tenant');
+  // ...but a contact that is NOT theirs, on another address, is still somebody else
+  const other = boot({ search: '?as=tenant&wo=4', linkedEmail: 'ayanda.old@example.com', linkedContactId: 8966, fetchImpl: linkApi({ me: { ...AYANDA_ME, owns_linked_contact: false }, leases: [{ id: 21 }] }) });
+  await other.p.init(); await settle();
+  assert.equal(other.p.linkIssue.kind, 'email');
+});
+
+test('signing in ON the page re-checks the link: a link for A, signed into as B, shows the card - and the header says who just signed in', async () => {
+  const calls = [];
+  let signedIn = false;
+  const base = linkApi({ me: SIYA_ME, requiresPassword: true, properties: [{ id: 6 }], calls });
+  const api = async (url, opts) => {
+    if (url.endsWith('/client/me') && !signedIn) return { ok: false, status: 401, json: async () => ({}) };
+    if (url.endsWith('/client-auth/login')) signedIn = true;
+    return base(url, opts);
+  };
+  const { p } = boot({ search: '?as=tenant&fault=9', linkedEmail: 'ayanda@example.com', linkedContactId: 8966, fetchImpl: api });
+  await p.init(); await settle();
+  assert.equal(p.session.authenticated, false);
+  p.login.email = 'ndlovu5308@gmail.com';   // the person types a different address into the pre-filled form
+  await p.lookup();
+  p.login.password = 'x';
+  await p.passwordLogin(); await settle();
+  assert.equal(p.me.client.email, 'ndlovu5308@gmail.com', 'the page knows who signed in (the header line shows)');
+  assert.equal(p.linkIssue.kind, 'email', 'the link was for Ayanda');
+  assert.equal(p.linkIssue.masked, 'a****a@example.com');
+  assert.equal(p.roles.length, 0);
+  assert.ok(!calls.some((u) => /landlord\/properties|work-orders|fault-reports/.test(u)), 'nothing of Siyabonga\'s was loaded under Ayanda\'s link');
+});
+
+test('signing in ON the page as the person the link is for: the header names them and the target opens', async () => {
+  let signedIn = false;
+  const base = linkApi({ me: AYANDA_ME, requiresPassword: true, leases: [{ id: 21 }], workOrders: [{ id: 4 }] });
+  const api = async (url, opts) => {
+    if (url.endsWith('/client/me') && !signedIn) return { ok: false, status: 401, json: async () => ({}) };
+    if (url.endsWith('/client-auth/login')) signedIn = true;
+    return base(url, opts);
+  };
+  const { p } = boot({ search: '?as=tenant&wo=4', linkedEmail: 'mtoloayanda93@gmail.com', linkedContactId: 8966, fetchImpl: api });
+  await p.init(); await settle();
+  await p.lookup();
+  p.login.password = 'x';
+  await p.passwordLogin(); await settle();
+  assert.equal(p.linkIssue, null);
+  assert.equal(p.whoName(), 'Ayanda');
+  assert.equal(p.roleLabel(), 'Tenant');
+  assert.equal(p.tenantTab, 'jobs');
+});
+
+test('two tabs, one browser: every request says which login the page is acting as, and a refusal turns the page into "someone else signed in"', async () => {
+  const seen = [];
+  const base = linkApi({ me: AYANDA_ME, leases: [{ id: 21 }] });
+  let refuse = false;
+  const api = async (url, opts) => {
+    seen.push({ url, expect: (opts && opts.headers && opts.headers['X-Portal-Expect']) || null });
+    if (refuse && /rentals\//.test(url)) return { ok: false, status: 409, json: async () => ({ session_changed: true, message: 'Someone else has signed in' }) };
+    return base(url, opts);
+  };
+  const { p } = boot({ fetchImpl: api });
+  await p.init(); await settle();
+  assert.equal(p.me.client.id, 29);
+  assert.ok(seen.filter((s) => /rentals\//.test(s.url)).every((s) => s.expect === '29'), 'every portal request carries the login the page believes it is');
+  assert.equal(p.sessionChanged, false);
+
+  refuse = true;                                  // another tab has signed somebody else in
+  await p.loadTenantLeases(); await settle();
+  assert.equal(p.sessionChanged, true, 'the page stops acting as Ayanda');
+});
+
+test('coming back to a tab re-checks who is signed in: a different person, or nobody, ends the page', async () => {
+  const mk = async (meNow) => {
+    const first = linkApi({ me: AYANDA_ME, leases: [{ id: 21 }] });
+    let phase = 'load';
+    const api = async (url, opts) => (phase === 'back' && url.endsWith('/client/me') ? (meNow ? { ok: true, status: 200, json: async () => meNow } : { ok: false, status: 401, json: async () => ({}) }) : first(url, opts));
+    const { p } = boot({ fetchImpl: api });
+    await p.init(); await settle();
+    phase = 'back';
+    await p.recheckSession(); await settle();
+    return p;
+  };
+  assert.equal((await mk(AYANDA_ME)).sessionChanged, false, 'same person: nothing happens');
+  assert.equal((await mk(SIYA_ME)).sessionChanged, true, 'another tab signed Siyabonga in');
+  assert.equal((await mk(null)).sessionChanged, true, 'another tab signed out');
+});
+
+test('the page shows the "someone else signed in" card instead of the portal, and hides Log out', () => {
+  assert.match(blade, /<template x-if="sessionChanged">[\s\S]*data-session-changed/);
+  assert.match(blade, /x-if="!loading && session\.authenticated && !linkIssue && !sessionChanged"/, 'the portal itself is hidden');
+  assert.match(blade, /x-show="session\.authenticated && !sessionChanged" @click="logout\(\)"/, 'a stale tab cannot log the new person out');
 });

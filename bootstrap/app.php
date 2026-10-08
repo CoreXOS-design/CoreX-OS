@@ -133,6 +133,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 'client.ability' => \App\Http\Middleware\EnsureClientAbility::class,
                 'rental-portal.enabled' => \App\Http\Middleware\EnsureRentalPortalEnabled::class, // AT-445
                 'portal.once' => \App\Http\Middleware\EnsurePortalSubmissionOnce::class, // rental-portal-access.md §22 — one press does its work once
+                'portal.same-login' => \App\Http\Middleware\EnsurePortalSameLogin::class, // rental-portal-access.md §28 — a portal page only acts as the person it shows
                 'portal.photos' => \App\Http\Middleware\EnforcePortalPhotoLimits::class, // rental-portal-access.md §22 — the agency's fault-photo limits
                 // Agency Public API (website API)
                 'website.live' => \App\Http\Middleware\EnsureAgencyWebsiteLive::class,
