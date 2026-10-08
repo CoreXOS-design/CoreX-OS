@@ -17,6 +17,7 @@ use App\Services\Rentals\RentalFaultReportService;
 use App\Services\Rentals\RentalFaultTypeService;
 use App\Services\Rentals\RentalJobCardClientViewService;
 use App\Services\Rentals\RentalPortalDocumentService;
+use App\Services\Rentals\RentalPortalOverviewService;
 use App\Services\Rentals\RentalPortalScopeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -52,6 +53,7 @@ class ClientLandlordRentalsController extends Controller
         private readonly RentalPortalScopeService $scope,
         private readonly RentalFaultReportService $faultReportService,
         private readonly RentalJobCardClientViewService $jobCardView,
+        private readonly RentalPortalOverviewService $overview,
     ) {}
 
     public function properties(Request $request): JsonResponse
@@ -298,14 +300,22 @@ class ClientLandlordRentalsController extends Controller
             return $contact;
         }
 
+        // §20 — same rule as the tenant's list: sent inspections and booked future dates only.
         return response()->json([
-            'inspections' => $this->scope->landlordInspections($contact)->map(fn ($i) => [
-                'id' => $i->id,
-                'type' => $i->type,
-                'status' => $i->status,
-                'completed_at' => $i->completed_at?->toIso8601String(),
-            ])->values(),
+            'inspections' => $this->scope->landlordInspections($contact)
+                ->map(fn ($i) => collect($this->overview->inspectionRow($i))->except('date_sort')->all())->values(),
         ]);
+    }
+
+    /** §20 — the owner's portal home: who to call, the inspection dates, and where the lease stands, one block per property. */
+    public function overview(Request $request): JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+
+        return response()->json($this->overview->forLandlord($contact));
     }
 
     /** §19 — the owner's Documents area: signed lease agreements and distributed inspection reports on their own properties, plus documents the agency shared. */

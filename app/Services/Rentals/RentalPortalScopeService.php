@@ -202,6 +202,10 @@ class RentalPortalScopeService
             ->find($workOrderId);
     }
 
+    /**
+     * The tenant's own inspections THE PORTAL MAY SHOW: ones that have been sent, and future booked dates. Never a draft,
+     * one in progress or still in signing, or a cancelled one (see inspectionPortalState()).
+     */
     public function tenantInspections(Contact $contact)
     {
         return RentalInspection::withoutGlobalScopes()
@@ -209,7 +213,38 @@ class RentalPortalScopeService
             ->whereNull('deleted_at')
             ->whereIn('lease_id', $this->tenantLeaseIds($contact))
             ->orderByDesc('id')
-            ->get();
+            ->get()
+            ->filter(fn (RentalInspection $i) => $this->inspectionPortalState($i) !== null)
+            ->values();
+    }
+
+    public const INSPECTION_SENT = 'sent';
+    public const INSPECTION_SCHEDULED = 'scheduled';
+
+    /**
+     * rental-portal-access.md §20 — the ONE rule for which inspections a tenant or owner may see at all:
+     *   - SENT: cc6's definition, RentalInspection::isDistributed() (completed, or a copy logged as sent to a tenant / landlord);
+     *   - SCHEDULED: a booked date today or later whose recording has not reached signing (draft or in progress), shown as a
+     *     date and a type only — nothing recorded is ever exposed;
+     *   - anything else — a draft with no date, one in signing that is not yet sent, a booked date that passed without a
+     *     report, a cancelled one — is nothing the portal shows (null).
+     * The portal keeps no definition of "sent" of its own.
+     */
+    public function inspectionPortalState(RentalInspection $inspection): ?string
+    {
+        if ($inspection->trashed() || $inspection->status === RentalInspection::STATUS_CANCELLED) {
+            return null;
+        }
+        if ($inspection->isDistributed()) {
+            return self::INSPECTION_SENT;
+        }
+        if (in_array($inspection->status, [RentalInspection::STATUS_DRAFT, RentalInspection::STATUS_IN_PROGRESS], true)
+            && $inspection->scheduled_for
+            && $inspection->scheduled_for->copy()->startOfDay()->gte(now()->startOfDay())) {
+            return self::INSPECTION_SCHEDULED;
+        }
+
+        return null;
     }
 
     public function tenantInventories(Contact $contact)
@@ -382,6 +417,7 @@ class RentalPortalScopeService
             ->get();
     }
 
+    /** The owner's inspections on their own properties THE PORTAL MAY SHOW — the same rule as the tenant's (inspectionPortalState()). */
     public function landlordInspections(Contact $contact)
     {
         return RentalInspection::withoutGlobalScopes()
@@ -389,7 +425,9 @@ class RentalPortalScopeService
             ->whereNull('deleted_at')
             ->whereIn('property_id', $this->landlordPropertyIds($contact))
             ->orderByDesc('id')
-            ->get();
+            ->get()
+            ->filter(fn (RentalInspection $i) => $this->inspectionPortalState($i) !== null)
+            ->values();
     }
 
     public function landlordDocuments(Contact $contact)

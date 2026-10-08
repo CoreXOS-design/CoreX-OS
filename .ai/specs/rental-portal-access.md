@@ -562,3 +562,50 @@ property's signed leases and reports (earlier tenancies included, archived exclu
 (headers, bytes, audit rows); every cross-party / not-ready id is a 404 on both file routes (tenant↔owner, tenant↔tenant, owner↔owner,
 cross-agency, unknown id); no session or a staff session alone is 401; missing file = 404; image inline / Word as download; the portal switch
 closes the audience; search / sort / type / date / pagination / invalid filter; empty list; mobile keys kept; the page carries the panel for both audiences.
+
+
+---
+
+## 20. The portal Home — who to call, inspection dates, where the lease stands; and only SENT inspections in the list (8 Oct 2026, QA1)
+**Trigger.** Johan agreed the next portal items on 8 Oct 2026, for both tenant and owner: the managing agent's contact, inspection dates, lease end / renewal
+status, and the older inspections list to stop returning drafts. Rent statements, arrears, deposit and payments wait for the rental money build — **not here**.
+
+**The Home tab.** A new first tab, "Home", opened by default for both audiences (`rentals/portal/_home.blade.php`, one panel). One block per property —
+tenant: each property they rent; owner: each property they own (a vacant one shows "No current tenancy"). Compact, no helper text. API
+`GET /api/v1/client/rentals/overview` and `…/landlord/overview`, behind `client.auth` + `client.ability` + the audience's portal switch, built by
+`RentalPortalOverviewService` from `RentalPortalScopeService` only — never a bare find; agency and `deleted_at` pinned. The owner's response also carries
+`decisions_waiting` (the existing pending decisions), shown as one link to the Decisions tab. Nothing is stored; no migration, no setting.
+
+1. **Agent contact.** Name, designation, phone (cell first, else office phone), email (the outward-facing address, `User::outward_email`, never the login),
+   and the agency / branch details (agency name, branch name, phone, email, address — the branch's own first, the agency's where the branch has none).
+   Who is "the agent": **the lease carries no agent field of its own**, so it is the agent who approved the lease's signed agreement (`accepted_by_user_id`),
+   else the one who captured it (`created_by_user_id`), else the property's agent (`agent_id`), else the branch alone. Anyone who is not an active user of
+   the **same** agency (left, deactivated, archived, another agency) is skipped. The office block is always present.
+2. **Inspection dates.** *Upcoming*: a booked date today or later whose recording has not reached signing (draft or in progress) — type, date, time, nothing
+   recorded. *Past*: inspections that have been **sent** — type, date, status ("Completed", or "Report sent" when a copy was emailed before the inspection was
+   marked complete); newest ten listed, the rest counted. **No report link on the home**: a report is opened from Documents under §19's rule (distributed +
+   signed lease etc.), unchanged. **cc6's "PDF only once ALL parties have signed" flag had not landed on QA1 when this was built** (cc6's worktree was level with
+   QA1): the hook needed is one boolean on the inspection, e.g. `RentalInspection::isFullySigned()` (every required party has a non-voided signed / wet-ink
+   signature), and the single place to call it is `RentalPortalDocumentService::inspectionIsShareable()` — add `&& $inspection->isFullySigned()` there. The portal
+   keeps no copy of that rule and no inspection code was touched.
+3. **Lease end and renewal.** From the lease record, in plain words, first match wins: *notice given* ("You have given notice" / "The tenant has given notice" /
+   "The landlord has given notice" / "Notice has been given by you" — notice date and move-out date) → *renewed* ("Lease renewed — New term …") →
+   *month-to-month* → *ended* → *renewal window* (the agency's own `expiry_notice_window_days` before the end date, days left) → *upcoming* ("Starts …") →
+   *running* ("Ends …, N days left"). Always: start, end, and the **notice period** — the agency's own `tenant_notice_period_days` (default 30). The lease shown
+   per property is the one in force, else the most recent that ran its course; a draft, cancelled or archived lease is never a home.
+
+**4. Only sent inspections in the list endpoint.** `GET /api/v1/client/rentals/inspections` and `…/landlord/inspections` (and Documents, which reads the same
+scope methods) now come from **one rule**, `RentalPortalScopeService::inspectionPortalState()`: *sent* = cc6's `RentalInspection::isDistributed()` (completed, or a
+copy logged as sent to a tenant / landlord), or *scheduled* = a future booked date as above; never a draft, one in signing that is not yet sent, a cancelled one, or
+a booked date that passed without a report. A scheduled row reports `status: "scheduled"` — a draft / in-progress state is never exposed. The old keys
+(`id, type, status, completed_at`) are kept for the mobile app; `type_label, when, status_label, date, time` are added.
+
+**Choices I made where the spec was silent (reported to Johan).** The "agent on the lease" rule above; a cancelled booking simply disappears (the parties were
+already told when it was cancelled); a booked date that passes without a report disappears rather than showing as "missed"; co-tenants and owners see the same
+rule as in §19.
+
+**Tests — `tests/Feature/RentalPortalAccess/PortalHomeTest.php`:** the agent on the lease with branch / agency details; an agent who left → the property's agent → the
+branch; branch without details → the agency's; an agent of another agency never shown; every lease state and the wording for each side; the agency's own notice period
+and renewal window; draft / cancelled / archived lease is no home; upcoming + past inspections, nothing unsent, no report link, newest ten + count; the list endpoint
+(tenant and owner) returns sent + booked only and keeps the mobile keys; the owner home (one block per property, vacant property, tenant names); tenant ↔ tenant,
+owner ↔ owner, tenant ↔ owner, another agency; no session / staff session alone = 401; the portal switch closes each audience; the page has the Home panel for both.
