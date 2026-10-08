@@ -51,6 +51,7 @@ class RentalInspectionFormSeeder
 
         DB::transaction(function () use ($property, $by, $spaces, $tickedFeatures, $propertyWideFeatures) {
             $sortOrder = 0;
+            $built = 0;
 
             foreach ($spaces as $space) {
                 $type = $space['type'] ?? null;
@@ -68,6 +69,7 @@ class RentalInspectionFormSeeder
                         continue;
                     }
 
+                    $built++;
                     $room = PropertyRoom::create([
                         'agency_id' => $property->agency_id,
                         'property_id' => $property->id,
@@ -113,6 +115,7 @@ class RentalInspectionFormSeeder
             // Property-wide ticked features (Alarm System, Solar Panel, etc.) —
             // no single room owns these, so no PropertyRoom is created for them.
             foreach (array_unique(array_intersect($propertyWideFeatures, $tickedFeatures)) as $featureLabel) {
+                $built++;
                 RentalInspectionItem::create([
                     'agency_id' => $property->agency_id,
                     'property_id' => $property->id,
@@ -123,6 +126,12 @@ class RentalInspectionFormSeeder
                     'source' => 'advertising_feature',
                     'created_by_user_id' => $by->id,
                 ]);
+            }
+
+            // Nothing buildable (spaces present, but no unit has a label): do NOT burn the one-shot flag — the agent
+            // fixes the Spaces and builds again. Thrown inside the transaction, so nothing is written.
+            if ($built === 0) {
+                throw new \LogicException('This property\'s advertising Spaces have no rooms with a name yet — add the units under the Rental tab first, then build the inspection form from here.');
             }
 
             $property->forceFill(['rental_inspection_form_seeded_at' => now()])->save();

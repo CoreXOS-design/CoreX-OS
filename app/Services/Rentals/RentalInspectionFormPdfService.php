@@ -237,7 +237,7 @@ class RentalInspectionFormPdfService
             'address' => $inspection->property?->buildDisplayAddress() ?: '—',
             'type' => \App\Models\RentalInspection::typeName($inspection->type),
             'date' => optional($inspection->completed_at ?? $inspection->created_at)->format('Y-m-d') ?: now()->format('Y-m-d'),
-            'landlord' => $inspection->property?->sellerOwnerContact()?->first_name . ' ' . $inspection->property?->sellerOwnerContact()?->last_name,
+            'landlord' => $inspection->property?->landlordContact()?->first_name . ' ' . $inspection->property?->landlordContact()?->last_name,
             'tenants' => $inspection->lease?->tenants->map(fn ($t) => trim(($t->contact?->first_name ?? '') . ' ' . ($t->contact?->last_name ?? '')))->filter()->values()->all() ?? [],
             'agent' => $inspection->createdBy?->name,
         ];
@@ -322,7 +322,7 @@ class RentalInspectionFormPdfService
             ];
             $x += $blockWidth + self::SIGNATURE_BLOCK_GAP;
         }
-        $landlord = $inspection->property?->sellerOwnerContact();
+        $landlord = $inspection->property?->landlordContact();
         $signatureBlocks[] = [
             'page' => $page, 'party_role' => 'landlord', 'party_contact_id' => $landlord?->id,
             'label' => trim(($landlord?->first_name ?? '') . ' ' . ($landlord?->last_name ?? '')) ?: 'Landlord',

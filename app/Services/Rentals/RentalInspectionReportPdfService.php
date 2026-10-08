@@ -197,13 +197,17 @@ class RentalInspectionReportPdfService
     {
         $address = str($inspection->property?->buildDisplayAddress() ?? 'property')->slug();
 
-        return "inspection-report-{$inspection->type}-{$address}-{$inspection->id}.pdf";
+        $type = str(RentalInspection::typeLabel($inspection->type))->slug();
+
+        return "inspection-report-{$type}-{$address}-{$inspection->id}.pdf";
     }
 
     public function filenameForSignatureFor(RentalInspection $inspection): string
     {
         $address = str($inspection->property?->buildDisplayAddress() ?? 'property')->slug();
 
-        return "inspection-for-signature-{$inspection->type}-{$address}-{$inspection->id}.pdf";
+        $type = str(RentalInspection::typeLabel($inspection->type))->slug();
+
+        return "inspection-for-signature-{$type}-{$address}-{$inspection->id}.pdf";
     }
 }

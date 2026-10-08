@@ -6802,8 +6802,7 @@
                 compareViewerInspectionTypeName(side) {
                     const insp = this.compareViewerInspectionFor(side);
                     if (!insp) return 'Nothing yet';
-                    const typeLabel = this.inspectionTypeLabel(insp.type);
-                    return typeLabel + '-inspection';
+                    return this.inspectionTypeName(insp.type);
                 },
                 compareViewerInspectionDate(side) {
                     // §45.3 — the PHOTO's own capture time (per photo, both sides), not just the
@@ -7624,6 +7623,11 @@
                 inspectionTypeLabel(type) {
                     return type === 'out' ? 'Out' : (type === 'in' ? 'In' : (type === 'interim' ? 'Interim' : 'Routine'));
                 },
+                // Same sentence form as RentalInspection::typeName(): "In-inspection", "Out-inspection", "Routine inspection".
+                inspectionTypeName(type) {
+                    const l = this.inspectionTypeLabel(type);
+                    return (type === 'in' || type === 'out') ? l + '-inspection' : l + ' inspection';
+                },
                 currentInspection(section) { return (this.chainTail && this.chainTail.type === section) ? this.chainTail : null; },
                 // The read-only left panel — always this inspection's own
                 // predecessor, never resolved by type. Null for the first
@@ -7704,16 +7708,10 @@
                 // gate above — one source of truth, not a second lookup). A
                 // party with no email on file is excluded, same reasoning as
                 // the server-side resolver.
+                // 8 Oct 2026 — no longer a browser-side guess: the list is the server's own distributionRecipients()
+                // (tenants, ALL landlords, the agency's copy addresses, the inspector, the creator), carried on the tab payload.
                 reportRecipients() {
-                    if (!this.chainTail) return [];
-                    const recipients = [];
-                    (this.chainTail.lease?.tenants || []).forEach(t => {
-                        if (t.contact?.email) recipients.push({ name: t.contact.first_name + ' ' + t.contact.last_name, email: t.contact.email, role: 'tenant' });
-                    });
-                    if (this.landlordContact?.email) {
-                        recipients.push({ name: this.landlordContact.first_name + ' ' + this.landlordContact.last_name, email: this.landlordContact.email, role: 'landlord' });
-                    }
-                    return recipients;
+                    return (this.chainTail && this.chainTail.report_recipients) ? this.chainTail.report_recipients : [];
                 },
                 publicShareUrl() {
                     return this.chainTail?.public_token ? (window.location.origin + '/rental-inspection-report/' + this.chainTail.public_token) : '';
@@ -9020,9 +9018,12 @@
                     if (!insp || insp.status !== 'awaiting_signature') return false;
                     const live = (insp.signatures || []).filter(sg => !sg.superseded_at);
                     if (live.some(sg => sg.disposition === 'awaiting_wet_ink')) return false;
-                    if (!live.some(sg => sg.party_role === 'agent')) return false;
-                    if (this.inspectionTenants(section).some(t => !this.tenantDisposition(section, t.contact_id))) return false;
-                    if (this.landlordContact && !this.landlordDisposition(section)) return false;
+                    if (insp.signatures_required !== false) {
+                        if (!live.some(sg => sg.party_role === 'agent')) return false;
+                        if (this.inspectionTenants(section).some(t => !this.tenantDisposition(section, t.contact_id))) return false;
+                        if (this.landlordContact && !this.landlordDisposition(section)) return false;
+                    }
+                    if (insp.attendance_required === false) return true;
                     const board = this.attendanceBoard(section);
                     return !!board && board.complete;
                 },

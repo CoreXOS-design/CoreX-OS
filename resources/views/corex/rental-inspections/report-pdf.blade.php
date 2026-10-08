@@ -100,6 +100,35 @@
         @endif
     </div>
 
+    {{-- Header details — the same fields the web report shows (spec §18): property type, furnished, meters, keys, remotes and,
+         on an Out, the original move-in date. They are the closing-condition evidence of a deposit dispute, so the PDF the
+         parties receive carries them. Nothing is printed when none was recorded. --}}
+    @php
+        $detailRows = array_filter([
+            'Property type' => $inspection->property_type,
+            'Furnished status' => $inspection->furnished_status,
+            'Electricity meter' => $inspection->electricity_meter_reading,
+            'Water meter' => $inspection->water_meter_reading,
+            'Keys' => ($inspection->keys_count !== null || $inspection->keys_description)
+                ? trim($inspection->keys_count . ($inspection->keys_description ? ' — ' . $inspection->keys_description : '')) : null,
+            'Remotes' => ($inspection->remotes_count !== null || $inspection->remotes_description)
+                ? trim($inspection->remotes_count . ($inspection->remotes_description ? ' — ' . $inspection->remotes_description : '')) : null,
+            'Original move-in date' => ($inspection->type === 'out' && $inspection->move_in_date_recorded) ? $inspection->move_in_date_recorded->format('d M Y') : null,
+        ], fn ($v) => $v !== null && $v !== '');
+    @endphp
+    @if($detailRows !== [])
+        <div style="margin: 6pt 0 8pt 0;">
+            <div class="room-heading">Details</div>
+            <table class="compare">
+                <tbody>
+                    @foreach($detailRows as $detailLabel => $detailValue)
+                        <tr><td style="width:35%;" class="muted">{{ $detailLabel }}</td><td>{{ $detailValue }}</td></tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+    @endif
+
     {{-- §45.5 (Build I-3) — Attendance: party · outcome · capacity · invitation. Facts only. --}}
     <div style="margin: 6pt 0 8pt 0;">
         <div class="room-heading">Attendance</div>

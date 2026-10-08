@@ -80,7 +80,7 @@
             <div class="grid grid-cols-2 gap-3">
                 <div>
                     <label class="text-xs font-medium">Date</label>
-                    <input type="date" name="scheduled_for" value="{{ old('scheduled_for', request()->query('scheduled_for')) }}" @unless(request()->query('planned_date_id')) min="{{ now()->toDateString() }}" @endunless" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                    <input type="date" name="scheduled_for" value="{{ old('scheduled_for', request()->query('scheduled_for')) }}" @unless(request()->query('planned_date_id')) min="{{ now()->toDateString() }}" @endunless class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                 </div>
                 <div>
                     <label class="text-xs font-medium">Time</label>

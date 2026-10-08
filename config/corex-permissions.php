@@ -184,7 +184,7 @@ return [
         // call heavier than recording a routine observation.
         ['key' => 'rental_inspections.resolve_discrepancy', 'label' => 'Resolve Inspection Discrepancies',       'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 3],
         // Separately gated per §6 — overrides a party's own consent to sign.
-        ['key' => 'rental_inspections.sign_on_behalf',      'label' => 'Sign Out-Inspection on Tenant\'s Behalf', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 4],
+        ['key' => 'rental_inspections.sign_on_behalf',      'label' => 'Sign an Inspection on Tenant\'s Behalf', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 4],
         // §45.5 (Build I-3) — record who attended an inspection and the invitations given off the system.
         // Granted wherever rental_inspections.create is; correcting someone else's record also needs
         // rental_inspections.resolve_discrepancy.

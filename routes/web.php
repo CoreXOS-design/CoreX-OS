@@ -3740,8 +3740,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // INSPECTIONS I-5 BEGIN — §45.7 the "Due" tab (In/Out due + the interim dates the agency loads) and CRUD on the loaded dates.
         // Static paths, so they sit ahead of the /{rentalInspection} wildcard below.
         Route::get('/due', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'index'])->name('corex.rental-inspections.due');
-        Route::get('/due/print', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'printList'])->name('corex.rental-inspections.due.print');
-        Route::get('/due/export', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'export'])->name('corex.rental-inspections.due.export');
+        Route::get('/due/print', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'printList'])->middleware('permission:rental_inspections.export')->name('corex.rental-inspections.due.print');
+        Route::get('/due/export', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'export'])->middleware('permission:rental_inspections.export')->name('corex.rental-inspections.due.export');
         Route::middleware('permission:rental_inspections.manage_planned_dates')->prefix('planned-dates')->name('corex.rental-inspections.planned-dates.')->group(function () {
             Route::post('/', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'store'])->name('store');
             Route::post('/{plannedDate}', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'update'])->name('update');

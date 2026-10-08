@@ -208,12 +208,28 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
                 return;
             }
             RentalInspectionAuditLog::record($inspection, RentalInspectionAuditLog::EVENT_ARCHIVED, 'Archived.', null, ['archived_by_user_id' => $inspection->archived_by_user_id]);
+            self::syncCalendarQuietly($inspection);
         });
         static::restored(function (self $inspection) {
             // archived_by_user_id is cleared right after a restore; the history keeps who had archived it.
             RentalInspectionAuditLog::record($inspection, RentalInspectionAuditLog::EVENT_RESTORED,
                 'Restored' . ($inspection->archived_by_user_id ? ' (it had been archived by ' . (User::withoutGlobalScopes()->find($inspection->archived_by_user_id)?->name ?? 'unknown') . ').' : '.'));
+            self::syncCalendarQuietly($inspection);
         });
+    }
+
+    /**
+     * An archived inspection must not stay on the inspector's calendar as "pending", and a restored one must come back —
+     * hooked on the model so every archive / restore path (web, mobile, bulk) does it, not just the ones that remembered.
+     * The calendar is a view of the inspection: a failure here is logged, never allowed to undo the archive.
+     */
+    private static function syncCalendarQuietly(self $inspection): void
+    {
+        try {
+            app(\App\Services\Rentals\RentalInspectionCalendarSyncService::class)->syncForInspection($inspection);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Rental inspection calendar sync failed after archive/restore', ['inspection_id' => $inspection->id, 'error' => $e->getMessage()]);
+        }
     }
 
     /** Deleted-related-record rule (.ai/BUILD_STANDARD.md §4) — see Lease::property(). */
@@ -520,7 +536,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
 
     /**
      * §15.4/§15.7/§16 — every tenant on this inspection's own lease, plus the
-     * landlord if Property::sellerOwnerContact() resolves one, who does NOT
+     * landlord if Property::landlordContact() resolves one, who does NOT
      * yet have a live disposition (signed, refused, or wet_ink — a
      * superseded wet_ink row does not count, §16.3) row on THIS inspection.
      * Empty means every required party is accounted for — the one thing
@@ -550,7 +566,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             }
         }
 
-        $landlordContactId = $this->property?->sellerOwnerContact()?->id;
+        $landlordContactId = $this->property?->landlordContact()?->id;
         if ($landlordContactId) {
             $already = $existing->contains(fn ($s) => $s->party_role === RentalInspectionSignature::PARTY_LANDLORD);
             if (! $already) {
@@ -651,7 +667,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
                 return false;
             }
         }
-        if ($this->property?->sellerOwnerContact()
+        if ($this->property?->landlordContact()
             && ! $live->contains(fn ($s) => $s->party_role === RentalInspectionSignature::PARTY_LANDLORD)) {
             return false;
         }
@@ -958,10 +974,15 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             // creator. Widened, never narrowed — created_by_user_id keeps
             // working exactly as before for every pre-existing row (no
             // inspector set) and for anyone who still books their own.
+            //
+            // Rentals walk, 8 Oct 2026 — and the people on the LEASE: its owner's agent and its tenant's agent (and
+            // whoever created the lease) are on every inspection of that tenancy too (Lease::scopeInvolvingUsers),
+            // not only the creator/inspector. Same rule as the per-record guard, the due board and the planned dates.
             $identityIds = $user->dataIdentityIds();
             return $query->where(fn (Builder $q) => $q
                 ->whereIn('rental_inspections.created_by_user_id', $identityIds)
-                ->orWhereIn('rental_inspections.inspector_user_id', $identityIds));
+                ->orWhereIn('rental_inspections.inspector_user_id', $identityIds)
+                ->orWhereHas('lease', fn (Builder $l) => $l->involvingUsers($identityIds)));
         }
 
         return $query->whereRaw('1 = 0');
@@ -1328,6 +1349,35 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
     }
 
     /**
+     * The ONE "may this type be created on this tenancy now" rule, shared by every entry point that creates an inspection
+     * from nothing (start() and schedule() — the create form, the tab's Start, the Due-row link, the Lease Hub link).
+     * startNext() carries the same In rule for the chain.
+     *
+     * - A type already under way for the tenancy is refused (a double-click, not a second real event); Routine is exempt —
+     *   several can be open at once (§4).
+     * - A tenancy has ONE move-in condition (§49.5): an In is refused once the lease has a live In, completed or not. The only
+     *   way to redo a sent In is "Start new inspection" (§47.5), which does not come through here.
+     *
+     * @throws \LogicException
+     */
+    private static function assertTypeStartable(Property $property, Lease $lease, string $type): void
+    {
+        if ($type !== self::TYPE_AD_HOC && self::currentFor($property, $type)) {
+            throw new \LogicException(self::typeName($type) . ' is already under way for this tenancy.');
+        }
+        if ($type === self::TYPE_IN) {
+            $existingIn = self::where('lease_id', $lease->id)
+                ->where('type', self::TYPE_IN)
+                ->where('status', '!=', self::STATUS_CANCELLED)
+                ->oldest('id')
+                ->first();
+            if ($existingIn) {
+                throw new \LogicException('This tenancy already has an In-inspection (#' . $existingIn->id . ') — there is only one move-in condition on record.');
+            }
+        }
+    }
+
+    /**
      * §0.5/§4 — the deliberate action that actually begins an inspection.
      * Refuses if one of this type is already under way for the property's
      * active lease (currentFor() would already have found it — starting a
@@ -1343,9 +1393,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             throw new \LogicException('This property has no active lease — an inspection needs one to attach to.');
         }
 
-        if ($type !== self::TYPE_AD_HOC && self::currentFor($property, $type)) {
-            throw new \LogicException(self::typeName($type) . ' is already under way for this tenancy.');
-        }
+        self::assertTypeStartable($property, $lease, $type);
 
         return self::create([
             'agency_id' => $property->agency_id,
@@ -1389,9 +1437,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             throw new \LogicException('This property has no active lease — an inspection needs one to attach to.');
         }
 
-        if ($type !== self::TYPE_AD_HOC && self::currentFor($property, $type)) {
-            throw new \LogicException(self::typeName($type) . ' is already under way for this tenancy.');
-        }
+        self::assertTypeStartable($property, $lease, $type);
 
         $inspection = self::create([
             'agency_id' => $property->agency_id,
@@ -1856,7 +1902,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      * One row per tenant on the lease (§15.2a guarantees a completed
      * inspection has a live, non-superseded disposition for every one of
      * them), one row for the landlord — `not_required` true only when
-     * `Property::sellerOwnerContact()` resolves to null, the one legitimate
+     * `Property::landlordContact()` resolves to null, the one legitimate
      * "no signature exists and none is expected" case (§15.12's waived
      * landlord) — and one row for the agent.
      *
@@ -1894,7 +1940,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             ];
         }
 
-        $landlord = $this->property?->sellerOwnerContact();
+        $landlord = $this->property?->landlordContact();
         $rows[] = [
             'role' => 'Landlord',
             'name' => $landlord?->full_name,
@@ -2066,6 +2112,13 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             $insp?->setAttribute('signed_locked', $insp->isSignedLocked());
             // §49 — the "Next inspection" picker greys out In (with the reason) once the tenancy already has one.
             $insp?->setAttribute('lease_in_inspection_id', $insp->leaseInInspection()?->id);
+            // The "Ready to complete" pill follows the SAME per-type rules the server's Complete enforces (a Routine
+            // inspection needs no attendance, and signatures only where the agency's setting asks for them).
+            $insp?->setAttribute('signatures_required', $insp?->signaturesRequired());
+            $insp?->setAttribute('attendance_required', $insp ? $insp->type !== self::TYPE_AD_HOC : true);
+            // The "Resend report" popover must show exactly who the SERVER will send to (tenants, landlords, the agency's
+            // copy addresses, the inspector, the creator) — never a list the browser rebuilds for itself.
+            $insp?->setAttribute('report_recipients', $insp && $insp->status === self::STATUS_COMPLETED ? $insp->distributionRecipients() : []);
 
             return $insp;
         };
@@ -2119,10 +2172,10 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
                 : collect(),
             // §15.4, Stage 3 — property-level (unlike tenants, which are
             // lease-level), so both in_inspection and out_inspection share
-            // this same value. Null when Property::sellerOwnerContact()
+            // this same value. Null when Property::landlordContact()
             // can't resolve one — the UI shows that plainly (§15.4) rather
             // than hiding the row or blocking on a party nobody can name.
-            'landlord_contact' => $property->sellerOwnerContact(),
+            'landlord_contact' => $property->landlordContact(),
             // §15.5/§15.6, Stage 4 — the one-tap reason list the refusal
             // form picks from. 'other' always present and always last,
             // regardless of what the agency has saved (enforced inside

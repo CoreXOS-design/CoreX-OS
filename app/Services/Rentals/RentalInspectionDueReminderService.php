@@ -34,16 +34,25 @@ class RentalInspectionDueReminderService
     /** Operational go-live guard for the computed In/Out items (not an agency preference). */
     public const CATCH_UP_DAYS = 3;
 
+    /** A dry run counts what WOULD be sent and writes/sends nothing (set per run by runPlanned()/runDue()). */
+    private bool $dryRun = false;
+
     public function __construct(private RentalInspectionDueService $due) {}
 
-    /** @return array{sent:int, skipped:int, failed:int} */
-    public function runPlanned(?CarbonInterface $today = null): array
+    /**
+     * @param  int|null  $onlyAgencyId  run for this agency only (a hand run on a shared box must not walk every agency)
+     * @param  bool  $dryRun  count only — no notice rows, no notifications
+     * @return array{sent:int, skipped:int, failed:int}
+     */
+    public function runPlanned(?CarbonInterface $today = null, ?int $onlyAgencyId = null, bool $dryRun = false): array
     {
+        $this->dryRun = $dryRun;
         $today = ($today ?? now())->copy()->startOfDay();
         $tally = ['sent' => 0, 'skipped' => 0, 'failed' => 0];
 
         $agencyIds = RentalInspectionPlannedDate::withoutGlobalScopes()
             ->whereNull('deleted_at')->whereIn('status', RentalInspectionPlannedDate::OPEN_STATUSES)
+            ->when($onlyAgencyId, fn ($q) => $q->where('agency_id', $onlyAgencyId))
             ->distinct()->pluck('agency_id');
 
         foreach ($agencyIds as $agencyId) {
@@ -63,13 +72,20 @@ class RentalInspectionDueReminderService
         return $tally;
     }
 
-    /** @return array{sent:int, skipped:int, failed:int} */
-    public function runDue(?CarbonInterface $today = null): array
+    /**
+     * @param  int|null  $onlyAgencyId  run for this agency only
+     * @param  bool  $dryRun  count only — no notice rows, no notifications
+     * @return array{sent:int, skipped:int, failed:int}
+     */
+    public function runDue(?CarbonInterface $today = null, ?int $onlyAgencyId = null, bool $dryRun = false): array
     {
+        $this->dryRun = $dryRun;
         $today = ($today ?? now())->copy()->startOfDay();
         $tally = ['sent' => 0, 'skipped' => 0, 'failed' => 0];
 
-        $agencyIds = Lease::withoutGlobalScopes()->whereNull('deleted_at')->where('status', Lease::STATUS_ACTIVE)->distinct()->pluck('agency_id');
+        $agencyIds = Lease::withoutGlobalScopes()->whereNull('deleted_at')->where('status', Lease::STATUS_ACTIVE)
+            ->when($onlyAgencyId, fn ($q) => $q->where('agency_id', $onlyAgencyId))
+            ->distinct()->pluck('agency_id');
 
         foreach ($agencyIds as $agencyId) {
             if (! RentalInspectionSetting::raiseDueInspectionsEnabledFor((int) $agencyId)) {
@@ -158,6 +174,15 @@ class RentalInspectionDueReminderService
     private function record(callable $create, int $agencyId, string $milestone, Lease $lease, ?string $skipReason, array &$tally, array $payload): void
     {
         $common = ['agency_id' => $agencyId, 'milestone' => $milestone, 'created_at' => now()];
+
+        if ($this->dryRun) {
+            // Same decision the real run takes, minus every side effect.
+            $agentId = $skipReason === null ? $this->due->responsibleAgentId($lease) : null;
+            $agent = $agentId ? User::withoutGlobalScopes()->find($agentId) : null;
+            $tally[$skipReason !== null || ! $agent || ! $agent->is_active ? 'skipped' : 'sent']++;
+
+            return;
+        }
 
         if ($skipReason !== null) {
             $create($common + ['recipient_user_id' => null, 'channel' => null, 'status' => 'skipped', 'detail' => $skipReason]);

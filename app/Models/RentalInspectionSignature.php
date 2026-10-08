@@ -156,6 +156,28 @@ class RentalInspectionSignature extends Model
      */
     public static function capture(RentalInspection $inspection, string $partyRole, string $disposition, array $attributes = []): self
     {
+        // The caller stored the signature image / wet-ink scan BEFORE calling us (it has to, the path is an input).
+        // If an invariant below then refuses (a double tap, a party who left the lease, a lock), the file would sit
+        // on the private disk with no row pointing at it — so a refused capture removes what this call was handed.
+        try {
+            return self::captureChecked($inspection, $partyRole, $disposition, $attributes);
+        } catch (\Throwable $e) {
+            foreach (['party_signature_path', 'wet_ink_upload_path'] as $key) {
+                $stored = (string) ($attributes[$key] ?? '');
+                if (str_starts_with($stored, self::PRIVATE_PREFIX)) {
+                    try {
+                        \Illuminate\Support\Facades\Storage::disk('local')->delete(substr($stored, strlen(self::PRIVATE_PREFIX)));
+                    } catch (\Throwable) {
+                        // best effort — never mask the real refusal
+                    }
+                }
+            }
+            throw $e;
+        }
+    }
+
+    private static function captureChecked(RentalInspection $inspection, string $partyRole, string $disposition, array $attributes): self
+    {
         // Audit H1 — a completed / cancelled / archived inspection takes no
         // further signatures (the signed record must not change after the fact).
         $inspection->assertRecordable();
@@ -207,7 +229,7 @@ class RentalInspectionSignature extends Model
                     throw new \InvalidArgumentException('party_contact_id is not a tenant on this inspection\'s own lease.');
                 }
             } else { // landlord
-                $landlordContactId = $inspection->property?->sellerOwnerContact()?->id;
+                $landlordContactId = $inspection->property?->landlordContact()?->id;
                 if (! $landlordContactId || (int) $landlordContactId !== (int) $contactId) {
                     throw new \InvalidArgumentException('party_contact_id does not match this property\'s resolved landlord contact.');
                 }

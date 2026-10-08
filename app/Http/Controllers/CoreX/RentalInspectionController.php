@@ -374,8 +374,10 @@ class RentalInspectionController extends Controller
                 $q->whereHas('property', function ($p) use ($search) {
                     $p->searchAddress($search);
                 })->orWhereHas('lease.tenants.contact', function ($c) use ($search) {
+                    // "Jane Smith" must find Jane Smith: first, last, or the two together.
                     $c->where('first_name', 'like', "%{$search}%")
-                        ->orWhere('last_name', 'like', "%{$search}%");
+                        ->orWhere('last_name', 'like', "%{$search}%")
+                        ->orWhereRaw("CONCAT_WS(' ', first_name, last_name) like ?", ["%{$search}%"]);
                 })->orWhereHas('createdBy', function ($u) use ($search) {
                     $u->where('name', 'like', "%{$search}%");
                 })->orWhereHas('inspector', function ($u) use ($search) {
