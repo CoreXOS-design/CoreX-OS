@@ -10,7 +10,7 @@
         <p x-show="faultDetail.description" x-text="faultDetail.description"></p>
         <div class="photo-grid" x-show="faultDetail.photos.length">
             <template x-for="ph in faultDetail.photos" :key="ph.id">
-                <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.url" alt="Photo of the fault" loading="lazy"></a>
+                <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.thumb_url || ph.url" alt="Photo of the fault" loading="lazy" decoding="async"></a>
             </template>
         </div>
         <p x-show="faultDetail.agent_note"><strong>Your agent says:</strong> <span x-text="faultDetail.agent_note"></span></p>

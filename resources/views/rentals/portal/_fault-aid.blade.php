@@ -9,7 +9,7 @@
 
     <div class="photo-grid" x-show="{{ $w }}.ftype && {{ $w }}.ftype.photos.length">
         <template x-for="ph in ({{ $w }}.ftype ? {{ $w }}.ftype.photos : [])" :key="ph.url">
-            <a :href="ph.url" target="_blank" rel="noopener" class="aid-photo"><img :src="ph.url" :alt="ph.label" loading="lazy"><span class="muted" x-text="ph.label"></span></a>
+            <a :href="ph.url" target="_blank" rel="noopener" class="aid-photo"><img :src="ph.thumb_url || ph.url" :alt="ph.label" loading="lazy" decoding="async"><span class="muted" x-text="ph.label"></span></a>
         </template>
     </div>
 
@@ -17,7 +17,7 @@
         <template x-for="d in ({{ $w }}.ftype ? {{ $w }}.ftype.documents : [])" :key="d.url">
             <div class="aid-doc">
                 <template x-if="d.type === 'image'">
-                    <a :href="d.url" target="_blank" rel="noopener"><img :src="d.url" :alt="d.caption || 'Photo'" loading="lazy" class="aid-doc-img"></a>
+                    <a :href="d.url" target="_blank" rel="noopener"><img :src="d.thumb_url || d.url" :alt="d.caption || 'Photo'" loading="lazy" decoding="async" class="aid-doc-img"></a>
                 </template>
                 <template x-if="d.type !== 'image'">
                     <a class="link" :href="d.url" target="_blank" rel="noopener" x-text="(d.type === 'video_link' ? 'Watch: ' : 'Open: ') + (d.caption || (d.type === 'video_link' ? 'video' : 'document'))"></a>
