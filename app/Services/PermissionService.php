@@ -349,6 +349,7 @@ class PermissionService
         'outreach_canvassing'     => ['own', false, 'their own outreach activity'],
         'outreach_queue'          => ['own', false, 'their own outreach queue'],
         'dr2_unfiled_emails'      => ['own', false, 'their own unfiled emails'],
+        'viewing_feedback_edit'   => ['own', false, 'viewing appointments they created'],
         'communications'          => ['own', false, 'their own threads, threads they take part in, and threads shared with them'],
         'market_intelligence'     => ['own', true,  'the code reads this as "own", but the screen then shows the whole branch pool'],
         'rental_command_centre'   => ['own', false, 'their own rentals'],

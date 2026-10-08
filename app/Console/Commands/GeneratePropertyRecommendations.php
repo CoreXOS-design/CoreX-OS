@@ -62,8 +62,11 @@ class GeneratePropertyRecommendations extends Command
         $daysOnMarket = \App\Services\Properties\DaysOnMarket::for($property) ?? 0;
 
         // Feedback analysis
-        $feedbackCount = CalendarEventFeedback::where('property_id', $property->id)->whereNotNull('captured_at')->count();
-        $viewingCount = CalendarEventFeedback::where('property_id', $property->id)->whereNotNull('captured_at')->distinct('calendar_event_id')->count('calendar_event_id');
+        // The ONE source (PropertyViewings): the same counts and concern tallies the seller link and the Intelligence
+        // tab show, so a recommendation can never quote a different number ("After 5 viewings...") than the page next to it.
+        $rollup = app(\App\Services\Properties\PropertyViewings::class)->rollup($property->id, true);
+        $feedbackCount = $rollup['total_feedback_rows'];
+        $viewingCount = $rollup['total_viewings'];
 
         // Long days on market
         if ($daysOnMarket > 60) {
@@ -79,12 +82,7 @@ class GeneratePropertyRecommendations extends Command
 
         // Many viewings, no offers
         if ($viewingCount >= 5 && $feedbackCount > 0) {
-            $concerns = CalendarEventFeedback::where('property_id', $property->id)
-                ->whereNotNull('concern_option_ids')
-                ->pluck('concern_option_ids')
-                ->flatten()
-                ->filter()
-                ->countBy();
+            $concerns = collect($rollup['top_concerns']);
 
             if ($concerns->isNotEmpty()) {
                 $topConcern = $concerns->sortDesc()->keys()->first();

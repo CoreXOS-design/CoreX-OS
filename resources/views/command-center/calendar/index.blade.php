@@ -1317,6 +1317,86 @@
                     </div>
                 </template>
 
+                {{-- Captured viewing feedback per property (R2). Agent-side: carries the internal comment.
+                     Editing / archiving is offered only when the server says can_edit (permission + scope). --}}
+                <template x-if="panelData.viewing_feedback && panelData.viewing_feedback.properties && panelData.viewing_feedback.properties.length > 0">
+                    <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);" data-testid="viewing-feedback-panel">
+                        <div class="flex items-center justify-between mb-1.5">
+                            <div class="text-[10px] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Feedback captured</div>
+                            <template x-if="panelData.viewing_feedback.can_edit && panelData.is_past">
+                                <button type="button" @click="openFeedbackModal(panelData.id)"
+                                        class="text-[11px] font-medium hover:underline" style="color: var(--brand-button);">Edit feedback &rarr;</button>
+                            </template>
+                        </div>
+                        <template x-if="!panelData.viewing_feedback.can_edit">
+                            <p class="text-[10px] mb-2" style="color: var(--text-muted);">Read only - only the agent who created this appointment, a branch manager or an admin can edit it.</p>
+                        </template>
+                        <template x-for="vp in panelData.viewing_feedback.properties" :key="vp.property_id">
+                            <div class="mb-3 rounded px-3 py-2" style="background: var(--surface-2); border: 1px solid var(--border);">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div class="text-xs font-semibold" style="color: var(--text-primary);" x-text="vp.label"></div>
+                                    <template x-if="vp.viewing_status !== 'viewed'">
+                                        <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded flex-shrink-0" style="background:rgba(239,68,68,.12); color:#b91c1c;" x-text="vp.status_label"></span>
+                                    </template>
+                                </div>
+                                <template x-if="vp.captures.length === 0">
+                                    <p class="text-[11px] mt-1" style="color: var(--text-muted);">No feedback captured for this property.</p>
+                                </template>
+                                <template x-for="c in vp.captures" :key="c.id">
+                                    <div class="mt-2 text-[11px]" style="color: var(--text-secondary);">
+                                        <div class="flex flex-wrap items-center gap-1">
+                                            <template x-if="c.outcome_label"><span class="font-semibold uppercase px-1.5 py-0.5 rounded" style="background:rgba(16,185,129,.15); color:#059669;" x-text="c.outcome_label"></span></template>
+                                            <template x-for="cn in c.concerns" :key="cn"><span class="font-semibold px-1.5 py-0.5 rounded" style="background:rgba(245,158,11,.15); color:#b45309;" x-text="cn"></span></template>
+                                        </div>
+                                        <p class="mt-1" x-show="c.seller_notes"><span class="font-medium">Seller comment:</span> <span x-text="c.seller_notes"></span></p>
+                                        <p class="mt-1" x-show="c.internal_notes"><span class="font-medium">Internal comment:</span> <span x-text="c.internal_notes"></span></p>
+                                        <p class="mt-1" x-show="c.next_action"><span class="font-medium">Next action:</span> <span x-text="c.next_action"></span></p>
+                                        <p class="mt-1 text-[10px]" style="color: var(--text-muted);">
+                                            Captured by <span x-text="c.captured_by || 'unknown'"></span><span x-show="c.captured_at"> &middot; <span x-text="c.captured_at"></span></span>
+                                            <span x-show="c.last_edited_at"> &middot; last edited by <span x-text="c.last_edited_by || 'unknown'"></span> &middot; <span x-text="c.last_edited_at"></span></span>
+                                        </p>
+                                        <template x-if="panelData.viewing_feedback.can_edit">
+                                            <div class="mt-1">
+                                                <button type="button" x-show="vfConfirmArchive !== c.id" @click="vfConfirmArchive = c.id" class="text-[10px] hover:underline" style="color: var(--ds-crimson, #dc2626);">Archive</button>
+                                                <span x-show="vfConfirmArchive === c.id" class="text-[10px]">
+                                                    Archive this feedback? It can be restored.
+                                                    <button type="button" @click="vfArchive(c.id)" class="font-semibold hover:underline" style="color: var(--ds-crimson, #dc2626);">Yes, archive</button>
+                                                    <button type="button" @click="vfConfirmArchive = null" class="hover:underline" style="color: var(--text-muted);">Cancel</button>
+                                                </span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+                                <template x-if="vp.archived && vp.archived.length > 0">
+                                    <div class="mt-2 pt-2 text-[10px]" style="border-top: 1px dashed var(--border); color: var(--text-muted);">
+                                        <div class="font-semibold uppercase tracking-wider mb-1">Archived</div>
+                                        <template x-for="a in vp.archived" :key="a.id">
+                                            <div class="flex items-center justify-between gap-2 mb-0.5">
+                                                <span><span x-text="a.outcome_label || a.status_label"></span> &middot; archived by <span x-text="a.archived_by || 'unknown'"></span></span>
+                                                <button type="button" @click="vfRestore(a.id)" class="font-semibold hover:underline" style="color: var(--brand-button);">Restore</button>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+                                <template x-if="vp.history && vp.history.length > 0">
+                                    <div class="mt-2" x-data="{ open: false }">
+                                        <button type="button" @click="open = !open" class="text-[10px] underline" style="color: var(--text-muted);" x-text="open ? 'Hide change log' : 'Show change log'"></button>
+                                        <ul x-show="open" x-cloak class="mt-1 space-y-0.5 text-[10px]" style="color: var(--text-muted);">
+                                            <template x-for="(h, hi) in vp.history" :key="hi">
+                                                <li>
+                                                    <span x-text="h.when"></span> &middot; <span x-text="h.by || 'system'"></span> &middot; <span x-text="h.action"></span>
+                                                    <template x-if="h.field"><span>: <span class="font-medium" x-text="h.field"></span> <span x-show="h.old">from "<span x-text="h.old"></span>"</span> to "<span x-text="h.new || '(empty)'"></span>"</span></template>
+                                                    <template x-if="h.note"><span> (<span x-text="h.note"></span>)</span></template>
+                                                </li>
+                                            </template>
+                                        </ul>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
                 {{-- Feedback CTA (past actionable events with contacts) --}}
                 <template x-if="panelData.is_actionable && panelData.is_past && panelData.has_contacts">
                     <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
@@ -1516,8 +1596,98 @@
                     </div>
                 </template>
 
-                {{-- Per-property feedback (listing_presentation events) --}}
-                <template x-if="feedbackData.feedback_mode === 'per_property'">
+                {{-- Viewing feedback (ONE store - spec calendar-viewing-feedback.md): one block per property on the appointment. --}}
+                <template x-if="feedbackData.feedback_mode === 'per_property' && feedbackData.feedback_kind === 'viewing'">
+                    <div class="space-y-4">
+                        <template x-if="feedbackData.can_edit === false">
+                            <div class="rounded-md p-3 text-xs" style="background: color-mix(in srgb, var(--ds-amber, #d97706) 10%, var(--surface)); border: 1px solid var(--border); color: var(--text-primary);">
+                                You can read this feedback but not change it. Only the agent who created this appointment, a branch manager or an admin can edit it.
+                            </div>
+                        </template>
+                        <template x-for="item in feedbackData.items" :key="item.property_id">
+                            <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
+                                <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);" x-text="item.label"></h3>
+
+                                <div class="mb-3">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">What happened at this property</label>
+                                    <select x-model="feedbackForm['prop:' + item.property_id].viewing_status" :disabled="feedbackData.can_edit === false"
+                                            class="w-full rounded-md px-3 py-2 text-sm"
+                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                        <template x-for="st in feedbackData.statuses" :key="st.value">
+                                            <option :value="st.value" x-text="st.label"></option>
+                                        </template>
+                                    </select>
+                                    <p class="text-[11px] mt-1" style="color: var(--text-muted);"
+                                       x-show="feedbackForm['prop:' + item.property_id].viewing_status === 'did_not_happen'">Not counted as a viewing, and nothing is shown to the seller.</p>
+                                    <p class="text-[11px] mt-1" style="color: var(--text-muted);"
+                                       x-show="feedbackForm['prop:' + item.property_id].viewing_status === 'declined_on_arrival'">Not counted as a viewing held. The seller is told a buyer arrived but chose not to view.</p>
+                                </div>
+
+                                <div x-show="feedbackForm['prop:' + item.property_id].viewing_status === 'viewed'">
+                                    <div class="mb-3">
+                                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outcome</label>
+                                        <select x-model="feedbackForm['prop:' + item.property_id].outcome_id" :disabled="feedbackData.can_edit === false"
+                                                class="w-full rounded-md px-3 py-2 text-sm"
+                                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            <option value="">Select…</option>
+                                            <template x-for="o in feedbackData.outcomes" :key="o.id">
+                                                <option :value="String(o.id)" x-text="o.label"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+
+                                    <div class="mb-3" x-show="feedbackData.concerns.length > 0">
+                                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Concerns</label>
+                                        <div class="flex flex-wrap gap-2">
+                                            <template x-for="c in feedbackData.concerns" :key="c.id">
+                                                <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer" style="color: var(--text-primary);">
+                                                    <input type="checkbox" :value="String(c.id)" :disabled="feedbackData.can_edit === false"
+                                                           x-model="feedbackForm['prop:' + item.property_id].concern_ids" class="rounded">
+                                                    <span x-text="c.label"></span>
+                                                </label>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="mb-3" x-show="feedbackForm['prop:' + item.property_id].viewing_status !== 'did_not_happen'">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Seller comment <span class="font-normal" style="color: var(--text-muted);">(shown to the seller on their live link)</span></label>
+                                    <textarea x-model="feedbackForm['prop:' + item.property_id].seller_visible_notes" rows="2" :disabled="feedbackData.can_edit === false"
+                                              class="w-full rounded-md px-3 py-2 text-sm"
+                                              style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                              placeholder="What the buyer said that the seller may read…"></textarea>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Internal comment <span class="font-normal" style="color: var(--text-muted);">(agents only - never shown to the seller)</span></label>
+                                    <textarea x-model="feedbackForm['prop:' + item.property_id].internal_notes" rows="2" :disabled="feedbackData.can_edit === false"
+                                              class="w-full rounded-md px-3 py-2 text-sm"
+                                              style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                              placeholder="Agent-only notes for this property…"></textarea>
+                                </div>
+
+                                <div>
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Next action</label>
+                                    <input type="text" x-model="feedbackForm['prop:' + item.property_id].next_action_notes" :disabled="feedbackData.can_edit === false"
+                                           class="w-full rounded-md px-3 py-2 text-sm"
+                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                           placeholder="Follow-up action…">
+                                </div>
+
+                                <p class="text-[10px] mt-3" style="color: var(--text-muted);" x-show="item.captured_by || item.last_edited_by">
+                                    <span x-show="item.captured_by">Captured by <span x-text="item.captured_by"></span> · <span x-text="item.captured_at"></span></span>
+                                    <span x-show="item.last_edited_by"> · last edited by <span x-text="item.last_edited_by"></span> · <span x-text="item.last_edited_at"></span></span>
+                                </p>
+                            </div>
+                        </template>
+                        <template x-if="feedbackData.items.length === 0">
+                            <p class="text-sm py-4 text-center" style="color: var(--text-muted);">No properties linked to this event.</p>
+                        </template>
+                    </div>
+                </template>
+
+                {{-- Per-property feedback (seller-facing classes: listing presentation / property evaluation) --}}
+                <template x-if="feedbackData.feedback_mode === 'per_property' && feedbackData.feedback_kind !== 'viewing'">
                     <div class="space-y-4">
                         <template x-for="item in feedbackData.items" :key="item.property_id">
                             <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
@@ -1677,7 +1847,7 @@
                 </div>
                 <div class="flex items-center gap-2">
                     <button type="button" @click="feedbackOpen = false" class="corex-btn-outline">Cancel</button>
-                    <template x-if="!feedbackData.is_multi_property || feedbackPropertyStep >= feedbackData.properties.length - 1">
+                    <template x-if="feedbackData.can_edit !== false && (!feedbackData.is_multi_property || feedbackPropertyStep >= feedbackData.properties.length - 1)">
                         <button type="button" @click="saveFeedback()" :disabled="feedbackSaving"
                                 class="corex-btn-primary disabled:opacity-50">
                             <span x-show="!feedbackSaving">Save Feedback</span>
@@ -3113,6 +3283,7 @@ function calendarPage() {
         rescheduleDragEventId: null,
         rescheduleDragFromDate: null,
         feedbackOpen: false,
+        vfConfirmArchive: null,
         feedbackData: { event: null, contacts: [], outcomes: [], concerns: [], properties: [], is_multi_property: false },
         feedbackForm: {},
         feedbackSaving: false,
@@ -3947,6 +4118,24 @@ function calendarPage() {
             return entry.by ? `${base} by ${entry.by}` : base;
         },
 
+        // Archive / restore one captured viewing-feedback row (soft delete, logged, permission-checked server-side).
+        async vfPost(kind, feedbackId) {
+            try {
+                const r = await fetch('/corex/command-center/calendar/' + this.panelData.id + '/feedback/' + feedbackId + '/' + kind, {
+                    method: 'POST',
+                    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json',
+                               'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({}),
+                });
+                if (!r.ok) { alert('That could not be saved (HTTP ' + r.status + ').'); return; }
+                this.vfConfirmArchive = null;
+                this.openEventPanel(this.panelData.id);
+            } catch (e) { console.warn('viewing feedback ' + kind + ' failed', e); }
+        },
+        vfArchive(id) { return this.vfPost('archive', id); },
+        vfRestore(id) { return this.vfPost('restore', id); },
+
         async openFeedbackModal(eventId) {
             try {
                 const r = await fetch('/corex/command-center/calendar/' + eventId + '/feedback', {
@@ -3974,12 +4163,26 @@ function calendarPage() {
                     lp_outcomes: data.lp_outcomes || [],
                     lp_mandate_types: data.lp_mandate_types || [],
                     lp_concerns: data.lp_concerns || [],
+                    can_edit: data.can_edit === undefined ? true : !!data.can_edit,
+                    statuses: data.statuses || [],
                 };
                 this.feedbackPropertyStep = 0;
                 this.feedbackForm = {};
                 this.feedbackError = null;
 
-                if (mode === 'per_property') {
+                if (mode === 'per_property' && this.feedbackData.feedback_kind === 'viewing') {
+                    // Viewing feedback: ONE store, one block per property still on the appointment.
+                    this.feedbackData.items.forEach(it => {
+                        this.feedbackForm['prop:' + it.property_id] = {
+                            viewing_status:       it.viewing_status || 'viewed',
+                            outcome_id:           it.outcome_id ? String(it.outcome_id) : '',
+                            concern_ids:          (it.concern_ids || []).map(String),
+                            seller_visible_notes: it.seller_visible_notes || '',
+                            internal_notes:       it.internal_notes || '',
+                            next_action_notes:    it.next_action_notes || '',
+                        };
+                    });
+                } else if (mode === 'per_property') {
                     // Index per-property form rows by property_id.
                     this.feedbackData.items.forEach(it => {
                         const kd = it.kind_data || {};
@@ -4018,6 +4221,24 @@ function calendarPage() {
         },
 
         buildFeedbackPayload() {
+            // Viewing feedback - ONE store. The server skips a property the agent did not touch (blank, nothing saved before).
+            if (this.feedbackData.feedback_mode === 'per_property' && this.feedbackData.feedback_kind === 'viewing') {
+                return {
+                    feedback_kind: 'viewing',
+                    feedback: Object.entries(this.feedbackForm)
+                        .filter(([k, _]) => k.startsWith('prop:'))
+                        .map(([k, f]) => ({
+                            property_id: parseInt(k.slice('prop:'.length)),
+                            viewing_status: f.viewing_status || 'viewed',
+                            outcome_id: f.outcome_id ? parseInt(f.outcome_id) : null,
+                            concern_ids: (f.concern_ids || []).map(Number),
+                            seller_visible_notes: f.seller_visible_notes || null,
+                            internal_notes: f.internal_notes || null,
+                            next_action_notes: f.next_action_notes || null,
+                        })),
+                };
+            }
+
             // Per-property mode (listing_presentation) — keys are "prop:<id>"
             if (this.feedbackData.feedback_mode === 'per_property') {
                 return {

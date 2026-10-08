@@ -71,68 +71,73 @@
                     </div>
                 </template>
 
-                {{-- Property-viewing feedback (CX-103) — feedback_mode=per_property
-                     but feedback_kind=viewing: the SAME form the calendar itself
-                     shows for a property viewing (one block per property, buyer
-                     vocabulary via lp_outcomes — already resolved server-side by
-                     actor_role, see CalendarController::showFeedback). Mirrors
-                     index.blade.php's per-property block markup verbatim so the
-                     two surfaces render identically, per Johan's ruling. --}}
+                {{-- Viewing feedback (ONE store - spec calendar-viewing-feedback.md). Same form as the calendar's own modal:
+                     one block per property still on the appointment; the server skips untouched properties. --}}
                 <template x-if="!loading && data.feedback_mode === 'per_property' && data.feedback_kind === 'viewing'">
                     <div class="space-y-4">
+                        <template x-if="data.can_edit === false">
+                            <div class="rounded-md p-3 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                You can read this feedback but not change it. Only the agent who created this appointment, a branch manager or an admin can edit it.
+                            </div>
+                        </template>
                         <template x-for="item in data.items" :key="item.property_id">
                             <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
                                 <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);" x-text="item.label"></h3>
 
                                 <div class="mb-3">
-                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outcome</label>
-                                    <select x-model="form['prop:' + item.property_id].outcome"
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">What happened at this property</label>
+                                    <select x-model="form['prop:' + item.property_id].viewing_status" :disabled="data.can_edit === false"
                                             class="w-full rounded-md px-3 py-2 text-sm"
                                             style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                        <option value="">Select…</option>
-                                        <template x-for="o in data.lp_outcomes" :key="o">
-                                            <option :value="o" x-text="o"></option>
+                                        <template x-for="st in data.statuses" :key="st.value">
+                                            <option :value="st.value" x-text="st.label"></option>
                                         </template>
                                     </select>
                                 </div>
 
-                                {{-- Mandate type — hides itself when the server sends no
-                                     options (never populated for a buyer-facing viewing). --}}
-                                <div class="mb-3" x-show="data.lp_mandate_types.length > 0">
-                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Mandate type</label>
-                                    <select x-model="form['prop:' + item.property_id].mandate_type"
-                                            class="w-full rounded-md px-3 py-2 text-sm"
-                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                        <option value="">Select…</option>
-                                        <template x-for="m in data.lp_mandate_types" :key="m">
-                                            <option :value="m" x-text="m"></option>
-                                        </template>
-                                    </select>
-                                </div>
-
-                                <div class="mb-3" x-show="data.lp_concerns.length > 0">
-                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Concerns</label>
-                                    <div class="flex flex-wrap gap-2">
-                                        <template x-for="c in data.lp_concerns" :key="c.id">
-                                            <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer" style="color: var(--text-primary);">
-                                                <input type="checkbox" :value="c.id" x-model="form['prop:' + item.property_id].concern_ids" class="rounded">
-                                                <span x-text="c.label"></span>
-                                            </label>
-                                        </template>
+                                <div x-show="form['prop:' + item.property_id].viewing_status === 'viewed'">
+                                    <div class="mb-3">
+                                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outcome</label>
+                                        <select x-model="form['prop:' + item.property_id].outcome_id" :disabled="data.can_edit === false"
+                                                class="w-full rounded-md px-3 py-2 text-sm"
+                                                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                            <option value="">Select…</option>
+                                            <template x-for="o in data.outcomes" :key="o.id">
+                                                <option :value="String(o.id)" x-text="o.label"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3" x-show="data.concerns.length > 0">
+                                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Concerns</label>
+                                        <div class="flex flex-wrap gap-2">
+                                            <template x-for="c in data.concerns" :key="c.id">
+                                                <label class="inline-flex items-center gap-1.5 text-xs cursor-pointer" style="color: var(--text-primary);">
+                                                    <input type="checkbox" :value="String(c.id)" :disabled="data.can_edit === false"
+                                                           x-model="form['prop:' + item.property_id].concern_ids" class="rounded">
+                                                    <span x-text="c.label"></span>
+                                                </label>
+                                            </template>
+                                        </div>
                                     </div>
                                 </div>
 
+                                <div class="mb-3" x-show="form['prop:' + item.property_id].viewing_status !== 'did_not_happen'">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Seller comment <span class="font-normal" style="color: var(--text-muted);">(shown to the seller)</span></label>
+                                    <textarea x-model="form['prop:' + item.property_id].seller_visible_notes" rows="2" :disabled="data.can_edit === false"
+                                              class="w-full rounded-md px-3 py-2 text-sm"
+                                              style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+                                              placeholder="What the buyer said that the seller may read…"></textarea>
+                                </div>
                                 <div class="mb-3">
-                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Internal notes</label>
-                                    <textarea x-model="form['prop:' + item.property_id].internal_notes" rows="2"
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Internal comment <span class="font-normal" style="color: var(--text-muted);">(agents only)</span></label>
+                                    <textarea x-model="form['prop:' + item.property_id].internal_notes" rows="2" :disabled="data.can_edit === false"
                                               class="w-full rounded-md px-3 py-2 text-sm"
                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
                                               placeholder="Agent-only notes for this property…"></textarea>
                                 </div>
-
                                 <div>
                                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Next action</label>
-                                    <input type="text" x-model="form['prop:' + item.property_id].next_action_notes"
+                                    <input type="text" x-model="form['prop:' + item.property_id].next_action_notes" :disabled="data.can_edit === false"
                                            class="w-full rounded-md px-3 py-2 text-sm"
                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
                                            placeholder="Follow-up action…">
@@ -239,7 +244,7 @@
                 </template>
                 <div class="px-6 py-4 flex items-center justify-end gap-2">
                     <button type="button" @click="isOpen = false" class="corex-btn-outline">Cancel</button>
-                    <template x-if="!loading && ((data.feedback_mode !== 'per_property' && data.contacts.length > 0) || (data.feedback_mode === 'per_property' && data.feedback_kind === 'viewing' && data.items.length > 0))">
+                    <template x-if="!loading && ((data.feedback_mode !== 'per_property' && data.contacts.length > 0) || (data.feedback_mode === 'per_property' && data.feedback_kind === 'viewing' && data.items.length > 0 && data.can_edit !== false))">
                         <button type="button" @click="save()" :disabled="saving" class="corex-btn-primary disabled:opacity-50">
                             <span x-show="!saving">Save Feedback</span>
                             <span x-show="saving" x-cloak>Saving…</span>
@@ -323,20 +328,18 @@
                         lp_concerns: d.lp_concerns || [],
                     };
 
-                    // CX-103 — property-viewing feedback (per_property + viewing):
-                    // one form row per property, keyed 'prop:<id>', pre-filled from
-                    // any existing per-property feedback row. Mirrors index.blade.php's
-                    // openFeedbackModal() per-property form-init verbatim.
+                    // Viewing feedback - ONE store: one form row per property, pre-filled from the saved row.
                     if (mode === 'per_property' && this.data.feedback_kind === 'viewing') {
+                        this.data.can_edit = d.can_edit === undefined ? true : !!d.can_edit;
+                        this.data.statuses = d.statuses || [];
                         this.data.items.forEach(it => {
-                            const kd = it.kind_data || {};
                             this.form['prop:' + it.property_id] = {
-                                outcome:           kd.outcome || '',
-                                mandate_type:      kd.mandate_type || '',
-                                concern_ids:       Array.isArray(kd.concern_ids) ? kd.concern_ids.map(String) : [],
-                                seller_notes:      kd.seller_notes || '',
-                                internal_notes:    it.internal_notes || '',
-                                next_action_notes: it.next_action || '',
+                                viewing_status:       it.viewing_status || 'viewed',
+                                outcome_id:           it.outcome_id ? String(it.outcome_id) : '',
+                                concern_ids:          (it.concern_ids || []).map(String),
+                                seller_visible_notes: it.seller_visible_notes || '',
+                                internal_notes:       it.internal_notes || '',
+                                next_action_notes:    it.next_action_notes || '',
                             };
                         });
                     } else if (mode !== 'per_property') {
@@ -388,6 +391,20 @@
                 // literally a listing presentation; see CalendarController::
                 // storeFeedback, which resolves the real buyer contact server-side
                 // for a buyer-facing class).
+                if (this.data.feedback_mode === 'per_property' && this.data.feedback_kind === 'viewing') {
+                    return {
+                        feedback_kind: 'viewing',
+                        feedback: Object.entries(this.form).map(([k, f]) => ({
+                            property_id: parseInt(k.slice('prop:'.length)),
+                            viewing_status: f.viewing_status || 'viewed',
+                            outcome_id: f.outcome_id ? parseInt(f.outcome_id) : null,
+                            concern_ids: (f.concern_ids || []).map(Number),
+                            seller_visible_notes: f.seller_visible_notes || null,
+                            internal_notes: f.internal_notes || null,
+                            next_action_notes: f.next_action_notes || null,
+                        })),
+                    };
+                }
                 if (this.data.feedback_mode === 'per_property') {
                     return {
                         feedback_kind: 'listing_presentation',
