@@ -258,6 +258,45 @@ final class LeaseAgentService
         return null;
     }
 
+    /**
+     * Who must hear about a NEW fault (Johan, 8 Oct 2026): the lease's tenant-side AND owner-side agents (de-duplicated when it
+     * is one person); with no lease agent, the property's agent; with none of those, the branch's manager, then its office
+     * admin, then the agency's admin - so a fault is never reported to nobody. Inactive / removed users are skipped throughout.
+     *
+     * @return Collection<int, User>
+     */
+    public function faultRecipients(?Lease $lease, Property $property, int $agencyId): Collection
+    {
+        $active = fn ($id) => $id ? User::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->where('is_active', true)->find($id) : null;
+
+        $people = collect();
+        if ($lease) {
+            foreach ($this->effectiveIds($lease) as $id) {
+                if ($u = $active($id)) {
+                    $people->push($u);
+                }
+            }
+        }
+        if ($people->isEmpty() && ($u = $active($property->agent_id))) {
+            $people->push($u);
+        }
+        if ($people->isEmpty()) {
+            $branchId = $lease?->branch_id ?: $property->branch_id;
+            foreach (['branch_manager', 'office_admin', 'admin'] as $role) {
+                $q = User::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->where('is_active', true)->where('role', $role);
+                if ($role !== 'admin' && $branchId) {
+                    $q->where('branch_id', $branchId);
+                }
+                if ($found = $q->orderBy('id')->first()) {
+                    $people->push($found);
+                    break;
+                }
+            }
+        }
+
+        return $people->unique('id')->values();
+    }
+
     // ── Changing them ─────────────────────────────────────────────────────────────────────────
 
     /**

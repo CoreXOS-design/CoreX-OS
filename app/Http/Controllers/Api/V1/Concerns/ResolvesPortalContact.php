@@ -24,6 +24,15 @@ trait ResolvesPortalContact
 
         $agencyId = $client->current_agency_id;
         if (!$agencyId) {
+            // A login created without an agency chosen (e.g. by the lease "send portal link") but linked to exactly ONE agency IS in that
+            // agency: adopt it, exactly as the sign-in endpoints do. Without this every call answered 409 and the portal showed no tabs.
+            $agencies = app(ClientAuthService::class)->agenciesFor($client);
+            $agencyId = $client->locked_to_agency_id ?: (count($agencies) === 1 ? $agencies[0]['id'] : null);
+            if ($agencyId) {
+                $client->forceFill(['current_agency_id' => $agencyId])->save();
+            }
+        }
+        if (!$agencyId) {
             return response()->json(['message' => 'Select an agency first.'], 409);
         }
 
