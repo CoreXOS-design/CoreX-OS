@@ -456,6 +456,7 @@ class OtherAgencyStockFieldMapper
                 'features' => [
                     'security'       => array_values($mapped['security'] ?? []),
                     'theProperty'    => array_values($mapped['theProperty'] ?? []),
+                    'building'       => array_values($mapped['building'] ?? []),
                     'connectivity'   => array_values($mapped['connectivity'] ?? []),
                     'sustainability' => array_values($mapped['sustainability'] ?? []),
                 ],
@@ -467,6 +468,7 @@ class OtherAgencyStockFieldMapper
             'features' => [
                 'security'       => $securityFeatures ?: ($existingFeatures['security'] ?? []),
                 'theProperty'    => $existingFeatures['theProperty'] ?? [],
+                'building'       => $existingFeatures['building'] ?? [],
                 'connectivity'   => $existingFeatures['connectivity'] ?? [],
                 'sustainability' => $existingFeatures['sustainability'] ?? [],
             ],

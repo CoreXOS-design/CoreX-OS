@@ -30,6 +30,9 @@ class OtherAgencyStockContentLock
         'beds', 'baths', 'half_baths', 'garages', 'size_m2', 'erf_size_m2',
         'property_type', 'listing_type',
         'features_json', 'spaces_json',
+        // Rental terms and the building's height, as the advert states them (floor_number is the unit's own
+        // floor — an internal location field, like unit_number — and stays editable).
+        'occupation_date', 'lease_period', 'number_of_floors',
         // Photos.
         'images_json', 'gallery_images_json',
         'dawn_images_json', 'noon_images_json', 'dusk_images_json',

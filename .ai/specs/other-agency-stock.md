@@ -1,6 +1,6 @@
 # Other Agency Stock
 
-**Status:** Live on QA1. 2026-10-07: P24 field audit + fixes (§5a, extension 3.8.2); action rules (§5c) and P24 heading + features (§5d, extension 3.9.1).
+**Status:** Live on QA1. 2026-10-07: P24 field audit + fixes (§5a, extension 3.8.2); action rules (§5c) and P24 heading + features (§5d, extension 3.9.1). 2026-10-08 (Johan's rulings): re-import after unlock is refused (§5e), standalone brochure declared allowed and Pitch Seller links hidden on other screens (§5c), the remaining Property24 features added to CoreX and mapped (§5f, extension 3.9.2).
 **Pillars:** Property (new status, new source-metadata table), Agent (importing agent becomes the property's agent), Contact (viewing packs / Core Matches use it downstream, unchanged).
 
 ## 1. What this is and why
@@ -341,6 +341,22 @@ Unchanged on purpose: **Syndication** stays refused by its own layers (§2); **L
 Non-Compliance** keep working; **Duplicate** stays blocked (§5b). Share (taking a buyer to it) is allowed — the panel draws it
 from Core Matches only, by the existing design of `share-actions.blade.php`.
 
+**Standalone brochure — ALLOWED (Johan, 2026-10-08).** `corex.properties.brochure` (`/corex/properties/{id}/brochure`, the printable
+ad sheet) stays open for Other Agency Stock: an agent who pulled the stock may print a brochure for their buyer. This is a declared
+decision, not a gap: the registry carries `brochure => ALLOWED` (listed in `OtherAgencyStockActionRules::NOT_ON_PANEL`, because it is
+a route, not a panel button), and `OtherAgencyStockReimportAndPitchLinksTest` fails if the route ever gains an Other Agency Stock
+refusal without this spec and the registry being changed first. No new button was added for it — it is reachable by its address,
+and the Ad Builder page and Ad Manager tool that also link to it stay blocked through `ad_builder`.
+
+**Pitch Seller links on other screens are hidden, not left to refuse (Johan, 2026-10-08).** The server refusal stays; the links go.
+`OtherAgencyStockActionRules::blockedPropertyIds($action, $ids)` answers for a whole list in one query. Applied to: the Market
+Intelligence slide-over header ("Pitch" beside an IN STOCK listing — `PropertyIntelligencePanelService` returns `matched_is_oas`) and
+the prospecting list's "Pitch (stock)" link (`ProspectingListingStateEnricher` returns `oas_properties`). Checked and needing no change:
+the map (its property pins open the record; `PROPERTY_OUTREACH_TPL` there is defined but never used), the Market Intelligence
+"RE-PITCH STOCK" / "PITCH NOW" chips (an in-stock listing is caught by the earlier "ALREADY EXISTS · OPEN PROPERTY" rule, so the
+`from-property` branches of rules R7/R10 can never be reached), and the Properties list (no pitch link). The one remaining
+`from-property` link is the Actions panel's own, already greyed.
+
 **One registry.** `App\Services\Properties\OtherAgencyStockActionRules::RULES` declares, for every panel action, `blocked` /
 `allowed` / `existing` (already guarded by its own older layer) and the reason text. Buttons read it (`isBlocked()` / `reason()`);
 routes and services call `assertAllowed()`, which throws `OtherAgencyStockActionBlockedException` — a 403 that renders as JSON
@@ -353,10 +369,10 @@ must carry `data-oas-action="<key>"` and every key must exist in `RULES`; a new 
 agency stock and every block above lifts with no further step; it behaves exactly as a draft does today (verified by test through
 the real edit form). An agent without the permission is refused and nothing changes.
 
-**Noticed in the unlock / status-change path and NOT changed (report-only):**
-1. A **re-import of the same portal listing** after the status was moved away finds the old `property_external_sources` row (dedup on
-   portal + listing ref) and updates that property — flipping it BACK to other_agency_stock and overwriting its advert fields and
-   agent, even if the agency has since worked it as its own stock.
+**Noticed in the unlock / status-change path:**
+1. A **re-import of the same portal listing** after the status was moved away used to find the old `property_external_sources` row (dedup
+   on portal + listing ref) and update that property — flipping it BACK to other_agency_stock and overwriting its advert fields and
+   agent. **Fixed 2026-10-08 — §5e.**
 2. The old source row, the consent rows and the unlock history stay attached after the status change; only the "View on Property24"
    link and the "Locked — imported from …" line (both gated on the status) disappear.
 3. Moving it to **Active** then requires a linked contact like any other listing (the exemption in §8b is for OAS only) — expected,
@@ -395,11 +411,9 @@ sends no rows leaves them alone.
 | Generator Yes; Backup Water ("Water Tank", "Borehole") | Sustainability: Generator; Backup Water + Water Tank / Borehole |
 | Rooms rows with a CoreX space type ("Reception Rooms 2", "Office", "Study" and the Study tag) | a Reception Room / Office / Study space with that count |
 
-**Shown by P24 with NO CoreX equivalent (reported, not imported):** the Building section's Wall / Floor / Roof / Window / Style
-(CoreX holds fabric per room, P24 states it property-wide — attributing it to rooms would be invention), Number of floors, Floor
-Number, Lifestyle "Complex" (and Golf Estate-style values), Description "Office" on commercial, No Transfer Duty, Occupation Date and
-Lease Period (rentals), Price per m² (derived). **Points of Interest** is not read: P24 loads it on demand from a separate request
-(nearby places, not features of the property).
+**Shown by P24 with NO CoreX equivalent — superseded 2026-10-08, see §5f.** (the Building section, number of floors, Lifestyle
+"Complex", Description "Office", No Transfer Duty, Occupation Date, Lease Period and Floor Number are all mapped now.) Still not
+imported: **Points of Interest** (see §5f) and **Price per m²** (derived — CoreX already shows it calculated on the property page).
 
 **Drift found, not changed:** the property page's picker (`show.blade.php` `_FEATURE_CATEGORIES`) offers **Communal Braai Area** and
 **Sea View** under The Property; `config/property-spaces.php` (the "mirror" the mobile API reads) does not. The mapper accepts them
@@ -409,6 +423,63 @@ Lease Period (rentals), Price per m² (derived). **Points of Interest** is not r
 heading and raw-row cases). Payload → ticks → stored property: `tests/Feature/Properties/OtherAgencyStockFeatureMapperTest.php`
 (runs the golden payloads through the mapper and the real import endpoint, and checks every emitted label against the property page's
 own picker).
+
+### 5e. Re-importing a listing that is already agency stock is refused (Johan, 2026-10-08)
+
+Once an authorised user has unlocked an Other Agency Stock property (§8a) and changed its status (e.g. to draft) it is the agency's
+own stock. Importing the same portal listing again must not turn it back into Other Agency Stock or overwrite it — "will look like a
+bug". So `OtherAgencyStockImportService::import()` — after finding the existing property by portal + listing ref and **before writing
+anything** — throws `OtherAgencyStockAlreadyAgencyStockException` when that property is no longer in `other_agency_stock` status.
+
+- **Server:** HTTP 409 `{success:false, code:"already_agency_stock", message, property_id, url}`; the message is plain ("This property is
+  already on CoreX as agency stock, so it can't be imported again as Other Agency Stock. Open it in CoreX instead.") and `url` is the
+  property. No property, source, consent or unlock row is written and no photo job is queued.
+- **Extension (3.9.2):** `background.js` turns the 409 into a typed error; `popup.js` keeps the message on the import screen (not the
+  8-second error box) with an **Open it in CoreX** link, and disables the Import button. The server text is shown as text, never HTML.
+- **Unchanged:** a property still in Other Agency Stock status updates in place on a re-import (re-lock + new consent), exactly as
+  before (§4, §8a). If the status is moved back to Other Agency Stock, re-import works again.
+- Not changed: an **archived** (soft-deleted) Other Agency Stock property is still found by the dedup lookup and still updates in place.
+- Tests: `OtherAgencyStockReimportAndPitchLinksTest`.
+
+### 5f. The rest of Property24's features in CoreX (Johan, 2026-10-08: "all P24 features should be in CoreX")
+
+Added to CoreX's own feature/attribute set — available to every agency, edited on the property page, mapped by the importer:
+
+| P24 shows | In CoreX | Where on the property page |
+|---|---|---|
+| Building → Wall / Floor / Roof / Window / Style | New feature group **Building** (`spaces_json.features.building`, label e.g. "Wall: Plaster", "Floor: Tiled", "Roof: Zinc", "Window: Aluminium", "Style: Conventional"). Vocabulary in `config/property-spaces.php` `feature_categories.building` (mirrored in `show.blade.php` `_FEATURE_CATEGORIES`); P24's wording ("Tiled Floors", "Aluminum", "Tile") maps via `OtherAgencyStockFeatureMapper::BUILDING_FACETS` / `BUILDING_VALUE_ALIASES`. Anything outside the vocabulary is reported as unmapped, never invented. | Spaces & Features → **Building** tab |
+| Lifestyle "Complex" | The Property: **Complex** | Spaces & Features → The Property |
+| No Transfer Duty | The Property: **No Transfer Duty** | same |
+| Description "Office" (commercial) | The Property: **Office Building** | same |
+| Number of floors | New column `properties.number_of_floors` (nullable; migration `2026_10_15_000500`) | Property Details → **Building** → Number of floors |
+| Floor Number | existing `floor_number` — the unit's own floor, an internal field: filled when empty, never overwritten | Complex or Estate block |
+| Occupation Date | existing `occupation_date` | Rental terms, as before |
+| Lease Period | existing `lease_period` | Rental terms, as before |
+| Price per m² | **Not stored.** Shown calculated (price ÷ floor size) on the property page, as it already was | Pricing card |
+
+`occupation_date`, `lease_period` and `number_of_floors` joined `OtherAgencyStockContentLock::LOCKED_FIELDS` (advert content);
+`floor_number` stays editable like `unit_number`. The `building` group is mirrored wherever the four others are: the web manager and icon,
+the mobile API's validation and normalisation, the legacy-converter default shape, `buildSpacesJson`, and the website listing API
+(which groups features from the same config, so the group appears there as "Building" for agencies that publish). The inspection
+feature picker reads the same config: new labels are simply absent from an agency's inspection list until the agency ticks them.
+
+**Do features feed Core Matches?** Yes — but only through a buyer's own must-have / nice-to-have list: `MatchingService` compares each
+wishlist token with the property's flat `features_json` (`propertyHasFeature()`, canonical-token match). Nothing in scoring was
+changed. The new labels only start counting once a buyer's wishlist offers them (the wishlist vocabulary is separate from this
+catalog). One caution for whoever adds wishlist tokens later: `propertyHasFeature()` treats any token shaped `no_<x>` as "NOT <x>", so a
+token `no_transfer_duty` would be read as the negation of `transfer_duty`.
+
+**Points of Interest — not built; what it would take.** P24 does not include it in the advert: the accordion is empty until opened and
+then fetches `/ListingReadOnly/PointsOfInterestForListing?ListingNumber=<id>` — a plain GET that returns an HTML fragment of categories
+(Education, Transport and Public Services, Sports and Leisure …), each with place names and distances ("Margate Middle School
+0.70km"), some rows hidden behind "view more" (~30 places on the reference listing). To capture it: (1) the extension fetches that URL
+from the agent's own tab (same origin, no new permission, no lead is registered — it is not the phone-number call) and sends the
+parsed {category, name, distance} rows; (2) CoreX needs somewhere to keep them — a JSON column on the property, or a small child table
+if they should be searchable — plus a decision on whether they are locked advert content; (3) a "Nearby" panel on the property page;
+(4) a re-import refreshes them. About a day of work including tests; no existing CoreX field fits.
+
+**Tests.** `OtherAgencyStockFeatureMapperTest` (mapping per saved page, unmappable values reported, wording variants, import through the
+real endpoint incl. the new columns and the lock), node harness (the rows all travel). Extension 3.9.2.
 
 ## 6. Visibility — a role setting, no hardcoding
 

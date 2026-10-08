@@ -39,6 +39,13 @@ class OtherAgencyStockImportService
                 ? Property::withoutGlobalScopes()->findOrFail($existingSource->property_id)
                 : new Property();
 
+            // .ai/specs/other-agency-stock.md §5e — once an authorised user has unlocked the property and
+            // moved its status away, it is the agency's own stock: refuse, touch nothing (no property, source,
+            // consent or unlock row is written). A property still in Other Agency Stock status updates in place.
+            if ($isReimport && ! $property->isOtherAgencyStock()) {
+                throw new OtherAgencyStockAlreadyAgencyStockException((int) $property->id);
+            }
+
             $property->allowOtherAgencyStockContentWrite = true;
 
             // .ai/specs/other-agency-stock.md §3b — the importing agent owns it
@@ -106,6 +113,10 @@ class OtherAgencyStockImportService
             $featureMap = (array_key_exists('feature_rows', $data) || array_key_exists('strip_tags', $data))
                 ? OtherAgencyStockFeatureMapper::map((array) ($data['feature_rows'] ?? []), (array) ($data['strip_tags'] ?? []))
                 : null;
+
+            // Single facts the same rows state (number of floors, the unit's floor, occupation date, lease period) —
+            // columns, not ticks. Absent from the advert = the stored value stays, same as levy/rates below.
+            $attrs = $featureMap['attributes'] ?? [];
 
             $spacesJson = OtherAgencyStockFieldMapper::buildSpacesJson([
                 'beds'              => $beds,
@@ -205,6 +216,11 @@ class OtherAgencyStockImportService
                 'levy'          => OtherAgencyStockFieldMapper::parseCurrency($data['levy'] ?? null) ?? $property->levy ?? null,
                 'rates_taxes'   => OtherAgencyStockFieldMapper::parseCurrency($data['rates_taxes'] ?? null) ?? $property->rates_taxes ?? null,
                 'zone_type'     => $zoneType ?? $property->zone_type ?? null,
+                'number_of_floors' => $attrs['number_of_floors'] ?? $property->number_of_floors ?? null,
+                'occupation_date'  => $attrs['occupation_date'] ?? $property->occupation_date ?? null,
+                'lease_period'     => $attrs['lease_period'] ?? $property->lease_period ?? null,
+                // The unit's own floor is an INTERNAL location field (like unit_number): an existing value is never overwritten.
+                'floor_number'     => $this->keepOrFill($property->floor_number, $attrs['floor_number'] ?? null),
                 'pet_friendly'  => array_key_exists('pets_allowed', $data) ? $data['pets_allowed'] : ($property->pet_friendly ?? null),
                 'spaces_json'   => $spacesJson,
             ])->save();

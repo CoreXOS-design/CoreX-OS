@@ -336,6 +336,8 @@ class MobilePropertyController extends Controller
             'spaces_json.features'                 => 'nullable|array',
             'spaces_json.features.theProperty'     => 'nullable|array',
             'spaces_json.features.theProperty.*'   => 'string|max:255',
+            'spaces_json.features.building'        => 'nullable|array',
+            'spaces_json.features.building.*'      => 'string|max:255',
             'spaces_json.features.security'        => 'nullable|array',
             'spaces_json.features.security.*'      => 'string|max:255',
             'spaces_json.features.connectivity'    => 'nullable|array',
@@ -514,6 +516,8 @@ class MobilePropertyController extends Controller
             'features'                       => 'nullable|array',
             'features.theProperty'           => 'nullable|array',
             'features.theProperty.*'         => 'string|max:255',
+            'features.building'              => 'nullable|array',
+            'features.building.*'            => 'string|max:255',
             'features.security'              => 'nullable|array',
             'features.security.*'            => 'string|max:255',
             'features.connectivity'          => 'nullable|array',
@@ -526,6 +530,13 @@ class MobilePropertyController extends Controller
             'spaces'   => $data['spaces'],
             'features' => $data['features'] ?? [],
         ]);
+
+        // A property stored before the "building" group existed has none; posting it back empty is not an edit
+        // (matters for Other Agency Stock, whose spaces_json is a locked column — same rule as the web save).
+        if (empty($payload['features']['building'] ?? null)
+            && ! array_key_exists('building', (array) ($property->spaces_json['features'] ?? []))) {
+            unset($payload['features']['building']);
+        }
 
         $property->spaces_json = $payload;
 
@@ -590,6 +601,7 @@ class MobilePropertyController extends Controller
             'spaces'   => $normalized,
             'features' => [
                 'theProperty'    => array_values($raw['features']['theProperty']    ?? []),
+                'building'       => array_values($raw['features']['building']       ?? []),
                 'security'       => array_values($raw['features']['security']       ?? []),
                 'connectivity'   => array_values($raw['features']['connectivity']   ?? []),
                 'sustainability' => array_values($raw['features']['sustainability'] ?? []),

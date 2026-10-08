@@ -149,8 +149,8 @@ class OtherAgencyStockActionRulesTest extends TestCase
         }
 
         $this->assertEqualsCanonicalizing(
-            Rules::keys(), array_values(array_unique($declared)),
-            'every rule in the registry must belong to a real button (no stale rules)'
+            array_values(array_diff(Rules::keys(), Rules::NOT_ON_PANEL)), array_values(array_unique($declared)),
+            'every rule in the registry must belong to a real button (no stale rules) — or be listed in NOT_ON_PANEL'
         );
     }
 
