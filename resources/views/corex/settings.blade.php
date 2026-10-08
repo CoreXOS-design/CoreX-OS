@@ -112,23 +112,23 @@
                         ? ['key'=>'rental-applications-settings', 'label'=>'Rental Applications', 'type'=>'link', 'href'=>route('corex.settings.rental-applications.edit'), 'keywords'=>'tenant application qualifying formula affordability ro co reviewer override authoriser decline email reopen link expiry highlighter matched properties approval email max maximum send limit']
                         : null,
                     $can('leases.manage_settings')
-                        ? ['key'=>'leases-settings', 'label'=>'Leases', 'type'=>'link', 'href'=>route('corex.settings.leases.edit'), 'keywords'=>'lease tenancy expiry notice window warn days']
+                        ? ['key'=>'leases-settings', 'label'=>'Leases', 'type'=>'link', 'href'=>route('corex.settings.leases.edit'), 'keywords'=>'lease tenancy expiry expiring notice window warn days deposit early cancellation month-to-month renewal notice period earliest notice date rental status active stock']
                         : null,
                     $can('rental_lease_templates.manage_settings')
                         ? ['key'=>'rental-lease-templates-settings', 'label'=>'Rental Lease Templates', 'type'=>'link', 'href'=>route('corex.rental-lease-templates.index'), 'keywords'=>'lease renewal addendum template residential commercial docuperfect e-sign']
                         : null,
                     $can('rental_inspections.manage_settings')
-                        ? ['key'=>'rental-inspections-settings', 'label'=>'Rental Inspections', 'type'=>'link', 'href'=>route('corex.settings.rental-inspections.edit'), 'keywords'=>'inspection fault report window signing window tenant out inspection']
+                        ? ['key'=>'rental-inspections-settings', 'label'=>'Rental Inspections', 'type'=>'link', 'href'=>route('corex.settings.rental-inspections.edit'), 'keywords'=>'inspection fault report window signing window tenant out inspection due date interim reminder report copy auto send photos room checklist walking order']
                         : null,
                     $can('rental_inventories.manage_settings')
-                        ? ['key'=>'rental-inventory-settings', 'label'=>'Inventory', 'type'=>'link', 'href'=>route('corex.settings.rental-inventory.edit'), 'keywords'=>'inventory contents furnished move-in move-out disposition present short damaged missing rental sale']
+                        ? ['key'=>'rental-inventory-settings', 'label'=>'Inventory', 'type'=>'link', 'href'=>route('corex.settings.rental-inventory.edit'), 'keywords'=>'inventory contents furnished move-in move-out disposition present short damaged missing rental sale baseline preset']
                         : null,
                     $can('rental_work_orders.manage_settings')
-                        ? ['key'=>'rental-work-orders-settings', 'label'=>'Rental Work Orders', 'type'=>'link', 'href'=>route('corex.settings.rental-work-orders.edit'), 'keywords'=>'work order spend threshold no approval owner authorisation fault']
+                        ? ['key'=>'rental-work-orders-settings', 'label'=>'Rental Work Orders', 'type'=>'link', 'href'=>route('corex.settings.rental-work-orders.edit'), 'keywords'=>'work order spend threshold no approval owner authorisation fault job card markup variation dispute crew link price capture printed costs']
                         : null,
                     // AT-445 — .ai/specs/rental-portal-access.md §7.
                     $can('rental_portal.manage_settings')
-                        ? ['key'=>'rental-portal-settings', 'label'=>'Rental Portal', 'type'=>'link', 'href'=>route('corex.settings.rental-portal.edit'), 'keywords'=>'tenant landlord contractor portal secure link access notification']
+                        ? ['key'=>'rental-portal-settings', 'label'=>'Rental Portal', 'type'=>'link', 'href'=>route('corex.settings.rental-portal.edit'), 'keywords'=>'tenant landlord contractor portal secure link access notification crew faq fault photo help']
                         : null,
                     $can('rental_notice_templates.manage_settings')
                         ? ['key'=>'rental-notice-templates', 'label'=>'Rental Notice Templates', 'type'=>'link', 'href'=>route('corex.rental-notice-templates.index'), 'keywords'=>'breach notice vacate template']

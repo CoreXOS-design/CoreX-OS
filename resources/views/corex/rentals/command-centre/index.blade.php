@@ -82,6 +82,11 @@
             </div>
             @endif
             <a href="{{ route('corex.rentals.command-centre.print', request()->query()) }}" target="_blank" class="corex-btn-outline text-xs">Print</a>
+            {{-- The all-inventories list had no way in once the sidebar entry was retired on purpose
+                 (it lives on a property); this is its one door for staff who want the whole list. --}}
+            @permission('rental_inventories.view')
+            <a href="{{ route('corex.rental-inventories.index') }}" class="corex-btn-outline text-xs" data-qa="rcc-inventories-link">Inventories</a>
+            @endpermission
             @if(\Illuminate\Support\Facades\Route::has('corex.rentals.reports.index'))
             @feature('rental-reports')
             <a href="{{ route('corex.rentals.reports.index') }}" class="corex-btn-outline text-xs">Reports</a>
@@ -119,7 +124,8 @@
            data-qa="rcc-tile-{{ $key }}"
            style="{{ $active ? 'border-color:color-mix(in srgb, var(--brand-icon,#6366f1) 40%, transparent);background:color-mix(in srgb, var(--brand-icon,#6366f1) 10%, var(--surface));' : '' }}">
             <span class="text-base font-bold leading-none tabular-nums flex-shrink-0" style="color:var(--text-primary);">{{ number_format($bigNumber) }}</span>
-            <span class="text-[0.6875rem] font-medium leading-tight min-w-0" style="color:var(--text-muted);">
+            {{-- Johan's ruling: a tile is max 2 lines of text — clamp, the full wording is in the tooltip. --}}
+            <span class="text-[0.6875rem] font-medium leading-tight min-w-0" style="color:var(--text-muted);display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">
                 {{ $label }}
                 @if($propertiesNote)
                     <span class="font-normal">&middot; {{ $propertiesNote }}</span>
@@ -239,7 +245,7 @@
                         @include('corex.rentals.command-centre._queue-row', ['item' => $item, 'index' => $i])
                         @php($i++)
                     @empty
-                    <div class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">Nothing needs action right now.</div>
+                    <div class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">{{ ($queuePropertyId ?? null) || ($queueDateFrom ?? null) || ($queueDateTo ?? null) ? 'Nothing needs action for this filter.' : 'Nothing needs action right now.' }}</div>
                     @endforelse
                 @else
                     @php($i = 0)
@@ -263,7 +269,7 @@
                             @endforeach
                         </div>
                     @empty
-                    <div class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">Nothing needs action right now.</div>
+                    <div class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">{{ ($queuePropertyId ?? null) || ($queueDateFrom ?? null) || ($queueDateTo ?? null) ? 'Nothing needs action for this filter.' : 'Nothing needs action right now.' }}</div>
                     @endforelse
                 @endif
             </div>
@@ -357,7 +363,7 @@
                             </td>
                             <td class="px-3 py-2"><span class="ds-badge {{ $statusBadgeClass($property->status) }}">{{ $humanise($property->status) }}</span></td>
                             <td class="px-3 py-2">
-                                <div>{{ $property->active_lease_id ? ($tenantNamesByLeaseId[$property->active_lease_id] ?? 'No tenant linked') : '— vacant —' }}</div>
+                                <div title="{{ $property->active_lease_id ? ($tenantNamesByLeaseId[$property->active_lease_id] ?? '') : '' }}" style="display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">{{ $property->active_lease_id ? ($tenantNamesByLeaseId[$property->active_lease_id] ?? 'No tenant linked') : '— vacant —' }}</div>
                                 {{-- Agent — merged into this cell (round 3 layout fix) to free a whole
                                      column's width for the sticky Actions column at 1280px with the
                                      queue open. --}}

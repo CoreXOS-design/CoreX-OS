@@ -21,7 +21,9 @@ class RentalNoticeController extends Controller
 {
     public function index(Request $request): View
     {
-        $query = RentalNotice::query()->with(['lease.property', 'sentByUser']);
+        // Own / branch / agency visibility is the lease's (Lease::visibleTo) — a notice is only as visible as the lease it is about.
+        $query = RentalNotice::query()->with(['lease.property', 'sentByUser'])
+            ->whereIn('lease_id', Lease::query()->visibleTo($request->user())->select('leases.id'));
 
         if ($search = trim((string) $request->get('q', ''))) {
             $query->where(function ($q) use ($search) {
@@ -50,15 +52,24 @@ class RentalNoticeController extends Controller
         return view('corex.rental-notices.index', compact('notices'));
     }
 
-    public function show(RentalNotice $rentalNotice): View
+    /** Direct-URL access by id is blocked unless the notice's lease is visible to this user (own / branch / agency). */
+    private function authoriseLease(Lease $lease, Request $request): void
     {
+        // withTrashed: a notice about a since-archived lease must still open for people who could see that lease.
+        abort_unless(Lease::query()->withTrashed()->visibleTo($request->user())->whereKey($lease->id)->exists(), 403);
+    }
+
+    public function show(Request $request, RentalNotice $rentalNotice): View
+    {
+        $this->authoriseLease($rentalNotice->lease()->withoutGlobalScopes()->firstOrFail(), $request);
         $rentalNotice->load(['lease.property', 'template', 'sentByUser', 'document']);
 
         return view('corex.rental-notices.show', ['notice' => $rentalNotice]);
     }
 
-    public function downloadDocument(RentalNotice $rentalNotice)
+    public function downloadDocument(Request $request, RentalNotice $rentalNotice)
     {
+        $this->authoriseLease($rentalNotice->lease()->withoutGlobalScopes()->firstOrFail(), $request);
         $document = $rentalNotice->document;
         abort_if(!$document || !\Illuminate\Support\Facades\Storage::disk($document->disk)->exists($document->storage_path), 404);
 
@@ -66,8 +77,9 @@ class RentalNoticeController extends Controller
     }
 
     /** The draft form, reached from the Lease Hub's "Send notice" action. */
-    public function create(Lease $lease): View
+    public function create(Request $request, Lease $lease): View
     {
+        $this->authoriseLease($lease, $request);
         $templates = RentalNoticeTemplate::where('is_active', true)->orderBy('name')->get();
 
         return view('corex.rental-notices.create', ['lease' => $lease, 'templates' => $templates]);
@@ -75,6 +87,7 @@ class RentalNoticeController extends Controller
 
     public function store(Request $request, Lease $lease, RentalNoticeService $service): RedirectResponse
     {
+        $this->authoriseLease($lease, $request);
         $data = $request->validate([
             'rental_notice_template_id' => ['required', 'exists:rental_notice_templates,id'],
             'figures_raw' => ['nullable', 'string', 'max:5000'],

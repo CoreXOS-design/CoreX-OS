@@ -655,9 +655,9 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
         // (RentalJobCard::scopeVisibleTo()), enforced in the controller.
         Route::prefix('mobile/rental-job-cards')->group(function () {
             Route::get('/{rentalJobCard}', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'show'])->name('v1.mobile.rental-job-cards.show');
-            Route::put('/{rentalJobCard}', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'update'])->name('v1.mobile.rental-job-cards.update');
-            Route::post('/{rentalJobCard}/tasks/{task}/tick', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'tickTask'])->name('v1.mobile.rental-job-cards.tasks.tick');
-            Route::post('/{rentalJobCard}/photos', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'storePhoto'])->name('v1.mobile.rental-job-cards.photos.store');
+            Route::put('/{rentalJobCard}', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'update'])->middleware('permission:rental_job_cards.create')->name('v1.mobile.rental-job-cards.update');
+            Route::post('/{rentalJobCard}/tasks/{task}/tick', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'tickTask'])->middleware('permission:rental_job_cards.create')->name('v1.mobile.rental-job-cards.tasks.tick');
+            Route::post('/{rentalJobCard}/photos', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'storePhoto'])->middleware('permission:rental_job_cards.create')->name('v1.mobile.rental-job-cards.photos.store');
         });
 
         // ── Mobile P24 location tree (token-authed) ──────────────────

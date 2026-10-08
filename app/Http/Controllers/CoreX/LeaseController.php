@@ -43,8 +43,15 @@ class LeaseController extends Controller
     use HandlesLeaseCapture;
     use SearchesQualifyingRentalProperties;
 
-    /** §39, 2026-09-28 — "Expiring soon" summary tile window; no agency-configurable setting exists for this yet (see index()'s own note). */
-    private const LEASE_EXPIRING_SOON_DAYS = 60;
+    /**
+     * §39 "Expiring soon" summary tile window — the agency's own lease expiry notice window (Settings → Leases),
+     * the SAME number the Rentals Command Centre's "Expiring" tile and renewal queue use, so the two screens
+     * never disagree for an agency that changed it. (Was a hardcoded 60.)
+     */
+    private function leaseExpiringSoonDays(Request $request): int
+    {
+        return \App\Models\LeaseSetting::expiryNoticeWindowDaysFor($request->user()->effectiveAgencyId());
+    }
 
     private const PER_PAGE_OPTIONS = [10, 25, 50, 100];
 
@@ -135,7 +142,7 @@ class LeaseController extends Controller
             'cancelled' => $leaseTileBase()->where('leases.status', Lease::STATUS_CANCELLED)->count(),
             'expiring_soon' => $leaseTileBase()
                 ->where('leases.status', Lease::STATUS_ACTIVE)
-                ->whereBetween('leases.end_date', [now(), now()->addDays(self::LEASE_EXPIRING_SOON_DAYS)])
+                ->whereBetween('leases.end_date', [now(), now()->addDays($this->leaseExpiringSoonDays($request))])
                 ->count(),
         ];
 
@@ -225,7 +232,7 @@ class LeaseController extends Controller
         // §39 — the summary tiles' own "Expiring soon" exception tile.
         if ($request->boolean('expiring_soon')) {
             $query->where('leases.status', Lease::STATUS_ACTIVE)
-                ->whereBetween('leases.end_date', [now(), now()->addDays(self::LEASE_EXPIRING_SOON_DAYS)]);
+                ->whereBetween('leases.end_date', [now(), now()->addDays($this->leaseExpiringSoonDays($request))]);
         }
 
         return $query;

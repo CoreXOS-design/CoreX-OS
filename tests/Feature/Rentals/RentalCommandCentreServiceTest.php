@@ -1266,6 +1266,63 @@ final class RentalCommandCentreServiceTest extends TestCase
     // ───────────────────────────── fixtures ─────────────────────────────
 
     /** @return array{0: Agency, 1: Branch, 2: User} */
+    // ── Cross-cutting audit 2026-10-08 (qa1-cc2) ───────────────────────────────
+
+    public function test_expanding_every_queue_group_saves_an_empty_list_instead_of_a_422(): void
+    {
+        [$agency, , $agent] = $this->makeAgencyBranchAgent();
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+
+        $this->actingAs($agent)
+            ->postJson(route('corex.rentals.command-centre.preference'), ['preference_key' => 'collapsed_queue_groups', 'value' => ['x']])
+            ->assertOk();
+        // "Expand all" sends [] — `required` used to reject it, so the collapsed state stuck on reload.
+        $this->actingAs($agent)
+            ->postJson(route('corex.rentals.command-centre.preference'), ['preference_key' => 'collapsed_queue_groups', 'value' => []])
+            ->assertOk();
+
+        self::assertSame([], RentalCommandCentreUserPreference::stateFor($agent->id)['collapsed_queue_groups']);
+    }
+
+    public function test_tenant_search_matches_a_full_name_and_ignores_archived_contacts(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+        $lease = $this->makeActiveLease($agency, $branch, $property);
+        $contact = Contact::find(LeaseTenant::where('lease_id', $lease->id)->value('contact_id'));
+        $contact->update(['first_name' => 'Zandile', 'last_name' => 'Nkosi']);
+        $this->actingAs($agent);
+
+        $hits = fn (string $q) => $this->service->tableQuery($agent, 'all', ['q' => $q])->get()->count();
+        self::assertSame(1, $hits('Zandile Nkosi'), 'the full name together finds the property');
+        self::assertSame(1, $hits('Nkosi'));
+
+        $contact->delete(); // archived contact is not a tenant to search by
+        self::assertSame(0, $hits('Zandile Nkosi'));
+    }
+
+    public function test_an_archived_property_with_a_planned_inspection_date_raises_no_needs_action_row(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+        $lease = $this->makeActiveLease($agency, $branch, $property);
+        \App\Models\RentalInspectionPlannedDate::create([
+            'agency_id' => $agency->id, 'lease_id' => $lease->id, 'property_id' => $property->id,
+            'type' => 'interim', 'planned_on' => now()->subDay()->toDateString(), 'status' => 'planned',
+            'created_by_user_id' => $agent->id,
+        ]);
+        $this->actingAs($agent);
+
+        $interim = fn () => $this->service->queueItems($agent, 'all')->where('type', 'interim_inspection_due')->count();
+        self::assertSame(1, $interim(), 'control: a live property with an overdue loaded date is in the queue');
+
+        // The observer refuses to archive a property with an active lease, so archive it the way legacy/imported data got there.
+        Property::withoutEvents(fn () => $property->delete());
+        self::assertSame(0, $interim(), 'archived property: no row (tiles and the In/Out rule already exclude it)');
+    }
+
     private function makeAgencyBranchAgent(): array
     {
         $agency = Agency::create(['name' => 'Agency ' . uniqid(), 'slug' => 'agency-' . uniqid()]);

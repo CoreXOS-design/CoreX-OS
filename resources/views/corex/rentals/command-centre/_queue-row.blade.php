@@ -18,5 +18,12 @@
         <div class="text-[11px] truncate" style="color: var(--text-muted);">{{ $item['property']?->buildDisplayAddress() ?? 'Unknown property' }}{{ $item['property']?->trashed() ? ' (archived)' : '' }}</div>
         @endunless
     </div>
+    {{-- Gated by the same agency feature switch as the table's Actions menu, so a switched-off module
+         never shows a button that can only 404. The route's own permission middleware still decides access. --}}
+    @php($queueFeature = str_starts_with($item['route'], 'corex.rental-fault-reports.') ? 'rental-faults'
+        : (str_starts_with($item['route'], 'corex.rental-work-orders.') ? 'rental-work-orders'
+        : (str_starts_with($item['route'], 'corex.rental-inspections.') ? 'rental-inspections' : 'rental-leases')))
+    @feature($queueFeature)
     <a href="{{ route($item['route'], $item['route_params']) }}" class="corex-btn-outline text-[11px] px-2 py-1 flex-shrink-0">{{ $item['label'] }}</a>
+    @endfeature
 </div>
