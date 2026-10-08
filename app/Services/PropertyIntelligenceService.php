@@ -400,22 +400,19 @@ class PropertyIntelligenceService
         $property = Property::withoutGlobalScopes()->find($propertyId);
         if (!$property) return collect();
 
-        return app(\App\Services\Presentations\CompetitorStockMatchService::class)
-            ->findComparableStock($property, $limit)
-            ->map(fn($p) => [
-                'id' => $p->id,
-                'title' => $p->title,
-                'price' => $p->effectivePrice(),
-                'suburb' => $p->suburb,
-                // Days on market = days since the listing went ON market. Prefer
-                // listed_date (the real listing date); published_at is only set when
-                // a property is pushed to the HFC website, so it is null for portal-
-                // only listings and wrongly rendered "—" (AT-200). Fall back through
-                // syndication-activation → created_at so a listed property always
-                // shows a figure.
-                'days_on_market' => ($dom = $p->listed_date ?? $p->p24_activated_at ?? $p->pp_activated_at ?? $p->published_at ?? $p->created_at)
-                    ? \App\Support\HumanDiff::daysBetween($dom) : null,
-            ]);
+        $stock = app(\App\Services\Presentations\CompetitorStockMatchService::class)
+            ->findComparableStock($property, $limit);
+        // Hotfix 2026-10-08: the ONE days-on-market calculation (counts from the date the advert
+        // went live, never the import date) — same class as the subject's own figure.
+        $dom = app(\App\Services\Properties\DaysOnMarket::class)->forMany($stock);
+
+        return $stock->map(fn($p) => [
+            'id' => $p->id,
+            'title' => $p->title,
+            'price' => $p->effectivePrice(),
+            'suburb' => $p->suburb,
+            'days_on_market' => $dom[$p->id] ?? null,
+        ]);
     }
 
     /**
@@ -449,15 +446,17 @@ class PropertyIntelligenceService
         $property = Property::withoutGlobalScopes()->find($propertyId);
         if (!$property) return collect();
 
-        return app(\App\Services\Presentations\CompetitorStockMatchService::class)
-            ->findComparableStock($property, $limit)
+        $stock = app(\App\Services\Presentations\CompetitorStockMatchService::class)
+            ->findComparableStock($property, $limit);
+        $dom = app(\App\Services\Properties\DaysOnMarket::class)->forMany($stock);
+
+        return $stock
             ->map(fn ($p) => [
                 'property_type'  => $p->property_type,
                 'beds'           => $this->sanePropertyCount($p->beds),
                 'baths'          => $this->sanePropertyCount($p->baths),
                 'price'          => $p->effectivePrice(),
-                'days_on_market' => ($dom = $p->listed_date ?? $p->p24_activated_at ?? $p->pp_activated_at ?? $p->published_at ?? $p->created_at)
-                    ? \App\Support\HumanDiff::daysBetween($dom) : null,
+                'days_on_market' => $dom[$p->id] ?? null,
             ])
             ->filter(fn ($c) => $c['price'] && $c['days_on_market'] !== null)
             ->values();
@@ -793,9 +792,7 @@ class PropertyIntelligenceService
             return null;
         }
 
-        $domAnchor = $property->listed_date ?? $property->p24_activated_at
-            ?? $property->pp_activated_at ?? $property->published_at ?? $property->created_at;
-        $dom = $domAnchor ? (int) round(abs($domAnchor->diffInDays(now()))) : null;
+        $dom = \App\Services\Properties\DaysOnMarket::for($property);
 
         return [
             'recommended_price'      => $recommend,
@@ -1125,17 +1122,11 @@ class PropertyIntelligenceService
             // their agent is working. isLiveOnAnyPortal() is the same check
             // the internal "Live" KPI tile uses.
             'published' => $property->isLiveOnAnyPortal(),
-            // 2026-10-07 (Johan — "402 Glyndale, imported in June, showed ~104 days"):
-            // counts from the REAL listing date (`listed_date`) ONLY, null when it
-            // isn't known — the same rule the seller live link already uses
-            // (.ai/specs/seller-live-link.md §2). It used to fall back to
-            // p24_activated_at / pp_activated_at / published_at / created_at, but for
-            // imported stock those are all the day CoreX loaded the row (the P24 feed
-            // carries no original listing date), so an imported listing — even one
-            // not on the market at all — showed "days since the import". The tile
-            // renders "—" for null.
-            'days_on_market' => $property->listed_date
-                ? \App\Support\HumanDiff::daysBetween($property->listed_date) : null,
+            // 2026-10-08 (Johan hotfix — a seller was sitting on a link showing 104 days):
+            // the ONE shared calculation — counts from the date the advert WENT LIVE,
+            // never the import/created date. Seller link, Intelligence tab, mobile and
+            // client app all read this. See App\Services\Properties\DaysOnMarket.
+            'days_on_market' => \App\Services\Properties\DaysOnMarket::for($property),
         ];
     }
 }

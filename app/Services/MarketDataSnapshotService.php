@@ -26,7 +26,7 @@ class MarketDataSnapshotService
         $comparableListings = $this->getComparableListings($propertyId);
         $areaAvg = $this->calculateAreaAverages($property->suburb, $property->agency_id);
         $recommendedPrice = $this->calculateRecommendedPrice($property, $comparableSales);
-        $dom = $property->published_at ? (int) $property->published_at->diffInDays(now()) : null;
+        $dom = \App\Services\Properties\DaysOnMarket::for($property);
 
         return PropertyPresentationSnapshot::create([
             'property_id' => $propertyId,
@@ -92,15 +92,16 @@ class MarketDataSnapshotService
         $property = Property::withoutGlobalScopes()->find($propertyId);
         if (!$property) return collect();
 
-        return app(\App\Services\Presentations\CompetitorStockMatchService::class)
-            ->findComparableStock($property)
-            ->map(fn($p) => [
-                'id' => $p->id,
-                'address' => $p->title,
-                'price' => $p->effectivePrice(),
-                'days_on_market' => ($dom = $p->listed_date ?? $p->p24_activated_at ?? $p->pp_activated_at ?? $p->published_at ?? $p->created_at)
-                    ? (int) \App\Support\HumanDiff::daysBetween($dom) : null,
-            ]);
+        $stock = app(\App\Services\Presentations\CompetitorStockMatchService::class)
+            ->findComparableStock($property);
+        $dom = app(\App\Services\Properties\DaysOnMarket::class)->forMany($stock);
+
+        return $stock->map(fn($p) => [
+            'id' => $p->id,
+            'address' => $p->title,
+            'price' => $p->effectivePrice(),
+            'days_on_market' => $dom[$p->id] ?? null,
+        ]);
     }
 
     /**
