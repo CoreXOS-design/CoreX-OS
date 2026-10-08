@@ -112,7 +112,7 @@
                         ? ['key'=>'rental-applications-settings', 'label'=>'Rental Applications', 'type'=>'link', 'href'=>route('corex.settings.rental-applications.edit'), 'keywords'=>'tenant application qualifying formula affordability ro co reviewer override authoriser decline email reopen link expiry highlighter matched properties approval email max maximum send limit']
                         : null,
                     $can('leases.manage_settings')
-                        ? ['key'=>'leases-settings', 'label'=>'Leases', 'type'=>'link', 'href'=>route('corex.settings.leases.edit'), 'keywords'=>'lease tenancy expiry expiring notice window warn days deposit early cancellation month-to-month renewal notice period earliest notice date rental status active stock']
+                        ? ['key'=>'leases-settings', 'label'=>'Leases', 'type'=>'link', 'href'=>route('corex.settings.leases.edit'), 'keywords'=>'lease tenancy expiry expiring notice window warn days deposit early cancellation month-to-month renewal notice period earliest notice date rental status active stock back on the market let out re-advertise readvertise cancelled lease ended move-out']
                         : null,
                     $can('rental_lease_templates.manage_settings')
                         ? ['key'=>'rental-lease-templates-settings', 'label'=>'Rental Lease Templates', 'type'=>'link', 'href'=>route('corex.rental-lease-templates.index'), 'keywords'=>'lease renewal addendum template residential commercial docuperfect e-sign']

@@ -485,6 +485,8 @@ return [
             // can never wipe the others (onboarding spec §6.1). It refuses 403 itself without rental_work_orders.manage_settings.
             ['controller' => \App\Http\Controllers\CoreX\RentalCompletionSettingsController::class, 'method' => 'update'],
             // BUILD 3 END
+            // §17.31 — the two supplier-invoice limits; each written only when present in the request (has()-guarded).
+            ['controller' => \App\Http\Controllers\CoreX\RentalWorkOrderInvoiceSettingsController::class, 'method' => 'update'],
             // Owner's ruling 2026-09-30 — the four rental settings + three lists that
             // were "Pending Johan's ruling" are now in this step. Scalars use
             // has()-guarded canonical savers (credit bureau / tenanted label /
@@ -608,6 +610,21 @@ return [
              'label' => 'Put the original end date back when month-to-month is reversed',
              'explain' => 'Switching a lease to month-to-month clears its end date. Reversing the switch can bring the original end date back, where it is on record.',
              'affects' => 'What a lease shows after "Reverse month-to-month": its original end date (on) or no end date until the agent types one (off).'],
+            // Property status follows the lease (rental-renewals.md) - same saver, has()-guarded (§6.1). The fourth setting,
+            // default_pre_let_status, is a pick from the agency's OWN statuses (not a static list), so it lives on the
+            // Settings page only - recorded in agency-onboarding-setup.md section 5.1.
+            ['key' => 'auto_readvertise_on_notice', 'source' => 'leases', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Put the property back on the market when notice is recorded',
+             'explain' => 'When a tenant (or the landlord) gives notice, the agent is asked whether to put the property back on the market for the date after move-out. This sets whether that box arrives ticked.',
+             'affects' => 'Whether a recorded notice re-advertises the property by default (on) or leaves it as let out until the agent ticks the box (off). The agent can always change it for a single notice.'],
+            ['key' => 'auto_restore_status_on_lease_ended', 'source' => 'leases', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Put the property back on the market when the move-out inspection confirms it is empty',
+             'explain' => 'When a move-out inspection confirms the property is vacant, CoreX can return it to the status it had before it was let, so it shows on the market again.',
+             'affects' => 'On: a vacant property goes back on the market by itself after the move-out inspection. Off: it stays "let out" until an agent changes it.'],
+            ['key' => 'auto_restore_status_on_lease_cancelled', 'source' => 'leases', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Put the property back on the market when a lease is cancelled',
+             'explain' => 'When an active lease is cancelled, CoreX can return the property to the status it had before it was let.',
+             'affects' => 'On: a cancelled lease puts the property back on the market from the cancellation date. Off: the property stays "let out" until an agent changes it.'],
             ['key' => 'signed_copy_not_live_note', 'source' => 'leases', 'type' => 'textarea', 'default' => 'Your signed lease is attached. It is not active on our system yet - your agent will confirm when it is.',
              'label' => 'Sentence in the signed-copy email when the lease cannot go live yet',
              'explain' => 'Everyone still gets their signed copy. When the lease cannot become active straight away (for example another lease is still running on the property), this one sentence tells the tenant so.',
@@ -953,6 +970,16 @@ return [
              'explain' => 'When a tenant says work is not complete, the office normally looks at the complaint first and presses "Send back to crew". Switch this on and CoreX emails your crew a fresh job link, with the tenant\'s note and photos, the moment the tenant disputes the work.',
              'affects' => 'Whether a disputed job reaches the crew automatically or waits for an office decision. Off by default so no one is sent back on a complaint the office has not read. A contractor is always sent back by the office, never automatically.'],
             // BUILD 3 END
+            // §17.31 — supplier invoice upload limits (own narrow saver, has()-guarded, registered in the step's savers above).
+            ['key' => 'invoice_max_file_mb', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 10, 'min' => 1, 'max' => 50, 'step' => 1,
+             'label' => 'Largest supplier invoice file (MB)',
+             'explain' => 'When your office files a supplier\'s invoice against a work order, the file can be at most this many megabytes.',
+             'affects' => 'Whether a large scan or photo is accepted when an invoice is uploaded; a bigger file is refused with a plain message. 10 MB suits most invoices. The most you can set is 50 MB.'],
+            ['key' => 'invoice_allowed_file_types', 'source' => 'rental_work_orders', 'type' => 'select', 'default' => 'pdf_images',
+             'options' => ['pdf' => 'PDF only', 'pdf_images' => 'PDF and photos (JPG, PNG, WebP)', 'pdf_images_heic' => 'PDF and photos, including iPhone HEIC'],
+             'label' => 'File types allowed for a supplier invoice',
+             'explain' => 'Which kinds of file your office can upload as a supplier invoice. Most suppliers send a PDF; some send a phone photo of a paper invoice.',
+             'affects' => 'What the invoice upload on a work order accepts. Choosing "PDF only" refuses photos; "including iPhone HEIC" also accepts photos taken straight from an iPhone.'],
             // Owner's ruling 2026-09-30 — moved in from the §5.1 "Pending" list.
             ['key' => 'show_lease_type_field', 'source' => 'leases', 'type' => 'toggle', 'default' => 0,
              'label' => 'Show the lease type field on a lease',

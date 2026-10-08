@@ -152,6 +152,20 @@ return [
     */
     'non_production_redirect' => env('MAIL_NON_PRODUCTION_REDIRECT'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Outbound mail guard — local sink (App\Support\OutboundMailGuard)
+    |--------------------------------------------------------------------------
+    | Read through config() on purpose: app code calling env() directly gets null
+    | once `config:cache` is on (it is, on Staging/QA), which silently changed
+    | the sink and would have hidden a real MAIL_HOST from the boot-time check.
+    */
+    'guard' => [
+        'sink_host' => env('MAIL_GUARD_SINK_HOST', env('MAIL_HOST', '127.0.0.1')),
+        'sink_port' => env('MAIL_GUARD_SINK_PORT', env('MAIL_PORT', 1025)),
+        'sink_address' => env('MAIL_GUARD_SINK_ADDRESS', 'outbound-guard@localhost.test'),
+    ],
+
     'from' => [
         'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
         'name' => env('MAIL_FROM_NAME', 'Example'),

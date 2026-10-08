@@ -51,6 +51,21 @@ class RentalWorkOrderSetting extends Model
     /** §17.10.6 — on a dispute, tell the crew straight away instead of waiting for the office's "Send back" (Decision 3). */
     public const DEFAULT_DISPUTE_NOTIFY_CREW_IMMEDIATELY = false;
 
+    // ---- .ai/specs/rental-work-orders.md §17.31 — supplier invoice upload limits. Neutral for any agency. ----
+    /** Largest invoice file the office may upload, in megabytes. */
+    public const DEFAULT_INVOICE_MAX_FILE_MB = 10;
+    public const MAX_INVOICE_MAX_FILE_MB = 50;
+    /** Which kinds of file an invoice may be: a named choice, mapped to extensions below. */
+    public const INVOICE_TYPES_PDF = 'pdf';
+    public const INVOICE_TYPES_PDF_IMAGES = 'pdf_images';
+    public const INVOICE_TYPES_PDF_IMAGES_HEIC = 'pdf_images_heic';
+    public const DEFAULT_INVOICE_ALLOWED_FILE_TYPES = self::INVOICE_TYPES_PDF_IMAGES;
+    public const INVOICE_TYPE_EXTENSIONS = [
+        self::INVOICE_TYPES_PDF => ['pdf'],
+        self::INVOICE_TYPES_PDF_IMAGES => ['pdf', 'jpg', 'jpeg', 'png', 'webp'],
+        self::INVOICE_TYPES_PDF_IMAGES_HEIC => ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'],
+    ];
+
     protected $fillable = [
         'agency_id',
         'completion_requires_photo',
@@ -69,6 +84,8 @@ class RentalWorkOrderSetting extends Model
         'external_quote_markup_type',
         'external_quote_markup_value',
         'dispute_notify_crew_immediately',
+        'invoice_max_file_mb',
+        'invoice_allowed_file_types',
     ];
 
     protected $casts = [
@@ -86,6 +103,7 @@ class RentalWorkOrderSetting extends Model
         'notify_landlord_on_auto_variation' => 'boolean',
         'external_quote_markup_value' => 'decimal:2',
         'dispute_notify_crew_immediately' => 'boolean',
+        'invoice_max_file_mb' => 'integer',
     ];
 
     /**
@@ -256,6 +274,28 @@ class RentalWorkOrderSetting extends Model
     public static function disputeNotifyCrewImmediatelyFor(?int $agencyId): bool
     {
         return self::boolFor($agencyId, 'dispute_notify_crew_immediately', self::DEFAULT_DISPUTE_NOTIFY_CREW_IMMEDIATELY);
+    }
+
+    /** §17.31 — the largest supplier-invoice file, in MB (1–50). */
+    public static function invoiceMaxFileMbFor(?int $agencyId): int
+    {
+        $value = (int) self::rawFor($agencyId, 'invoice_max_file_mb');
+
+        return $value >= 1 ? min($value, self::MAX_INVOICE_MAX_FILE_MB) : self::DEFAULT_INVOICE_MAX_FILE_MB;
+    }
+
+    /** §17.31 — one of the INVOICE_TYPES_* keys. */
+    public static function invoiceAllowedFileTypesFor(?int $agencyId): string
+    {
+        $value = self::rawFor($agencyId, 'invoice_allowed_file_types');
+
+        return is_string($value) && isset(self::INVOICE_TYPE_EXTENSIONS[$value]) ? $value : self::DEFAULT_INVOICE_ALLOWED_FILE_TYPES;
+    }
+
+    /** §17.31 — the file extensions an invoice may have for this agency. @return array<int, string> */
+    public static function invoiceAllowedExtensionsFor(?int $agencyId): array
+    {
+        return self::INVOICE_TYPE_EXTENSIONS[self::invoiceAllowedFileTypesFor($agencyId)];
     }
 
     private static function rawFor(?int $agencyId, string $column): mixed

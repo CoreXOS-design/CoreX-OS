@@ -132,5 +132,6 @@
     @include('corex.settings.rental-work-orders._pricing')
     @include('corex.settings.rental-work-orders._approvals')
     @include('corex.settings.rental-work-orders._completion')
+    @include('corex.settings.rental-work-orders._invoices')
 </div>
 @endsection
