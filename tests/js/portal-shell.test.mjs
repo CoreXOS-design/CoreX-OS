@@ -359,3 +359,28 @@ test('the Properties list is there when the second side is switched to', async (
   assert.equal(p.landlordProperties.length, 1);
 });
 
+
+// First-load freeze report (8 Oct 2026, QA1): Alpine calls an x-data object's own init() by itself (alpinejs module.cjs.js:
+// `reactiveData["init"] && evaluate(el, reactiveData["init"])`) AND the page also said x-init="init()", so every load ran init()
+// twice at the same moment - two /me checks, two role detections, two copies of every list request racing each other on a cold
+// server. One run is enough; the second call must do nothing, whichever way the link and the session race.
+test('init() runs once even though Alpine AND x-init both call it: one /me check, one role detection', async () => {
+  const urls = [];
+  const { p } = boot({ fetchImpl: portalApi({ me: TENANT_ME, leases: [{ id: 94 }], calls: urls }) });
+  await Promise.all([p.init(), p.init()]); await settle();
+  assert.equal(urls.filter((u) => u.endsWith('/api/v1/client/me')).length, 1, 'one session check');
+  assert.equal(urls.filter((u) => u.endsWith('/rentals/leases')).length, 1, 'one role detection');
+  assert.equal(p.loading, false);
+  assert.equal(p.roles.join(','), 'tenant');
+});
+
+test('a link for another email, with the page\'s double init and a slow session check, still ends on the card - never on a blank page', async () => {
+  const slowApi = portalApi({ me: TENANT_ME, leases: [{ id: 94 }] });
+  const { p } = boot({ search: '?email=ndlovu5308%40gmail.com', fetchImpl: async (url, opts) => { await new Promise((r) => setTimeout(r, 120)); return slowApi(url, opts); } });
+  const done = Promise.all([p.init(), p.init()]);
+  const first = await Promise.race([done.then(() => 'done'), new Promise((r) => setTimeout(() => r('hung'), 3000))]);
+  assert.equal(first, 'done', 'init() settles - nothing waits forever');
+  assert.equal(p.loading, false);
+  assert.equal(p.linkIssue.kind, 'email');
+  assert.equal(p.whoName(), 'Tina Tenant');
+});

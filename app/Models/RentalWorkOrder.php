@@ -266,6 +266,12 @@ class RentalWorkOrder extends Model
         return $this->hasMany(RentalWorkOrderQuote::class)->orderByDesc('quote_date');
     }
 
+    /** §17.31 — the supplier's invoice documents filed against this work order (live ones; archived via onlyTrashed()). */
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(RentalWorkOrderInvoice::class)->orderByDesc('invoice_date')->orderByDesc('id');
+    }
+
     /** AT-442 — present only when assignment_type='internal'; §14. */
     public function jobCard(): \Illuminate\Database\Eloquent\Relations\HasOne
     {

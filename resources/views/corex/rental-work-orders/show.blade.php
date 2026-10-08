@@ -369,6 +369,9 @@
     {{-- §17.21.1 plug-in slots — one empty partial per build (Build 2 → _approval-panel: "why was this approved?",
          emergency approval, variation; Build 3 → _completion-panel: contractor reports done, tenant check, dispute).
          A build may move its include; it edits only its own partial. --}}
+    {{-- §17.31 — the supplier's invoice documents (office only; share-with-owner decides what the owner sees). --}}
+    @include('corex.rental-work-orders._invoices-panel')
+
     @include('corex.rental-work-orders._approval-panel')
     @include('corex.rental-work-orders._completion-panel')
 
@@ -484,7 +487,12 @@
             </div>
             <div>
                 <label class="text-xs font-medium">Cost (R, optional)</label>
-                <input type="number" name="cost_amount" step="0.01" min="0" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                {{-- Inline one-line form on purpose: a block-style php tag here would pair with the earlier one-line tag and swallow the page between. --}}
+                @php($suggestedInvoiceCost = app(\App\Services\Rentals\RentalWorkOrderInvoiceService::class)->suggestedCost($workOrder))
+                <input type="number" name="cost_amount" step="0.01" min="0" value="{{ old('cost_amount', $suggestedInvoiceCost !== null ? number_format($suggestedInvoiceCost, 2, '.', '') : '') }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                @if($suggestedInvoiceCost !== null)
+                    <p class="text-xs mt-1" style="color: var(--text-muted);" data-cost-from-invoices>Filled in from the supplier invoices filed on this work order (R{{ number_format($suggestedInvoiceCost, 2) }}) — change it if the final cost is different.</p>
+                @endif
             </div>
             <div>
                 <label class="text-xs font-medium">Completion notes</label>

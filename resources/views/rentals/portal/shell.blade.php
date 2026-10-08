@@ -401,6 +401,20 @@
                                         <a class="link" href="#" x-show="w.rental_fault_report_id" @click.prevent="landlordTab='faults'; loadLandlordFaults(); openFault(w.rental_fault_report_id)">See the fault →</a>
                                         <p class="muted" x-show="w.contractor_phone" x-text="w.contractor_phone ? 'Contractor phone: ' + w.contractor_phone : ''"></p>
                                         <p class="muted" x-show="w.owner_facing_amount !== null && w.owner_facing_amount !== undefined" x-text="'Amount: R ' + w.owner_facing_amount"></p>
+                                        {{-- §17.31 — supplier invoices the agent has chosen to share with the owner (never shown to a tenant). --}}
+                                        <div data-wo-invoices x-show="(w.invoices || []).length" style="margin-top:10px; padding-top:10px; border-top:1px solid #eef1f6;">
+                                            <p class="muted"><strong>Supplier invoices</strong></p>
+                                            <template x-for="inv in (w.invoices || [])" :key="inv.id">
+                                                <div class="list-item" data-wo-invoice>
+                                                    <div class="row"><strong x-text="'Invoice ' + inv.invoice_number"></strong><span x-text="'R ' + Number(inv.amount).toFixed(2)"></span></div>
+                                                    <div class="muted" x-text="[inv.supplier, inv.invoice_date].filter(Boolean).join(' · ')"></div>
+                                                    <div style="display:flex; gap:14px; margin-top:6px;">
+                                                        <a class="link" :href="inv.view_url" target="_blank" rel="noopener">View</a>
+                                                        <a class="link" :href="inv.download_url">Download</a>
+                                                    </div>
+                                                </div>
+                                            </template>
+                                        </div>
                                         {{-- W6 (8 Oct 2026): the owner may also set the appointment and report progress; the tenant is told. The agency's own team reports through its job card. --}}
                                         <template x-if="w.stage !== 'completed' && w.stage !== 'cancelled'">
                                             <div data-owner-appointment style="margin-top:10px; padding-top:10px; border-top:1px solid #eef1f6;">
@@ -629,6 +643,7 @@ async function portalUpload(url, form, key, onProgress) {
 function rentalsPortal() {
     return {
         loading: true,
+        initStarted: false,
         // §22 — the agency's logo / name. Known before sign-in only when the personal link carried the email.
         branding: @json($branding ?? null),
         busy: {},
@@ -672,6 +687,10 @@ function rentalsPortal() {
         },
 
         async init() {
+            // Alpine calls an x-data object's own init() by itself, and this page ALSO says x-init="init()": without this guard every load
+            // ran it twice at once (two session checks, two role detections, two copies of every list request racing on a cold server).
+            if (this.initStarted) return;
+            this.initStarted = true;
             // rental-portal-access.md §16 — a personal link (?email=…) arrives with the email already filled in.
             // Only pre-fills the field: nothing is looked up or sent until the person presses Continue.
             const linked = (new URLSearchParams(window.location.search).get('email') || '').trim();

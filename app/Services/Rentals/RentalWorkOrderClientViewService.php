@@ -181,6 +181,8 @@ class RentalWorkOrderClientViewService
                 ? (float) $workOrder->cost_amount
                 : ($selected?->ownerFacingAmount());
             $payload['owner_approval_status'] = $workOrder->owner_approval_status;
+            // §17.31 — supplier invoices the agent has chosen to share. LANDLORD only: the tenant payload never carries this key.
+            $payload['invoices'] = app(RentalWorkOrderInvoiceService::class)->ownerPayload($workOrder);
         }
 
         return $payload;
