@@ -143,6 +143,43 @@ final class DaysOnMarketStartDateTest extends TestCase
         $this->assertSame(20, DaysOnMarket::for($p));
     }
 
+    public function test_a_same_day_activation_stamp_a_few_hours_after_the_load_is_an_import_artefact(): void
+    {
+        // The QA1 "105": loaded stock whose first sync stamped activation hours after the load.
+        // Flagged import: p24_imported_at 105 days ago, p24_activated_at 3 hours later, listed on the import day.
+        $imported = $this->imported([
+            'p24_imported_at' => now()->subDays(105)->setTime(10, 0),
+            'p24_activated_at' => now()->subDays(105)->setTime(13, 0),
+            'listed_date' => now()->subDays(105)->toDateString(),
+        ]);
+        $this->assertNull(DaysOnMarket::for($imported));
+
+        // Same stamps on stock that was never flagged as imported (created at the load time).
+        $unflagged = $this->native(['p24_activated_at' => now()->subDays(105)->setTime(13, 0), 'pp_activated_at' => now()->subDays(105)->setTime(23, 0)]);
+        Property::withoutGlobalScopes()->where('id', $unflagged->id)->update(['created_at' => now()->subDays(105)->setTime(10, 0)]);
+        $this->assertNull(DaysOnMarket::for($unflagged->fresh()), 'activation stamps within 24h of creation are not a go-live');
+
+        // A listing date the next calendar day but still within 24h of the load is the load too.
+        $nextDay = $this->imported([
+            'p24_imported_at' => now()->subDays(105)->setTime(20, 0),
+            'listed_date' => now()->subDays(104)->toDateString(),
+        ]);
+        $this->assertNull(DaysOnMarket::for($nextDay));
+
+        // But an activation days AFTER the load is a real go-live.
+        $later = $this->native(['p24_activated_at' => now()->subDays(98)]);
+        Property::withoutGlobalScopes()->where('id', $later->id)->update(['created_at' => now()->subDays(105)]);
+        $this->assertSame(98, DaysOnMarket::for($later->fresh()));
+    }
+
+    public function test_the_imports_own_status_change_is_not_a_move_on_market(): void
+    {
+        $p = $this->imported(['status' => 'active', 'p24_imported_at' => now()->subDays(105)->setTime(10, 0)]);
+        $this->statusChange($p, 'draft', 'active', now()->subDays(105)->setTime(10, 30));
+
+        $this->assertNull(DaysOnMarket::for($p));
+    }
+
     public function test_rental_counts_from_its_go_live(): void
     {
         $p = $this->native(['listing_type' => 'rental', 'status' => 'to_let', 'listed_date' => now()->subDays(40)->toDateString(), 'pp_activated_at' => now()->subDays(12)]);

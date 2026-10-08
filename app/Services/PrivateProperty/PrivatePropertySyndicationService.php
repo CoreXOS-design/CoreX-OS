@@ -251,6 +251,8 @@ class PrivatePropertySyndicationService
             $updateData['pp_listing_feed_ref'] = $listingFeedRef;
         }
         if ($ppRef !== null) {
+            // Standing rule: listed date = the day it went live on the portals (first go-live / re-publish).
+            $updateData += $property->listedDateStampOnGoLive('pp');
             $updateData['pp_ref'] = $ppRef;
             $updateData['pp_syndication_status'] = 'active';
             $updateData['pp_activated_at'] = now();
@@ -600,6 +602,7 @@ class PrivatePropertySyndicationService
                 $updateData['pp_syndication_status'] = 'active';
             }
             if (empty($property->pp_activated_at)) {
+                $updateData += $property->listedDateStampOnGoLive('pp');
                 $updateData['pp_activated_at'] = now();
             }
         }

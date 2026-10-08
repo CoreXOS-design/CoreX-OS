@@ -440,6 +440,9 @@ class Property24SyndicationService
         }
 
         if (!empty($updateData['p24_ref'])) {
+            // Standing rule: the listed date is the day the property went live on the portals. Computed
+            // from the property's state BEFORE this update (first go-live, or re-publish after deactivation).
+            $updateData += $property->listedDateStampOnGoLive('p24');
             $updateData['p24_syndication_status'] = 'active';
             $updateData['p24_activated_at'] = now();
         }
