@@ -37,8 +37,8 @@
         .btn-outline { background:transparent; border:1px solid var(--border); color:var(--text); }
         .btn-danger { background:var(--danger); color:#fff; }
         .btn-ok { background:var(--ok); color:#fff; }
-        .tabs { display:flex; gap:6px; margin-bottom:14px; }
-        .tabs button { flex:1; padding:10px; border-radius:10px; border:1px solid var(--border); background:var(--surface); font-weight:600; font-size:13px; }
+        .tabs { display:flex; gap:6px; margin-bottom:14px; overflow-x:auto; }
+        .tabs button { flex:1 1 auto; white-space:nowrap; padding:10px 8px; border-radius:10px; border:1px solid var(--border); background:var(--surface); font-weight:600; font-size:13px; }
         .tabs button.active { background:var(--brand); color:#fff; border-color:var(--brand); }
         .badge { display:inline-block; font-size:11px; font-weight:700; padding:3px 8px; border-radius:999px; background:var(--surface-2); color:var(--muted); text-transform:uppercase; }
         .error { color:var(--danger); font-size:13px; margin-top:6px; }
@@ -115,11 +115,16 @@
                 <template x-if="activeRole === 'tenant'">
                     <div>
                         <div class="tabs">
+                            <button :class="{active: tenantTab==='home'}" @click="tenantTab='home'; loadOverview()">Home</button>
                             <button :class="{active: tenantTab==='lease'}" @click="tenantTab='lease'; loadTenantLeases()">Lease</button>
                             <button :class="{active: tenantTab==='faults'}" @click="tenantTab='faults'; loadFaultReports()">Faults</button>
                             <button :class="{active: tenantTab==='jobs'}" @click="tenantTab='jobs'; loadWorkOrders()">Jobs</button>
                             <button :class="{active: tenantTab==='documents'}" @click="tenantTab='documents'; loadDocuments()">Documents</button>
                         </div>
+
+                        <template x-if="tenantTab === 'home'">
+                            @include('rentals.portal._home')
+                        </template>
 
                         <template x-if="tenantTab === 'lease'">
                             <div>
@@ -264,12 +269,17 @@
                 <template x-if="activeRole === 'landlord'">
                     <div>
                         <div class="tabs">
+                            <button :class="{active: landlordTab==='home'}" @click="landlordTab='home'; loadOverview()">Home</button>
                             <button :class="{active: landlordTab==='decisions'}" @click="landlordTab='decisions'; loadDecisions()">Decisions</button>
                             <button :class="{active: landlordTab==='properties'}" @click="landlordTab='properties'; loadLandlordProperties()">Properties</button>
                             <button :class="{active: landlordTab==='faults'}" @click="landlordTab='faults'; loadLandlordFaults()">Faults</button>
                             <button :class="{active: landlordTab==='jobs'}" @click="landlordTab='jobs'; loadWorkOrders()">Jobs</button>
                             <button :class="{active: landlordTab==='documents'}" @click="landlordTab='documents'; loadDocuments()">Documents</button>
                         </div>
+
+                        <template x-if="landlordTab === 'home'">
+                            @include('rentals.portal._home')
+                        </template>
 
                         <template x-if="landlordTab === 'documents'">
                             @include('rentals.portal._documents')
@@ -484,8 +494,9 @@ function rentalsPortal() {
         roles: [],
         activeRole: null,
         login: { step: 'email', email: '', password: '', code: '', newPassword: '', newPasswordConfirm: '', error: null, mustSetPassword: false },
-        tenantTab: 'lease',
-        landlordTab: 'decisions',
+        tenantTab: 'home',
+        landlordTab: 'home',
+        overview: { homes: [], decisions_waiting: 0, loaded: false, error: null },
         tenantLeases: [], leaseDetail: null,
         faultReports: [], documents: [],
         docs: { rows: [], meta: null, loaded: false, error: null, q: '', type: '', from: '', to: '', sort: 'date', dir: 'desc', page: 1 },
@@ -521,14 +532,15 @@ function rentalsPortal() {
             if (props.ok && props.data.properties && props.data.properties.length) roles.push('landlord');
             this.roles = roles;
             this.activeRole = roles[0] || null;
-            if (this.activeRole === 'tenant') { this.tenantLeases = leases.data.leases; this.loadFaultReports(); }
-            if (this.activeRole === 'landlord') { this.landlordProperties = props.data.properties; this.loadDecisions(); }
+            if (this.activeRole === 'tenant') { this.tenantLeases = leases.data.leases; this.loadOverview(); }
+            if (this.activeRole === 'landlord') { this.landlordProperties = props.data.properties; this.loadOverview(); }
         },
 
         setRole(role) {
             this.activeRole = role;
-            if (role === 'tenant') this.loadTenantLeases();
-            if (role === 'landlord') this.loadDecisions();
+            if (role === 'tenant') { this.tenantTab = 'home'; this.tenantLeases.length || this.loadTenantLeases(); }
+            if (role === 'landlord') this.landlordTab = 'home';
+            this.loadOverview();
         },
 
         async lookup() {
@@ -636,6 +648,21 @@ function rentalsPortal() {
             await this.loadWorkOrders();
         },
         // BUILD 3 END
+        // §20 — the Home panel for both audiences; always the signed-in person's OWN properties (server-side).
+        async loadOverview() {
+            const base = this.activeRole === 'landlord' ? '/api/v1/client/rentals/landlord' : '/api/v1/client/rentals';
+            this.overview.error = null;
+            const r = await portalFetch(base + '/overview');
+            if (!r.ok) { this.overview.error = r.data?.message || 'Could not load your home page.'; this.overview.loaded = true; return; }
+            this.overview.homes = r.data.homes;
+            this.overview.decisions_waiting = r.data.decisions_waiting || 0;
+            this.overview.loaded = true;
+        },
+        fmtDay(d) {
+            if (!d) return '—';
+            const x = new Date(String(d).substring(0, 10) + 'T00:00:00');
+            return isNaN(x) ? d : x.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+        },
         // §19 — one Documents panel for both audiences; the list is always the signed-in person's OWN (server-side).
         async loadDocuments() {
             const base = this.activeRole === 'landlord' ? '/api/v1/client/rentals/landlord' : '/api/v1/client/rentals';
