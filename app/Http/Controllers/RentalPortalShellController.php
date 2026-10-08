@@ -17,7 +17,7 @@ use Illuminate\View\View;
  * just the first Blade consumer of the same API the mobile app also
  * reaches (by bearer token instead of session cookie).
  *
- * §21 — the header carries the agency's logo (name when it has none) on every page. Before sign-in the page only knows
+ * §22 — the header carries the agency's logo (name when it has none) on every page. Before sign-in the page only knows
  * the agency when the personal link carried the person's email (`/portal?email=…`, §16): that email is looked up the
  * same way the Continue button's lookup does, and the branding is returned only when it points at exactly ONE agency.
  * Any other first visit shows the neutral "My Rentals" header until the person signs in (the page then asks for its own

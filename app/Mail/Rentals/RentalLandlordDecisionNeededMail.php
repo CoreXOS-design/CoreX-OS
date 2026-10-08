@@ -23,13 +23,16 @@ class RentalLandlordDecisionNeededMail extends Mailable implements ShouldQueue
     public string $recipientName;
     public string $propertyAddress;
     public string $title;
+    public string $portalUrl;
 
     public function __construct(public RentalFaultReport|RentalWorkOrder $decisionSubject, string $recipientName)
     {
         $this->onQueue('mail');
         $this->recipientName = $recipientName ?: 'there';
         $this->propertyAddress = $decisionSubject->property?->buildDisplayAddress() ?: ('Property #' . $decisionSubject->property_id);
-        $this->title = $decisionSubject->title;
+        // Fault flow F2: the owner is only ever told the agent's sanitised wording, never the tenant's original.
+        $this->title = $decisionSubject instanceof RentalFaultReport ? $decisionSubject->ownerVersion()['title'] : $decisionSubject->title;
+        $this->portalUrl = url('/portal');
     }
 
     public function envelope(): Envelope

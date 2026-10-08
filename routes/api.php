@@ -211,11 +211,11 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
     Route::get('/seller-properties/{property}/insights',   [ClientSellerInsightsController::class, 'show'])->name('client.seller-properties.insights');
 
     // AT-445 — .ai/specs/rental-portal-access.md §9. Tenant rentals.
-    // §21 — `portal.once`: every state-changing request in the tenant / owner portal does its work once (double tap = one record).
+    // §22 — `portal.once`: every state-changing request in the tenant / owner portal does its work once (double tap = one record).
     Route::prefix('rentals')->name('client.rentals.')->middleware('portal.once')->group(function () {
-        // §21 — the agency's logo / name for the portal header (any signed-in tenant or owner).
+        // §22 — the agency's logo / name for the portal header (any signed-in tenant or owner).
         Route::get('/branding', [ClientTenantRentalsController::class, 'branding'])->name('branding');
-        // §21 — a PDF / document on a fault type's first-aid panel (gated to the person's own agency's active fault types).
+        // §22 — a PDF / document on a fault type's first-aid panel (gated to the person's own agency's active fault types).
         Route::get('/fault-type-documents/{document}/file', [\App\Http\Controllers\Api\V1\ClientFaultTypeDocumentController::class, 'file'])->whereNumber('document')->name('fault-type-documents.file');
         Route::middleware('rental-portal.enabled:tenant')->group(function () {
             // §20 — the portal home: agent contact, inspection dates, lease end / renewal status.
@@ -253,6 +253,7 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::get('/properties/{property}/fault-types', [ClientLandlordRentalsController::class, 'faultTypes'])->name('fault-types.index');
             Route::post('/properties/{property}/fault-reports', [ClientLandlordRentalsController::class, 'faultReportStore'])->middleware('portal.photos')->name('fault-reports.store');
             Route::get('/fault-reports', [ClientLandlordRentalsController::class, 'faultReports'])->name('fault-reports.index');
+            Route::get('/fault-reports/{faultReport}', [ClientLandlordRentalsController::class, 'faultReportShow'])->whereNumber('faultReport')->name('fault-reports.show');
             Route::post('/fault-reports/{faultReport}/decision', [ClientLandlordRentalsController::class, 'faultReportDecision'])->name('fault-reports.decision');
             Route::get('/work-orders', [ClientLandlordRentalsController::class, 'workOrders'])->name('work-orders.index');
             // rental-work-orders.md §14.29 — job cards on the landlord's own properties.

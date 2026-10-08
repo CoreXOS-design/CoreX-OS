@@ -9,7 +9,7 @@
         <p>Dear {{ $recipientName }},</p>
         <p>At {{ $propertyAddress }}, the following needs your decision:</p>
         <p><strong>{{ $title }}</strong></p>
-        <p>Please log in to your portal to approve, decline, or handle it yourself.</p>
+        <p>Please <a href="{{ $portalUrl }}">log in to your portal</a> to see the details and approve or decline it, and tell us who should handle the repair.</p>
     </div>
 </body>
 </html>

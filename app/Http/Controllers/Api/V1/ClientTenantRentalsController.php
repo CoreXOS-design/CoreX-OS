@@ -153,13 +153,13 @@ class ClientTenantRentalsController extends Controller
         $view = app(\App\Services\Rentals\RentalFaultTypePortalView::class);
 
         return response()->json([
-            // §21 — steps for THIS property + urgency + the agency's documents / video links + the valve and DB-board photos.
+            // §22 — steps for THIS property + urgency + the agency's documents / video links + the valve and DB-board photos.
             'fault_types' => $view->payload($types, $propertyModel),
             'limits' => $view->limits((int) $contact->agency_id),
         ]);
     }
 
-    /** §21 — the agency's logo and name for the portal header (the signed-in person's own agency). */
+    /** §22 — the agency's logo and name for the portal header (the signed-in person's own agency). */
     public function branding(Request $request): JsonResponse
     {
         $contact = $this->resolvePortalContact($request);

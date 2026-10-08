@@ -8,7 +8,7 @@ use App\Models\RentalPortalSetting;
 use Carbon\CarbonInterface;
 
 /**
- * .ai/specs/rental-portal-access.md §21 — the portal Home FAQ ("Can I give notice?", "What happens if I give notice
+ * .ai/specs/rental-portal-access.md §22 — the portal Home FAQ ("Can I give notice?", "What happens if I give notice
  * before my lease expires?"), worked out from the signed lease's OWN terms.
  *
  * The rule that shapes everything here (Johan, 8 Oct 2026): where the lease has no such data, show NOTHING rather than a

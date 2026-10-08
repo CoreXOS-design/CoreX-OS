@@ -44,14 +44,14 @@ class RentalPortalSetting extends Model
     public const DEFAULT_CREW_PAGE_RECENT_COMPLETED_DAYS = 7;
     public const DEFAULT_CREW_PAGE_UPCOMING_DAYS = 14;
 
-    // .ai/specs/rental-portal-access.md §21 — fault photos from the tenant / owner portal (client-side compression keeps phone photos well under the size).
+    // .ai/specs/rental-portal-access.md §22 — fault photos from the tenant / owner portal (client-side compression keeps phone photos well under the size).
     public const DEFAULT_FAULT_PHOTO_MAX_COUNT = 6;
     public const MAX_FAULT_PHOTO_COUNT = 10;
     public const DEFAULT_FAULT_PHOTO_MAX_MB = 8;
     public const MAX_FAULT_PHOTO_MB = 15;
 
     /**
-     * §21 — the portal Home FAQ. The agency's wording, with the lease's own values merged in: {notice_days}, {earliest_termination_date},
+     * §22 — the portal Home FAQ. The agency's wording, with the lease's own values merged in: {notice_days}, {earliest_termination_date},
      * {earliest_notice_date}, {lease_end_date}, {early_cancellation_terms}. A piece in [[double brackets]] is dropped whole when any
      * {value} inside it is not on the lease — so the portal never states a figure it does not have.
      */
@@ -249,7 +249,7 @@ class RentalPortalSetting extends Model
         return self::boolFor($agencyId, 'notify_landlord_on_crew_completion', self::DEFAULT_NOTIFY_LANDLORD_ON_CREW_COMPLETION);
     }
 
-    // ── §21 — portal round 2 ────────────────────────────────────────────
+    // ── §22 — portal round 2 ────────────────────────────────────────────
 
     /** How many photos one fault report may carry (1-10). */
     public static function faultPhotoMaxCountFor(?int $agencyId): int

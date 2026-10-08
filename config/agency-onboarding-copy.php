@@ -545,7 +545,7 @@ return [
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewStandingLinkExpiryDays'],
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewPageRecentCompletedDays'],
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewPageUpcomingDays'],
-            // .ai/specs/rental-portal-access.md §21 — fault photo limits and the portal Home FAQ wording. Each saver has()-guards its own field(s).
+            // .ai/specs/rental-portal-access.md §22 — fault photo limits and the portal Home FAQ wording. Each saver has()-guards its own field(s).
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateFaultPhotoMaxCount'],
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateFaultPhotoMaxMb'],
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateFaqTexts'],
@@ -777,7 +777,7 @@ return [
              'label' => 'Crew page "upcoming" reaches (days ahead)',
              'explain' => 'The crew page shows today\'s jobs, then the jobs booked over the next few days, and adds up the parts they need to load for all of them.',
              'affects' => 'How far ahead the crew can see booked jobs, and which jobs count towards the "what to load" list. 14 days suits most agencies — a longer window means loading for more jobs at once.'],
-            // rental-portal-access.md §21 — fault photos from the tenant / owner portal.
+            // rental-portal-access.md §22 — fault photos from the tenant / owner portal.
             ['key' => 'fault_photo_max_count', 'source' => 'rental_portal', 'type' => 'number', 'default' => 6, 'min' => 1, 'max' => 10,
              'label' => 'Photos per fault report',
              'explain' => 'When a tenant or owner reports a fault from their portal link they can add several photos, from the camera or the phone gallery. This is the most they can add to one report.',
@@ -1015,6 +1015,9 @@ return [
             ['controller' => SettingsController::class, 'method' => 'updatePropertiesPerPage'],
             // AT-402 — Rental tab's Admin Fee / Marketing Fee sanity ceiling.
             ['controller' => SettingsController::class, 'method' => 'updateRentalFeeCeiling'],
+            // AT-448 — mandate expiry warn-days + expiry lock. Both writes are
+            // $request->has()-guarded, so a step posting a subset never wipes the other.
+            ['controller' => SettingsController::class, 'method' => 'updateMandateExpiry'],
             // DR2 Wave 2 — Deal → Property → Portal status sync. All three fields
             // render together on this step, so every save posts all three (the
             // controller's boolean fields default an ABSENT field to false —
@@ -1038,6 +1041,18 @@ return [
              'label' => 'Maximum rental Admin Fee / Marketing Fee (R)',
              'explain' => 'A rental listing\'s Admin Fee and Marketing Fee (on the property\'s Rental tab) can\'t be saved above this amount — a safety net against a typo like an extra zero turning a fee into a much larger number.',
              'affects' => 'The highest Rand amount an agent can enter for a rental\'s Admin Fee or Marketing Fee before the save is rejected.'],
+
+            // AT-448 — .ai/specs/at448-property-expiry.md §5.3
+            ['key' => 'mandate_expiry_warn_days', 'source' => 'perf', 'type' => 'number', 'default' => 7, 'min' => 1, 'max' => 90,
+             'heading' => 'Mandate expiry',
+             'label' => 'Warn agents before a mandate expires (days)',
+             'explain' => 'Every listing carries a mandate expiry date. This many days before that date, the agent sees a pop-up on the Properties page listing the mandates about to run out — once per listing, so nobody is nagged. When the date passes, CoreX marks the listing Expired at midnight and takes it off any portal or website it was being advertised on automatically.',
+             'affects' => 'How far ahead of the expiry date your agents are shown the "Mandates expiring soon" pop-up, and which listings the "Expiring soon" filter on the Properties page shows.'],
+
+            ['key' => 'mandate_expiry_lock_enabled', 'source' => 'perf', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Expiry lock',
+             'explain' => 'With this on, once a listing has gone live its expiry date can no longer be changed by hand. To extend a mandate the agent first uploads the signed extension to the property\'s extension folder in Drive, which unlocks the date for one change; saving the new date locks it again. Drafts that never went live are not affected.',
+             'affects' => 'Whether an agent can simply retype the expiry date on a live listing, or must have the signed extension on file in Drive before the date will accept a change.'],
 
             ['key' => 'flag_property_under_offer_on_deal', 'source' => 'deal_sync', 'type' => 'toggle', 'default' => 0,
              'heading' => 'Deal → property status sync',

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\CoreX;
 use App\Http\Controllers\Controller;
 use App\Jobs\Property\GrandfatherSyndicatedStockJob;
 use App\Services\Syndication\SyndicationApprovalService;
+use App\Services\Properties\MandateExpiryPolicy;
 use App\Models\Agency;
 use App\Models\AgentSocialAccount;
 use App\Models\ContactSource;
@@ -148,6 +149,11 @@ class SettingsController extends Controller
         // AT-369 — agency cap on agent-opted-in PP sole-mandate exclusivity days.
         // Default 92 = PP's own hard maximum (Rev 4.6 p20); agency-configurable downward.
         $data['ppExclusiveDaysMax']        = (int) PerformanceSetting::get('pp_exclusive_days_max', 92);
+        // AT-448 — Mandate Expiry card (warn-days + expiry lock). Resolved through the
+        // policy so the page and the runtime can never read the setting differently.
+        $mandateExpiryAgencyId             = (int) (auth()->user()?->effectiveAgencyId() ?: 0);
+        $data['mandateExpiryWarnDays']     = MandateExpiryPolicy::warnDaysFor($mandateExpiryAgencyId);
+        $data['mandateExpiryLockEnabled']  = MandateExpiryPolicy::lockEnabledFor($mandateExpiryAgencyId);
         // Syndication Approval Gate (layer 3) — .ai/specs/syndication-approval-gate.md §5.1.
         // OFF by default: an agency that never turns it on sees no change anywhere.
         $approvalAgencyId                  = (int) (auth()->user()?->effectiveAgencyId() ?? 0);
@@ -666,6 +672,50 @@ class SettingsController extends Controller
         }
 
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])->with('success', 'Syndication portals updated.');
+    }
+
+    /**
+     * AT-448 — Mandate Expiry: warn-days before expiry + the expiry lock.
+     * Spec: .ai/specs/at448-property-expiry.md §5.1.
+     *
+     * Also the Setup Wizard's saver for the Properties step (agency-onboarding-copy.php),
+     * so it follows the §6.1 saver-precondition rule: validate BEFORE any write, every
+     * write $request->has()-guarded (a step that posts a subset never wipes the rest),
+     * hard failures as ValidationException (the wizard swallows redirects), and NEVER a
+     * global (agency_id = NULL) row — an owner outside the switcher is refused.
+     */
+    public function updateMandateExpiry(Request $request)
+    {
+        if ($request->has(MandateExpiryPolicy::SETTING_WARN_DAYS)) {
+            $request->validate([
+                MandateExpiryPolicy::SETTING_WARN_DAYS => [
+                    'required', 'integer',
+                    'min:' . MandateExpiryPolicy::MIN_WARN_DAYS,
+                    'max:' . MandateExpiryPolicy::MAX_WARN_DAYS,
+                ],
+            ], [], [MandateExpiryPolicy::SETTING_WARN_DAYS => 'days before expiry']);
+        }
+
+        $agencyId = (int) (auth()->user()?->effectiveAgencyId() ?: 0);
+        abort_if($agencyId <= 0, 403, 'No agency context — mandate expiry cannot be configured.');
+
+        if ($request->has(MandateExpiryPolicy::SETTING_WARN_DAYS)) {
+            PerformanceSetting::set(
+                MandateExpiryPolicy::SETTING_WARN_DAYS,
+                (int) $request->input(MandateExpiryPolicy::SETTING_WARN_DAYS),
+                $agencyId
+            );
+        }
+
+        if ($request->has(MandateExpiryPolicy::SETTING_LOCK)) {
+            PerformanceSetting::set(
+                MandateExpiryPolicy::SETTING_LOCK,
+                $request->boolean(MandateExpiryPolicy::SETTING_LOCK) ? 1 : 0,
+                $agencyId
+            );
+        }
+
+        return redirect()->route('corex.settings', ['s' => 'feature-properties'])->with('success', 'Mandate expiry settings updated.');
     }
 
     /**

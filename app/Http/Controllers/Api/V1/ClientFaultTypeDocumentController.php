@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * .ai/specs/rental-portal-access.md §21 — a PDF / document the agency attached to a fault type's first-aid content, opened
+ * .ai/specs/rental-portal-access.md §22 — a PDF / document the agency attached to a fault type's first-aid content, opened
  * from the tenant's or owner's "before you report" panel. Gated: only the signed-in person's OWN agency's active fault
  * types (the catalogue content the agency chose to show tenants); never a raw storage URL.
  */

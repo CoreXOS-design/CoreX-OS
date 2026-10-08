@@ -718,7 +718,7 @@ class AgencySetupWizardController extends Controller
                     'crew_standing_link_expiry_days' => \App\Models\RentalPortalSetting::crewStandingLinkExpiryDaysFor($agency->id),
                     'crew_page_recent_completed_days' => \App\Models\RentalPortalSetting::crewPageRecentCompletedDaysFor($agency->id),
                     'crew_page_upcoming_days' => \App\Models\RentalPortalSetting::crewPageUpcomingDaysFor($agency->id),
-                    // rental-portal-access.md §21 — fault photos and the Home FAQ wording (each needs its own explicit arm, §6.2).
+                    // rental-portal-access.md §22 — fault photos and the Home FAQ wording (each needs its own explicit arm, §6.2).
                     'fault_photo_max_count' => \App\Models\RentalPortalSetting::faultPhotoMaxCountFor($agency->id),
                     'fault_photo_max_mb' => \App\Models\RentalPortalSetting::faultPhotoMaxMbFor($agency->id),
                     'faq_tenant_notice_question' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_tenant_notice_question'),

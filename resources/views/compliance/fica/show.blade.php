@@ -123,7 +123,8 @@
                 @php
                     $canResubmit = $submission->requested_by === auth()->id() || auth()->user()->isOwnerRole() || auth()->user()->hasPermission('manage_compliance');
                 @endphp
-                @if($canResubmit)
+                {{-- Own FICA: the server refuses the resubmit too, so the button is not offered. --}}
+                @if($canResubmit && ! ($ownReviewBlock ?? null))
                     <form method="POST" action="{{ route('compliance.fica.resubmit-corrections', $submission) }}" class="flex-shrink-0">
                         @csrf
                         <button type="submit" class="corex-btn-primary text-sm" onclick="return confirm('Resubmit this FICA for compliance officer review?')">
@@ -543,8 +544,13 @@
                         @endif
                     </dl>
 
-                    {{-- CO/Admin: Reopen button --}}
-                    @if(auth()->user()->isComplianceOfficer((int) $submission->agency_id) || auth()->user()->isOwnerRole() || auth()->user()->hasPermission('compliance.fica.approve') || in_array(auth()->user()->role, ['admin', 'super_admin']))
+                    {{-- CO/Admin: Reopen button. An officer who may not review their own FICA gets the plain reason
+                         instead of a button the server would refuse. --}}
+                    @if($ownReopenBlock ?? null)
+                    <div class="mt-4 pt-3" style="border-top:1px solid var(--border);">
+                        <p class="text-xs" style="color:var(--text-secondary);" data-own-fica-reopen-blocked>{{ $ownReopenBlock }}</p>
+                    </div>
+                    @elseif(auth()->user()->isComplianceOfficer((int) $submission->agency_id) || auth()->user()->isOwnerRole() || auth()->user()->hasPermission('compliance.fica.approve') || in_array(auth()->user()->role, ['admin', 'super_admin']))
                     <div class="mt-4 pt-3" style="border-top:1px solid var(--border);">
                         <button type="button" @click="reopenOpen = true" class="corex-btn-primary text-sm" style="background:var(--ds-amber,#f59e0b); box-shadow:none;">
                             Reopen for Corrections

@@ -1,4 +1,4 @@
-// .ai/specs/rental-portal-access.md §21 — runs the tenant / owner portal page's OWN script (resources/views/rentals/portal/shell.blade.php)
+// .ai/specs/rental-portal-access.md §22 — runs the tenant / owner portal page's OWN script (resources/views/rentals/portal/shell.blade.php)
 // in Node with a stub browser, so the parts that cannot be seen from PHP are tested: several photos (add, dedupe, limit, remove),
 // one press = one request, the done state, retry after a failure, the inline lease details and the fault-type step logic.
 //   node --test tests/js/portal-shell.test.mjs

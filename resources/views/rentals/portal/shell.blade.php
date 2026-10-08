@@ -74,7 +74,7 @@
 </head>
 <body>
 <div x-data="rentalsPortal()" x-init="init()">
-    {{-- §21 — the agency's logo on every page (its name when it has no logo; "My Rentals" until the agency is known). --}}
+    {{-- §22 — the agency's logo on every page (its name when it has no logo; "My Rentals" until the agency is known). --}}
     <header class="top" data-portal-brand>
         <template x-if="branding && branding.logo_url">
             <img class="logo" :src="branding.logo_url" :alt="branding.name || 'Agency logo'" data-portal-logo x-on:error="branding.logo_url = null">
@@ -156,7 +156,7 @@
 
                         <template x-if="tenantTab === 'lease'">
                             <div>
-                                {{-- §21 — "View details" opens right under the lease it belongs to (inline), and closes again. --}}
+                                {{-- §22 — "View details" opens right under the lease it belongs to (inline), and closes again. --}}
                                 <template x-for="lease in tenantLeases" :key="lease.id">
                                     <div class="card" data-lease-card>
                                         <h2 x-text="lease.property_address || ('Lease #' + lease.id)"></h2>
@@ -337,12 +337,85 @@
                                 <div class="card" x-show="!decisions.fault_reports.length && !decisions.work_orders.length && !(decisions.variations || []).length">
                                     <p class="muted">Nothing needs your decision right now.</p>
                                 </div>
+                                {{-- Fault flow F3/F4: the agent's version of the fault, then Approve or Decline (reason required) and,
+                                     if approving, who handles the repair. The decision, once made, shows read-only. --}}
                                 <template x-for="f in decisions.fault_reports" :key="'f'+f.id">
                                     <div class="card">
                                         <h2 x-text="f.title"></h2>
-                                        <button class="btn btn-ok" :disabled="busy['fault' + f.id]" @click="decideFault(f.id, 'approve_agency_appoints')" x-text="busy['fault' + f.id] ? 'Sending…' : 'Approve'"></button>
-                                        <button class="btn btn-outline" :disabled="busy['fault' + f.id]" @click="decideFault(f.id, 'approve_owner_handles')">I'll handle it myself</button>
-                                        <button class="btn btn-danger" :disabled="busy['fault' + f.id]" @click="decideFault(f.id, 'decline')">Decline</button>
+                                        <p class="muted">Your agent needs your decision on this repair.</p>
+                                        <button class="btn btn-primary" @click="openFault(f.id)">Review and decide</button>
+                                    </div>
+                                </template>
+                                <template x-if="faultDetail">
+                                    <div class="card" data-fault-detail>
+                                        <h2 x-text="faultDetail.title"></h2>
+                                        <p class="muted" x-text="(faultDetail.property || '') + ' · ' + faultDetail.status_label"></p>
+                                        <p x-show="faultDetail.description" x-text="faultDetail.description"></p>
+                                        <div class="photo-grid" x-show="faultDetail.photos.length">
+                                            <template x-for="ph in faultDetail.photos" :key="ph.id">
+                                                <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.url" alt="Photo of the fault" loading="lazy"></a>
+                                            </template>
+                                        </div>
+                                        <p x-show="faultDetail.agent_note"><strong>Your agent says:</strong> <span x-text="faultDetail.agent_note"></span></p>
+
+                                        <template x-if="faultDetail.decision">
+                                            <div>
+                                                <p><strong x-text="faultDetail.decision.decision === 'approved' ? 'You approved this repair.' : 'This repair was declined.'"></strong></p>
+                                                <p class="muted" x-show="faultDetail.decision.reason" x-text="'Reason: ' + faultDetail.decision.reason"></p>
+                                                <p class="muted" x-show="faultDetail.decision.contractor" x-text="faultDetail.decision.contractor"></p>
+                                                <p class="muted" x-text="faultDetail.decision.how + ' · ' + new Date(faultDetail.decision.at).toLocaleString()"></p>
+                                            </div>
+                                        </template>
+
+                                        <template x-if="faultDetail.awaiting_decision">
+                                            <div>
+                                                <label>Your decision</label>
+                                                <select x-model="faultForm.decision">
+                                                    <option value="">Choose…</option>
+                                                    <option value="approve">Approve</option>
+                                                    <option value="decline">Decline</option>
+                                                </select>
+                                                <template x-if="faultForm.decision === 'decline'">
+                                                    <div>
+                                                        <label>Why are you declining? (required)</label>
+                                                        <textarea rows="3" x-model="faultForm.note"></textarea>
+                                                    </div>
+                                                </template>
+                                                <template x-if="faultForm.decision === 'approve'">
+                                                    <div>
+                                                        <label>Who should handle the repair?</label>
+                                                        <select x-model="faultForm.handled_by">
+                                                            <option value="">Choose…</option>
+                                                            <option value="own">My own contractor</option>
+                                                            <option value="list" :hidden="!faultDetail.contractors.length" :disabled="!faultDetail.contractors.length">A contractor from my agent's list</option>
+                                                            <option value="agency">My agent arranges it</option>
+                                                        </select>
+                                                        <p class="muted" x-show="!faultDetail.contractors.length">Your agent has no contractor on file for this type of work yet. You can use your own, or ask your agent to arrange it.</p>
+                                                        <template x-if="faultForm.handled_by === 'own'">
+                                                            <div>
+                                                                <label>Contractor's name (optional)</label>
+                                                                <input type="text" x-model="faultForm.contractor_name" maxlength="191">
+                                                                <label>Contractor's phone number (optional)</label>
+                                                                <input type="text" x-model="faultForm.contractor_phone" maxlength="40">
+                                                                <p class="muted">Your agent may need to speak to them about access and the work.</p>
+                                                            </div>
+                                                        </template>
+                                                        <template x-if="faultForm.handled_by === 'list'">
+                                                            <div>
+                                                                <label>Choose a contractor</label>
+                                                                <select x-model="faultForm.agency_service_provider_id">
+                                                                    <option value="">Choose…</option>
+                                                                    <template x-for="c in faultDetail.contractors" :key="c.id"><option :value="c.id" x-text="c.name"></option></template>
+                                                                </select>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                </template>
+                                                <p class="error" x-show="faultForm.error" x-text="faultForm.error"></p>
+                                                <button class="btn btn-ok" :disabled="faultForm.busy || !faultForm.decision" @click="submitFaultDecision()">Send my decision</button>
+                                            </div>
+                                        </template>
+                                        <button class="btn btn-outline" @click="faultDetail = null">Close</button>
                                     </div>
                                 </template>
                                 <template x-for="w in decisions.work_orders" :key="'w'+w.id">
@@ -507,9 +580,9 @@
                                 <div class="card">
                                     <h2>My requests</h2>
                                     <template x-for="f in landlordFaults" :key="f.id">
-                                        <div class="list-item row">
+                                        <div class="list-item row" style="cursor:pointer" @click="landlordTab='decisions'; openFault(f.id)">
                                             <span x-text="f.title"></span>
-                                            <span class="badge" x-text="f.status"></span>
+                                            <span class="badge" x-text="f.status_label || f.status"></span>
                                         </div>
                                     </template>
                                     <p class="muted" x-show="!landlordFaults.length">No requests yet.</p>
@@ -535,7 +608,7 @@ async function ensureCsrfCookie() {
     }
 }
 
-// §21 — `options.key` is the form's submission key: the server does the work once per key and replays its answer on a second press.
+// §22 — `options.key` is the form's submission key: the server does the work once per key and replays its answer on a second press.
 async function portalFetch(url, options = {}) {
     await ensureCsrfCookie();
     const headers = Object.assign({
@@ -554,7 +627,7 @@ async function portalFetch(url, options = {}) {
     return { ok: res.ok, status: res.status, data };
 }
 
-// §21 — a form with photos goes by XMLHttpRequest so the person SEES the upload progress (fetch cannot report it).
+// §22 — a form with photos goes by XMLHttpRequest so the person SEES the upload progress (fetch cannot report it).
 async function portalUpload(url, form, key, onProgress) {
     await ensureCsrfCookie();
     return new Promise((resolve) => {
@@ -582,7 +655,7 @@ async function portalUpload(url, form, key, onProgress) {
 function rentalsPortal() {
     return {
         loading: true,
-        // §21 — the agency's logo / name. Known before sign-in only when the personal link carried the email.
+        // §22 — the agency's logo / name. Known before sign-in only when the personal link carried the email.
         branding: @json($branding ?? null),
         busy: {},
         session: { authenticated: false },
@@ -603,13 +676,15 @@ function rentalsPortal() {
         decisions: { fault_reports: [], work_orders: [], variations: [] },
         landlordProperties: [], propertyDetail: null,
         landlordFaults: [],
+        faultDetail: null,
+        faultForm: { decision: '', handled_by: '', contractor_name: '', contractor_phone: '', agency_service_provider_id: '', note: '', error: null, busy: false },
         jobCards: [],
         // BUILD 3 — the portal's Jobs are work orders (§17.3.5); the "is this finished?" answer form (§17.10.4).
         workOrders: [], answerForm: null, answerBusy: false, answerError: null, answerKeys: {},
         landlordFaultWizard: { open: false, step: 'form', property: null, faultTypeId: '', ftype: null, showAid: false, title: '', description: '', photos: [], photoError: null, photoBusy: false, photoPending: 0, sending: false, progress: 0, error: null, key: null },
         landlordFaultTypesByProperty: {},
 
-        // §21 — one press does one thing: a named action cannot start again while it is running.
+        // §22 — one press does one thing: a named action cannot start again while it is running.
         async once(name, fn) {
             if (this.busy[name]) return;
             this.busy[name] = true;
@@ -725,7 +800,7 @@ function rentalsPortal() {
             const r = await portalFetch('/api/v1/client/rentals/leases');
             if (r.ok) this.tenantLeases = r.data.leases;
         },
-        // §21 — the lease's details open directly under that lease, and close again; each lease is fetched once.
+        // §22 — the lease's details open directly under that lease, and close again; each lease is fetched once.
         async toggleLeaseDetail(id) {
             if (this.openLeaseId === id) { this.openLeaseId = null; return; }
             this.openLeaseId = id;
@@ -798,7 +873,7 @@ function rentalsPortal() {
             const x = new Date(String(d).substring(0, 10) + 'T00:00:00');
             return isNaN(x) ? d : x.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
         },
-        // §21 — the Home FAQ: a question opens its answer underneath it.
+        // §22 — the Home FAQ: a question opens its answer underneath it.
         isFaqOpen(propertyId, key) { return !!this.faqOpen[propertyId + ':' + key]; },
         toggleFaq(propertyId, key) { const k = propertyId + ':' + key; this.faqOpen[k] = !this.faqOpen[k]; },
         // §19 — one Documents panel for both audiences; the list is always the signed-in person's OWN (server-side).
@@ -815,7 +890,7 @@ function rentalsPortal() {
             this.docs.loaded = true;
         },
 
-        // ── §21 — photos: add (camera or gallery, each pick ADDS), shrink in the browser, preview, remove before sending ──
+        // ── §22 — photos: add (camera or gallery, each pick ADDS), shrink in the browser, preview, remove before sending ──
         photoCountLabel(w) {
             return w.photoBusy ? 'Preparing photos…' : (w.photos.length + ' of ' + this.photoLimits.max_photos + ' photos');
         },
@@ -955,7 +1030,7 @@ function rentalsPortal() {
         promptNote() {
             return window.prompt("Add a note (required for 'I'll handle it myself'):") || '';
         },
-        // §21 — each decision is one press: the button is off while it is sent, and the server answers a repeat with the first answer.
+        // §22 — each decision is one press: the button is off while it is sent, and the server answers a repeat with the first answer.
         async decideFault(id, decision, note) {
             const bk = 'fault' + id;
             if (this.busy[bk]) return;
@@ -966,6 +1041,30 @@ function rentalsPortal() {
                 if (r.ok) this.loadDecisions();
                 else alert(r.data?.message || 'Could not record decision.');
             } finally { this.busy[bk] = false; }
+        },
+        async openFault(id) {
+            this.faultForm = { decision: '', handled_by: '', contractor_name: '', contractor_phone: '', agency_service_provider_id: '', note: '', error: null, busy: false };
+            const r = await portalFetch('/api/v1/client/rentals/landlord/fault-reports/' + id);
+            if (r.ok) this.faultDetail = r.data.fault_report;
+            else alert(r.data?.message || 'Could not open this.');
+        },
+        async submitFaultDecision() {
+            const f = this.faultForm;
+            f.error = null;
+            if (f.decision === 'decline' && !f.note.trim()) { f.error = 'Please tell us why you are declining.'; return; }
+            if (f.decision === 'approve' && !f.handled_by) { f.error = 'Please say who should handle the repair.'; return; }
+            if (f.handled_by === 'list' && !f.agency_service_provider_id) { f.error = 'Please choose a contractor.'; return; }
+            f.busy = true;
+            const body = { decision: f.decision, note: f.note };
+            if (f.decision === 'approve') {
+                body.handled_by = f.handled_by;
+                if (f.handled_by === 'own') { body.contractor_name = f.contractor_name; body.contractor_phone = f.contractor_phone; }
+                if (f.handled_by === 'list') body.agency_service_provider_id = Number(f.agency_service_provider_id);
+            }
+            const r = await portalFetch('/api/v1/client/rentals/landlord/fault-reports/' + this.faultDetail.id + '/decision', { method: 'POST', body: JSON.stringify(body) });
+            f.busy = false;
+            if (r.ok) { const id = this.faultDetail.id; await this.openFault(id); this.loadDecisions(); this.loadLandlordFaults(); }
+            else f.error = r.data?.message || 'Could not record your decision.';
         },
         async decideWorkOrder(id, decision) {
             const bk = 'wo' + id;

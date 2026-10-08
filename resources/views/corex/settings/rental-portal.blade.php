@@ -200,7 +200,7 @@
         </div>
     </div>
 
-    {{-- §21 — fault photos. --}}
+    {{-- §22 — fault photos. --}}
     <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
         <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
             <h3 class="text-sm font-bold" style="color:var(--text-primary);">Fault photos</h3>
@@ -225,7 +225,7 @@
         </div>
     </div>
 
-    {{-- §21 — the Home FAQ wording. One form, every field optional (blank = the default wording). --}}
+    {{-- §22 — the Home FAQ wording. One form, every field optional (blank = the default wording). --}}
     <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
         <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
             <h3 class="text-sm font-bold" style="color:var(--text-primary);">Home page FAQ (notice and early cancellation)</h3>

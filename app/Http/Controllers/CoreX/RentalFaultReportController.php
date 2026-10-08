@@ -112,6 +112,7 @@ class RentalFaultReportController extends Controller
         $tileCounts = [
             'total' => $frTileBase()->count(),
             'reported' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_REPORTED)->count(),
+            'under_review' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_UNDER_REVIEW)->count(),
             'awaiting_approval' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_AWAITING_APPROVAL)->count(),
             'approved' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_APPROVED)->count(),
             'declined' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_DECLINED)->count(),
@@ -377,7 +378,14 @@ class RentalFaultReportController extends Controller
             'reportedInspectionObservation.inspection',
         ]);
 
-        return view('corex.rental-fault-reports.show', ['faultReport' => $rentalFaultReport]);
+        $contractors = app(\App\Services\Rentals\RentalFaultContractorService::class)->optionsFor($rentalFaultReport);
+
+        return view('corex.rental-fault-reports.show', [
+            'faultReport' => $rentalFaultReport,
+            // Fault flow F3/F5 - the supplier list for this fault's type of work (empty = say so, offer the other routes).
+            'contractors' => $contractors,
+            'decisionSummary' => $rentalFaultReport->decisionSummary(),
+        ]);
     }
 
     /**
@@ -406,6 +414,11 @@ class RentalFaultReportController extends Controller
         $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
 
         abort_unless($rentalFaultReport->status === RentalFaultReport::STATUS_REPORTED, 409, 'This fault report has moved on and can no longer be edited here.');
+        abort_if(
+            in_array($rentalFaultReport->reported_by_type, [RentalFaultReport::REPORTED_BY_TENANT, RentalFaultReport::REPORTED_BY_LANDLORD], true),
+            409,
+            'A report made by the tenant or owner is kept as they wrote it - prepare the owner version instead.'
+        );
 
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:191'],
@@ -426,13 +439,50 @@ class RentalFaultReportController extends Controller
     {
         $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
 
+        // Fault flow F2: the owner sees nothing until the agent has REVIEWED the report and prepared the owner's version.
+        if ($rentalFaultReport->owner_version_saved_at === null) {
+            return back()->withErrors(['rental_fault_report' => 'Prepare the owner version first (check the wording and photos the owner will see), then send it.']);
+        }
+
         try {
             $rentalFaultReport->requestApproval($request->user());
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
         }
 
-        return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Marked as awaiting owner approval.');
+        return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Sent to the owner. They can now see it and decide.');
+    }
+
+    /**
+     * Fault flow F2 - save what the owner will see (the agent's sanitised version). The tenant's original title,
+     * description and photos stay exactly as reported. Allowed until the report is sent.
+     */
+    public function saveOwnerVersion(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+
+        $validated = $request->validate([
+            'owner_title' => ['required', 'string', 'max:191'],
+            'owner_description' => ['nullable', 'string', 'max:5000'],
+            'owner_agent_note' => ['nullable', 'string', 'max:3000'],
+            'owner_photo_ids' => ['nullable', 'array'],
+            'owner_photo_ids.*' => ['integer'],
+        ]);
+
+        try {
+            $rentalFaultReport->saveOwnerVersion($validated, $request->user());
+        } catch (\LogicException|\InvalidArgumentException $e) {
+            return back()->withErrors(['rental_fault_report' => $e->getMessage()])->withInput();
+        }
+
+        // "Save and send" posts send_now=1: same two steps, one click, and the send step keeps its own permission.
+        if ($request->boolean('send_now')) {
+            abort_unless($request->user()->hasPermission('rental_fault_reports.send_to_owner'), 403);
+
+            return $this->requestApproval($request, $rentalFaultReport->fresh());
+        }
+
+        return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Owner version saved. Nothing has been sent to the owner yet.');
     }
 
     /**
@@ -467,7 +517,26 @@ class RentalFaultReportController extends Controller
             // future need, not quietly bolted on as a second storage path.
             'evidence_file' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
             'decided_at' => ['nullable', 'date'],
+            // Fault flow F5: who appoints the contractor - the owner (their own: optional name + number) or the agency
+            // (a supplier from the same list the owner is offered).
+            'contractor_name' => ['nullable', 'string', 'max:191'],
+            'contractor_phone' => ['nullable', 'string', 'max:40'],
+            'agency_service_provider_id' => ['nullable', 'integer'],
+            'after' => ['nullable', 'in:create_work_order'],
         ]);
+
+        if ($validated['decision'] === \App\Models\RentalApproval::DECISION_DECLINED && trim((string) $validated['evidence_text']) === '') {
+            return back()->withErrors(['rental_fault_report' => 'A reason is required when declining.'])->withInput();
+        }
+        if ($validated['decision'] === \App\Models\RentalApproval::DECISION_APPROVED && empty($validated['approval_route'])) {
+            return back()->withErrors(['rental_fault_report' => 'Say who appoints the contractor: the owner or the agency.'])->withInput();
+        }
+        if (($validated['approval_route'] ?? null) === RentalFaultReport::ROUTE_AGENCY_APPOINTS && ! empty($validated['agency_service_provider_id'])
+            && ! app(\App\Services\Rentals\RentalFaultContractorService::class)->isOption($rentalFaultReport, (int) $validated['agency_service_provider_id'])) {
+            return back()->withErrors(['rental_fault_report' => 'Please choose a contractor from the list for this type of work.'])->withInput();
+        }
+        $afterCreateWorkOrder = ($validated['after'] ?? null) === 'create_work_order';
+        unset($validated['after']);
 
         if ($request->hasFile('evidence_file')) {
             $validated['evidence_file_path'] = $service->storeApprovalScreenshot($request->file('evidence_file'), $rentalFaultReport->property_id);
@@ -478,6 +547,19 @@ class RentalFaultReportController extends Controller
             $rentalFaultReport->recordApproval($request->user(), $validated);
         } catch (\LogicException|\InvalidArgumentException $e) {
             return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
+        }
+
+        // F6: "Save decision and create work order" only HANDS OVER to the existing work-order creation (the form on this
+        // screen, opened and pre-filled with the chosen contractor). It never creates one itself, and only when the
+        // existing rules allow a work order (not when the owner arranges the repair, not when declined).
+        if ($afterCreateWorkOrder) {
+            if ($rentalFaultReport->fresh()->workOrderBlockReason() === null) {
+                return redirect()->route('corex.rental-fault-reports.show', ['rentalFaultReport' => $rentalFaultReport, 'create_work_order' => 1])
+                    ->with('success', 'Decision saved. Confirm the work order below.');
+            }
+
+            return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)
+                ->with('success', 'Decision saved. ' . $rentalFaultReport->fresh()->workOrderBlockReason());
         }
 
         return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Approval decision recorded.');
@@ -539,7 +621,15 @@ class RentalFaultReportController extends Controller
                 \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER,
                 \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL,
             ])],
+            // Fault flow F6 - the contractor chosen on the owner's decision, pre-selected on the external work order.
+            'agency_service_provider_id' => ['nullable', 'integer'],
         ]);
+        if (! empty($validated['agency_service_provider_id'])) {
+            $ok = \App\Models\DealV2\AgencyServiceProvider::active()->whereKey($validated['agency_service_provider_id'])->exists();
+            if (! $ok) {
+                return back()->withErrors(['rental_fault_report' => 'That contractor is not on the supplier list.'])->withInput();
+            }
+        }
         // §17.3.1 — Internal crew is the default when the choice is not posted.
         $validated['assignment_type'] = $validated['assignment_type'] ?? \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL;
 
@@ -552,6 +642,12 @@ class RentalFaultReportController extends Controller
             }
 
             $workOrder = $service->fromFaultReport($rentalFaultReport, $request->user(), $validated);
+            if (! empty($validated['agency_service_provider_id'])) {
+                $workOrder->updates()->create([
+                    'agency_id' => $workOrder->agency_id, 'update_type' => 'supplier_assigned', 'created_by_user_id' => $request->user()->id,
+                    'note' => 'Pre-selected from the decision on the fault report. Ordering still follows the usual quote and authorisation steps.',
+                ]);
+            }
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
         }

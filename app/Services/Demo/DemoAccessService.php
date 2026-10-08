@@ -3,10 +3,13 @@
 namespace App\Services\Demo;
 
 use App\Events\Demo\DemoAccessExpired;
+use App\Events\Demo\DemoAccessExtended;
 use App\Events\Demo\DemoAccessFirstLogin;
 use App\Events\Demo\DemoAccessGranted;
 use App\Events\Demo\DemoAccessRevoked;
 use App\Events\Demo\DemoTncAccepted;
+use App\Listeners\Demo\SendDemoAccessGrantEmail;
+use App\Mail\DemoAccessExtendedMail;
 use App\Models\DemoAccessGrant;
 use App\Models\DemoPageView;
 use App\Models\DemoSession;
@@ -15,7 +18,11 @@ use App\Models\DemoTncVersion;
 use App\Models\DevSetting;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use App\Support\DemoAccessListing;
+use App\Support\Instance;
 
 /**
  * The grant lifecycle. Runs on PRIMARY only.
@@ -84,7 +91,7 @@ class DemoAccessService
         $grant = DemoAccessGrant::create([
             'company_name'      => trim($data['company_name']),
             'contact_email'     => strtolower(trim($data['contact_email'])),
-            'contact_name'      => isset($data['contact_name']) ? trim((string) $data['contact_name']) ?: null : null,
+            'contact_name'      => self::cleanOrNull($data['contact_name'] ?? null),
             'contact_id'        => $data['contact_id'] ?? null,
             'credential_hash'   => DemoAccessGrant::hashCode($code),
             // COPIED, not referenced. Changing the default setting later must not
@@ -94,7 +101,7 @@ class DemoAccessService
                 : (int) ($data['expiry_hours'] ?? self::defaultExpiryHours()),
             'expires_at'        => $fixedExpiry !== null ? Carbon::parse($fixedExpiry) : null,
             'issued_by_user_id' => $issuedByUserId,
-            'notes'             => isset($data['notes']) ? trim((string) $data['notes']) ?: null : null,
+            'notes'             => self::cleanOrNull($data['notes'] ?? null),
         ]);
 
         // The listener queues the email — from PRIMARY's mailer. Never from demo,
@@ -270,6 +277,214 @@ class DemoAccessService
         }
 
         return $grant;
+    }
+
+    /** One extension may add at most a year; the same ceiling the issue form uses. */
+    public const MAX_EXTENSION_HOURS = 8760;
+
+    /**
+     * Add time to an existing grant — so a prospect whose demo is running out (or
+     * has run out) does not need a brand-new grant, a new code and a new terms
+     * acceptance. The code, the accepted terms and the session history all stay.
+     *
+     * Where the time lands depends on where the grant is. Status is DERIVED, so it
+     * is read once, under a row lock, from the fresh row — never from the copy the
+     * page was rendered with:
+     *
+     *   not started   (rolling clock, expires_at NULL)  → the trial length they will
+     *                  get at first sign-in grows: expiry_hours += hours.
+     *   still running (expires_at in the future)         → the existing end date
+     *                  moves on: expires_at += hours.
+     *   already ended (expires_at in the past)           → access restarts from NOW
+     *                  for the period chosen. Adding hours to a date that is already
+     *                  in the past would leave them still expired, and quietly.
+     *
+     * Revoked and archived grants are refused: revoking was a deliberate withdrawal
+     * and extending would silently undo it. Issue a new grant instead.
+     *
+     * Reaches the demo host within the gate cache TTL (≤60s), like revoke does. A
+     * prospect who already reached the expiry gate lost their demo cookie there and
+     * must sign in again with their ORIGINAL code (it cannot be re-sent).
+     *
+     * The history row is written in the same transaction as the change; the
+     * DemoAccessExtended event (audit catalogue) fires after the commit, and then the
+     * prospect is emailed (notifyProspect - best-effort, outcome in lastNotice()).
+     *
+     * Spec: .ai/specs/demo-access-control.md §9.1
+     *
+     * @throws \DomainException  plain-English reason the extension cannot be applied
+     */
+    public function extend(DemoAccessGrant $grant, int $hours, int $byUserId, ?string $note = null): DemoAccessGrant
+    {
+        if ($hours < 1 || $hours > self::MAX_EXTENSION_HOURS) {
+            throw new \DomainException('Choose between 1 hour and 1 year to add.');
+        }
+
+        $note = self::cleanOrNull($note);
+
+        $event = null;
+
+        $fresh = DB::transaction(function () use ($grant, $hours, $byUserId, $note, &$event) {
+            $row = DemoAccessGrant::query()->whereKey($grant->getKey())->lockForUpdate()->firstOrFail();
+
+            if ($row->archived_at !== null) {
+                throw new \DomainException('This grant is archived. Restore it first, then add time.');
+            }
+            if ($row->revoked_at !== null) {
+                throw new \DomainException('Access was revoked for this prospect. Adding time would quietly undo that — issue a new grant instead.');
+            }
+
+            $now           = Carbon::now();
+            $prevExpiresAt = $row->expires_at?->copy();
+            $prevHours     = $row->expiry_hours;
+
+            if ($row->expires_at === null) {
+                // Rolling trial that has not started: grow the length they get at first sign-in.
+                $newHours = (int) $row->expiry_hours + $hours;
+                if ($newHours > self::MAX_EXTENSION_HOURS) {
+                    throw new \DomainException('That would make the trial longer than a year. Add less time.');
+                }
+                $row->expiry_hours = $newHours;
+                $basis = DemoAccessExtended::BASIS_BEFORE_START;
+            } else {
+                $running = $row->expires_at->isFuture();
+                $base    = $running ? $row->expires_at->copy() : $now->copy();
+                $new     = $base->addHours($hours);
+
+                if ($new->gt($now->copy()->addHours(self::MAX_EXTENSION_HOURS))) {
+                    throw new \DomainException('That would run more than a year from now. Add less time.');
+                }
+                $row->expires_at = $new;
+                $basis = $running ? DemoAccessExtended::BASIS_FROM_DEADLINE : DemoAccessExtended::BASIS_FROM_NOW;
+            }
+
+            $row->save();
+
+            $event = new DemoAccessExtended(
+                grant: $row,
+                hoursAdded: $hours,
+                basis: $basis,
+                previousExpiresAt: $prevExpiresAt?->toIso8601String(),
+                newExpiresAt: $row->expires_at?->toIso8601String(),
+                previousExpiryHours: $prevHours,
+                newExpiryHours: $row->expiry_hours,
+                byUserId: $byUserId,
+                note: $note,
+            );
+
+            // The durable "Time added" record — inside THIS transaction, so it exists
+            // if and only if the clock really moved. The event below feeds the audit
+            // catalogue, which is best-effort and must never be the system of record.
+            $row->extensions()->create([
+                'actor_user_id'         => $byUserId,
+                'event_id'              => $event->eventId,
+                'hours_added'           => $hours,
+                'basis'                 => $basis,
+                'previous_expires_at'   => $prevExpiresAt,
+                'new_expires_at'        => $row->expires_at,
+                'previous_expiry_hours' => $prevHours,
+                'new_expiry_hours'      => $row->expiry_hours,
+                'note'                  => $note,
+                'created_at'            => $now,
+            ]);
+
+            return $row;
+        });
+
+        // After the commit: the audit row must describe a change that really landed.
+        // The extension has already been applied AND recorded (above), so a failing
+        // listener must not turn it into an error — the caller would report a failure
+        // for a change that stands, and a retry would add the time twice.
+        try {
+            event($event);
+        } catch (\Throwable $e) {
+            Log::error('DemoAccessExtended listener failed after the extension was applied', [
+                'grant_id' => $fresh->getKey(),
+                'error'    => $e->getMessage(),
+            ]);
+        }
+
+        $this->notifyProspect($fresh);
+
+        return $fresh;
+    }
+
+    // ---- Add-time notification ---------------------------------------------
+
+    public const NOTICE_SENT     = 'sent';
+    public const NOTICE_NO_EMAIL = 'no_email';
+    public const NOTICE_FAILED   = 'failed';
+
+    /** What happened to the prospect's "access extended" email on the last extend() call. */
+    private ?string $lastNotice = null;
+
+    public function lastNotice(): ?string
+    {
+        return $this->lastNotice;
+    }
+
+    /**
+     * Tell the prospect their access was extended. Runs only after a successful
+     * extend() has COMMITTED, and can never undo or fail it: any problem is logged and
+     * reported through lastNotice(), nothing is thrown.
+     *
+     * No credential is sent - there is none to send (bcrypt hash only); the mail tells
+     * them to use the code from their original invitation. Sent from PRIMARY over the
+     * `corex` mailer, like the invitation. A grant with no usable address is skipped.
+     */
+    private function notifyProspect(DemoAccessGrant $grant): void
+    {
+        $this->lastNotice = null;
+
+        try {
+            $to = trim((string) $grant->contact_email);
+
+            if ($to === '' || ! filter_var($to, FILTER_VALIDATE_EMAIL)) {
+                $this->lastNotice = self::NOTICE_NO_EMAIL;
+
+                return;
+            }
+
+            if (Instance::isDemo()) {
+                // Its mailer is Mailpit: the prospect would never receive it.
+                Log::error('[demo-access] Refusing to send an extension email from a DEMO instance.', ['grant_id' => $grant->getKey()]);
+                $this->lastNotice = self::NOTICE_FAILED;
+
+                return;
+            }
+
+            $endsAt = $grant->expires_at
+                ? $grant->expires_at->format('D j M Y, H:i') . ' (' . $grant->expires_at->format('T') . ')'
+                : null;
+
+            Mail::mailer('corex')
+                ->to($to)
+                ->send(new DemoAccessExtendedMail(
+                    grant:       $grant,
+                    gateUrl:     SendDemoAccessGrantEmail::gateUrl(),
+                    endsAt:      $endsAt,
+                    trialLength: $endsAt === null ? DemoAccessListing::humanHours((int) $grant->expiry_hours) : null,
+                ));
+
+            $this->lastNotice = self::NOTICE_SENT;
+        } catch (\Throwable $e) {
+            Log::error('Demo access extension email failed - the extension itself stands', [
+                'grant_id' => $grant->getKey(),
+                'error'    => $e->getMessage(),
+            ]);
+            $this->lastNotice = self::NOTICE_FAILED;
+        }
+    }
+
+    /** trim, and null only when EMPTY - "0" is a real value (`?:` would drop it). */
+    private static function cleanOrNull(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
     }
 
     /**

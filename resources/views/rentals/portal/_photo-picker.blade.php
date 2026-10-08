@@ -1,4 +1,4 @@
-{{-- .ai/specs/rental-portal-access.md §21 — one photo picker for every portal form that takes photos (tenant fault, owner request,
+{{-- .ai/specs/rental-portal-access.md §22 — one photo picker for every portal form that takes photos (tenant fault, owner request,
      "not complete" answer). $bind is the Alpine object that holds `photos` (an array), `photoError` and `photoBusy`.
      Camera and gallery are two separate controls (a phone camera hands over ONE photo per tap; the gallery can multi-select) and every
      pick ADDS to the list — nothing replaces what is already there. Photos are shrunk in the browser (compressPhoto) before they are kept. --}}

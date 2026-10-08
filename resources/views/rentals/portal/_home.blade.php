@@ -49,7 +49,7 @@
                 <p class="muted" style="margin:0;" x-show="!h.tenancy">No current tenancy.</p>
             </div>
 
-            {{-- 4. FAQ worked out from the lease's own notice / cancellation terms (§21). Nothing at all when the lease has none. --}}
+            {{-- 4. FAQ worked out from the lease's own notice / cancellation terms (§22). Nothing at all when the lease has none. --}}
             <div class="list-item" data-portal-home-faq x-show="h.faq && h.faq.length">
                 <template x-for="q in (h.faq || [])" :key="h.property.id + q.key">
                     <div class="faq" data-portal-faq-item>

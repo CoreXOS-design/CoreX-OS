@@ -30,7 +30,7 @@ use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 /**
- * .ai/specs/rental-portal-access.md §21 — portal round 2 (Johan's testing, 8 Oct 2026): the agency logo on every portal page, the
+ * .ai/specs/rental-portal-access.md §22 — portal round 2 (Johan's testing, 8 Oct 2026): the agency logo on every portal page, the
  * Home FAQ worked out from the lease's own terms, the lease details opening under their lease, and the tenant fault form: one
  * press = one fault, several photos, and the "before you report" content. QA1 only.
  */

@@ -43,6 +43,12 @@ class RentalApproval extends Model
         'decided_at',
         'recorded_by_user_id',
         'recorded_by_contact_id', // AT-445
+        // Fault flow F3-F5: who handles the repair. 'own' = the owner's own contractor (optional name + phone);
+        // 'agency' = a supplier from the agency's list (agency_service_provider_id).
+        'contractor_source',
+        'contractor_name',
+        'contractor_phone',
+        'agency_service_provider_id',
         'created_at',
         // 2026-09-22, Johan — an unanchored "approved" says nothing about
         // what it was for. quote_id_at_decision is identity-only (never
@@ -90,6 +96,30 @@ class RentalApproval extends Model
     public function recordedByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'recorded_by_user_id');
+    }
+
+    public const CONTRACTOR_OWN = 'own';
+    public const CONTRACTOR_AGENCY = 'agency';
+
+    /** The agency supplier chosen on this decision (soft-deleted suppliers stay readable in history). */
+    public function contractorSupplier(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\DealV2\AgencyServiceProvider::class, 'agency_service_provider_id')->withTrashed();
+    }
+
+    /** One plain line for screens/history/PDF: "Owner's own contractor: Joe (082…)" / "Agency contractor: Acme Plumbing". */
+    public function contractorLine(): ?string
+    {
+        if ($this->contractor_source === self::CONTRACTOR_OWN) {
+            $who = trim(($this->contractor_name ?: '') . ($this->contractor_phone ? ' (' . $this->contractor_phone . ')' : ''));
+
+            return "Owner's own contractor" . ($who !== '' ? ': ' . $who : ' (details not given)');
+        }
+        if ($this->contractor_source === self::CONTRACTOR_AGENCY) {
+            return 'Agency contractor: ' . ($this->contractorSupplier?->name ?? 'supplier #' . $this->agency_service_provider_id);
+        }
+
+        return null;
     }
 
     /** AT-445 */

@@ -5,7 +5,7 @@
 @php
     $statusBadgeClass = match ($faultReport->status) {
         'resolved' => 'ds-badge-success',
-        'reported', 'awaiting_approval' => 'ds-badge-info',
+        'reported', 'under_review', 'awaiting_approval' => 'ds-badge-info',
         'declined', 'cancelled' => 'ds-badge-danger',
         default => 'ds-badge-muted',
     };
@@ -66,7 +66,7 @@
 
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ editing: false }">
         <div class="grid grid-cols-2 gap-3 text-sm" x-show="!editing">
-            <div class="col-span-2"><span style="color: var(--text-muted);">Description:</span> {{ $faultReport->description }}</div>
+            <div class="col-span-2"><span style="color: var(--text-muted);">Description (as reported):</span> {{ $faultReport->description }}</div>
             <div><span style="color: var(--text-muted);">Tenancy:</span> {{ $faultReport->lease?->tenantNames() ?? 'None — vacancy period' }}</div>
             <div><span style="color: var(--text-muted);">Item:</span> {{ $faultReport->inspectionItem?->label ?? '—' }}</div>
             <div><span style="color: var(--text-muted);">Reported by:</span> {{ ucfirst(str_replace('_', ' ', $faultReport->reported_by_type)) }}{{ $faultReport->reportedByContact ? ' — ' . $faultReport->reportedByContact->first_name . ' ' . $faultReport->reportedByContact->last_name : ($faultReport->reportedByUser ? ' — ' . $faultReport->reportedByUser->name : '') }}</div>
@@ -106,8 +106,9 @@
 
         {{-- §3a schema — editable only while status='reported'; approval/outcome
              transitions are a separate action (Stage 2), not this form. --}}
+        {{-- A tenant's / owner's own report is the original evidence: never edited (the agent prepares a separate owner version below). --}}
         @permission('rental_fault_reports.create')
-        @if($faultReport->status === \App\Models\RentalFaultReport::STATUS_REPORTED)
+        @if($faultReport->status === \App\Models\RentalFaultReport::STATUS_REPORTED && ! in_array($faultReport->reported_by_type, [\App\Models\RentalFaultReport::REPORTED_BY_TENANT, \App\Models\RentalFaultReport::REPORTED_BY_LANDLORD], true))
         <div x-show="!editing" class="pt-1">
             <button type="button" @click="editing = true" class="corex-btn-outline text-xs">Edit</button>
         </div>
@@ -159,23 +160,118 @@
         </form>
     </div>
 
-    {{-- §3a.1/§3.4a — approval is always in writing; this is where that
-         gets captured. Not shown once the report is closed — there is
-         nothing left to decide. --}}
-    @if(!in_array($faultReport->status, ['resolved', 'cancelled'], true))
-    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
-        <h2 class="text-sm font-semibold">Owner approval</h2>
+    @php
+        // Fault flow: the contractor chosen on the decision (agency route) pre-fills the existing work-order form.
+        $latestDecision = $faultReport->decision();
+        $prefillSupplier = ($latestDecision && $latestDecision->contractor_source === \App\Models\RentalApproval::CONTRACTOR_AGENCY) ? $latestDecision->contractorSupplier : null;
+        $prefillTradeCode = null;
+        if ($faultReport->faultType?->category) {
+            $needle = strtolower($faultReport->faultType->category);
+            $prefillTradeCode = optional(\App\Models\DealV2\AgencyServiceType::orderBy('label')->get()->first(
+                fn ($t) => str_contains(strtolower($t->label . ' ' . $t->code), $needle)
+            ))->code;
+        }
+        $isOpen = ! in_array($faultReport->status, ['resolved', 'cancelled'], true);
+        $notYetSent = $faultReport->sent_to_owner_at === null && $faultReport->owner_approval_status === \App\Models\RentalFaultReport::APPROVAL_NOT_REQUIRED;
+    @endphp
 
-        @if($faultReport->approvals->isNotEmpty())
-            <ul class="space-y-1 text-sm">
+    {{-- Fault flow F2 (Johan 2026-10-08) - what the OWNER will see. The tenant's original above stays exactly as reported;
+         this is the agent's reviewed, sanitised copy. Until the agent presses send the owner cannot see the fault at all. --}}
+    @if($isOpen)
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" id="owner-version-card">
+        <div class="flex items-center justify-between">
+            <h2 class="text-sm font-semibold">Owner version <span class="font-normal text-xs" style="color: var(--text-muted);">&mdash; what the owner will see</span></h2>
+            <span class="ds-badge {{ $statusBadgeClass }}">{{ $faultReport->statusLabel() }}</span>
+        </div>
+
+        @if($faultReport->sent_to_owner_at === null && $faultReport->owner_approval_status === \App\Models\RentalFaultReport::APPROVAL_NOT_REQUIRED)
+            <p class="text-xs" style="color: var(--text-muted);">The owner cannot see this fault yet. Check the wording, choose the photos and add your note, then send it. The tenant's original is kept as it was reported.</p>
+            @permission('rental_fault_reports.create')
+            <form method="POST" action="{{ route('corex.rental-fault-reports.owner-version.store', $faultReport) }}" class="space-y-3">
+                @csrf
+                <div>
+                    <label class="text-xs font-medium">Title the owner sees</label>
+                    <input type="text" name="owner_title" required maxlength="191" value="{{ old('owner_title', $faultReport->owner_title ?? $faultReport->title) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                </div>
+                <div>
+                    <label class="text-xs font-medium">Description the owner sees</label>
+                    <textarea name="owner_description" rows="4" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('owner_description', $faultReport->owner_description ?? $faultReport->description) }}</textarea>
+                </div>
+                @if($faultReport->photos->isNotEmpty())
+                <div>
+                    <label class="text-xs font-medium">Photos the owner sees <span class="font-normal" style="color: var(--text-muted);">(none are shared unless ticked)</span></label>
+                    <div class="flex flex-wrap gap-3 mt-1">
+                        @foreach($faultReport->photos as $photo)
+                            <label class="text-xs flex flex-col items-center gap-1">
+                                <img src="{{ $photo->storage_path }}" alt="" class="rounded-md object-cover" style="width: 90px; height: 70px; border: 1px solid var(--border);">
+                                <span><input type="checkbox" name="owner_photo_ids[]" value="{{ $photo->id }}" @checked(in_array($photo->id, (array) old('owner_photo_ids', $faultReport->owner_photo_ids ?? []), true))> Share</span>
+                            </label>
+                        @endforeach
+                    </div>
+                </div>
+                @endif
+                <div>
+                    <label class="text-xs font-medium">Your note / recommendation to the owner</label>
+                    <textarea name="owner_agent_note" rows="3" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);" placeholder="e.g. I recommend we approve this - a plumber can fix it this week.">{{ old('owner_agent_note', $faultReport->owner_agent_note) }}</textarea>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <button type="submit" class="corex-btn-outline text-xs">Save owner version</button>
+                    @permission('rental_fault_reports.send_to_owner')
+                        <button type="submit" name="send_now" value="1" class="corex-btn-primary text-xs" onclick="return confirm('Send this to the owner now? They will see it in their portal and be emailed.');">Save and send to owner</button>
+                    @endpermission
+                </div>
+            </form>
+            @if($faultReport->owner_version_saved_at)
+                @permission('rental_fault_reports.send_to_owner')
+                <form method="POST" action="{{ route('corex.rental-fault-reports.send-to-owner', $faultReport) }}" onsubmit="return confirm('Send the saved owner version to the owner now?');">
+                    @csrf
+                    <button type="submit" class="corex-btn-primary text-xs">Send saved version to owner</button>
+                </form>
+                @endpermission
+            @endif
+            @endpermission
+        @else
+            @php $ov = $faultReport->ownerVersion(); @endphp
+            <p class="text-xs" style="color: var(--text-muted);">
+                @if($faultReport->sent_to_owner_at)
+                    Sent to the owner {{ $faultReport->sent_to_owner_at->format('j M Y H:i') }}. This is exactly what they see:
+                @else
+                    Decided without being sent through the portal. This is the version prepared for the owner:
+                @endif
+            </p>
+            <div class="rounded-md p-3 text-sm space-y-1" style="background: var(--surface-2);">
+                <div class="font-medium">{{ $ov['title'] }}</div>
+                @if($ov['description'])<div>{{ $ov['description'] }}</div>@endif
+                @if($ov['photos']->isNotEmpty())
+                    <div class="flex flex-wrap gap-2 pt-1">@foreach($ov['photos'] as $photo)<img src="{{ $photo->storage_path }}" alt="" class="rounded-md object-cover" style="width: 90px; height: 70px;">@endforeach</div>
+                @endif
+                @if($ov['agent_note'])<div class="text-xs pt-1" style="color: var(--text-muted);">Agent note: {{ $ov['agent_note'] }}</div>@endif
+            </div>
+        @endif
+    </div>
+    @endif
+
+    {{-- §3a.1/§3.4a - the owner's decision. ONE decision, ever: once it is made - on the portal link or captured here by the
+         agent - this card shows it read-only (who, how, when, why, contractor). Not shown once the report is closed. --}}
+    @if($isOpen)
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" id="owner-decision-card">
+        <h2 class="text-sm font-semibold">Owner decision</h2>
+
+        @if($decisionSummary)
+            <div class="rounded-md p-3 text-sm space-y-1" style="background: var(--surface-2);">
+                <div class="font-medium">{{ $decisionSummary['decision'] === \App\Models\RentalApproval::DECISION_APPROVED ? 'Approved' : 'Declined' }}
+                    @if($decisionSummary['route'])<span class="font-normal" style="color: var(--text-muted);">&mdash; {{ $decisionSummary['route'] === \App\Models\RentalFaultReport::ROUTE_AGENCY_APPOINTS ? 'the agency appoints the contractor' : 'the owner appoints the contractor' }}</span>@endif
+                </div>
+                @if($decisionSummary['contractor'])<div>{{ $decisionSummary['contractor'] }}</div>@endif
+                @if($decisionSummary['reason'])<div>Reason: {{ $decisionSummary['reason'] }}</div>@endif
+                <div class="text-xs" style="color: var(--text-muted);">{{ $decisionSummary['how'] }} &middot; {{ $decisionSummary['via_link'] ? 'by ' . $decisionSummary['by'] : 'recorded by ' . $decisionSummary['by'] }} &middot; {{ $decisionSummary['at']?->format('j M Y H:i') }}</div>
+            </div>
+        @endif
+
+        @if($faultReport->approvals->count() > 1)
+            <ul class="space-y-1 text-xs" style="color: var(--text-muted);">
                 @foreach($faultReport->approvals as $approval)
-                    <li>
-                        {{ ucfirst($approval->decision) }}{{ $approval->approval_route ? ' — ' . str_replace('_', ' ', ucfirst($approval->approval_route)) : '' }}
-                        <span style="color: var(--text-muted);">({{ ucfirst(str_replace('_', ' ', $approval->evidence_type)) }}, {{ $approval->decided_at?->format('Y-m-d') }}, recorded by {{ $approval->recordedByUser?->name }})</span>
-                        @if($approval->evidence_text)
-                            <div class="text-xs" style="color: var(--text-muted);">{{ $approval->evidence_text }}</div>
-                        @endif
-                    </li>
+                    <li>{{ ucfirst($approval->decision) }} &middot; {{ ucfirst(str_replace('_', ' ', $approval->evidence_type)) }} &middot; {{ $approval->decided_at?->format('Y-m-d') }}</li>
                 @endforeach
             </ul>
         @endif
@@ -185,8 +281,12 @@
              order AND its job card and lands on the card; External creates the work order only. --}}
         @permission('rental_fault_reports.raise_work_order')
             @if($faultReport->workOrderBlockReason() === null)
-                <form id="raise-work-order-form" method="POST" action="{{ route('corex.rental-fault-reports.raise-work-order', $faultReport) }}" class="hidden space-y-3 pt-2" x-data="{ who: '{{ old('assignment_type', \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL) }}' }">
+                <form id="raise-work-order-form" method="POST" action="{{ route('corex.rental-fault-reports.raise-work-order', $faultReport) }}" class="{{ request()->boolean('create_work_order') ? '' : 'hidden' }} space-y-3 pt-2" x-data="{ who: '{{ old('assignment_type', $prefillSupplier ? \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER : \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL) }}' }">
                     @csrf
+                    @if($prefillSupplier)
+                        <input type="hidden" name="agency_service_provider_id" value="{{ $prefillSupplier->id }}">
+                        <p class="text-xs rounded-md p-2" style="background: var(--surface-2);">Contractor chosen on the decision: <strong>{{ $prefillSupplier->name }}</strong>{{ $prefillSupplier->phone ? ' (' . $prefillSupplier->phone . ')' : '' }}. Ordering still follows the usual quote and authorisation steps.</p>
+                    @endif
                     <div>
                         <label class="text-xs font-medium">Who does the work?</label>
                         <div class="flex flex-wrap gap-4 mt-1 text-sm">
@@ -201,7 +301,7 @@
                         <select name="trade_type" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                             <option value="">— Not yet known —</option>
                             @foreach(\App\Models\DealV2\AgencyServiceType::orderBy('label')->get() as $type)
-                                <option value="{{ $type->code }}">{{ $type->label }}</option>
+                                <option value="{{ $type->code }}" @selected($prefillTradeCode === $type->code)>{{ $type->label }}</option>
                             @endforeach
                         </select>
                     </div>
@@ -220,16 +320,13 @@
             @endif
         @endpermission
 
+
         @permission('rental_fault_reports.record_approval')
-            @if($faultReport->owner_approval_status === \App\Models\RentalFaultReport::APPROVAL_NOT_REQUIRED)
-                <form method="POST" action="{{ route('corex.rental-fault-reports.request-approval', $faultReport) }}">
-                    @csrf
-                    <button type="submit" class="corex-btn-outline text-xs">Mark awaiting approval</button>
-                </form>
-            @endif
+            @if(! $decisionSummary && $faultReport->rental_work_order_id === null)
             <button type="button" onclick="document.getElementById('record-approval-form').classList.toggle('hidden')" class="corex-btn-outline text-xs">Record decision</button>
-            <form id="record-approval-form" method="POST" action="{{ route('corex.rental-fault-reports.approval.store', $faultReport) }}" enctype="multipart/form-data" class="hidden space-y-3 pt-2" x-data="{ decision: 'approved' }">
+            <form id="record-approval-form" method="POST" action="{{ route('corex.rental-fault-reports.approval.store', $faultReport) }}" enctype="multipart/form-data" class="hidden space-y-3 pt-2" x-data="{ decision: '{{ old('decision', 'approved') }}', route: '{{ old('approval_route', 'agency_appoints') }}' }">
                 @csrf
+                <p class="text-xs" style="color: var(--text-muted);">Use this when the owner has told you their decision by phone, WhatsApp, email or in person. If the owner decides on their portal link, the decision appears here by itself.</p>
                 <div>
                     <label class="text-xs font-medium">Decision</label>
                     <select name="decision" x-model="decision" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
@@ -237,31 +334,62 @@
                         <option value="declined">Declined</option>
                     </select>
                 </div>
-                <div x-show="decision === 'approved'" x-cloak>
-                    <label class="text-xs font-medium">Who handles the repair</label>
-                    <select name="approval_route" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-                        <option value="agency_appoints">Agency appoints a contractor</option>
-                        <option value="owner_handles">Owner sorts it themselves</option>
-                    </select>
+                <div x-show="decision === 'approved'" x-cloak class="space-y-3">
+                    <div>
+                        <label class="text-xs font-medium">Who appoints the contractor?</label>
+                        <div class="flex flex-wrap gap-4 mt-1 text-sm">
+                            <label class="flex items-center gap-2"><input type="radio" name="approval_route" value="owner_handles" x-model="route"> The owner</label>
+                            <label class="flex items-center gap-2"><input type="radio" name="approval_route" value="agency_appoints" x-model="route"> The agency</label>
+                        </div>
+                    </div>
+                    <div x-show="route === 'owner_handles'" x-cloak class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-xs font-medium">Owner's contractor &mdash; name <span class="font-normal" style="color: var(--text-muted);">(optional)</span></label>
+                            <input type="text" name="contractor_name" maxlength="191" value="{{ old('contractor_name') }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                        </div>
+                        <div>
+                            <label class="text-xs font-medium">Phone <span class="font-normal" style="color: var(--text-muted);">(optional)</span></label>
+                            <input type="text" name="contractor_phone" maxlength="40" value="{{ old('contractor_phone') }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                        </div>
+                    </div>
+                    <div x-show="route === 'agency_appoints'" x-cloak>
+                        <label class="text-xs font-medium">Contractor <span class="font-normal" style="color: var(--text-muted);">(from your suppliers for {{ $faultReport->faultType?->category ?? 'this type of work' }})</span></label>
+                        @if($contractors->isNotEmpty())
+                            <select name="agency_service_provider_id" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                                <option value="">&mdash; Choose later &mdash;</option>
+                                @foreach($contractors as $c)
+                                    <option value="{{ $c['id'] }}" @selected((string) old('agency_service_provider_id') === (string) $c['id'])>{{ $c['name'] }}{{ $c['phone'] ? ' (' . $c['phone'] . ')' : '' }}</option>
+                                @endforeach
+                            </select>
+                        @else
+                            <p class="text-xs mt-1" style="color: var(--text-muted);">No suppliers are set up for {{ $faultReport->faultType?->category ? '“' . $faultReport->faultType->category . '”' : 'this type of work' }} yet. Add one under Suppliers, or save the decision now and choose the contractor on the work order.</p>
+                        @endif
+                    </div>
                 </div>
                 <div>
-                    <label class="text-xs font-medium">Evidence</label>
+                    <label class="text-xs font-medium">How was it agreed?</label>
                     <select name="evidence_type" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                         <option value="whatsapp">WhatsApp reply</option>
                         <option value="email">Email</option>
-                        <option value="verbal_note">Verbal (undocumented)</option>
+                        <option value="verbal_note">Verbal / phone / in person</option>
                     </select>
                 </div>
                 <div>
-                    <label class="text-xs font-medium">What the owner said</label>
-                    <textarea name="evidence_text" required rows="2" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);"></textarea>
+                    <label class="text-xs font-medium"><span x-show="decision === 'declined'" x-cloak>Reason for declining (required)</span><span x-show="decision !== 'declined'">What the owner said</span></label>
+                    <textarea name="evidence_text" required rows="2" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('evidence_text') }}</textarea>
                 </div>
                 <div>
                     <label class="text-xs font-medium">Screenshot (optional)</label>
                     <input type="file" name="evidence_file" accept="image/*" class="text-xs">
                 </div>
-                <button type="submit" class="corex-btn-primary text-xs">Save decision</button>
+                <div class="flex flex-wrap gap-2">
+                    <button type="submit" class="corex-btn-primary text-xs">Save decision</button>
+                    @permission('rental_fault_reports.raise_work_order')
+                        <button type="submit" name="after" value="create_work_order" x-show="decision === 'approved' && route === 'agency_appoints'" x-cloak class="corex-btn-outline text-xs">Save decision and create work order</button>
+                    @endpermission
+                </div>
             </form>
+            @endif
         @endpermission
     </div>
     @endif

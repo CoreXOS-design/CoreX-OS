@@ -9,7 +9,7 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * .ai/specs/rental-portal-access.md §21 — the agency's fault-photo limits (count and size per photo) applied to the portal
+ * .ai/specs/rental-portal-access.md §22 — the agency's fault-photo limits (count and size per photo) applied to the portal
  * forms that carry photos. The page checks the same numbers before sending; this is the server saying no when somebody
  * (or an old page) sends more. Plain-language 422, nothing stored.
  */

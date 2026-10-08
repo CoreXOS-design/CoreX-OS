@@ -10,7 +10,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 
 /**
- * .ai/specs/rentals-faults-work-orders.md §2/§3.2/§4.3 + rental-portal-access.md §21 — everything the portal needs to
+ * .ai/specs/rentals-faults-work-orders.md §2/§3.2/§4.3 + rental-portal-access.md §22 — everything the portal needs to
  * show a person once they pick a fault type, BEFORE they can report it: the first-aid steps worked out for THIS property,
  * the urgency, the agency's own uploaded images / documents / video links for that fault type, and the property's own
  * recorded main-water-valve and DB-board photos. The tenant picker and the owner picker both read this one view, so the

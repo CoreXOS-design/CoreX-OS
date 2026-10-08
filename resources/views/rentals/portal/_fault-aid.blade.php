@@ -1,4 +1,4 @@
-{{-- .ai/specs/rental-portal-access.md §21 / rentals-faults-work-orders.md §4.3 — "Before you report": what the person sees as soon as they
+{{-- .ai/specs/rental-portal-access.md §22 / rentals-faults-work-orders.md §4.3 — "Before you report": what the person sees as soon as they
      pick a fault type, ahead of the form. $w is the Alpine wizard object; $w.ftype is the chosen fault type as the fault-types endpoint
      returned it (steps worked out for THIS property, urgency, the property's valve / board photos, the agency's documents and video links). --}}
 <div data-fault-aid>

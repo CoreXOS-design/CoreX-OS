@@ -5,7 +5,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * .ai/specs/rental-portal-access.md §21 — the portal Home FAQ wording (tenant and owner, two questions each) and the
+ * .ai/specs/rental-portal-access.md §22 — the portal Home FAQ wording (tenant and owner, two questions each) and the
  * fault-photo limits, as agency settings. All nullable: a null column reads as the model's DEFAULT_* (read-time default
  * pattern, nothing written until an agency changes a value).
  */

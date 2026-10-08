@@ -112,7 +112,7 @@
                 @php
                     // Own FICA: an officer who may not review their own sees why, here, before clicking through.
                     $tabOwnBlock = in_array($sub->status, ['submitted', 'agent_approved', 'referred_to_co'], true) && auth()->check()
-                        ? $sub->ownReviewBlockFor(auth()->user()) : null;
+                        ? $sub->ownReviewBlockFor(auth()->user(), $ownReviewCtx ??= new \App\Support\Compliance\FicaOwnReviewContext(auth()->user())) : null;
                 @endphp
                 @if($tabOwnBlock)
                     <span class="text-xs font-semibold px-3 py-1.5 rounded-md" aria-disabled="true" data-own-fica-review-disabled

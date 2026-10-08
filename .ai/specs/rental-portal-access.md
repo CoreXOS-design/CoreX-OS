@@ -612,7 +612,7 @@ and renewal window; draft / cancelled / archived lease is no home; upcoming + pa
 (tenant and owner) returns sent + booked only and keeps the mobile keys; the owner home (one block per property, vacant property, tenant names); tenant ↔ tenant,
 owner ↔ owner, tenant ↔ owner, another agency; no session / staff session alone = 401; the portal switch closes each audience; the page has the Home panel for both.
 
-## 21. Portal round 2 — the agency logo on every page, the Home FAQ, inline lease details, and the tenant fault form (8 Oct 2026, QA1)
+## 22. Portal round 2 — the agency logo on every page, the Home FAQ, inline lease details, and the tenant fault form (8 Oct 2026, QA1)
 **Trigger.** Johan's testing of the live tenant / owner links on QA1, 8 Oct 2026. QA1 only. Mobile first: every line of the screen is data or a control.
 Files: `shell.blade.php` (+ new partials `_photo-picker`, `_fault-aid`; `_home` edited), `RentalPortalShellController`, `RentalPortalFaqService`, `RentalFaultTypePortalView`,
 `ClientFaultTypeDocumentController`, `EnsurePortalSubmissionOnce` (`portal.once`), `EnforcePortalPhotoLimits` (`portal.photos`), migrations `2026_10_17_000200` (`portal_submissions`)
@@ -646,3 +646,8 @@ The notice **length** is the lease's own `extra.notice_period_days`, else the ag
 
 **Choices made where the spec was silent (reported to Johan).** The FAQ shows nothing for a lease whose only notice information is the agency's standard period (Johan: "show nothing rather than a guess"); the portal's owner FAQ is worded for the owner; the pre-sign-in logo depends on the personal link's email.
 **Not done.** Per-lease notice length and early-cancellation terms have no capture field (so no lease has them); the capture screen was not touched. The mobile app still reads `tenancy.notice_period_days`.
+---
+
+## 21. The owner's fault view and decision (8 Oct 2026, QA1 — fault flow F2/F3/F4/F7)
+
+The owner's portal Faults / Decisions tabs show a fault only after the agent has SENT it (or it is decided, or the owner reported it): `RentalFaultReport::scopeVisibleToOwner()`, used by every `RentalPortalScopeService::landlord*FaultReport*` method. They show the agent's sanitised version only — title, description, shared photos, agent note — never the tenant's original. New endpoint `GET /api/v1/client/rentals/landlord/fault-reports/{id}` (detail + contractor list for this type of work + read-only decision) and an extended `POST …/decision` (Approve/Decline with required reason; own contractor with optional name/phone; a listed contractor; or "my agent arranges it"). The shell's Decisions tab opens a review-and-decide card; "My requests" opens the same card read-only. Full rules: `rentals-faults-work-orders.md` §15.

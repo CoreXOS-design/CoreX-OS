@@ -5,7 +5,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * .ai/specs/rental-portal-access.md §21 — the portal's duplicate-submission ledger. One row per state-changing portal
+ * .ai/specs/rental-portal-access.md §22 — the portal's duplicate-submission ledger. One row per state-changing portal
  * request (a fault report, a decision, an answer): the browser sends one key per form, the server remembers the answer it
  * gave, and a second press of the same button replays that answer instead of doing the work again (two faults were
  * created by one double tap on 8 Oct 2026). A technical ledger, not business data: rows are never deleted — a failed

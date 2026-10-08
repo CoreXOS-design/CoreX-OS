@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * .ai/specs/rental-portal-access.md §21 — one press of a portal button does its work ONCE.
+ * .ai/specs/rental-portal-access.md §22 — one press of a portal button does its work ONCE.
  *
  * Every state-changing request (POST/PUT/PATCH/DELETE) in the tenant / owner portal passes through here. The page sends a
  * key per form (`X-Submission-Key` header or `submission_key` field); the first request with a key does the work and the

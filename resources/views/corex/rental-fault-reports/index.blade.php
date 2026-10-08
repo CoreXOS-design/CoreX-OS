@@ -17,7 +17,7 @@
     $sortIndicator = fn ($col) => $sort === $col ? ($direction === 'asc' ? ' ▲' : ' ▼') : '';
     $statusBadgeClass = fn ($status) => match ($status) {
         'resolved' => 'ds-badge-success',
-        'reported', 'awaiting_approval' => 'ds-badge-info',
+        'reported', 'under_review', 'awaiting_approval' => 'ds-badge-info',
         'declined', 'cancelled' => 'ds-badge-danger',
         default => 'ds-badge-muted',
     };
@@ -48,7 +48,8 @@
         $tileDefs = [
             'total' => ['label' => 'Total', 'params' => []],
             'reported' => ['label' => 'Reported', 'params' => ['status' => 'reported']],
-            'awaiting_approval' => ['label' => 'Awaiting approval', 'params' => ['status' => 'awaiting_approval']],
+            'under_review' => ['label' => 'Under agent review', 'params' => ['status' => 'under_review']],
+            'awaiting_approval' => ['label' => 'Sent to owner', 'params' => ['status' => 'awaiting_approval']],
             'approved' => ['label' => 'Approved', 'params' => ['status' => 'approved']],
             'declined' => ['label' => 'Declined', 'params' => ['status' => 'declined']],
             'work_order_raised' => ['label' => 'Work order raised', 'params' => ['status' => 'work_order_raised']],
@@ -96,8 +97,8 @@
             <label class="text-xs" style="color: var(--text-muted);">Status</label><br>
             <select name="status" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
                 <option value="">All</option>
-                @foreach(['reported', 'awaiting_approval', 'approved', 'declined', 'work_order_raised', 'owner_handling', 'resolved', 'cancelled'] as $s)
-                    <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ ucfirst(str_replace('_', ' ', $s)) }}</option>
+                @foreach(['reported', 'under_review', 'awaiting_approval', 'approved', 'declined', 'work_order_raised', 'owner_handling', 'resolved', 'cancelled'] as $s)
+                    <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ (new \App\Models\RentalFaultReport(['status' => $s]))->statusLabel() }}</option>
                 @endforeach
             </select>
         </div>
@@ -197,7 +198,7 @@
                         @if($showArchived)
                             <span class="ds-badge ds-badge-muted">Archived {{ $faultReport->deleted_at?->format('Y-m-d') }}</span>
                         @else
-                            <span class="ds-badge {{ $statusBadgeClass($faultReport->status) }}">{{ ucfirst(str_replace('_', ' ', $faultReport->status)) }}</span>
+                            <span class="ds-badge {{ $statusBadgeClass($faultReport->status) }}">{{ $faultReport->statusLabel() }}</span>
                         @endif
                     </td>
                     <td class="px-4 py-2">{{ $faultReport->outcome ? ucfirst(str_replace('_', ' ', $faultReport->outcome)) : '—' }}</td>

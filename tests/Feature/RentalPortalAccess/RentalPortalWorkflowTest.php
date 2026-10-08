@@ -160,7 +160,7 @@ class RentalPortalWorkflowTest extends TestCase
         $this->assertSame(\App\Models\RentalApproval::EVIDENCE_PORTAL, $approval->evidence_type);
     }
 
-    public function test_landlord_handle_it_myself_requires_a_note_and_never_raises_a_work_order(): void
+    public function test_landlord_handle_it_myself_needs_no_note_and_never_raises_a_work_order(): void
     {
         $fault = RentalFaultReport::create([
             'agency_id' => $this->agency->id, 'branch_id' => $this->property->branch_id, 'property_id' => $this->property->id, 'lease_id' => $this->lease->id,
@@ -172,10 +172,7 @@ class RentalPortalWorkflowTest extends TestCase
 
         Sanctum::actingAs($this->clientUserFor($this->landlord), ['client']);
 
-        $this->postJson('/api/v1/client/rentals/landlord/fault-reports/' . $fault->id . '/decision', [
-            'decision' => 'approve_owner_handles',
-        ])->assertStatus(422);
-
+        // Fault flow F4 (8 Oct 2026): the owner's own contractor - name and phone are optional, no note is demanded.
         $res = $this->postJson('/api/v1/client/rentals/landlord/fault-reports/' . $fault->id . '/decision', [
             'decision' => 'approve_owner_handles', 'note' => "I'll sort the gutters myself this weekend.",
         ]);
