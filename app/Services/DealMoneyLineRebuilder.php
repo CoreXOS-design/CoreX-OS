@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Models\Deal;
 use App\Models\DealMoneyLine;
 use App\Models\User;
+use App\Services\Finance\DealMoney;
+use App\Services\Finance\SettlementRowMath;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -16,50 +18,25 @@ class DealMoneyLineRebuilder
      * printSettlement, printAgentPayslip) as the single source of truth
      * for pool-level calculations.
      *
-     * NOTE: This method does NOT round intermediate values, matching the
-     * settlement controller's existing behavior. The rebuildSingleDeal()
-     * method rounds to 2dp at each step for deal_money_lines storage.
-     * For most deals the results are identical, but edge cases with
-     * unusual commission amounts may differ by up to ~R0.01.
+     * 2026-10-08 — worked out in whole cents by DealMoney, the SAME arithmetic (ex VAT rounded to
+     * the cent, then each side's pool rounded to the cent) the saved money lines are stored with,
+     * so the settlement screen and the saved figures cannot differ. The floats returned are a
+     * plain cast of the exact decimal text, for the views that still take a float.
      */
     public static function computeDealPools(Deal $deal): array
     {
-        $vatRatePercent = (float) \App\Models\PerformanceSetting::get('vat_rate', 15);
-        $vatRate = $vatRatePercent / 100;
-        $totalCommissionIncVat = (float) $deal->total_commission;
-        $totalCommissionExVat = ($totalCommissionIncVat > 0) ? ($totalCommissionIncVat / (1.0 + $vatRate)) : 0.0;
-
-        $vatAmt = (float)$totalCommissionIncVat - (float)$totalCommissionExVat;
-
-        $listingSplitPct = max(0.0, min(100.0, (float)($deal->listing_split_percent ?? 50)));
-        $sellingSplitPct = max(0.0, min(100.0, (float)($deal->selling_split_percent ?? 50)));
-
-        $listingSideInc = (float)$totalCommissionIncVat * ($listingSplitPct / 100.0);
-        $sellingSideInc = (float)$totalCommissionIncVat * ($sellingSplitPct / 100.0);
-
-        $listingPool = \App\Services\Finance\CommissionPoolCalculator::internalPool($totalCommissionExVat, (bool) $deal->listing_external, $listingSplitPct);
-        $sellingPool = \App\Services\Finance\CommissionPoolCalculator::internalPool($totalCommissionExVat, (bool) $deal->selling_external, $sellingSplitPct);
-
-        // What's owed OUT to the external agency for a side. One definition,
-        // shared with the pool rule above (CommissionPoolCalculator): only an
-        // external side owes anything out; an internal side keeps its full
-        // split as pool, so its payable is 0 — never a slice derived from
-        // our_share_percent (prod-promotion audit 2026-09-16, finding A1).
-        $listingExternalPayable = \App\Services\Finance\CommissionPoolCalculator::externalPayable($listingSideInc, (bool) $deal->listing_external);
-        $sellingExternalPayable = \App\Services\Finance\CommissionPoolCalculator::externalPayable($sellingSideInc, (bool) $deal->selling_external);
-
-        $externalPayableTotal = $listingExternalPayable + $sellingExternalPayable;
+        $m = DealMoney::fromDeal($deal);
 
         return [
-            'vatRate' => $vatRate,
-            'totalCommissionIncVat' => $totalCommissionIncVat,
-            'totalCommissionExVat' => $totalCommissionExVat,
-            'vatAmt' => $vatAmt,
-            'listingPool' => $listingPool,
-            'sellingPool' => $sellingPool,
-            'listingExternalPayable' => $listingExternalPayable,
-            'sellingExternalPayable' => $sellingExternalPayable,
-            'externalPayableTotal' => $externalPayableTotal,
+            'vatRate' => $m->vatRateFloat(),
+            'totalCommissionIncVat' => DealMoney::toFloat($m->incVatCents),
+            'totalCommissionExVat' => DealMoney::toFloat($m->exVatCents()),
+            'vatAmt' => DealMoney::toFloat($m->vatCents()),
+            'listingPool' => DealMoney::toFloat($m->sidePoolCents('listing')),
+            'sellingPool' => DealMoney::toFloat($m->sidePoolCents('selling')),
+            'listingExternalPayable' => DealMoney::toFloat($m->externalPayableCents('listing')),
+            'sellingExternalPayable' => DealMoney::toFloat($m->externalPayableCents('selling')),
+            'externalPayableTotal' => DealMoney::toFloat($m->externalPayableTotalCents()),
         ];
     }
 
@@ -82,10 +59,8 @@ class DealMoneyLineRebuilder
             return 0;
         }
 
-        $vat = self::vatRate();
-
         foreach ($deals as $deal) {
-            self::rebuildSingleDeal($deal, $vat, $dryRun);
+            self::rebuildSingleDeal($deal, $dryRun);
         }
 
         return $deals->count();
@@ -96,32 +71,20 @@ class DealMoneyLineRebuilder
         return self::rebuild(null, $dealId, $dryRun);
     }
 
-    private static function rebuildSingleDeal(Deal $deal, float $vat, bool $dryRun): void
+    private static function rebuildSingleDeal(Deal $deal, bool $dryRun): void
     {
         $dealPeriod = (string)($deal->period ?? '');
         if (!$dealPeriod) {
             $dealPeriod = \Carbon\Carbon::parse($deal->deal_date ?? now())->format('Y-m');
         }
 
-        $totalIncl = (float)($deal->total_commission ?? 0);
-        $totalEx = ($totalIncl > 0) ? round($totalIncl / (1 + $vat), 2) : 0.0;
-
-        $listingSplit = self::clampPct($deal->listing_split_percent ?? 50);
-        $sellingSplit = self::clampPct($deal->selling_split_percent ?? 50);
-
-        $splitSum = $listingSplit + $sellingSplit;
-        if ($splitSum <= 0) { $listingSplit = 50; $sellingSplit = 50; $splitSum = 100; }
-        if (abs($splitSum - 100.0) > 0.01) {
-            $listingSplit = round(($listingSplit / $splitSum) * 100.0, 2);
-            $sellingSplit = round(($sellingSplit / $splitSum) * 100.0, 2);
-        }
-
-        $listingExternal = (int)($deal->listing_external ?? 0) === 1;
-        $sellingExternal = (int)($deal->selling_external ?? 0) === 1;
-
-        $sidePool = [
-            'listing' => round(\App\Services\Finance\CommissionPoolCalculator::internalPool($totalEx, $listingExternal, $listingSplit), 2),
-            'selling' => round(\App\Services\Finance\CommissionPoolCalculator::internalPool($totalEx, $sellingExternal, $sellingSplit), 2),
+        // Whole-cents money (DealMoney): ex VAT to the cent, splits scaled to 100%, each side's pool
+        // to the cent — and the per-agent steps below use SettlementRowMath, the very same code the
+        // settlement screens use, so what is saved is what is shown.
+        $money = DealMoney::fromDeal($deal);
+        $sidePoolCents = [
+            'listing' => $money->sidePoolCents('listing'),
+            'selling' => $money->sidePoolCents('selling'),
         ];
 
         $du = DB::table('deal_user')->where('deal_id', $deal->id)->get();
@@ -148,14 +111,13 @@ class DealMoneyLineRebuilder
 
             $source = $srow ? 'settlement' : 'deal_user';
 
-            $allocPct = self::clampPct($srow->share_percent ?? $row->agent_split_percent ?? 0);
+            $allocPctRaw = $srow->share_percent ?? $row->agent_split_percent ?? 0;
 
-            $agentCut = self::clampPct(
+            $agentCutRaw =
                 $srow->agent_cut_percent
                 ?? $row->agent_cut_percent
                 ?? ($user ? $user->agent_cut_percent : 0)
-                ?? 0
-            );
+                ?? 0;
 
             $payeMethod = (string)(
                 $srow->paye_method
@@ -163,18 +125,16 @@ class DealMoneyLineRebuilder
                 ?? ($user ? $user->paye_method : 'percentage')
                 ?? 'percentage'
             );
-            $payeValue = (float)(
+            $payeValueRaw =
                 $srow->paye_value
                 ?? $row->paye_value
                 ?? ($user ? $user->paye_value : 0)
-                ?? 0
-            );
+                ?? 0;
 
-            $deductions = (float)(
+            $deductionsRaw =
                 $srow->deductions
                 ?? $row->deductions
-                ?? 0
-            );
+                ?? 0;
             $dedDesc = (string)(
                 $srow->deductions_description
                 ?? $row->deductions_description
@@ -183,23 +143,29 @@ class DealMoneyLineRebuilder
 
             $paidAt = $srow->paid_at ?? $row->paid_at ?? null;
 
-            $sidePoolEx = (float)($sidePool[$side] ?? 0.0);
-            $poolShareEx = round($sidePoolEx * ($allocPct/100.0), 2);
-
-            $agentGrossEx = round($poolShareEx * ($agentCut/100.0), 2);
-            $companyGrossEx = round($poolShareEx - $agentGrossEx, 2);
-
             // PAYE rule:
             // - percentage: always applies
             // - fixed: only applies when paid_at is set (actual payment)
-            $payeAmount = 0.0;
-            if (strtolower($payeMethod) === 'percentage') {
-                $payeAmount = round($agentGrossEx * ($payeValue/100.0), 2);
-            } else {
-                $payeAmount = $paidAt ? round($payeValue, 2) : 0.0;
-            }
+            $m = SettlementRowMath::compute(
+                (int)($sidePoolCents[$side] ?? 0),
+                $allocPctRaw,
+                $agentCutRaw,
+                strtolower($payeMethod) === 'percentage',
+                $payeValueRaw,
+                $deductionsRaw,
+                (bool)$paidAt
+            );
 
-            $agentNetEx = round($agentGrossEx - $payeAmount - $deductions, 2);
+            $allocPct = DealMoney::cents(SettlementRowMath::pct($allocPctRaw));
+            $agentCut = DealMoney::cents(SettlementRowMath::pct($agentCutRaw));
+            $sidePoolEx = DealMoney::cents((int)($sidePoolCents[$side] ?? 0));
+            $poolShareEx = DealMoney::cents($m['pool_share']);
+            $agentGrossEx = DealMoney::cents($m['agent_gross']);
+            $companyGrossEx = DealMoney::cents($m['company']);
+            $payeAmount = DealMoney::cents($m['paye']);
+            $deductions = DealMoney::cents($m['deductions']);
+            $agentNetEx = DealMoney::cents($m['net']);
+            $payeValue = DealMoney::cents(DealMoney::scaled($payeValueRaw, 2));
 
             $payload = [
                 'deal_id' => (int)$deal->id,
@@ -217,10 +183,10 @@ class DealMoneyLineRebuilder
                 'company_gross_ex_vat' => $companyGrossEx,
 
                 'paye_method' => $payeMethod,
-                'paye_value' => round($payeValue, 2),
+                'paye_value' => $payeValue,
                 'paye_amount' => $payeAmount,
 
-                'deductions' => round($deductions, 2),
+                'deductions' => $deductions,
                 'deductions_description' => $dedDesc,
 
                 'agent_net_ex_vat' => $agentNetEx,
@@ -252,19 +218,5 @@ class DealMoneyLineRebuilder
                 DealMoneyLine::create($payload);
             }
         }
-    }
-
-    private static function vatRate(): float
-    {
-        $pct = (float) \App\Models\PerformanceSetting::get("vat_rate", 15);
-        return max(0.0, $pct / 100.0);
-    }
-
-    private static function clampPct($v, $min = 0.0, $max = 100.0): float
-    {
-        $v = (float)($v ?? 0);
-        if ($v < $min) return $min;
-        if ($v > $max) return $max;
-        return $v;
     }
 }
