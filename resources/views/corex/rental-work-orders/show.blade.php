@@ -80,7 +80,7 @@
         <h2 class="text-sm font-semibold">Appointment <span class="font-normal text-xs" style="color: var(--text-muted);">&mdash; {{ $workOrder->stageLabel('agent') }}</span></h2>
         {{-- Johan, 9 Oct 2026: an appointment (and the email to the tenant, which names the contractor) only once the job is approved - within the
              owner's no-approval limit, approved by the owner, or an emergency. Before that the box is not shown. --}}
-        @if($proceed->authorised)
+        @if($proceed->authorised || in_array($workOrder->status, [\App\Models\RentalWorkOrder::STATUS_ORDERED, \App\Models\RentalWorkOrder::STATUS_IN_PROGRESS, \App\Models\RentalWorkOrder::STATUS_DISPUTED], true))
         <form method="POST" action="{{ route('corex.rental-work-orders.appointment.store', $workOrder) }}" class="grid grid-cols-3 gap-3 items-end">
             @csrf
             <div>

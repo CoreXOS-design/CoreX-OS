@@ -334,9 +334,9 @@ class RentalWorkOrderService
         }
         // Johan, 9 Oct 2026: an appointment (and the email to the tenant naming the contractor) only once the job is approved - within the owner's
         // no-approval limit, approved by the owner, an emergency, or the owner's own contractor. Before that the contractor may not even have a price.
-        $gate = app(RentalApprovalGateService::class)->authoriseToProceed($workOrder->fresh() ?? $workOrder, false);
-        if (! $gate->authorised) {
-            throw new \LogicException('An appointment can only be set once the job has been approved. ' . $gate->note);
+        $blocked = app(RentalWorkOrderClientViewService::class)->approvalBlock($workOrder->fresh() ?? $workOrder);
+        if ($blocked !== null) {
+            throw new \LogicException('An appointment can only be set once the job has been approved. ' . $blocked);
         }
 
         // Stored in the application timezone (Eloquent formats a datetime in the Carbon's OWN zone and reads it back in the app zone).

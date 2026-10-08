@@ -143,10 +143,21 @@ class RentalWorkOrderClientViewService
         return $own ?? $this->card($workOrder)?->scheduled_at;
     }
 
-    /** Has the job been approved to go ahead: within the owner's limit, approved by the owner, an emergency, or the owner's own contractor? */
+    /** Has the job been approved to go ahead: within the owner's limit, approved by the owner, an emergency, or the owner's own contractor - or already out with the contractor? */
     public function jobApproved(RentalWorkOrder $workOrder): bool
     {
-        return app(\App\Services\Rentals\RentalApprovalGateService::class)->authoriseToProceed($workOrder, false)->authorised;
+        return $this->approvalBlock($workOrder) === null;
+    }
+
+    /** The plain reason a job has NOT been approved yet, or null when it has. A work order already sent / under way / finished is, by definition, cleared. */
+    public function approvalBlock(RentalWorkOrder $workOrder): ?string
+    {
+        if (in_array($workOrder->status, [RentalWorkOrder::STATUS_ORDERED, RentalWorkOrder::STATUS_IN_PROGRESS, RentalWorkOrder::STATUS_DISPUTED, RentalWorkOrder::STATUS_COMPLETED], true)) {
+            return null;
+        }
+        $decision = app(\App\Services\Rentals\RentalApprovalGateService::class)->authoriseToProceed($workOrder, false);
+
+        return $decision->authorised ? null : $decision->note;
     }
 
     /** The contractor's name as THIS audience may read it: the tenant is not given an outside contractor's name before the job is approved. */
