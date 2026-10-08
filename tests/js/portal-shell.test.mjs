@@ -683,3 +683,49 @@ test('every method a template calls while DRAWING is pure: no state written, no 
   }
   assert.ok(checked.length >= 8, 'the scan found the render-time methods: ' + checked.join(','));
 });
+
+// ── 9 Oct 2026 (Johan's night test): a browser holds ONE portal session ─────────────────────────────────────────────────────────────
+// An owner tab was left open, the tenant signed in in another tab, and the owner tab's "The work has started" went out as the TENANT -
+// "work order not found". The server now names who answered (X-Portal-Client); a page drawn for somebody else stops and says so.
+test('another tab signed in as someone else: the page stops acting, shows the reload card, and the press does nothing as the new person', async () => {
+  let who = '30';
+  const { p, calls } = boot({ fetchImpl: async (url) => ({ ok: true, status: 200, headers: { get: (k) => (k === 'X-Portal-Client' ? who : null) }, json: async () => ({ work_orders: [] }) }) });
+  p.watchSession();
+  p.activeRole = 'landlord';
+  await p.loadWorkOrders();
+  assert.equal(p.sessionChanged, false, 'the same person answering is normal');
+  who = '29';
+  await p.reportProgress({ id: 65 }, 'started');
+  assert.equal(p.sessionChanged, true, 'a different person answered: the reload card shows');
+  const progress = calls.fetch.filter((c) => /progress/.test(c.url));
+  assert.equal(progress.length, 1, 'the press went out once, and its answer (as the new person) was thrown away, not shown as a result');
+});
+
+test('no X-Portal-Client header (older server, signed-out calls) never trips the guard', async () => {
+  const { p } = boot({ fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ work_orders: [] }) }) });
+  p.watchSession();
+  p.activeRole = 'landlord';
+  await p.loadWorkOrders(); await p.loadWorkOrders();
+  assert.equal(p.sessionChanged, false);
+});
+
+test('declining a quote asks for the reason first, then sends it with the decision', async () => {
+  const { p, calls } = boot({ fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ work_orders: [] }) }) });
+  p.activeRole = 'landlord';
+  p.declineNote[7] = '  ';
+  await p.sendDecline(7);
+  assert.match(p.declineError[7], /tell us why/);
+  assert.equal(calls.fetch.filter((c) => /decision/.test(c.url)).length, 0, 'nothing was sent without a reason');
+  p.declineNote[7] = ' Too expensive, please get another quote. ';
+  await p.sendDecline(7);
+  const sent = calls.fetch.find((c) => /work-orders\/7\/decision/.test(c.url));
+  assert.ok(sent, 'the decision was sent');
+  assert.deepEqual(JSON.parse(sent.opts.body), { decision: 'decline', note: 'Too expensive, please get another quote.' });
+});
+
+test('the owner card offers only progress buttons the server says will work (owner_can_start / owner_can_finish), with the reason when none do', () => {
+  assert.match(bladeSrc, /x-show="w\.owner_can_start"[^>]*data-owner-started/);
+  assert.match(bladeSrc, /x-show="w\.owner_can_finish"[^>]*data-owner-finished/);
+  assert.match(bladeSrc, /x-text="w\.owner_progress_note"/);
+  assert.ok(!/w\.stage !== 'in_progress' && w\.stage !== 'check_requested'" @click="reportProgress/.test(bladeSrc), 'the old always-on buttons are gone');
+});

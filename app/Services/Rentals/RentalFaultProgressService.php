@@ -93,15 +93,26 @@ class RentalFaultProgressService
             // owner's authorisation) - a work order that still waits on a quote or the owner's answer has not been sent to anyone.
             // The internal crew and the owner's own contractor are engaged from the moment the work order exists. If a later step has
             // already happened (e.g. an appointment booked early) the hand-over obviously has too.
+            // Johan, 9 Oct 2026: the line follows REAL state - no appointment counts (for anybody) before the job is approved, and an appointment
+            // never makes "sent to the contractor" true: only the work order really going out does.
             $appt = $wo ? app(RentalWorkOrderClientViewService::class)->appointmentAt($wo) : null;
             $handedOverAt = null;
             if ($wo) {
                 $handedOverAt = $wo->assignment_type === RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER
-                    ? ($wo->ordered_at ?? (in_array($wo->status, [RentalWorkOrder::STATUS_ORDERED, RentalWorkOrder::STATUS_IN_PROGRESS, RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_DISPUTED], true) ? $wo->updated_at : null)
-                        ?? ($appt ? ($wo->appointment_set_at ?? $appt) : null))
+                    ? ($wo->ordered_at ?? (in_array($wo->status, [RentalWorkOrder::STATUS_ORDERED, RentalWorkOrder::STATUS_IN_PROGRESS, RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_DISPUTED], true) ? $wo->updated_at : null))
                     : $wo->created_at;
             }
-            $push('sent_to_contractor', $variant, $handedOverAt, null, null, $wo?->id);
+            // While an outside contractor's job is not yet sent, say plainly what it is waiting for (a quote, the owner's approval, the send).
+            $waiting = null;
+            if ($wo && $handedOverAt === null && $wo->assignment_type === RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER) {
+                $waiting = $this->label(match (true) {
+                    ! $wo->quotes()->where('is_selected', true)->exists() && $wo->owner_approval_status !== RentalWorkOrder::APPROVAL_APPROVED => 'wait_quote',
+                    $wo->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING => 'wait_approval',
+                    $wo->owner_approval_status === RentalWorkOrder::APPROVAL_DECLINED => 'wait_declined',
+                    default => 'wait_send',
+                }, $aud);
+            }
+            $push('sent_to_contractor', $variant, $handedOverAt, $waiting, null, $wo?->id);
 
             // 6 - the appointment: date, time and who is coming.
             $apptDetail = null;

@@ -21,6 +21,11 @@ return [
     'sent_to_contractor' => ['tenant' => 'Sent to contractor for scheduling', 'owner' => 'Sent to contractor for scheduling', 'agent' => 'Sent to contractor for scheduling'],
     'sent_to_contractor_internal' => ['tenant' => 'Sent to our maintenance team for scheduling', 'owner' => 'Sent to our maintenance team for scheduling', 'agent' => 'Sent to our maintenance team for scheduling'],
     'sent_to_contractor_owner' => ['tenant' => "Sent to the owner's contractor for scheduling", 'owner' => 'Sent to your contractor for scheduling', 'agent' => "Sent to the owner's contractor for scheduling"],
+    // What an outside contractor's job is waiting for before it can be sent (shown under the "sent to contractor" step until it is). The tenant's words are neutral.
+    'wait_quote' => ['tenant' => 'Waiting for a quote', 'owner' => 'Your agent is getting a quote', 'agent' => 'Waiting for a quote'],
+    'wait_approval' => ['tenant' => 'Waiting for the owner to approve the quote', 'owner' => 'Waiting for your approval of the quote', 'agent' => 'Waiting for the owner to approve the quote'],
+    'wait_declined' => ['tenant' => 'Being arranged', 'owner' => 'You declined the quote - your agent will get another', 'agent' => 'Owner declined the quote - get another quote'],
+    'wait_send' => ['tenant' => 'Being arranged with the contractor', 'owner' => 'Approved - your agent is sending it to the contractor', 'agent' => 'Approved - send it to the contractor'],
     'appointment_set' => ['tenant' => 'Appointment set', 'owner' => 'Appointment set', 'agent' => 'Appointment set'],
     'in_progress' => ['tenant' => 'Work in progress', 'owner' => 'Work in progress', 'agent' => 'Work in progress'],
     'completed' => ['tenant' => 'Work completed', 'owner' => 'Work completed', 'agent' => 'Work completed'],

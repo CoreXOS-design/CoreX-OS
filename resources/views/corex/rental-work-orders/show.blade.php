@@ -53,10 +53,13 @@
         @php $nextContractor = $workOrder->contractorLabel() ?? 'the contractor'; @endphp
         <div class="rounded-md p-3 text-sm space-y-1" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, transparent); border: 1px solid var(--border);" data-next-step>
             <div class="font-semibold">What happens next</div>
-            @if(! $selectedQuote)
+            @if(! $selectedQuote && $workOrder->quotes->isNotEmpty())
+                <div class="font-medium" style="color: var(--ds-crimson, #b3261e);" data-quote-not-selected>No quote chosen yet &mdash; the owner has not been asked, and the work order cannot be sent. Choose the quote below with its Select button.</div>
+            @elseif(! $selectedQuote)
                 <div>Capture {{ $nextContractor }}'s quote below and select it. If the quote is <strong>R{{ number_format($noApprovalThreshold, 2) }} or less</strong> (this property's no-approval limit) it is approved automatically and you can send the work order. If it is <strong>more</strong>, it goes to the owner for approval first, and the work order cannot be sent until they approve.</div>
             @elseif($workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_PENDING)
-                <div>The quote of <strong>R{{ number_format($selectedQuote->ownerFacingAmount(), 2) }}</strong> is over this property's no-approval limit of R{{ number_format($noApprovalThreshold, 2) }}, so the owner has been asked to approve it. You can send the work order to {{ $nextContractor }} once they do.</div>
+                <div class="font-medium" data-quote-sent-to-owner>Quote sent to {{ app(\App\Services\Rentals\RentalWorkOrderService::class)->ownerNames($workOrder) ?: 'the owner' }} for approval.</div>
+                <div>The quote of <strong>R{{ number_format($selectedQuote->ownerFacingAmount(), 2) }}</strong> is over this property's no-approval limit of R{{ number_format($noApprovalThreshold, 2) }}. You can send the work order to {{ $nextContractor }} once they approve.</div>
             @elseif($proceed->authorised)
                 <div>The quote of <strong>R{{ number_format($selectedQuote->ownerFacingAmount(), 2) }}</strong> is approved{{ $workOrder->approvalBasisLabel() ? ' (' . strtolower($workOrder->approvalBasisLabel()) . ')' : '' }}. Next: send the work order to {{ $nextContractor }}.</div>
             @else
@@ -75,6 +78,9 @@
     @endphp
     <div class="rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);" id="appointment-card">
         <h2 class="text-sm font-semibold">Appointment <span class="font-normal text-xs" style="color: var(--text-muted);">&mdash; {{ $workOrder->stageLabel('agent') }}</span></h2>
+        {{-- Johan, 9 Oct 2026: an appointment (and the email to the tenant, which names the contractor) only once the job is approved - within the
+             owner's no-approval limit, approved by the owner, or an emergency. Before that the box is not shown. --}}
+        @if($proceed->authorised)
         <form method="POST" action="{{ route('corex.rental-work-orders.appointment.store', $workOrder) }}" class="grid grid-cols-3 gap-3 items-end">
             @csrf
             <div>
@@ -88,6 +94,9 @@
             <div><button type="submit" class="corex-btn-primary text-xs">{{ $workOrder->appointment_at ? 'Change appointment' : 'Set appointment' }}</button></div>
         </form>
         <p class="text-xs" style="color: var(--text-muted);">The tenant is emailed when you set or change this. The owner can also set it from their portal.</p>
+        @else
+            <p class="text-xs" style="color: var(--text-muted);" data-appointment-locked>An appointment can be set once the job is approved &mdash; the tenant is not told about a date or a contractor before then. {{ $proceed->note }}</p>
+        @endif
         @if($workOrder->isOwnerContractor())
             <form method="POST" action="{{ route('corex.rental-work-orders.owner-contractor.update', $workOrder) }}" class="grid grid-cols-3 gap-3 items-end pt-2">
                 @csrf
@@ -354,10 +363,14 @@
                     <label class="text-xs">Details (optional — required if no document attached)</label>
                     <textarea name="detail_text" rows="2" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);"></textarea>
                 </div>
-                <label class="flex items-center gap-2 text-xs col-span-2">
-                    <input type="checkbox" name="is_selected" value="1">
-                    Select this quote now
-                </label>
+                @if($selectedQuote)
+                    <label class="flex items-center gap-2 text-xs col-span-2">
+                        <input type="checkbox" name="is_selected" value="1">
+                        Use this quote instead of the selected one
+                    </label>
+                @else
+                    <p class="text-xs col-span-2" style="color: var(--text-muted);" data-quote-autoselect>This is the first quote, so it is selected automatically: within the property's no-approval limit (R{{ number_format($noApprovalThreshold, 2) }}) it is approved on the spot, above it the owner is asked.</p>
+                @endif
             </div>
             <button type="submit" class="corex-btn-outline text-xs">Capture quote</button>
         </form>

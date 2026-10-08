@@ -100,6 +100,14 @@
         </template>
         <button x-show="session.authenticated" @click="logout()">Log out</button>
     </header>
+    {{-- Another tab signed in as someone else: this page is showing the previous person - say so and offer the reload, never act on it. --}}
+    <div class="wrap" x-show="sessionChanged" x-cloak data-session-changed>
+        <div class="card">
+            <h2>You signed in as someone else</h2>
+            <p>In another window or tab of this browser you signed in as a different person. This page was showing the previous person's information, so nothing here will work any more.</p>
+            <button class="btn btn-primary" @click="window.location.reload()">Reload this page</button>
+        </div>
+    </div>
     {{-- Who is signed in and which side of the portal is on screen - always, one compact line (a shared browser must never leave this unclear). --}}
     <div class="whoami" data-portal-who x-show="session.authenticated && me" x-cloak>
         <span class="muted">Signed in as</span>
@@ -419,14 +427,22 @@
                                         {{-- W6 (8 Oct 2026): the owner may also set the appointment and report progress; the tenant is told. The agency's own team reports through its job card. --}}
                                         <template x-if="w.stage !== 'completed' && w.stage !== 'cancelled'">
                                             <div data-owner-appointment style="margin-top:10px; padding-top:10px; border-top:1px solid #eef1f6;">
-                                                <label>Appointment for the repair</label>
-                                                <input type="datetime-local" x-model="apptDraft[w.id + '_at']">
-                                                <input type="text" maxlength="500" placeholder="Note for the tenant (optional)" x-model="apptDraft[w.id + '_note']">
-                                                <button class="btn btn-outline" @click="setAppointment(w)" x-text="w.appointment_at ? 'Change the appointment' : 'Set the appointment'"></button>
+                                                {{-- An appointment only once the job is approved (the server decides: owner_can_appoint). --}}
+                                                <template x-if="w.owner_can_appoint">
+                                                    <div data-owner-appointment-form>
+                                                        <label>Appointment for the repair</label>
+                                                        <input type="datetime-local" x-model="apptDraft[w.id + '_at']">
+                                                        <input type="text" maxlength="500" placeholder="Note for the tenant (optional)" x-model="apptDraft[w.id + '_note']">
+                                                        <button class="btn btn-outline" @click="setAppointment(w)" x-text="w.appointment_at ? 'Change the appointment' : 'Set the appointment'"></button>
+                                                    </div>
+                                                </template>
+                                                <p class="muted" x-show="!w.owner_can_appoint" data-owner-appointment-locked>The appointment can be set once the job is approved.</p>
+                                                {{-- Only the buttons that will work (the server decides: owner_can_start / owner_can_finish), else the plain reason why not. --}}
                                                 <template x-if="w.who !== 'our_team'">
-                                                    <div>
-                                                        <button class="btn btn-outline" x-show="w.stage !== 'in_progress' && w.stage !== 'check_requested'" @click="reportProgress(w, 'started')">The work has started</button>
-                                                        <button class="btn btn-ok" x-show="w.stage !== 'check_requested'" @click="reportProgress(w, 'finished')">The work is finished</button>
+                                                    <div data-owner-progress>
+                                                        <button class="btn btn-outline" x-show="w.owner_can_start" @click="reportProgress(w, 'started')" data-owner-started>The work has started</button>
+                                                        <button class="btn btn-ok" x-show="w.owner_can_finish" @click="reportProgress(w, 'finished')" data-owner-finished>The work is finished</button>
+                                                        <p class="muted" x-show="w.owner_progress_note" x-text="w.owner_progress_note" data-owner-progress-note></p>
                                                     </div>
                                                 </template>
                                             </div>
@@ -441,8 +457,16 @@
                                             <div data-wo-decision style="margin-top:10px; padding-top:10px; border-top:1px solid #eef1f6;">
                                                 <p class="badge" style="background:#fdecea; color:#b3261e;">Needs your decision</p>
                                                 <p class="muted">Quote: <strong x-text="'R ' + (w.owner_facing_amount ?? 0)"></strong></p>
-                                                <button class="btn btn-ok" :disabled="!!(busy['wo' + w.id])" @click="decideWorkOrder(w.id, 'approve')" x-text="busy['wo' + w.id] ? 'Sending…' : 'Approve'"></button>
-                                                <button class="btn btn-danger" :disabled="!!(busy['wo' + w.id])" @click="decideWorkOrder(w.id, 'decline')">Decline</button>
+                                                <button class="btn btn-ok" :disabled="!!(busy['wo' + w.id])" @click="decideWorkOrder(w.id, 'approve')" x-text="busy['wo' + w.id] ? 'Sending…' : 'Approve'" data-wo-approve></button>
+                                                <button class="btn btn-danger" x-show="!declineOpen[w.id]" :disabled="!!(busy['wo' + w.id])" @click="declineOpen[w.id] = true" data-wo-decline>Decline</button>
+                                                {{-- Declining asks for the reason (the agent is told it). --}}
+                                                <div x-show="declineOpen[w.id]" data-wo-decline-form style="margin-top:8px;">
+                                                    <label>Why are you declining this quote?</label>
+                                                    <textarea rows="2" maxlength="2000" x-model="declineNote[w.id]" placeholder="For example: too expensive, please get another quote."></textarea>
+                                                    <button class="btn btn-danger" :disabled="!!(busy['wo' + w.id])" @click="sendDecline(w.id)" data-wo-decline-send>Send my decline</button>
+                                                    <p class="error" x-show="declineError[w.id]" x-text="declineError[w.id]"></p>
+                                                    <button class="btn btn-outline" @click="declineOpen[w.id] = false">Back</button>
+                                                </div>
                                             </div>
                                         </template>
                         {{-- BUILD 2 BEGIN — extra work beyond the owner's agreed terms (.ai/specs/rental-work-orders.md §17.7.4): what was approved, the extra work (selling only), the crew's photos and note, the new total, Approve / Decline. --}}
@@ -611,9 +635,25 @@ async function portalFetch(url, options = {}) {
     const fetchOptions = Object.assign({ credentials: 'same-origin' }, options, { headers });
     delete fetchOptions.key;
     const res = await fetch(url, fetchOptions);
+    if (portalClientChanged(res.headers && res.headers.get ? res.headers.get('X-Portal-Client') : null)) {
+        return { ok: false, status: 409, data: { message: 'You signed in as someone else in another window. Please reload this page.', session_changed: true } };
+    }
     let data = null;
     try { data = await res.json(); } catch (e) { /* no body */ }
     return { ok: res.ok, status: res.status, data };
+}
+
+// A browser holds ONE portal session. The server names the person who answered (X-Portal-Client); if it is not the person this page was
+// drawn for, another tab has signed in as someone else - this page must not keep offering the old person's buttons.
+let portalClientId = null;
+function portalClientChanged(id) {
+    if (!id) return false;
+    if (portalClientId && portalClientId !== id) {
+        if (typeof window.__portalSessionChanged === 'function') window.__portalSessionChanged();
+        return true;
+    }
+    portalClientId = id;
+    return false;
 }
 
 // §22 — a form with photos goes by XMLHttpRequest so the person SEES the upload progress (fetch cannot report it).
@@ -630,6 +670,10 @@ async function portalUpload(url, form, key, onProgress) {
             xhr.upload.onprogress = (e) => { if (e.lengthComputable && e.total > 0) onProgress(Math.min(99, Math.round(e.loaded / e.total * 100))); };
         }
         xhr.onload = () => {
+            if (portalClientChanged(xhr.getResponseHeader ? xhr.getResponseHeader('X-Portal-Client') : null)) {
+                resolve({ ok: false, status: 409, data: { message: 'You signed in as someone else in another window. Please reload this page.', session_changed: true } });
+                return;
+            }
             let data = null;
             try { data = JSON.parse(xhr.responseText); } catch (e) { /* no body */ }
             resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, data });
@@ -672,7 +716,7 @@ function rentalsPortal() {
         faultForm: { decision: '', handled_by: '', contractor_name: '', contractor_phone: '', agency_service_provider_id: '', note: '', error: null, busy: false },
         apptDraft: {},
         // BUILD 3 — the portal's Jobs are work orders (§17.3.5); the "is this finished?" answer form (§17.10.4).
-        workOrders: [], answerForm: null, answerBusy: false, answerError: null, answerKeys: {},
+        workOrders: [], declineOpen: {}, declineNote: {}, declineError: {}, sessionChanged: false, answerForm: null, answerBusy: false, answerError: null, answerKeys: {},
         landlordFaultWizard: { open: false, step: 'form', property: null, faultTypeId: '', ftype: null, showAid: false, title: '', description: '', photos: [], photoError: null, photoBusy: false, photoPending: 0, sending: false, progress: 0, error: null, key: null },
         landlordFaultTypesByProperty: {},
 
@@ -692,6 +736,7 @@ function rentalsPortal() {
             // ran it twice at once (two session checks, two role detections, two copies of every list request racing on a cold server).
             if (this.initStarted) return;
             this.initStarted = true;
+            this.watchSession();
             // rental-portal-access.md §16 — a personal link (?email=…) arrives with the email already filled in.
             // Only pre-fills the field: nothing is looked up or sent until the person presses Continue.
             // WHO the link is for: the server read a mail link's SIGNED recipient reference (?r=...) and hands the address over; the
@@ -729,6 +774,9 @@ function rentalsPortal() {
             const r = await portalFetch('/api/v1/client/rentals/branding');
             if (r.ok && r.data && r.data.branding) this.branding = r.data.branding;
         },
+
+        // §27 - when another tab of this browser signs in as someone else, portalFetch() sees a different person answering and calls this.
+        watchSession() { window.__portalSessionChanged = () => { this.sessionChanged = true; }; },
 
         async detectRoles() {
             this.loadBranding();
@@ -1138,12 +1186,19 @@ function rentalsPortal() {
             if (r.ok) { const id = this.faultDetail.id; await this.openFault(id); this.loadDecisions(); this.loadLandlordFaults(); this.loadWorkOrders(); }
             else f.error = r.data?.message || 'Could not record your decision.';
         },
-        async decideWorkOrder(id, decision) {
+        // Declining a quote needs the owner's reason (the agent is told it); an empty one is refused here with a plain sentence.
+        async sendDecline(id) {
+            const reason = String(this.declineNote[id] || '').trim();
+            if (reason.length < 3) { this.declineError[id] = 'Please tell us why, so we can get you a better quote.'; return; }
+            this.declineError[id] = null;
+            await this.decideWorkOrder(id, 'decline', reason);
+        },
+        async decideWorkOrder(id, decision, note) {
             const bk = 'wo' + id;
             if (this.busy[bk]) return;
             this.busy[bk] = true;
             try {
-                const r = await portalFetch('/api/v1/client/rentals/landlord/work-orders/' + id + '/decision', { method: 'POST', body: JSON.stringify({ decision }), key: 'decide-wo-' + id + '-' + decision });
+                const r = await portalFetch('/api/v1/client/rentals/landlord/work-orders/' + id + '/decision', { method: 'POST', body: JSON.stringify({ decision, note: note ? String(note).trim() : '' }), key: 'decide-wo-' + id + '-' + decision });
                 if (r.ok) { await this.loadDecisions(); await this.loadWorkOrders(); }
                 else alert(r.data?.message || 'Could not record decision.');
             } finally { this.busy[bk] = false; }

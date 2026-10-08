@@ -332,6 +332,12 @@ class RentalWorkOrderService
         if (in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true)) {
             throw new \LogicException('This work order is already closed - an appointment can no longer be set.');
         }
+        // Johan, 9 Oct 2026: an appointment (and the email to the tenant naming the contractor) only once the job is approved - within the owner's
+        // no-approval limit, approved by the owner, an emergency, or the owner's own contractor. Before that the contractor may not even have a price.
+        $gate = app(RentalApprovalGateService::class)->authoriseToProceed($workOrder->fresh() ?? $workOrder, false);
+        if (! $gate->authorised) {
+            throw new \LogicException('An appointment can only be set once the job has been approved. ' . $gate->note);
+        }
 
         // Stored in the application timezone (Eloquent formats a datetime in the Carbon's OWN zone and reads it back in the app zone).
         $when = \Illuminate\Support\Carbon::instance($at)->setTimezone(config('app.timezone'))->startOfMinute();
@@ -460,6 +466,12 @@ class RentalWorkOrderService
     }
 
     // ───────────────────────── Build 2 mails (§17.16) — all through the agency mailbox path ─────────────────────────
+
+    /** The owner(s) by name, for plain sentences ("Quote sent to Lenny Landlord for approval"). */
+    public function ownerNames(RentalWorkOrder $workOrder): string
+    {
+        return $this->ownerRecipients($workOrder)->map(fn ($c) => trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '')))->filter()->implode(' and ');
+    }
 
     /** The owner's email contacts: the lease's landlords, else the property's landlord/lessor contacts, else its owner contact. */
     public function ownerRecipients(RentalWorkOrder $workOrder): \Illuminate\Support\Collection

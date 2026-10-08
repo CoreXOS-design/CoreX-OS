@@ -23,6 +23,10 @@
         'declined', 'cancelled' => 'ds-badge-danger',
         default => 'ds-badge-muted',
     };
+    // The owner's decision, read at the TOP of the page: the appoint-contractor step is the first thing the agent sees once the owner has approved.
+    $latestDecision = $faultReport->decision();
+    $prefillSupplier = ($latestDecision && $latestDecision->contractor_source === \App\Models\RentalApproval::CONTRACTOR_AGENCY) ? $latestDecision->contractorSupplier : null;
+    $prefillOwner = ($latestDecision && $latestDecision->contractor_source === \App\Models\RentalApproval::CONTRACTOR_OWN) ? $latestDecision : null;
 @endphp
 
 @section('content')
@@ -60,20 +64,27 @@
             </span>
         </div>
         <div class="flex items-center gap-2">
-            {{-- §17.3 (R0) — ONE "Create work order" action, in the header. Shown whenever the gate allows it
-                 (reported, awaiting approval, or approved with the agency-appoints route); the form it opens
-                 (#raise-work-order-form) still lives in the Owner approval card below. --}}
-            @permission('rental_fault_reports.raise_work_order')
-                @if($stage === 'appoint' && $faultReport->workOrderBlockReason() === null)
-                    <button type="button" onclick="document.getElementById('raise-work-order-form').classList.toggle('hidden')" class="corex-btn-primary text-xs" data-appoint-contractor>Appoint contractor</button>
-                @endif
-            @endpermission
             <a href="{{ route('corex.rental-fault-reports.pdf', $faultReport) }}" target="_blank" class="corex-btn-outline text-xs">Download PDF</a>
             <a href="{{ route('corex.rental-fault-reports.index') }}" class="corex-btn-outline text-xs">&larr; All fault reports</a>
         </div>
     </div>
 
     <x-rental-context-bar :property="$faultReport->property" :lease="$faultReport->lease" current="faults" />
+
+    {{-- Johan, 8 Oct 2026 (night): once the owner has approved, appointing the contractor is THE next action - open by default, right here
+         above everything else, no toggle and no button that scrolls somewhere else. --}}
+    @permission('rental_fault_reports.raise_work_order')
+        @if($stage === 'appoint')
+            <div class="rounded-md p-4 space-y-2" style="background: color-mix(in srgb, var(--ds-green) 8%, var(--surface)); border: 1px solid var(--ds-green);" data-appoint-contractor id="appoint-contractor">
+                <div class="text-sm font-semibold">Owner approved &mdash; appoint the contractor</div>
+                @if($faultReport->workOrderBlockReason() === null)
+                    @include('corex.rental-fault-reports._raise-work-order-form', ['secondary' => false])
+                @else
+                    <p class="text-xs" style="color: var(--text-muted);">{{ $faultReport->workOrderBlockReason() }}</p>
+                @endif
+            </div>
+        @endif
+    @endpermission
 
     <div class="grid grid-cols-3 gap-4">
     <div class="col-span-3 lg:col-span-2 space-y-4">
@@ -309,11 +320,7 @@
              this fault (RentalWorkOrderService::createFromFaultDecision) and stay editable on the work order. The owner's own contractor is
              only CONFIRMED; for "the agency appoints" the agent picks one of the agency's contractors (searchable) or the internal crew. --}}
         @permission('rental_fault_reports.raise_work_order')
-            @if($faultReport->workOrderBlockReason() === null)
-                @if($stage === 'appoint')
-                    @include('corex.rental-fault-reports._raise-work-order-form', ['secondary' => false])
-                @endif
-            @elseif($faultReport->status === \App\Models\RentalFaultReport::STATUS_DECLINED)
+            @if($faultReport->status === \App\Models\RentalFaultReport::STATUS_DECLINED && $faultReport->workOrderBlockReason() !== null)
                 <p class="text-xs" style="color: var(--text-muted);">{{ $faultReport->workOrderBlockReason() }}</p>
             @endif
         @endpermission

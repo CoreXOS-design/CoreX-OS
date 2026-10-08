@@ -20,7 +20,7 @@ use Symfony\Component\HttpFoundation\Response;
  * only (then the bearer token, as the mobile app uses). The setting is restored in `finally`, so every other route —
  * staff and token APIs — keeps the default list untouched, including within one long-lived process (tests, workers).
  *
- * Spec: .ai/specs/rental-portal-access.md §17.
+ * Spec: .ai/specs/rental-portal-access.md §17, §27.
  */
 class AuthenticateClientPortal
 {
@@ -34,9 +34,19 @@ class AuthenticateClientPortal
         config(['sanctum.guard' => ['client-web']]);
 
         try {
-            return $this->authenticate->handle($request, $next, 'sanctum');
+            $response = $this->authenticate->handle($request, $next, 'sanctum');
         } finally {
             config(['sanctum.guard' => $default]);
         }
+
+        // Johan, 9 Oct 2026: which portal person answered. The portal page compares it with the person it was drawn for: a browser holds ONE
+        // portal session, so signing in as someone else in another tab leaves the first tab showing the OLD person's buttons while every press
+        // goes out as the NEW person (an owner's "work has started" came back "work order not found" for the tenant who had just signed in).
+        $user = $request->user();
+        if ($user instanceof \App\Models\ClientUser) {
+            $response->headers->set('X-Portal-Client', (string) $user->id);
+        }
+
+        return $response;
     }
 }

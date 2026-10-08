@@ -600,6 +600,18 @@ class ClientLandlordRentalsController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
+        // Johan, 9 Oct 2026: the agent is told when the owner decides on the quote (before this nothing told them, so an approved work
+        // order waited until somebody happened to open it). Settings per user, through the one dispatcher.
+        $fresh = $order->fresh();
+        $quote = $fresh->quotes()->where('is_selected', true)->first();
+        $money = $quote ? ' (R' . number_format((float) $quote->ownerFacingAmount(), 2) . ')' : '';
+        app(\App\Services\Rentals\RentalWorkOrderService::class)->notifyAgentOfOwnerAction(
+            $fresh, 'rental_work_order.owner_decided',
+            $data['decision'] === 'approve' ? 'Owner approved the quote' . $money . ' - send it to the contractor' : 'Owner declined the quote' . $money,
+            $fresh->title . ($data['decision'] === 'decline' && trim((string) ($data['note'] ?? '')) !== '' ? ' - reason: ' . trim((string) $data['note']) : ''),
+            now()
+        );
+
         return response()->json(['work_order' => [
             'id' => $order->id,
             'owner_approval_status' => $order->owner_approval_status,

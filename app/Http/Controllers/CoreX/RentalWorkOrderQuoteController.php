@@ -47,16 +47,54 @@ class RentalWorkOrderQuoteController extends Controller
                 ->store("rental-work-order-quotes/{$rentalWorkOrder->id}", 'local');
         }
         unset($validated['document']);
-        $wantsSelected = (bool) ($validated['is_selected'] ?? false);
+        // Johan, 9 Oct 2026 (WO 65: a R4,120 quote was captured but never selected, so the owner was never asked): a quote that is the ONLY
+        // one on the work order is selected at once - selecting is what puts it through the no-approval limit / to the owner. With two or more
+        // the agent chooses (the page says loudly while none is chosen); "use this one instead" only exists once one is selected.
+        $explicitlySelected = (bool) ($validated['is_selected'] ?? false);
         unset($validated['is_selected']);
 
         $quote = $rentalWorkOrder->recordQuote($validated, $request->user());
 
-        if ($wantsSelected) {
-            $rentalWorkOrder->selectQuote($quote, $request->user());
+        // Only quote on the work order (live ones; archived are out): there is nothing to choose between, so it IS the quote.
+        $onlyQuote = $rentalWorkOrder->quotes()->count() === 1;
+        $selected = false;
+        if ($explicitlySelected || $onlyQuote) {
+            try {
+                $rentalWorkOrder->selectQuote($quote, $request->user());
+                $selected = true;
+            } catch (\LogicException $e) {
+                if ($explicitlySelected) {
+                    throw $e;
+                }
+
+                return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', 'Quote captured, but not selected: ' . $e->getMessage());
+            }
         }
 
-        return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', 'Quote captured.');
+        return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', $this->capturedMessage($rentalWorkOrder->fresh(), $selected));
+    }
+
+    /** What the capture did, in one plain sentence: who was asked, or that it was approved on the spot, or that nothing was chosen. */
+    private function capturedMessage(RentalWorkOrder $workOrder, bool $selected): string
+    {
+        if (! $selected) {
+            return 'Quote captured. No quote is chosen yet - the owner has not been asked. Choose one with its Select button.';
+        }
+        if ($workOrder->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING) {
+            $names = app(\App\Services\Rentals\RentalWorkOrderService::class)->ownerNames($workOrder);
+
+            $who = $names !== '' ? $names : 'the owner';
+            if (! \App\Models\RentalPortalSetting::notifyLandlordOnDecisionNeededFor($workOrder->agency_id)) {
+                return "Quote captured. It is above the property's no-approval limit, so {$who} must approve it on the portal (the approval email is switched off for this agency, so tell them).";
+            }
+
+            return "Quote captured and sent to {$who} for approval. The work order can be sent to the contractor once they approve.";
+        }
+        if ($workOrder->approval_basis === RentalWorkOrder::BASIS_NO_APPROVAL_LIMIT) {
+            return 'Quote captured and approved automatically - it is within the property\'s no-approval limit. The work order can be sent to the contractor.';
+        }
+
+        return 'Quote captured and selected.';
     }
 
     /** Editable while the work order is still open — the reportable facts, not the lifecycle. */
@@ -114,6 +152,12 @@ class RentalWorkOrderQuoteController extends Controller
     {
         $this->assertVisible($request, $rentalWorkOrder);
         abort_unless($quote->rental_work_order_id === $rentalWorkOrder->id, 404);
+
+        // A quote that is already the selected one (a first quote is selected on capture) is not selected a second time: that would put it
+        // through the limit again and mail the owner a second time. The page has no Select button on it either.
+        if ($quote->is_selected) {
+            return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', 'That quote is already the selected one.');
+        }
 
         try {
             $rentalWorkOrder->selectQuote($quote, $request->user());

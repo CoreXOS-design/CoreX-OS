@@ -141,7 +141,10 @@ final class RentalReportServiceTest extends TestCase
     {
         [$agency, $branch, $agentOne] = $this->makeAgencyBranchAgent();
         $agentTwo = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
-        $property = $this->makeRentalProperty($agency, $branch, $agentOne);
+        // 8 Oct 2026 (Johan): the property's agent is on the record too, so the property belongs to a THIRD agent here - "own" then means
+        // the faults this agent created.
+        $agentThree = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
+        $property = $this->makeRentalProperty($agency, $branch, $agentThree);
 
         $this->makeFaultReport($agency, $branch, $property, RentalFaultReport::STATUS_REPORTED, $agentOne);
         $this->makeFaultReport($agency, $branch, $property, RentalFaultReport::STATUS_REPORTED, $agentTwo);
@@ -158,7 +161,8 @@ final class RentalReportServiceTest extends TestCase
     {
         [$agency, $branch, $agentOne] = $this->makeAgencyBranchAgent();
         $agentTwo = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
-        $property = $this->makeRentalProperty($agency, $branch, $agentOne);
+        $agentThree = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);   // the property's agent (it counts as "own" for them, 8 Oct 2026)
+        $property = $this->makeRentalProperty($agency, $branch, $agentThree);
 
         $this->makeFaultReport($agency, $branch, $property, RentalFaultReport::STATUS_REPORTED, $agentOne);
         $this->makeFaultReport($agency, $branch, $property, RentalFaultReport::STATUS_REPORTED, $agentTwo);

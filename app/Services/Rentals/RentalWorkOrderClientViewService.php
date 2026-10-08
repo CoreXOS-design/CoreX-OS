@@ -69,7 +69,7 @@ class RentalWorkOrderClientViewService
         if ($audience !== self::AUDIENCE_TENANT && $workOrder->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING) {
             return 'needs_decision';
         }
-        if ($this->appointmentAt($workOrder)) {
+        if ($this->appointmentAt($workOrder, $audience === 'agent')) {
             return 'appointment_set';
         }
 
@@ -121,17 +121,48 @@ class RentalWorkOrderClientViewService
             'stage' => $this->stageKey($workOrder, $audience),
             'stage_label' => $this->stageLabel($workOrder, $audience),
             'who_label' => $internal ? RentalWorkOrderSetting::internalTeamLabelFor($workOrder->agency_id) : ($ownerContractor ? ($audience === self::AUDIENCE_LANDLORD ? 'Your contractor' : "Owner's contractor") : 'Contractor arranged by the agency'),
-            'contractor_name' => $internal ? null : ($ownerContractor ? ($workOrder->contractor_name ?: null) : $workOrder->supplier()->withoutGlobalScopes()->withTrashed()->first()?->name),
+            'contractor_name' => $this->contractorNameFor($workOrder, $audience),
             'appointment_at' => $this->appointmentAt($workOrder)?->toIso8601String(),
-            'appointment_note' => $workOrder->appointment_note,
+            'appointment_note' => $this->appointmentAt($workOrder) ? $workOrder->appointment_note : null,
             'completed_at' => $workOrder->completed_at?->toIso8601String(),
         ];
     }
 
-    /** The appointment as the client sees it: the work order's own; an older internal job falls back to its booking. */
-    public function appointmentAt(RentalWorkOrder $workOrder): ?\Illuminate\Support\Carbon
+    /**
+     * Johan, 9 Oct 2026: a job that has not been approved has no appointment as far as the tenant and the owner are concerned (an
+     * appointment is set only once it is approved - RentalWorkOrderService::setAppointment - and an older one booked before that rule is not
+     * shown until the approval is in). The office sees what is stored ($office = true). An older internal job falls back to its booking.
+     */
+    public function appointmentAt(RentalWorkOrder $workOrder, bool $office = false): ?\Illuminate\Support\Carbon
     {
-        return $workOrder->appointment_at ?? $this->card($workOrder)?->scheduled_at;
+        $own = $workOrder->appointment_at;
+        if ($own !== null && ! $office && ! $this->jobApproved($workOrder)) {
+            $own = null;
+        }
+
+        return $own ?? $this->card($workOrder)?->scheduled_at;
+    }
+
+    /** Has the job been approved to go ahead: within the owner's limit, approved by the owner, an emergency, or the owner's own contractor? */
+    public function jobApproved(RentalWorkOrder $workOrder): bool
+    {
+        return app(\App\Services\Rentals\RentalApprovalGateService::class)->authoriseToProceed($workOrder, false)->authorised;
+    }
+
+    /** The contractor's name as THIS audience may read it: the tenant is not given an outside contractor's name before the job is approved. */
+    private function contractorNameFor(RentalWorkOrder $workOrder, string $audience): ?string
+    {
+        if ($workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL) {
+            return null;
+        }
+        if ($workOrder->isOwnerContractor()) {
+            return $workOrder->contractor_name ?: null;
+        }
+        if ($audience === self::AUDIENCE_TENANT && ! $this->jobApproved($workOrder)) {
+            return null;
+        }
+
+        return $workOrder->supplier()->withoutGlobalScopes()->withTrashed()->first()?->name;
     }
 
     /**
@@ -178,11 +209,11 @@ class RentalWorkOrderClientViewService
             // W2/W3: who is doing the repair. Never contact details for a tenant; the owner also sees their own contractor's phone.
             'who' => $internal ? 'our_team' : ($ownerContractor ? 'owner_contractor' : 'external_contractor'),
             'who_label' => $internal ? RentalWorkOrderSetting::internalTeamLabelFor($workOrder->agency_id) : ($ownerContractor ? ($audience === self::AUDIENCE_LANDLORD ? 'Your contractor' : "Owner's contractor") : 'Contractor arranged by the agency'),
-            'contractor_name' => $internal ? null : ($ownerContractor ? ($workOrder->contractor_name ?: null) : $workOrder->supplier()->withoutGlobalScopes()->withTrashed()->first()?->name),
+            'contractor_name' => $this->contractorNameFor($workOrder, $audience),
             'contractor_phone' => ($ownerContractor && $audience === self::AUDIENCE_LANDLORD) ? ($workOrder->contractor_phone ?: null) : null,
             // W2: the appointment for the repair. `scheduled_at` is kept for older consumers of this endpoint.
             'appointment_at' => $appointment?->toIso8601String(),
-            'appointment_note' => $workOrder->appointment_note,
+            'appointment_note' => $appointment ? $workOrder->appointment_note : null,
             'scheduled_at' => $appointment?->toIso8601String(),
             'completed_at' => $workOrder->completed_at?->toIso8601String(),
             'photos' => $this->photoView->photosPayload($this->photoView->photosForWorkOrder($workOrder)),
@@ -210,11 +241,45 @@ class RentalWorkOrderClientViewService
                 ? (float) $workOrder->cost_amount
                 : ($selected?->ownerFacingAmount());
             $payload['owner_approval_status'] = $workOrder->owner_approval_status;
+            // What the owner may PRESS on this work order's progress, decided here with the same rules the buttons are checked against on
+            // the server (recordOwnerProgress / recordOwnerReportedDone) - so the portal shows only buttons that will work, and says why when none do.
+            $payload += $this->ownerProgressActions($workOrder, ! empty($payload['awaiting_answer']));
+            // the appointment box on the owner's card only once the job is approved (the server refuses it before)
+            $payload['owner_can_appoint'] = ! in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true) && $this->jobApproved($workOrder);
             // §17.31 — supplier invoices the agent has chosen to share. LANDLORD only: the tenant payload never carries this key.
             $payload['invoices'] = app(RentalWorkOrderInvoiceService::class)->ownerPayload($workOrder);
         }
 
         return $payload;
+    }
+
+    /**
+     * Johan, 9 Oct 2026: the owner's progress buttons ("The work has started" / "The work is finished") on their work-order card must
+     * only appear when pressing them works. Same rules as RentalWorkOrderService::recordOwnerProgress(): not for the agency's own team,
+     * never on a closed work order, and only once the work has been given to the contractor (status ordered / in progress / disputed).
+     *
+     * @return array{owner_can_start:bool, owner_can_finish:bool, owner_progress_note:?string}
+     */
+    public function ownerProgressActions(RentalWorkOrder $workOrder, bool $checkWaiting = false): array
+    {
+        $none = fn (?string $note) => ['owner_can_start' => false, 'owner_can_finish' => false, 'owner_progress_note' => $note];
+
+        if ($workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL
+            || in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true)) {
+            return $none(null);
+        }
+        if ($workOrder->status === RentalWorkOrder::STATUS_REPORTED) {
+            return $none('You can tell us when the work starts and finishes once the agency has sent this to the contractor.');
+        }
+        if ($checkWaiting) {
+            return $none('The work was reported finished and the tenant is checking it.');
+        }
+
+        return [
+            'owner_can_start' => $workOrder->status === RentalWorkOrder::STATUS_ORDERED,
+            'owner_can_finish' => true,
+            'owner_progress_note' => null,
+        ];
     }
 
     /**

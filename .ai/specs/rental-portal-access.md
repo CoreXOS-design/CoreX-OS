@@ -716,3 +716,17 @@ Johan's test: on the first load of `/portal?email=<another person>` right after 
 
 **Header logo (the real cause of the Faults-tab freeze).** The page script has no render loop (every method a template calls while drawing is pure, enforced by a test; the owner's Faults tab costs one request per click and one per fault opened). What froze a real Chrome was the agency header logo: QA1's `agencies/1/logo.jpg` is 10629 x 3543 pixels (37.6 megapixels), drawn at 200 x 38 and decoded in full on every page and repaint. `App\Support\PortalLogo` makes a copy at most 640 px wide, once, beside the original (kept for PDFs, mail and the office); the portal page, `GET /api/v1/client/rentals/branding` and the crew page serve it. Any failure falls back to the original URL. Logo upload has no size limit today - a decision for later.
 
+## 27. One browser, one portal session: a page never acts as the wrong person (9 Oct 2026, QA1 - Johan's night test)
+
+**What went wrong.** The owner's "The work has started" / "The work is finished" answered *work order not found* while Johan was "in the tenant portal". The server log showed it: the owner endpoint was being called by the TENANT'S session. A browser holds ONE portal session (one cookie). An owner tab had been left open; signing in as the tenant in another tab replaced the cookie, so the owner tab - still drawn for the owner, with the owner's buttons - sent every press as the tenant. The tenant has no such buttons by design (below).
+
+**Fix.** Every answer from the signed-in portal API (`client.auth` middleware) carries `X-Portal-Client: <id of the person who answered>`. The page remembers who it was drawn for; when a later answer is from somebody else (`portalClientChanged()` in `shell.blade.php`), it throws that answer away, stops, and shows the card *You signed in as someone else - Reload this page*. Nothing is shown or done as the new person on the old person's screen. A missing header (older server, signed-out calls) never trips it.
+
+**What each side may press (per spec; unchanged):**
+| Who | Where | Can press |
+|---|---|---|
+| Tenant | Work orders | Only *Is this finished?* - *All done* / *Not complete* (with a note and photos) while a completion check waits on them. Nothing else: no "started", no "finished". |
+| Tenant | Faults | Report a fault; follow its progress line. |
+| Owner | Fault awaiting their decision | Approve (own contractor or the agency's) / Decline (with a reason). |
+| Owner | Work order | *Set / change the appointment* (until completed); *The work has started* only once the work order has gone to the contractor and has not started; *The work is finished* once it has gone to the contractor (not for the agency's own team, not while the tenant check is open); *Approve* / *Decline (with a reason)* while a quote waits for them. Buttons that would be refused are not shown - the card says why instead. |
+

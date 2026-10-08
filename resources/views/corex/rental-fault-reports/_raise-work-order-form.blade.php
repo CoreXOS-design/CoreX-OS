@@ -7,7 +7,7 @@
     $defaultWho = $agencyAppoints ? \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER : \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL;
 @endphp
 <form id="raise-work-order-form" data-raise-work-order method="POST" action="{{ route('corex.rental-fault-reports.raise-work-order', $faultReport) }}"
-      class="{{ ($secondary ?? false) || ! request()->boolean('create_work_order') ? 'hidden' : '' }} space-y-3 pt-2"
+      class="{{ ($secondary ?? false) ? 'hidden' : '' }} space-y-3 pt-2"
       x-data="{ q: '', who: '{{ $defaultWho }}', picked: '{{ $prefillSupplier?->id }}', busy: false }" x-on:submit="busy = true">
     @csrf
     <p class="text-xs" style="color: var(--text-muted);">The work order is made from this fault - the title, description and photos the owner saw, the property and the tenant. You only choose who does the work.</p>
