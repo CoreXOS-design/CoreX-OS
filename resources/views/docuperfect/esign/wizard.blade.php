@@ -2373,7 +2373,9 @@ function esignWizard() {
         deliveryMode: serverStepData?.delivery_mode || 'esign',
         templateDeliveryModes: (serverTemplate?.allowed_delivery_modes || 'esign,wet_ink,download').split(',').map(s => s.trim()).filter(Boolean),
         get effectiveDeliveryModes() {
-            return [...this.templateDeliveryModes];
+            // A lease agreement launched from a lease is e-signed only (the server refuses the others too): the lease
+            // learns its envelope only on the e-sign path.
+            return this.templateDeliveryModes.filter(m => !serverFlow?.lease_id || m === 'esign');
         },
         deliveryModeLabel(mode) {
             const labels = { 'esign': 'E-Signature', 'wet_ink': 'Wet Ink (Print & Sign)', 'download': 'Download Only' };

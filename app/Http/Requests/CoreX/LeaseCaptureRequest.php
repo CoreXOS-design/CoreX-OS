@@ -135,9 +135,17 @@ class LeaseCaptureRequest extends FormRequest
                 }
             }];
             // Same-agency only — a bare exists: would accept any agency's row.
-            $rules['rental_application_id'] = ['nullable', Rule::exists('rental_applications', 'id')->where('agency_id', $agencyId)];
+            // The SAME query the New Lease screen opens an application with (visibleTo: own / branch / agency): a bare
+            // same-agency check accepted any application in the agency, and linking one re-points its property and
+            // links its applicant as the property's tenant.
+            $rules['rental_application_id'] = ['nullable', 'integer', function (string $attribute, mixed $value, \Closure $fail) use ($user) {
+                if ($value !== null && $value !== '' && ! RentalApplication::query()->visibleTo($user)->whereKey($value)->exists()) {
+                    $fail('That rental application is no longer available.');
+                }
+            }];
             $rules['tenant_contact_ids'] = ['required', 'array', 'min:1'];
-            $rules['tenant_contact_ids.*'] = [Rule::exists('contacts', 'id')->where('agency_id', $agencyId)];
+            // distinct: the same contact twice is a validation error, not a unique-index 500 on lease_tenants.
+            $rules['tenant_contact_ids.*'] = ['distinct', Rule::exists('contacts', 'id')->where('agency_id', $agencyId)];
         }
 
         foreach ($this->selectedAgreementFields() as $field) {

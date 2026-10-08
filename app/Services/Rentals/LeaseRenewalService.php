@@ -91,7 +91,7 @@ class LeaseRenewalService
      * normal lease activation, not a renewal — callers should use
      * LeaseActivationService directly for that case).
      */
-    public function activateRenewalTerm(Lease $newTerm, User $user): Lease
+    public function activateRenewalTerm(Lease $newTerm, ?User $user): Lease
     {
         if (!$newTerm->previous_lease_id) {
             throw ValidationException::withMessages([
@@ -110,7 +110,7 @@ class LeaseRenewalService
                     'new_rental_amount' => $newTerm->rental_amount,
                     'escalation_rate_percent' => LeaseEscalation::computeRatePercent((float) $previous->rental_amount, (float) $newTerm->rental_amount),
                     'note' => 'Renewal escalation',
-                    'created_by_user_id' => $user->id,
+                    'created_by_user_id' => $user?->id,
                 ]);
             }
 
@@ -315,13 +315,13 @@ class LeaseRenewalService
         };
     }
 
-    private function logEvent(Lease $lease, string $type, string $description, User $user, ?array $metadata = null): void
+    private function logEvent(Lease $lease, string $type, string $description, ?User $user, ?array $metadata = null): void
     {
         LeaseEvent::create([
             'lease_id' => $lease->id,
             'event_type' => $type,
             'description' => $description,
-            'actor_user_id' => $user->id,
+            'actor_user_id' => $user?->id,
             'metadata' => $metadata,
             'occurred_at' => now(),
             'created_at' => now(),

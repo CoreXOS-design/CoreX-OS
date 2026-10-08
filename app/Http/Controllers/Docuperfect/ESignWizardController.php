@@ -7440,7 +7440,29 @@ class ESignWizardController extends Controller
         $flow = Flow::where('user_id', $user->id)->findOrFail($flowId);
         $flow->load('template');
 
+        if ($refusal = $this->leaseFlowPaperRefusal($flow)) {
+            return $refusal;
+        }
+
         return $this->prepareDownloadOnly($request, $flow, $flow->template);
+    }
+
+    /**
+     * LEASE-AGREEMENT (leases.md §15.4 / §15.5): an agreement launched from a lease is signed by e-signature. The
+     * download-only and wet-ink delivery modes never tell the lease which envelope it became (the lease would stay
+     * "being prepared" for ever and its tenant would never get the signed copy and portal link). A lease signed on paper
+     * is attached on the lease screen ("I already have the signed copy"), which activates it properly.
+     */
+    private function leaseFlowPaperRefusal(Flow $flow): ?\Illuminate\Http\RedirectResponse
+    {
+        if (! $flow->lease_id) {
+            return null;
+        }
+
+        return redirect()->route('docuperfect.esign.step', [$flow->id, 6])->with(
+            'error',
+            'A lease agreement is signed by e-signature. If it has already been signed on paper, attach the signed copy on the lease screen instead ("I already have the signed copy").'
+        );
     }
 
     /**
@@ -7454,6 +7476,10 @@ class ESignWizardController extends Controller
         $user = $request->user();
         $flow = Flow::where('user_id', $user->id)->findOrFail($flowId);
         $flow->load('template');
+
+        if ($refusal = $this->leaseFlowPaperRefusal($flow)) {
+            return $refusal;
+        }
 
         $template = $flow->template;
 

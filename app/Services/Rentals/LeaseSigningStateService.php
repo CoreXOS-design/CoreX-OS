@@ -313,7 +313,9 @@ class LeaseSigningStateService
 
     private function activate(Lease $lease, ?User $actor): Lease
     {
-        if ($lease->previous_lease_id && $actor) {
+        // A renewal always records its escalation and the "renewal activated" line - also when the completion was
+        // noticed by the safety net (no acting user): the actor is optional there, the bookkeeping is not.
+        if ($lease->previous_lease_id) {
             return app(LeaseRenewalService::class)->activateRenewalTerm($lease, $actor);
         }
 

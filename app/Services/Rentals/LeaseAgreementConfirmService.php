@@ -70,6 +70,15 @@ class LeaseAgreementConfirmService
                 throw new LeaseAgreementConfirmationRefused(LeaseAgreementConfirmationRefused::NOT_APPLICABLE, 'That lease is no longer available.');
             }
 
+            // Confirming rewrites the lease's rent, dates and agreement details from the document: only ever legitimate
+            // while the lease is still a DRAFT and its agreement is out / waiting for approval / signed-but-unconfirmed.
+            // On an active, cancelled or expired lease the same call (the API twin has no other status check) would
+            // overwrite a live lease with whatever the document printed.
+            if ($locked->status !== Lease::STATUS_DRAFT
+                || ! in_array($locked->signing_status, [Lease::SIGNING_OUT_FOR_SIGNING, Lease::SIGNING_AWAITING_AGENT_REVIEW, Lease::SIGNING_SIGNED], true)) {
+                throw new LeaseAgreementConfirmationRefused(LeaseAgreementConfirmationRefused::NOT_APPLICABLE, 'This lease is not waiting for its details to be confirmed.');
+            }
+
             $verdict = $this->check->verdict($locked, $typed);
             if (! $verdict['applicable']) {
                 throw new LeaseAgreementConfirmationRefused(LeaseAgreementConfirmationRefused::NOT_APPLICABLE, 'This lease has no agreement to check its details against.');

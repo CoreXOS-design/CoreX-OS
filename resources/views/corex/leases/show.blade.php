@@ -703,7 +703,12 @@
                     <div class="flex items-center gap-2">
                         <button type="submit" @disabled($leaseLocked) class="corex-btn-primary text-xs">Save changes</button>
                         <button type="button" onclick="document.getElementById('lease-edit-panel').classList.add('hidden')" class="corex-btn-outline text-xs">Cancel</button>
-                        @if($lease->status === 'draft')
+                        {{-- The lease's own Activate is not offered while its agreement is being prepared / out for signing / waiting for
+                             approval (it goes active through the signing), nor when the signed agreement needs its differences
+                             confirmed first (the hub's "Confirm and activate" does that). --}}
+                        @if($lease->status === 'draft'
+                            && ! in_array($lease->signing_status, \App\Models\Lease::SIGNING_IN_FLIGHT, true)
+                            && ! ($lease->signing_status === \App\Models\Lease::SIGNING_SIGNED && app(\App\Services\Rentals\LeaseHubService::class)->awaitingConfirmation($lease)))
                             @php
                                 // leases.md §12.5 point 2 — "a lease CAN be
                                 // created/activated on a Withdrawn property."

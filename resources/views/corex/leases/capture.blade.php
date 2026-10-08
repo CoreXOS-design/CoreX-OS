@@ -85,6 +85,11 @@
           action="{{ $isRenew ? route('corex.leases.renewal.store', $lease) : route('corex.leases.store') }}"
           @submit="guardSubmit($event)" class="space-y-4 rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         @csrf
+        {{-- Enter inside a text box submits the form with its FIRST submit button. Without this, that first button is the
+             paper-copy one (inside the collapsed panel), so a plain Enter would post intent=paper_copy and fail with
+             "a signed document is required". This hidden default does what the open panel implies: lease only, or the
+             paper copy when the agent has opened that panel. --}}
+        <button type="submit" name="intent" value="lease_only" x-bind:value="showPaper ? 'paper_copy' : 'lease_only'" @click="submitAttempted = true" hidden tabindex="-1" aria-hidden="true"></button>
         <input type="hidden" name="capture_key" value="{{ $captureKey }}">
 
         @if ($errors->any())

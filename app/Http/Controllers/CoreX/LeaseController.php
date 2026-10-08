@@ -847,13 +847,38 @@ class LeaseController extends Controller
     {
         $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
 
+        // leases.md §15.5 - a lease whose agreement is being prepared / out for signing / waiting for the agent's approval
+        // becomes active through the signing (the agreement and the lease must agree first); activating it by hand would
+        // put a lease live with no signed agreement and skip the change check. The edit fields are locked in the same
+        // states for the same reason.
+        if (in_array($lease->signing_status, Lease::SIGNING_IN_FLIGHT, true)) {
+            return back()->withErrors(['lease' => "This lease's agreement is {$this->signingStateWords($lease)}. The lease becomes active once it is signed and you have approved it."]);
+        }
+        // Signed with a difference nobody has confirmed: the confirm screen is the way (it records what changed).
+        if ($lease->status === Lease::STATUS_DRAFT
+            && $lease->signing_status === Lease::SIGNING_SIGNED
+            && app(\App\Services\Rentals\LeaseHubService::class)->awaitingConfirmation($lease)) {
+            return redirect()->route('corex.leases.agreement.confirm', $lease)
+                ->with('warning', 'The signed agreement differs from this lease. Check the differences and confirm them - the lease is activated from there.');
+        }
+
         try {
-            app(LeaseActivationService::class)->activate($lease);
+            // A renewal draft goes through the renewal activation (escalation row, "renewal activated" line, previous term
+            // expired and chained); the plain activation does only the last of those.
+            $lease->previous_lease_id
+                ? app(\App\Services\Rentals\LeaseRenewalService::class)->activateRenewalTerm($lease, $request->user())
+                : app(LeaseActivationService::class)->activate($lease);
         } catch (\Illuminate\Validation\ValidationException $e) {
             return back()->withErrors($e->errors());
         }
 
         return redirect()->route('corex.leases.show', $lease)->with('success', 'Lease activated.');
+    }
+
+    /** "out for signing", "waiting for your approval" ... in the words the hub uses. */
+    private function signingStateWords(Lease $lease): string
+    {
+        return strtolower((string) ($lease->signingStatusLabel() ?: 'in progress'));
     }
 
     public function cancel(Request $request, Lease $lease): RedirectResponse
