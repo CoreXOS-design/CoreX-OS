@@ -455,7 +455,9 @@
                         </div>
                     @endforeach
                 </div>
-            @else
+            @elseif($feedbackThemesLines->isEmpty())
+                {{-- Only when NOTHING is shown above: with a themes line present this
+                     sentence would contradict it ("1 of 1 mentioned X" + "no feedback"). --}}
                 <p class="text-sm" style="color: var(--text-secondary);">
                     No viewing feedback yet. As soon as your agent adds notes, they'll appear here.
                 </p>

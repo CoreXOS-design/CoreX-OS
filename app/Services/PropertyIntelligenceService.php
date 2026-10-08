@@ -271,113 +271,27 @@ class PropertyIntelligenceService
     }
 
     /**
-     * Aggregated feedback metrics for a property.
-     * Joins through calendar_event_links since feedback.property_id may be NULL.
-     */
-    /**
+     * Aggregated feedback metrics for a property — THE shared roll-up
+     * (agent Intelligence tab, seller live link, client mobile API).
+     * Delegates to PropertyViewings, which owns the viewing / per-property
+     * feedback rules; see its docblock. total_viewings is the same number for
+     * every audience; $excludeInternalOnly only narrows the feedback tallies.
+     *
      * @param bool $excludeInternalOnly When true, filters out internal_only feedback (for seller-facing surfaces)
      */
     public function getFeedbackRollup(int $propertyId, bool $excludeInternalOnly = false): array
     {
-        // Find all events linked to this property
-        $eventIds = DB::table('calendar_event_links')
-            ->where('linkable_type', 'App\\Models\\Property')
-            ->where('linkable_id', $propertyId)
-            ->where('role', 'subject_property')
-            ->pluck('calendar_event_id');
-
-        // Get feedback for those events (or directly linked to this property)
-        $feedback = CalendarEventFeedback::where(function ($q) use ($propertyId, $eventIds) {
-            $q->where('property_id', $propertyId)
-              ->orWhereIn('calendar_event_id', $eventIds);
-        })->whereNotNull('captured_at')
-          ->when($excludeInternalOnly, fn ($q) => $q->where('visibility', '!=', 'internal_only'))
-          ->get();
-
-        $viewingCount = $feedback->unique('calendar_event_id')->count();
-        $allConcerns = $feedback->pluck('concern_option_ids')->flatten()->filter()->countBy();
-        $outcomes = $feedback->pluck('outcome_option_id')->filter()->countBy();
-
-        return [
-            'total_viewings' => $viewingCount,
-            'total_feedback_rows' => $feedback->count(),
-            'top_concerns' => $allConcerns->sortDesc()->take(5)->toArray(),
-            'outcome_distribution' => $outcomes->toArray(),
-        ];
+        return app(\App\Services\Properties\PropertyViewings::class)->rollup($propertyId, $excludeInternalOnly);
     }
 
     /**
-     * Detailed viewing + feedback rows for a property (recent first, limit 20).
+     * Agent-side viewing list with the feedback recorded for THIS property
+     * (recent first). Internal notes are included — agent surfaces only; the
+     * seller link reads PropertyViewings::sellerNotes() instead.
      */
-    public function getRecentViewings(int $propertyId, int $limit = 20, bool $excludeInternalOnly = false): \Illuminate\Support\Collection
+    public function getRecentViewings(int $propertyId, int $limit = 20): \Illuminate\Support\Collection
     {
-        $eventIds = DB::table('calendar_event_links')
-            ->where('linkable_type', 'App\\Models\\Property')
-            ->where('linkable_id', $propertyId)
-            ->where('role', 'subject_property')
-            ->pluck('calendar_event_id');
-
-        if ($eventIds->isEmpty()) return collect();
-
-        $events = CalendarEvent::withoutGlobalScopes()
-            ->whereIn('id', $eventIds)
-            ->orderByDesc('event_date')
-            ->limit($limit)
-            ->get();
-
-        $feedbackQuery = DB::table('calendar_event_feedback')
-            ->whereIn('calendar_event_id', $eventIds);
-        if ($excludeInternalOnly) {
-            $feedbackQuery->where('visibility', '!=', 'internal_only');
-        }
-        $feedback = $feedbackQuery->get()->groupBy('calendar_event_id');
-
-        $agents = \App\Models\User::withoutGlobalScopes()
-            ->whereIn('id', $events->pluck('user_id')->unique()->filter())
-            ->pluck('name', 'id');
-
-        $outcomeLabels = DB::table('agency_feedback_options')
-            ->where('category', 'outcome')
-            ->pluck('label', 'id');
-
-        // Resolve buyer contacts for each event. CAL-7 Class 3 — dropped the
-        // ['buyer_contact','attendee'] whitelist; on staging legacy/missing-
-        // config events save links with other roles (or NULL), and they
-        // were silently absent from the property-page feedback list.
-        // linkable_type=Contact is sufficient scoping.
-        $buyerLinks = DB::table('calendar_event_links')
-            ->whereIn('calendar_event_id', $eventIds)
-            ->where('linkable_type', 'App\\Models\\Contact')
-            ->get()
-            ->groupBy('calendar_event_id');
-
-        $contactIds = $buyerLinks->flatten()->pluck('linkable_id')->unique();
-        $contacts = \App\Models\Contact::withoutGlobalScopes()
-            ->whereIn('id', $contactIds)
-            ->get(['id', 'first_name', 'last_name'])
-            ->keyBy('id');
-
-        return $events->map(function ($ev) use ($feedback, $agents, $outcomeLabels, $buyerLinks, $contacts) {
-            $fbs = $feedback->get($ev->id, collect());
-            $buyers = ($buyerLinks->get($ev->id, collect()))->map(function ($bl) use ($contacts) {
-                $c = $contacts->get($bl->linkable_id);
-                return $c ? ['id' => $c->id, 'name' => trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? ''))] : null;
-            })->filter()->values();
-
-            return [
-                'event_id' => $ev->id,
-                'event_date' => $ev->event_date,
-                'title' => $ev->title,
-                'agent_name' => $agents->get($ev->user_id, 'Unknown'),
-                'buyers' => $buyers,
-                'feedback' => $fbs->map(fn($fb) => [
-                    'outcome_label' => $outcomeLabels->get($fb->outcome_option_id),
-                    'seller_notes' => $fb->seller_visible_notes,
-                    'internal_notes' => $fb->internal_notes,
-                    'captured_at' => $fb->captured_at,
-                ])->values(),
-            ];
-        });
+        return app(\App\Services\Properties\PropertyViewings::class)->recentForAgent($propertyId, $limit);
     }
 
     /**
@@ -647,61 +561,14 @@ class PropertyIntelligenceService
     }
 
     /**
-     * 2026-08-25 (Johan) — "themes line first" for seller-visible viewing
-     * feedback: N of M viewers raised the same concern, from the SAME
-     * structured concern_option_ids field getFeedbackRollup()'s
-     * top_concerns already counts (AgencyFeedbackOption, category=concern —
-     * a controlled vocabulary, not free-text keyword-matching / not AI-
-     * inferred). Computed off ALL seller-visible feedback rows (matches
-     * cc4's finding: a property can have 8 feedback rows and only 2 with
-     * written notes — the theme line and the notes list read different
-     * subsets of the same rows on purpose). Empty when no viewer has ever
-     * flagged a concern — no theme claim without a real vote behind it.
+     * "N of M viewers mentioned X" from the structured concern tags — delegates
+     * to PropertyViewings::themes() (property_id-attributed feedback only, so a
+     * multi-property viewing's remark about another home never counts here).
+     * Empty when no viewer has flagged a concern.
      */
     public function getFeedbackThemes(int $propertyId, bool $excludeInternalOnly = false): array
     {
-        // Deliberately property_id-only, NOT the eventIds OR-join
-        // getFeedbackRollup()/getRecentViewings() use — a single viewing
-        // calendar event can be linked to more than one candidate property
-        // (a buyer shown two homes in one appointment), and that join
-        // pulls in the OTHER property's own feedback row too (verified on
-        // QA1: event 5739 is linked to both property 16 and 17, each with
-        // its own distinct feedback row — the eventIds join double-counts
-        // both under either property). A theme claim ("buyers said X") is
-        // exactly the kind of number that must not mix two properties'
-        // feedback, so this reads only rows actually recorded against this
-        // property. Flagged separately: the SAME leakage risk exists in
-        // getFeedbackRollup()/getRecentViewings() (unchanged, out of scope
-        // here) — worth a look on its own.
-        $feedback = CalendarEventFeedback::where('property_id', $propertyId)
-            ->whereNotNull('captured_at')
-            ->when($excludeInternalOnly, fn ($q) => $q->where('visibility', '!=', 'internal_only'))
-            ->get();
-
-        // "M viewers" = distinct VIEWINGS (calendar_event_id), matching
-        // getFeedbackRollup()'s own total_viewings definition elsewhere on
-        // this page — not raw feedback rows, so two co-buyers' separate
-        // feedback for the same single viewing count as one viewing, and a
-        // concern raised twice in that one viewing counts once, not twice.
-        $totalViewers = $feedback->pluck('calendar_event_id')->unique()->count();
-        if ($totalViewers === 0) return [];
-
-        $concernCounts = $feedback
-            ->groupBy('calendar_event_id')
-            ->map(fn ($rows) => $rows->pluck('concern_option_ids')->flatten()->filter()->unique())
-            ->flatten()
-            ->countBy();
-        if ($concernCounts->isEmpty()) return [];
-
-        $labels = \App\Models\CommandCenter\AgencyFeedbackOption::withoutGlobalScopes()
-            ->whereIn('id', $concernCounts->keys())
-            ->pluck('label', 'id');
-
-        return $concernCounts->sortDesc()->take(2)->map(fn ($count, $optionId) => [
-            'label' => $labels[$optionId] ?? null,
-            'count' => $count,
-            'total' => $totalViewers,
-        ])->filter(fn ($t) => $t['label'] !== null)->values()->all();
+        return app(\App\Services\Properties\PropertyViewings::class)->themes($propertyId, $excludeInternalOnly);
     }
 
     /**

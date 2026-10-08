@@ -190,31 +190,14 @@ class SellerLinkController extends Controller
     }
 
     /**
-     * Seller-safe viewing feedback. getRecentViewings() returns buyer names
-     * (built for the internal property page) — this strips every
-     * identifying field before it ever reaches the view, keeping only what
-     * the seller is entitled to: that a viewing happened, what the outcome
-     * was, and the seller-visible note (never internal_notes).
+     * Seller-safe viewing feedback — outcome, the seller-visible note and a
+     * date, nothing else (no buyer, no internal or next-action note). Comes
+     * from the same PropertyViewings source the Intelligence tab reads, so the
+     * two screens attribute feedback to the same property.
      */
     private function buildSellerSafeFeedback(int $propertyId): array
     {
-        $intel = app(PropertyIntelligenceService::class);
-        $viewings = $intel->getRecentViewings($propertyId, limit: 8, excludeInternalOnly: true);
-
-        $items = $viewings->flatMap(function ($v) {
-            return collect($v['feedback'])->map(fn ($fb) => [
-                'outcome_label' => $fb['outcome_label'],
-                'notes'         => $fb['seller_notes'],
-                'date'          => $fb['captured_at'],
-            ]);
-        })
-        ->filter(fn ($row) => !empty($row['outcome_label']) || !empty($row['notes']))
-        ->sortByDesc('date')
-        ->take(5)
-        ->values()
-        ->all();
-
-        return $items;
+        return app(\App\Services\Properties\PropertyViewings::class)->sellerNotes($propertyId, 5);
     }
 
     /**
