@@ -205,6 +205,47 @@
             </div>
         </div>
 
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;" data-qa="lease-property-status-card">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Property status when a lease changes</h3>
+            </div>
+            <div class="p-5 space-y-4">
+                <div>
+                    <input type="hidden" name="auto_readvertise_on_notice" value="0">
+                    <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                        <input type="checkbox" name="auto_readvertise_on_notice" value="1" @checked(old('auto_readvertise_on_notice', $autoReadvertiseOnNotice))>
+                        Put the property back on the market when notice is recorded
+                    </label>
+                    <p class="text-xs mt-1" style="color: var(--text-muted);">On by default. The "notice given" box on a lease arrives with "put it back on the market" ticked; the agent can untick it for that notice. Ticked, the property goes to the status chosen below, with the day after move-out as its available-from date.</p>
+                </div>
+                <div>
+                    <input type="hidden" name="auto_restore_status_on_lease_ended" value="0">
+                    <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                        <input type="checkbox" name="auto_restore_status_on_lease_ended" value="1" @checked(old('auto_restore_status_on_lease_ended', $autoRestoreStatusOnLeaseEnded))>
+                        Put the property back on the market when the move-out inspection confirms it is empty
+                    </label>
+                    <p class="text-xs mt-1" style="color: var(--text-muted);">On by default. The property returns to the status it had before it was let. Off leaves it as "let out" until an agent changes it.</p>
+                </div>
+                <div>
+                    <input type="hidden" name="auto_restore_status_on_lease_cancelled" value="0">
+                    <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                        <input type="checkbox" name="auto_restore_status_on_lease_cancelled" value="1" @checked(old('auto_restore_status_on_lease_cancelled', $autoRestoreStatusOnLeaseCancelled))>
+                        Put the property back on the market when a lease is cancelled
+                    </label>
+                    <p class="text-xs mt-1" style="color: var(--text-muted);">On by default. Same as above, from the cancellation date.</p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="default_pre_let_status">Status that means "back on the market"</label>
+                    <select id="default_pre_let_status" name="default_pre_let_status" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                        @foreach($allowedPropertyStatuses as $status)
+                            <option value="{{ $status }}" @selected(old('default_pre_let_status', $defaultPreLetStatus) === $status)>{{ ucwords(str_replace('_', ' ', $status)) }}{{ $status === $defaultPreLetStatusDefault ? ' (default)' : '' }}</option>
+                        @endforeach
+                    </select>
+                    <p class="text-xs mt-1" style="color: var(--text-muted);">Used when notice puts a property back on the market, and for a property with no earlier status on record. "Active" suits every agency; pick your own status only if you keep a dedicated one, e.g. "To let".</p>
+                </div>
+            </div>
+        </div>
+
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">Active rental stock (Command Centre)</h3>
