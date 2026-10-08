@@ -708,6 +708,9 @@ class AgencySetupWizardController extends Controller
                     'notify_landlord_on_dispute' => \App\Models\RentalWorkOrderSetting::notifyLandlordOnDisputeFor($agency->id),
                     'dispute_notify_crew_immediately' => \App\Models\RentalWorkOrderSetting::disputeNotifyCrewImmediatelyFor($agency->id),
                     // BUILD 3 END
+                    // §17.31 — supplier invoice limits
+                    'invoice_max_file_mb' => \App\Models\RentalWorkOrderSetting::invoiceMaxFileMbFor($agency->id),
+                    'invoice_allowed_file_types' => \App\Models\RentalWorkOrderSetting::invoiceAllowedFileTypesFor($agency->id),
                     default => $control['default'] ?? null,
                 },
                 // rental-portal-access.md §10 / rental-work-orders.md §14.27.3 — this source had NO arm,

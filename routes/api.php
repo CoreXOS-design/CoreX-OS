@@ -269,6 +269,8 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             // BUILD 2 END
             // BUILD 3 BEGIN — landlord work-order show (.ai/specs/rental-work-orders.md §17.21.5)
             Route::get('/work-orders/{workOrder}', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'landlordShow'])->whereNumber('workOrder')->name('work-orders.show');
+            // §17.31 — a supplier invoice the agent has chosen to share with the owner. Tenants never reach this: the work order is resolved through the OWNER scope.
+            Route::get('/work-orders/{workOrder}/invoices/{invoice}/file', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'landlordInvoiceFile'])->whereNumber(['workOrder', 'invoice'])->name('work-orders.invoices.file');
             // BUILD 3 END
         });
     });

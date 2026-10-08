@@ -91,6 +91,35 @@ class ClientRentalWorkOrdersController extends Controller
     }
 
     /**
+     * GET /api/v1/client/rentals/landlord/work-orders/{workOrder}/invoices/{invoice}/file — one supplier invoice, but ONLY when
+     * the work order is on the caller's own property (the owner scope — a tenant's contact resolves to nothing) AND the agent has
+     * ticked "share with owner" AND it is not archived. Anything else is the same 404 as a record that does not exist.
+     * Every view / download leaves a portal audit row, like the portal's rental documents (§17.31).
+     */
+    public function landlordInvoiceFile(Request $request, int $workOrder, int $invoice): \Symfony\Component\HttpFoundation\Response|JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+
+        $order = $this->scope->landlordWorkOrder($contact, $workOrder);
+        $service = app(\App\Services\Rentals\RentalWorkOrderInvoiceService::class);
+        $row = $order ? $service->sharedInvoice($order, $invoice) : null;
+        $response = $row ? $service->response($row, $request->boolean('download')) : null;
+        if (! $response) {
+            return response()->json(['message' => 'Invoice not found.'], 404);
+        }
+
+        app(\App\Services\ClientAuthService::class)->log($request->user(), (int) $contact->agency_id, $contact->id,
+            $request->boolean('download') ? 'document_downloaded' : 'document_viewed', $request, [
+                'document_id' => $row->id, 'kind' => 'work_order_invoice', 'role' => 'landlord', 'rental_work_order_id' => $order->id,
+            ]);
+
+        return $response;
+    }
+
+    /**
      * Shared by the new endpoint and the old `…/confirm` alias (ClientTenantRentalsController): one place that turns
      * the service's refusals into plain 422 messages.
      *
