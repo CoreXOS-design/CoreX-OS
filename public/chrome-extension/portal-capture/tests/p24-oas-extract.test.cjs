@@ -177,6 +177,20 @@ check('reference listing: every accordion row travels with its section, and the 
   assert.deepStrictEqual(out.strip_tags, ['No Pets Allowed', 'Furnished', 'Pool', 'Garden', 'Water Tank']);
   assert.ok(!out.feature_rows.some((r) => /points of interest/i.test(r.s)), 'Points of Interest is loaded on demand — not part of the advert');
 });
+check('the rows the server maps to the building ticks, floors, rental terms and transfer duty all travel (2026-10-08)', () => {
+  const rental = page('rental-apartment-ballito-116824433.html', 'https://www.property24.com/to-rent/ballito-central/ballito/kwazulu-natal/9999/116824433');
+  const find = (out, k) => out.feature_rows.find((r) => r.k === k);
+  assert.deepStrictEqual(find(rental, 'Roof'), { s: 'Building', k: 'Roof', v: ['Aluminium, Waterproofing, Insulation'] });
+  assert.deepStrictEqual(find(rental, 'Number of floors'), { s: 'Building', k: 'Number of floors', v: ['1'] });
+  assert.deepStrictEqual(find(rental, 'Occupation Date'), { s: 'Property Overview', k: 'Occupation Date', v: ['01 October 2026'] });
+  assert.deepStrictEqual(find(rental, 'Lease Period'), { s: 'Property Overview', k: 'Lease Period', v: ['12 Months'] });
+  assert.deepStrictEqual(find(rental, 'Floor Number'), { s: 'Property Overview', k: 'Floor Number', v: ['3'] });
+  const commercial = page('commercial-ballito-central-117324987.html', 'https://www.property24.com/for-sale/ballito-central/ballito/kwazulu-natal/9999/117324987');
+  assert.deepStrictEqual(find(commercial, 'Style'), { s: 'Building', k: 'Style', v: ['Conventional'] });
+  assert.deepStrictEqual(find(commercial, 'Lifestyle'), { s: 'Property Overview', k: 'Lifestyle', v: ['Complex'] });
+  const townhouse = page('townhouse-elaleni-117675379.html', 'https://www.property24.com/for-sale/elaleni/ballito/kwazulu-natal/9999/117675379');
+  assert.deepStrictEqual(find(townhouse, 'No Transfer Duty'), { s: 'Property Overview', k: 'No Transfer Duty', v: ['Yes'] });
+});
 check('a multi-line Security block keeps its line breaks (server splits on them)', () => {
   const out = run('<html><head><title>x - P24-111111111</title></head><body><h1>t</h1><div class="panel"><div class="panel-heading"><span>Other Features</span></div><div class="row p24_propertyOverviewRow"><div class="p24_propertyOverviewKey">Security</div><div class="p24_propertyOverviewResult"><div class="p24_info">Electric Gate\nSecurity Gate</div></div></div></div></body></html>',
     'https://www.property24.com/for-sale/a/b/c/1/111111111');

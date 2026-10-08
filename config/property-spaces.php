@@ -124,7 +124,14 @@ return [
     'feature_categories' => [
         'theProperty' => [
             'label'    => 'The Property',
-            'features' => ['Air Conditioned','Balcony','Cleaning Service','Freehold','Furnished','Green Building','Ground Floor Unit','Investment','Leasehold','Multi Tenanted','Natural Light','Pet Friendly','Pets Not Allowed','Renovation Fixer-Upper','Second Floor and Above','Sectional Title','Serviced','Single Storey','Standalone','Top Floor','Unfurnished','Wheelchair Friendly'],
+            'features' => ['Air Conditioned','Balcony','Cleaning Service','Complex','Freehold','Furnished','Green Building','Ground Floor Unit','Investment','Leasehold','Multi Tenanted','Natural Light','No Transfer Duty','Office Building','Pet Friendly','Pets Not Allowed','Renovation Fixer-Upper','Second Floor and Above','Sectional Title','Serviced','Single Storey','Standalone','Top Floor','Unfurnished','Wheelchair Friendly'],
+        ],
+        // The building's fabric and style (Property24's "Building" section) — one tick-list, each label
+        // prefixed with what it describes (Wall / Floor / Roof / Window / Style) so it reads on its own.
+        // OtherAgencyStockFeatureMapper::BUILDING_FACETS maps Property24's wording onto these labels.
+        'building' => [
+            'label'    => 'Building',
+            'features' => ['Wall: Brick','Wall: Concrete','Wall: Face Brick','Wall: Plaster','Wall: Stone','Wall: Timber','Floor: Carpeted','Floor: Concrete','Floor: Laminated','Floor: Marble','Floor: Parquet','Floor: Tiled','Floor: Vinyl','Floor: Wooden','Roof: Aluminium','Roof: Asbestos','Roof: Clay Tiles','Roof: Concrete','Roof: Concrete Tiles','Roof: Corrugated Iron','Roof: IBR','Roof: Insulation','Roof: Slate','Roof: Thatch','Roof: Tiles','Roof: Waterproofing','Roof: Zinc','Window: Aluminium','Window: Double Glazed','Window: PVC','Window: Steel','Window: Wood','Style: Cape Dutch','Style: Colonial','Style: Contemporary','Style: Conventional','Style: Mediterranean','Style: Modern','Style: Spanish','Style: Tuscan','Style: Victorian'],
         ],
         'security' => [
             'label'    => 'Security',

@@ -378,6 +378,8 @@
                             $stContactCnt    = $listingStates['contact_counts'][$stateId] ?? 0;
                             $stPromoted      = $listing->matched_property_id
                                                 && isset($listingStates['promotions'][(int) $listing->matched_property_id]);
+                            // Other Agency Stock can't be pitched (spec §5c) — no Pitch link at all, rather than one that refuses.
+                            $stOasStock      = $stPromoted && isset($listingStates['oas_properties'][(int) $listing->matched_property_id]);
                             $stClaimedByMe   = $stClaim && (int) $stClaim['user_id'] === (int) auth()->id();
                             $stClaimedByOther = $stClaim && !$stClaimedByMe;
                             $stTempLock      = $listingStates['temp_locks'][$stateId] ?? null;
@@ -480,6 +482,8 @@
                                               title="{{ $stTempLock['user_name'] }} is composing a pitch on this listing. Lock expires in {{ (int) $stTempLock['minutes_left'] }} min.">
                                             ⏳ Pitching in progress
                                         </span>
+                                    @elseif($stOasStock)
+                                        {{-- Other Agency Stock: nothing to pitch. --}}
                                     @elseif($stPromoted)
                                         <a href="{{ route('seller-outreach.entry.from-property', $listing->matched_property_id) }}"
                                            class="inline-flex items-center gap-1 text-[0.625rem] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded no-underline"

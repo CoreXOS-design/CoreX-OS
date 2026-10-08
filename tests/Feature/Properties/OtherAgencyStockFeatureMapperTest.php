@@ -96,17 +96,75 @@ class OtherAgencyStockFeatureMapperTest extends TestCase
         $this->assertNotContains('Standalone', $townhouse['global']['theProperty'], '"Standalone Building | No"');
     }
 
-    public function test_what_has_no_corex_equivalent_is_reported_never_invented(): void
+    /** Johan, 2026-10-08: "all P24 features should be in CoreX" — the building section, floors, lifestyle, transfer duty, rental terms. */
+    public function test_the_features_that_had_no_corex_equivalent_now_map(): void
     {
+        $apartment = $this->mapFixture('apartment-shakas-rock-117608849');
+        $this->assertEqualsCanonicalizing(['Wall: Plaster', 'Floor: Tiled'], $apartment['global']['building']);
+
+        $commercial = $this->mapFixture('commercial-ballito-central-117324987');
+        $this->assertEqualsCanonicalizing(['Style: Conventional', 'Roof: Zinc', 'Wall: Plaster', 'Window: Aluminium'], $commercial['global']['building']);
+        $this->assertContains('Complex', $commercial['global']['theProperty'], '"Lifestyle | Complex"');
+        $this->assertContains('Office Building', $commercial['global']['theProperty'], '"Description | Office"');
+
+        $rental = $this->mapFixture('rental-apartment-ballito-116824433');
+        $this->assertEqualsCanonicalizing(
+            ['Roof: Aluminium', 'Roof: Waterproofing', 'Roof: Insulation', 'Wall: Brick', 'Wall: Concrete', 'Window: Aluminium', 'Floor: Tiled'],
+            $rental['global']['building'], 'comma lists split, "Tiled Floors" -> Floor: Tiled'
+        );
+        $this->assertEquals(
+            ['number_of_floors' => 1, 'floor_number' => '3', 'occupation_date' => '2026-10-01', 'lease_period' => '12 Months'],
+            $rental['attributes']
+        );
+
+        foreach (['townhouse-elaleni-117675379', 'vacant-land-lalela-117674295'] as $name) {
+            $this->assertContains('No Transfer Duty', $this->mapFixture($name)['global']['theProperty'], $name);
+        }
+
+        $house = $this->mapFixture('house-umhlali-golf-estate-117621889');
+        $this->assertSame(['number_of_floors' => 1], $house['attributes'], '"Number of floors | 1"');
+
+        // Nothing the saved pages state in these sections is left over as "no equivalent".
         $all = [];
         foreach (glob(base_path(self::FIXTURES) . '*.payload.json') as $f) {
             $all = array_merge($all, $this->mapFixture(basename($f, '.payload.json'))['unmapped']);
         }
         $all = implode("\n", $all);
-
-        foreach (['Building / Wall', 'Building / Floor', 'Building / Roof', 'Building / Window', 'Building / Style', 'Number of floors', 'No Transfer Duty', 'Lifestyle = Complex'] as $expected) {
-            $this->assertStringContainsString($expected, $all, "{$expected} should be listed as having no CoreX equivalent");
+        foreach (['Building /', 'Number of floors', 'Floor Number', 'No Transfer Duty', 'Occupation Date', 'Lease Period', 'Lifestyle = Complex', 'Description = Office'] as $gone) {
+            $this->assertStringNotContainsString($gone, $all, "{$gone} should be mapped now");
         }
+    }
+
+    public function test_a_building_value_corex_does_not_offer_is_reported_never_invented(): void
+    {
+        $m = Mapper::map([
+            ['s' => 'Building', 'k' => 'Wall', 'v' => ['Papier mache']],
+            ['s' => 'Building', 'k' => 'Roof', 'v' => ['Zinc, Glass dome']],
+            ['s' => 'Property Overview', 'k' => 'Occupation Date', 'v' => ['Immediately']],
+            ['s' => 'Building', 'k' => 'Number of floors', 'v' => ['Ground + 2']],
+        ]);
+
+        $this->assertSame(['Roof: Zinc'], $m['global']['building']);
+        $this->assertSame([], $m['attributes'], 'an unreadable date / count is never guessed');
+        $this->assertEqualsCanonicalizing(
+            ['Building / Wall = Papier mache', 'Building / Roof = Glass dome', 'Property Overview / Occupation Date = Immediately', 'Building / Number of floors = Ground + 2'],
+            $m['unmapped']
+        );
+    }
+
+    public function test_property24_wording_variants_land_on_the_same_building_labels(): void
+    {
+        $m = Mapper::map([
+            ['s' => 'Building', 'k' => 'Floor', 'v' => ['Tiled Floors, Carpet, Wooden Floors']],
+            ['s' => 'Building', 'k' => 'Window', 'v' => ['Aluminum, uPVC, Timber']],
+            ['s' => 'Building', 'k' => 'Roof', 'v' => ['Tile']],
+            ['s' => 'Building', 'k' => 'Wall', 'v' => ['Brick Wall']],
+        ]);
+
+        $this->assertEqualsCanonicalizing(
+            ['Floor: Tiled', 'Floor: Carpeted', 'Floor: Wooden', 'Window: Aluminium', 'Window: PVC', 'Window: Wood', 'Roof: Tiles', 'Wall: Brick'],
+            $m['global']['building']
+        );
     }
 
     // ── Only CoreX's own features, ever ──────────────────────────────────────────
@@ -159,8 +217,8 @@ class OtherAgencyStockFeatureMapperTest extends TestCase
     {
         $m = Mapper::map(['not a row', ['k' => 'Furnished'], ['k' => 'Furnished', 'v' => 'Yes'], ['s' => ['x'], 'k' => ['y'], 'v' => [[1]]], null], ['', 7, 'Furnished']);
         $this->assertContains('Furnished', $m['global']['theProperty']);
-        $this->assertSame(['global', 'spaces', 'unmapped'], array_keys($m));
-        $this->assertSame(['global' => array_fill_keys(Mapper::CATEGORIES, []), 'spaces' => [], 'unmapped' => []], Mapper::map([], []));
+        $this->assertSame(['global', 'spaces', 'attributes', 'unmapped'], array_keys($m));
+        $this->assertSame(['global' => array_fill_keys(Mapper::CATEGORIES, []), 'spaces' => [], 'attributes' => [], 'unmapped' => []], Mapper::map([], []));
     }
 
     // ── payload -> stored property, through the real endpoint ────────────────────
@@ -245,5 +303,64 @@ class OtherAgencyStockFeatureMapperTest extends TestCase
 
         $p = $this->import($agent, $payload);
         $this->assertContains('Furnished', $p->spaces_json['features']['theProperty']);
+    }
+    public function test_rental_import_fills_the_building_ticks_and_the_columns(): void
+    {
+        $agent = $this->agentWithSuburb();
+        $p = $this->import($agent, $this->golden('rental-apartment-ballito-116824433'));
+
+        $this->assertEqualsCanonicalizing(
+            ['Roof: Aluminium', 'Roof: Waterproofing', 'Roof: Insulation', 'Wall: Brick', 'Wall: Concrete', 'Window: Aluminium', 'Floor: Tiled'],
+            $p->spaces_json['features']['building']
+        );
+        $this->assertContains('Roof: Insulation', $p->features_json, 'the flat mirror carries them too');
+
+        $this->assertSame(1, (int) $p->number_of_floors);
+        $this->assertSame('3', $p->floor_number);
+        $this->assertSame('2026-10-01', $p->occupation_date->format('Y-m-d'));
+        $this->assertSame('12 Months', $p->lease_period);
+    }
+
+    public function test_the_new_columns_are_locked_advert_content_but_the_units_own_floor_is_not(): void
+    {
+        $agent = $this->agentWithSuburb();
+        $p = $this->import($agent, $this->golden('rental-apartment-ballito-116824433'));
+
+        // PermissionService allows everything while role_permissions is empty; one grant turns real enforcement on.
+        \App\Models\RolePermission::create([
+            'role' => 'branch_manager', 'permission_key' => \App\Services\Properties\OtherAgencyStockStatusGate::PERMISSION_KEY,
+            'agency_id' => $agent->agency_id,
+        ]);
+
+        $this->actingAs($agent);
+        foreach (['number_of_floors' => 9, 'lease_period' => '6 Months', 'occupation_date' => '2027-01-01'] as $col => $val) {
+            try {
+                $p->fresh()->update([$col => $val]);
+                $this->fail("{$col} must be locked on Other Agency Stock");
+            } catch (\Illuminate\Validation\ValidationException) {
+            }
+        }
+
+        // The unit's own floor is an internal location field, like unit_number.
+        $p->fresh()->update(['floor_number' => '5']);
+        $this->assertSame('5', $p->fresh()->floor_number);
+
+        // … and a re-import never overwrites what the agent filled in.
+        $again = $this->import($agent, $this->golden('rental-apartment-ballito-116824433'));
+        $this->assertSame('5', $again->floor_number);
+        $this->assertSame(1, (int) $again->number_of_floors);
+    }
+
+    public function test_the_edit_form_offers_number_of_floors_and_the_building_group(): void
+    {
+        $src = file_get_contents(resource_path('views/corex/properties/show.blade.php'));
+        $this->assertStringContainsString('name="number_of_floors"', $src);
+        $this->assertStringContainsString("building:       { label: 'Building'", $src);
+        $this->assertStringContainsString("building:       (initFeatures && Array.isArray(initFeatures.building))", $src);
+
+        // Mobile mirror: the building ticks survive a mobile save.
+        $mobile = file_get_contents(app_path('Http/Controllers/Api/MobilePropertyController.php'));
+        $this->assertStringContainsString("'features.building'", $mobile);
+        $this->assertStringContainsString("'spaces_json.features.building'", $mobile);
     }
 }

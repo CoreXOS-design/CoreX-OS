@@ -54,7 +54,20 @@ final class OtherAgencyStockActionRules
         'duplicate'              => [self::EXISTING, null],   // §5b
         'archive'                => [self::ALLOWED,  null],
         'report_non_compliance'  => [self::ALLOWED,  null],
+
+        // Not on the Actions panel -------------------------------------------------
+        // Standalone brochure (`corex.properties.brochure`, the printable ad sheet). DECIDED 2026-10-08
+        // (Johan): ALLOWED — an agent who pulled the stock may print a brochure for their buyer. A
+        // declared decision, not a gap: the route calls no assertAllowed() on purpose. (The Ad Builder
+        // page and the Ad Manager tool that also link to it stay blocked via 'ad_builder'.)
+        'brochure'               => [self::ALLOWED,  null],
     ];
+
+    /**
+     * Keys in RULES that are NOT a button on the Actions panel (a route or service with no panel
+     * button of its own). The guard test expects every OTHER key to belong to a real panel button.
+     */
+    public const NOT_ON_PANEL = ['brochure'];
 
     public static function keys(): array
     {
@@ -84,6 +97,41 @@ final class OtherAgencyStockActionRules
         return $property !== null
             && $property->isOtherAgencyStock()
             && self::mode($action) === self::BLOCKED;
+    }
+
+    /**
+     * Of these property ids, the ones for which $action is refused right now (OAS status + a BLOCKED rule).
+     * ONE query for a whole list/row set — screens that show a link to the action for many properties
+     * (Market Intelligence, the prospecting list) use this to HIDE the link rather than show one that refuses.
+     *
+     * @param  iterable<int|string|null>  $propertyIds
+     * @return array<int,true>  property id => true
+     */
+    public static function blockedPropertyIds(string $action, iterable $propertyIds): array
+    {
+        if (self::mode($action) !== self::BLOCKED) {
+            return [];
+        }
+
+        $ids = [];
+        foreach ($propertyIds as $id) {
+            if ($id !== null && (int) $id > 0) {
+                $ids[(int) $id] = true;
+            }
+        }
+        if (! $ids) {
+            return [];
+        }
+
+        $blocked = [];
+        foreach (Property::withoutGlobalScopes()
+            ->whereIn('id', array_keys($ids))
+            ->where('status', Property::STATUS_OTHER_AGENCY_STOCK)
+            ->pluck('id') as $id) {
+            $blocked[(int) $id] = true;
+        }
+
+        return $blocked;
     }
 
     /**

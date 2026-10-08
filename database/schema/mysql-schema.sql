@@ -11494,6 +11494,7 @@ CREATE TABLE `properties` (
   `scheme_number` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `unit_number` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `floor_number` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `number_of_floors` smallint unsigned DEFAULT NULL,
   `unit_section_block` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `property_type` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'house',
   `title_type` enum('full_title','sectional_title','vacant_land','other') COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Keystone — derived from property_type by TitleTypeClassifier on every save. Source of truth for comp-filter and review-screen badge.',
@@ -21386,3 +21387,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1634,'2026_10_15_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1635,'2026_10_15_000200_create_suburb_aliases_and_address_match_settings',1);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1636,'2026_10_15_000300_add_auto_portal_access_to_rental_portal_settings',1);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1637,'2026_10_15_000400_add_signed_copy_emailed_at_to_leases',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1638,'2026_10_15_000500_add_number_of_floors_to_properties_table',1);

@@ -921,6 +921,7 @@ class Property extends Model
         'pp_images_last_synced_at',
         'pp_listing_last_synced_at',
         'floor_number',
+        'number_of_floors',
         'unit_section_block',
         'stand_number',
         'zone_type',

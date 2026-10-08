@@ -1343,8 +1343,14 @@
       });
 
       if (!res || !res.success) {
-        showError((res && res.message) || 'Import failed.');
         showState('oasPreview');
+        if (res && res.code === 'already_agency_stock') {
+          // Spec §5e — already on CoreX as the agency's own stock: stays on screen (not the 8s error
+          // box) with a link to it. Built with DOM nodes — the server text is never injected as HTML.
+          showOasAlreadyAgencyStock(res.message, res.url);
+        } else {
+          showError((res && res.message) || 'Import failed.');
+        }
         return;
       }
 
@@ -1370,6 +1376,24 @@
       showError('Import failed: ' + err.message);
       showState('oasPreview');
     }
+  }
+
+  function showOasAlreadyAgencyStock(message, url) {
+    els.oasMsg.textContent = '';
+    const text = document.createElement('div');
+    text.textContent = message || 'This property is already on CoreX as agency stock.';
+    els.oasMsg.appendChild(text);
+    if (url && /^https?:\/\//i.test(url)) {
+      const link = document.createElement('a');
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.style.display = 'block';
+      link.style.marginTop = '6px';
+      link.textContent = 'Open it in CoreX';
+      els.oasMsg.appendChild(link);
+    }
+    els.oasImportBtn.disabled = true;
   }
 
   function showOasComplete(url, downloadedCount) {
