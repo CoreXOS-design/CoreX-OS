@@ -142,7 +142,8 @@ class RentalInspectionRecordingController extends Controller
     {
         $this->authorizePropertyForInspections($property);
         $validated = $request->validate([
-            'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_IN, RentalInspection::TYPE_OUT, RentalInspection::TYPE_AD_HOC])],
+            // §49 — all four types can start a property's first inspection (Interim was missing here).
+            'type' => ['required', 'in:' . implode(',', array_keys(RentalInspection::TYPE_PICKER))],
         ]);
 
         try {
@@ -178,7 +179,7 @@ class RentalInspectionRecordingController extends Controller
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $validated = $request->validate([
-            'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_OUT, RentalInspection::TYPE_AD_HOC, RentalInspection::TYPE_INTERIM])],
+            'type' => ['required', 'in:' . implode(',', array_keys(RentalInspection::TYPE_PICKER))], // §49 — In too (refused once the tenancy has one)
         ]);
 
         try {

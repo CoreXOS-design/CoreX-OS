@@ -48,13 +48,6 @@ class RentalPortalDocumentService
     /** Rendered in the browser tab; everything else is forced to a download. */
     private const INLINE_MIMES = ['application/pdf', 'image/jpeg', 'image/png'];
 
-    private const INSPECTION_TYPE_LABELS = [
-        RentalInspection::TYPE_IN => 'Move-in',
-        RentalInspection::TYPE_OUT => 'Move-out',
-        RentalInspection::TYPE_INTERIM => 'Interim',
-        RentalInspection::TYPE_AD_HOC => 'Ad hoc',
-    ];
-
     public function __construct(private readonly RentalPortalScopeService $scope)
     {
     }
@@ -247,7 +240,11 @@ class RentalPortalDocumentService
      */
     private function inspectionIsShareable(RentalInspection $inspection): bool
     {
-        return $inspection->status !== RentalInspection::STATUS_CANCELLED && $inspection->isDistributed();
+        // §49 — Johan, 8 Oct 2026: a tenant / landlord PDF only once everyone has signed (and it stays after). Distributed
+        // (completed, copies sent) already implies it; the check is explicit so the portal can never list a PDF early.
+        return $inspection->status !== RentalInspection::STATUS_CANCELLED
+            && $inspection->isDistributed()
+            && $inspection->allRequiredPartiesSigned();
     }
 
     /** The signed report filed by SignedDocumentDistributionService::fileToProperty() (source `rental_inspection_report`). */
@@ -275,10 +272,11 @@ class RentalPortalDocumentService
     private function inspectionRow(RentalInspection $inspection, Document $document, ?Property $property, ?Lease $lease): array
     {
         $address = $property?->buildDisplayAddress() ?: ('Property #' . $inspection->property_id);
-        $label = self::INSPECTION_TYPE_LABELS[$inspection->type] ?? 'Inspection';
+        // §49 — the ONE shared type wording (RentalInspection::typeLabel / typeName): In, Out, Routine, Interim — never "Ad hoc".
+        $label = RentalInspection::typeLabel($inspection->type);
 
         return $this->row($document, self::KIND_INSPECTION, 'Inspection report', $label,
-            "{$label} inspection report — {$address}", $inspection->completed_at ?? $document->created_at, $property, $lease);
+            RentalInspection::typeName($inspection->type) . " report — {$address}", $inspection->completed_at ?? $document->created_at, $property, $lease);
     }
 
     private function sharedRow(Document $document): array

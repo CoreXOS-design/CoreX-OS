@@ -77,13 +77,17 @@ class RentalInspectionReportPdfService
             ->listedOnReportOf($inspection->id)
             ->with('room')
             ->get();
+        // §49 — a sent (or signed) report keeps the checklist wording it was sent with, whatever the checklist says now.
+        $inspection->applyWordingSnapshot($items);
 
         // AT-433, 2026-09-26 — a photo-anchor row (RentalInspectionObservation
         // ::CONDITION_PENDING) is not an assessment; excluded before the
         // latest-per-item pick so this COMPLETED inspection's own printed
         // report never shows an empty string as the item's recorded
         // condition just because a photo arrived before a condition did.
-        $currentByItem = $inspection->observations
+        // §49 — a tenant fault report filed after the report was sent is NOT part of the locked body: it is printed in its
+        // own marked block (addedAfterSent below), never folded into an item's condition.
+        $currentByItem = $inspection->bodyObservations()
             ->where('condition', '!=', \App\Models\RentalInspectionObservation::CONDITION_PENDING)
             ->groupBy('rental_inspection_item_id')
             ->map(fn ($group) => $group->sortByDesc('created_at')->first());
@@ -182,6 +186,10 @@ class RentalInspectionReportPdfService
             'refusalReasonLabels' => collect(RentalInspectionSetting::refusalReasonPresetsFor($agencyId))->pluck('label', 'key'),
             'severityColors' => RentalInspectionSetting::SEVERITY_COLORS,
             'forSignature' => $forSignature,
+            // §49 — Johan, 8 Oct 2026: every page of an unfinished or not-fully-signed report is stamped "DRAFT - not final";
+            // the stamp disappears only on the completed, fully signed report.
+            'isDraft' => ! $inspection->isFinalReport(),
+            'addedAfterSent' => app(RentalInspectionAddedAfterSentService::class)->entriesFor($inspection),
         ])->setPaper('a4', 'portrait');
     }
 

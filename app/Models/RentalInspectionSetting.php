@@ -360,6 +360,24 @@ class RentalInspectionSetting extends Model
     public const DEFAULT_SIGNING_LINK_EXPIRY_DAYS = 30;
 
     /**
+     * §49 — Johan, 8 Oct 2026: do the three signatures (every tenant, the landlord, the agent) have to be in before an
+     * inspection of this type can be completed? The agency's own setting, per type. In, Out and Interim (planned) are
+     * required; Routine (unplanned) is optional. Keyed by the STORED type value; the column is `signatures_required_<key>`.
+     */
+    public const SIGNATURE_REQUIREMENT_COLUMNS = [
+        'in' => 'signatures_required_in',
+        'out' => 'signatures_required_out',
+        'interim' => 'signatures_required_interim',
+        'ad_hoc' => 'signatures_required_routine',
+    ];
+    public const DEFAULT_SIGNATURES_REQUIRED = [
+        'in' => true,
+        'out' => true,
+        'interim' => true,
+        'ad_hoc' => false,
+    ];
+
+    /**
      * §41, 2026-09-28, Johan's ruling — "auto-send on/off is an agency
      * setting, default ON." When true, a completed inspection's signed
      * report is filed to the property and emailed to every party
@@ -398,6 +416,11 @@ class RentalInspectionSetting extends Model
         // §46 — signing by personal link.
         'signing_link_enabled',
         'signing_link_expiry_days',
+        // §49 — are the three signatures required to complete an inspection of each type?
+        'signatures_required_in',
+        'signatures_required_out',
+        'signatures_required_interim',
+        'signatures_required_routine',
         'auto_pair_photos_enabled',
         'auto_send_report_enabled',
         // §45.6 (Build I-4) — who else gets a copy of a completed report.
@@ -436,6 +459,10 @@ class RentalInspectionSetting extends Model
         'public_link_expiry_days' => 'integer',
         'signing_link_enabled' => 'boolean',
         'signing_link_expiry_days' => 'integer',
+        'signatures_required_in' => 'boolean',
+        'signatures_required_out' => 'boolean',
+        'signatures_required_interim' => 'boolean',
+        'signatures_required_routine' => 'boolean',
         'auto_pair_photos_enabled' => 'boolean',
         'auto_send_report_enabled' => 'boolean',
         'report_copy_inspector' => 'boolean',
@@ -649,6 +676,26 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('signing_link_enabled');
 
         return $value !== null ? (bool) $value : self::DEFAULT_SIGNING_LINK_ENABLED;
+    }
+
+    /**
+     * §49 — must an inspection of this type carry the three signatures before it can be completed? Read-time default per
+     * type (DEFAULT_SIGNATURES_REQUIRED): In / Out / Interim required, Routine optional. An unknown type is treated as
+     * required — the stricter reading — never silently optional.
+     */
+    public static function signaturesRequiredFor(?int $agencyId, ?string $type): bool
+    {
+        $column = self::SIGNATURE_REQUIREMENT_COLUMNS[(string) $type] ?? null;
+        if ($column === null) {
+            return true;
+        }
+        $default = self::DEFAULT_SIGNATURES_REQUIRED[(string) $type];
+        if (! $agencyId) {
+            return $default;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value($column);
+
+        return $value !== null ? (bool) $value : $default;
     }
 
     /** §46 — days a personal signing link stays live from the day it is issued. Read-time default: 30. */

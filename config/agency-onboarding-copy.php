@@ -588,6 +588,25 @@ return [
              'label' => 'Days a personal signing link stays live',
              'explain' => 'Each person\'s signing link stops working this many days after the agent issues it, and also as soon as the agent revokes it.',
              'affects' => 'How long a tenant or landlord has to open their link and sign. 30 days suits most agencies — the agent can issue a fresh link from the inspection at any time.'],
+            // §49 — Johan, 8 Oct 2026: are the three signatures (every tenant, the landlord, the agent) needed before an
+            // inspection of each type can be completed? Same saver as the controls above
+            // (RentalInspectionSettingsController::update(), registered once) — all four has()-guarded there.
+            ['key' => 'signatures_required_in', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Require every signature before a move-in (In) inspection can be completed',
+             'explain' => 'The tenant(s), the landlord and the agent each sign the In-inspection report. With this on, CoreX will not let the agent complete the inspection until all of them have signed (or a refusal is on record).',
+             'affects' => 'Whether an In-inspection can be completed without the three signatures. On by default — the move-in condition is the document a deposit dispute turns on.'],
+            ['key' => 'signatures_required_out', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Require every signature before a move-out (Out) inspection can be completed',
+             'explain' => 'The tenant(s), the landlord and the agent each sign the Out-inspection report. With this on, CoreX will not let the agent complete the inspection until all of them have signed (or a refusal is on record).',
+             'affects' => 'Whether an Out-inspection can be completed without the three signatures. On by default.'],
+            ['key' => 'signatures_required_interim', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Require every signature before an Interim (planned, mid-tenancy) inspection can be completed',
+             'explain' => 'An Interim inspection is a planned check during the tenancy, booked from a date your agency loaded. With this on, it cannot be completed until the tenant(s), the landlord and the agent have signed (or a refusal is on record).',
+             'affects' => 'Whether an Interim inspection can be completed without the three signatures. On by default.'],
+            ['key' => 'signatures_required_routine', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Require every signature before a Routine (unplanned, mid-tenancy) inspection can be completed',
+             'explain' => 'A Routine inspection is an unplanned check during the tenancy. With this off, the agent can complete it without signatures; with it on, it needs the tenant(s), the landlord and the agent to sign like the other types.',
+             'affects' => 'Whether a Routine inspection can be completed without signatures. Off by default — signatures can still be collected on a Routine inspection whenever the agent wants them.'],
             // §24.5/§24.7 (AT-433 Part B), Johan's ruling 2026-09-26 —
             // defaults ON.
             ['key' => 'auto_pair_photos_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,

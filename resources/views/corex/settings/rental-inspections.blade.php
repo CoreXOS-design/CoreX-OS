@@ -102,6 +102,25 @@
                         working — the agent can issue a new one from the inspection.
                     </p>
                 </div>
+                <div data-qa="signatures-required">
+                    <p class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Signatures needed before an inspection can be completed</p>
+                    <p class="text-xs mb-2" style="color: var(--text-muted);">
+                        "Required" means the inspection cannot be completed until every tenant, the landlord and the agent have signed.
+                        "Optional" means it can be completed without them. The defaults are: In, Out and Interim required; Routine optional.
+                    </p>
+                    @foreach([
+                        'in' => ['signatures_required_in', 'In-inspection (move-in)'],
+                        'out' => ['signatures_required_out', 'Out-inspection (move-out)'],
+                        'interim' => ['signatures_required_interim', 'Interim inspection (planned, mid-tenancy)'],
+                        'ad_hoc' => ['signatures_required_routine', 'Routine inspection (unplanned, mid-tenancy)'],
+                    ] as $type => [$field, $label])
+                        <label class="flex items-center gap-2 text-sm font-semibold mb-1" style="color:var(--text-primary);">
+                            <input type="hidden" name="{{ $field }}" value="0">
+                            <input type="checkbox" name="{{ $field }}" value="1" @checked(old($field, $signaturesRequired[$type]))>
+                            {{ $label }} — signatures required
+                        </label>
+                    @endforeach
+                </div>
                 <div>
                     <label class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-primary);">
                         <input type="hidden" name="require_notes_blocks_progression" value="0">

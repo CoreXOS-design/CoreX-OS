@@ -79,10 +79,17 @@
                 <form method="POST" action="{{ route('corex.rental-inspections.next', $inspection) }}" class="flex items-center gap-2 flex-wrap">
                     @csrf
                     <span class="text-xs font-semibold" style="color: var(--text-secondary);">Next inspection:</span>
-                    <select name="type" class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
-                        <option value="ad_hoc">Routine — unplanned mid-tenancy check</option>
-                        <option value="interim">Interim — planned mid-tenancy inspection</option>
-                        <option value="out">Out</option>
+                    {{-- §49 — Johan, 8 Oct 2026: every place an inspection is started offers all four types, with the meaning
+                         beside each. An In is greyed out (with the reason) once the tenancy already has one. --}}
+                    @php $existingIn = $inspection->leaseInInspection(); @endphp
+                    <select name="type" class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);" data-qa="next-type">
+                        @foreach(\App\Models\RentalInspection::typePickerOptions() as $opt)
+                            @if($opt['value'] === 'in' && $existingIn)
+                                <option value="in" disabled>{{ $opt['text'] }} — already recorded for this tenancy (#{{ $existingIn->id }})</option>
+                            @else
+                                <option value="{{ $opt['value'] }}" @selected($opt['value'] === 'ad_hoc')>{{ $opt['text'] }}</option>
+                            @endif
+                        @endforeach
                     </select>
                     <button type="submit" class="corex-btn-primary text-xs">Start</button>
                     <span class="text-xs" style="color: var(--text-muted);">Compares against this inspection's own recorded condition, room by room.</span>
@@ -398,7 +405,7 @@
              none, and falls through to that flat list unchanged. --}}
         <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
             <h2 class="text-sm font-semibold">
-                Compared against the {{ $inspection->previousInspection->type }}-inspection
+                Compared against the {{ strtolower(\App\Models\RentalInspection::typeName($inspection->previousInspection->type)) }}
                 <span class="text-xs" style="color: var(--text-muted);">({{ $inspection->previousInspection->scheduled_for?->format('Y-m-d') ?? $inspection->previousInspection->created_at->format('Y-m-d') }})</span>
             </h2>
             @foreach($comparisonRows as $roomId => $roomRows)
@@ -451,7 +458,7 @@
                                                 <summary class="text-xs cursor-pointer" style="color: var(--brand-icon, #0ea5e9);">Full history ({{ $row->history->count() }})</summary>
                                                 <div class="text-xs mt-1 space-y-0.5" style="color: var(--text-secondary);">
                                                     @foreach($row->history as $entry)
-                                                        <div>{{ ucfirst($entry->inspection_type) }} ({{ $entry->scheduled_for?->format('Y-m-d') ?? '—' }}): {{ ucfirst($entry->observation->condition) }}</div>
+                                                        <div>{{ \App\Models\RentalInspection::typeLabel($entry->inspection_type) }} ({{ $entry->scheduled_for?->format('Y-m-d') ?? '—' }}): {{ ucfirst($entry->observation->condition) }}</div>
                                                     @endforeach
                                                 </div>
                                             </details>
@@ -467,7 +474,7 @@
     @else
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Observations</h2>
-        @forelse($inspection->observations as $observation)
+        @forelse($inspection->bodyObservations() as $observation)
             <div class="text-sm flex items-center justify-between" style="border-bottom: 1px solid var(--border); padding-bottom: 4px;">
                 <span>{{ $observation->item?->label ?? 'Unknown item' }}
                     <span class="ds-badge {{ $conditionBadgeClass($observation->condition) }}">{{ ucfirst($observation->condition) }}</span>
@@ -483,6 +490,24 @@
             <p class="text-xs" style="color: var(--text-muted);">No observations recorded yet.</p>
         @endforelse
     </div>
+    @endif
+
+    {{-- §49 — Johan, 8 Oct 2026: after a report is sent, a tenant fault report inside the window and move-out comparison
+         findings may still be added. Each is shown CLEARLY MARKED, with the date and who, in a block of its own — the
+         report above is exactly as it was sent. --}}
+    @if(($addedAfterSent ?? collect())->isNotEmpty())
+        <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 2px solid var(--ds-amber, #b45309);" data-qa="added-after-sent">
+            <h2 class="text-sm font-bold uppercase tracking-wide" style="color: var(--ds-amber, #b45309);">{{ \App\Services\Rentals\RentalInspectionAddedAfterSentService::MARK }}</h2>
+            <p class="text-xs" style="color: var(--text-muted);">The report above is exactly as it was sent. These entries were added afterwards and are not part of it.</p>
+            @foreach($addedAfterSent as $entry)
+                <div class="text-sm" style="border-top: 1px solid var(--border); padding-top: 6px;" data-qa="added-after-sent-entry">
+                    <div class="text-xs font-semibold uppercase" style="color: var(--ds-amber, #b45309);">{{ $entry['kind_label'] }} · {{ $entry['at']?->format('Y-m-d H:i') }} · by {{ $entry['by'] }}</div>
+                    <div>{{ $entry['room'] ? $entry['room'] . ' — ' : '' }}{{ $entry['item'] }}: <strong>{{ $entry['headline'] }}</strong>@if($entry['note']) — {{ $entry['note'] }} @endif
+                        @if($entry['photos']->isNotEmpty()) <span class="text-xs" style="color: var(--text-muted);">· {{ $entry['photos']->count() }} photo(s)</span> @endif
+                    </div>
+                </div>
+            @endforeach
+        </div>
     @endif
 
     {{--

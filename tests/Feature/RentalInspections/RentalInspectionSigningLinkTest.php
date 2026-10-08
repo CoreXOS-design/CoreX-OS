@@ -384,7 +384,7 @@ final class RentalInspectionSigningLinkTest extends TestCase
         $this->assertSame(1, RentalInspectionSignature::where('rental_inspection_id', $inspection->id)->count());
     }
 
-    public function test_a_signed_link_still_opens_as_a_read_only_confirmation_with_a_download(): void
+    public function test_a_signed_link_still_opens_as_a_read_only_confirmation_without_a_download_until_everyone_has_signed(): void
     {
         $inspection = $this->inspection();
         $link = $this->issue($inspection, 'tenant', $this->tenant->id);
@@ -393,14 +393,31 @@ final class RentalInspectionSigningLinkTest extends TestCase
 
         $this->get($link->url())->assertOk()
             ->assertSee('your signature is recorded')
-            ->assertSee('data-qa="download-report"', false)
+            // §49 (8 Oct 2026): no PDF until EVERYONE has signed — one party's signature does not open it.
+            ->assertDontSee('data-qa="download-report"', false)
+            ->assertSee('data-qa="download-not-yet"', false)
             ->assertDontSee('Sign the report');
     }
 
-    public function test_the_party_can_download_the_report_pdf_from_their_link(): void
+    public function test_the_party_can_download_the_report_pdf_from_their_link_only_once_everyone_has_signed(): void
     {
         $inspection = $this->inspection();
         $link = $this->issue($inspection, 'tenant', $this->tenant->id);
+        $this->guest();
+
+        // §49: before everyone has signed the server refuses.
+        $this->get(route('rental-inspections.sign.pdf', $link->token))->assertStatus(403);
+
+        // Everyone has signed (the three live signatures, however given): the PDF opens.
+        $this->actingAs($this->admin);
+        \App\Models\LeaseTenant::where('lease_id', $inspection->lease_id)->pluck('contact_id')->each(fn ($cid) => \App\Models\RentalInspectionSignature::forceCreate([
+            'agency_id' => $inspection->agency_id, 'rental_inspection_id' => $inspection->id, 'party_role' => 'tenant', 'party_contact_id' => $cid,
+            'disposition' => 'signed', 'party_signature_path' => 'signatures/t.png', 'disposition_recorded_at' => now(),
+        ]));
+        if ($landlord = $inspection->property->sellerOwnerContact()) {
+            \App\Models\RentalInspectionSignature::forceCreate(['agency_id' => $inspection->agency_id, 'rental_inspection_id' => $inspection->id, 'party_role' => 'landlord', 'party_contact_id' => $landlord->id, 'disposition' => 'signed', 'party_signature_path' => 'signatures/l.png', 'disposition_recorded_at' => now()]);
+        }
+        \App\Models\RentalInspectionSignature::forceCreate(['agency_id' => $inspection->agency_id, 'rental_inspection_id' => $inspection->id, 'party_role' => 'agent', 'disposition' => 'signed', 'party_signature_path' => 'signatures/a.png', 'disposition_recorded_at' => now()]);
         $this->guest();
 
         $response = $this->get(route('rental-inspections.sign.pdf', $link->token));

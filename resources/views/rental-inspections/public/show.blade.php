@@ -44,10 +44,22 @@
             img { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             .no-print { display: none !important; }
         }
+        {{-- §49 — Johan, 8 Oct 2026: before everyone has signed there is no download. Browser "Print" (and "save as PDF") is
+             a download too, so until the PDF is available the printed page carries only the notice below, never the report. --}}
+        @unless($downloadAllowed ?? true)
+        @media print {
+            .report-sheet { display: none !important; }
+            .print-blocked { display: block !important; }
+        }
+        @endunless
+        .print-blocked { display: none; }
     </style>
 </head>
 <body class="bg-slate-50 min-h-screen p-4 sm:p-8">
-    <div class="max-w-3xl mx-auto space-y-6">
+    @unless($downloadAllowed ?? true)
+        <div class="print-blocked text-center text-base p-8" data-qa="print-blocked">This report can only be printed or saved as a PDF once everyone has signed it. Please open the link again after that.</div>
+    @endunless
+    <div class="report-sheet max-w-3xl mx-auto space-y-6">
         @isset($signing)
             @if(($signing['mode'] ?? null) === 'device')
                 <div class="no-print rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-sm p-3 flex items-center justify-between gap-3" data-qa="device-banner">
@@ -70,9 +82,13 @@
                 </div>
                 {{-- §40 — the only interactive element this deliberately-chrome-free
                      page carries; hidden on the printed output itself via .no-print. --}}
-                <button type="button" onclick="window.print()" class="no-print flex-none text-xs font-semibold px-3 py-2 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50">
-                    Print
-                </button>
+                @if($downloadAllowed ?? true)
+                    <button type="button" onclick="window.print()" class="no-print flex-none text-xs font-semibold px-3 py-2 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50" data-qa="print-report">
+                        Print
+                    </button>
+                @else
+                    <span class="no-print flex-none text-xs text-slate-400 text-right max-w-[11rem]" data-qa="print-not-yet">Printing and the PDF open once everyone has signed.</span>
+                @endif
             </div>
 
             {{-- Report-fixes, 2026-09-28 (Johan, property 5294) — the header
@@ -333,6 +349,34 @@
                 @endforeach
             </div>
         </div>
+
+        {{-- §49 — Johan, 8 Oct 2026: after a report is sent, a tenant fault report inside the window and move-out comparison
+             findings may still be added. Each is shown CLEARLY MARKED, with the date and who, in a block of its own — the
+             report above is exactly as it was sent. --}}
+        @if(($addedAfterSent ?? collect())->isNotEmpty())
+            <div class="bg-white rounded-2xl shadow-sm border-2 border-amber-500 p-6" data-qa="added-after-sent">
+                <h2 class="text-sm font-bold uppercase tracking-wide text-amber-700">{{ \App\Services\Rentals\RentalInspectionAddedAfterSentService::MARK }}</h2>
+                <p class="text-xs text-slate-500 mt-1">The report above is exactly as it was sent. These entries were added afterwards and are not part of it.</p>
+                <div class="mt-3 space-y-4">
+                    @foreach($addedAfterSent as $entry)
+                        <div class="border-t border-slate-100 pt-3 first:border-t-0 first:pt-0" data-qa="added-after-sent-entry">
+                            <p class="text-xs font-semibold text-amber-700 uppercase tracking-wide">{{ $entry['kind_label'] }} &middot; {{ $entry['at']?->format('d M Y, H:i') }} &middot; by {{ $entry['by'] }}</p>
+                            <p class="text-sm mt-1"><span class="font-medium text-slate-700">{{ $entry['room'] ? $entry['room'] . ' — ' : '' }}{{ $entry['item'] }}</span>: <span class="font-semibold text-slate-800">{{ $entry['headline'] }}</span></p>
+                            @if($entry['note'])
+                                <p class="text-sm mt-1 py-1 pl-2 border-l-2 border-amber-500 bg-amber-50 rounded-r">{{ $entry['note'] }}</p>
+                            @endif
+                            @if($entry['photos']->isNotEmpty())
+                                <div class="flex flex-wrap gap-3 mt-2">
+                                    @foreach($entry['photos'] as $photo)
+                                        @include('rental-inspections.public.partials.photo', ['photo' => $photo])
+                                    @endforeach
+                                </div>
+                            @endif
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+        @endif
 
         @isset($signing)
             @include('rental-inspections.public.partials.sign-section')
