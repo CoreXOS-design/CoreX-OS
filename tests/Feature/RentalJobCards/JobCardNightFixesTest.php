@@ -129,7 +129,7 @@ final class JobCardNightFixesTest extends TestCase
         $this->assertStringContainsString('must approve it before the work is booked', $html);
 
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $card))->assertSessionHasNoErrors()
-            ->assertSessionHas('success', fn ($m) => str_contains($m, 'sent to') && str_contains($m, 'for approval'));
+            ->assertSessionHas('success', 'Quote sent to the owner.');
         $this->assertCount(1, $this->sent(RentalOwnerQuoteMail::class));
         $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $wo->fresh()->owner_approval_status);
         $this->assertSame(RentalJobCard::STATUS_QUOTED, $card->fresh()->status);
@@ -268,6 +268,24 @@ final class JobCardNightFixesTest extends TestCase
 
     // ── J4 ───────────────────────────────────────────────────────────────────
 
+    private function sentFault(): RentalFaultReport
+    {
+        $lease = Lease::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id,
+            'status' => Lease::STATUS_ACTIVE, 'rental_amount' => 9000, 'start_date' => now()->subDays(10), 'created_by_user_id' => $this->admin->id,
+        ]);
+        $fault = RentalFaultReport::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id, 'lease_id' => $lease->id,
+            'reported_by_type' => RentalFaultReport::REPORTED_BY_AGENT_NOTICED, 'reported_channel' => RentalFaultReport::CHANNEL_APP,
+            'title' => 'Tap leaking', 'description' => 'Drips', 'status' => RentalFaultReport::STATUS_REPORTED,
+            'owner_approval_status' => RentalFaultReport::APPROVAL_NOT_REQUIRED, 'reported_at' => now(), 'created_by_user_id' => $this->admin->id,
+        ]);
+        $fault->saveOwnerVersion(['owner_title' => 'Tap leaking', 'owner_description' => 'A tap drips.'], $this->admin);
+        $fault->fresh()->requestApproval($this->admin);
+
+        return $fault->fresh();
+    }
+
     private function approvedFault(): RentalFaultReport
     {
         $lease = Lease::create([
@@ -336,5 +354,99 @@ final class JobCardNightFixesTest extends TestCase
         $this->assertSame(0, RentalWorkOrder::withoutGlobalScopes()->count());
         $this->assertSame(0, RentalJobCard::withoutGlobalScopes()->count());
         $this->assertSame(RentalFaultReport::STATUS_APPROVED, $fault->fresh()->status);
+    }
+
+    // ── J6: the dialog opens only for a valid form ───────────────────────────
+
+    public function test_the_confirm_trigger_validates_the_form_first_and_names_the_field_instead_of_opening_the_dialog(): void
+    {
+        $fault = $this->sentFault();
+        $html = $this->actingAs($this->admin)->get(route('corex.rental-fault-reports.show', $fault))->assertOk()->getContent();
+
+        // the decision form: the reason is required, and the trigger asks the browser to validate BEFORE the dialog opens
+        $this->assertMatchesRegularExpression('/<textarea name="evidence_text" required/', $html);
+        $this->assertStringContainsString('x-on:click="ask()"', $html);
+        $this->assertStringContainsString('f.reportValidity()', $html);
+        $this->assertStringContainsString('data-confirm-error', $html, 'the field is named next to the button');
+        $this->assertStringNotContainsString('x-on:click="open = true"', $html, 'no trigger opens the dialog without checking the form');
+
+        // the declarative dialog (data-confirm on a form) checks validity too, and does not ask twice when another listener re-submits
+        $helper = view('partials.corex-confirm')->render();
+        $this->assertStringContainsString('form.checkValidity', $helper);
+        $this->assertStringContainsString('form.reportValidity()', $helper);
+        $this->assertStringContainsString('confirmedAt', $helper);
+    }
+
+    // ── J7: a decline closes the fault by itself ─────────────────────────────
+
+    public function test_a_decline_recorded_by_the_agent_closes_the_fault_with_the_outcome_owner_declined_and_it_stays_editable(): void
+    {
+        $fault = $this->sentFault();
+        $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.approval.store', $fault), [
+            'decision' => 'declined', 'evidence_type' => 'verbal_note', 'evidence_text' => 'Too expensive for the owner',
+        ])->assertSessionHasNoErrors();
+
+        $f = $fault->fresh();
+        $this->assertSame(RentalFaultReport::STATUS_DECLINED, $f->status);
+        $this->assertSame(RentalFaultReport::OUTCOME_OWNER_DECLINED, $f->outcome);
+        $this->assertTrue((bool) $f->outcome_set_automatically);
+        $this->assertStringContainsString('Too expensive for the owner', (string) $f->outcome_note);
+
+        $html = $this->actingAs($this->admin)->get(route('corex.rental-fault-reports.show', $f))->assertOk()->getContent();
+        $this->assertStringContainsString('data-outcome-automatic', $html);
+        $this->assertStringContainsString('Closed automatically as', $html);
+        $this->assertStringContainsString('data-change-outcome', $html, 'the form is behind "Change the outcome", not a task');
+        $this->assertStringNotContainsString('Cancel report', $html);
+
+        // still editable - the agent's own outcome closes it and is final (the existing behaviour)
+        $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.outcome.store', $f), ['outcome' => 'tenant_liable', 'outcome_note' => 'Tenant damage'])->assertSessionHasNoErrors();
+        $this->assertSame(RentalFaultReport::STATUS_RESOLVED, $fault->fresh()->status);
+        $this->assertFalse((bool) $fault->fresh()->outcome_set_automatically);
+    }
+
+    public function test_a_decline_from_the_owners_portal_closes_it_too_and_the_tenant_still_sees_only_the_neutral_wording(): void
+    {
+        $fault = $this->sentFault();
+        $fault->fresh()->recordApproval($this->landlord, ['decision' => 'declined', 'evidence_type' => \App\Models\RentalApproval::EVIDENCE_PORTAL, 'evidence_text' => 'SECRET owner reason']);
+
+        $f = $fault->fresh();
+        $this->assertSame(RentalFaultReport::OUTCOME_OWNER_DECLINED, $f->outcome);
+        $this->assertTrue((bool) $f->outcome_set_automatically);
+
+        // the tenant's view of the fault: never the owner's decision word or the reason
+        $tenant = \App\Models\Contact::create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'first_name' => 'Tina', 'last_name' => 'Tenant', 'email' => 'tina-' . uniqid() . '@example.invalid']);
+        \App\Models\LeaseTenant::create(['lease_id' => $f->lease_id, 'contact_id' => $tenant->id, 'is_primary' => true]);
+        \Laravel\Sanctum\Sanctum::actingAs($this->clientFor($tenant), ['client']);
+        $body = strtolower($this->getJson('/api/v1/client/rentals/fault-reports/' . $f->id)->assertOk()->getContent());
+        $this->assertStringNotContainsString('declined', $body);
+        $this->assertStringNotContainsString('secret owner reason', $body);
+        $this->assertStringContainsString('not_approved', $body);
+    }
+
+    public function test_cancel_report_is_offered_only_while_the_owner_has_not_decided(): void
+    {
+        $undecided = $this->sentFault();
+        $this->assertStringContainsString('Cancel report', $this->actingAs($this->admin)->get(route('corex.rental-fault-reports.show', $undecided))->getContent());
+
+        $approved = $this->approvedFault();
+        $this->assertStringNotContainsString('Cancel report', $this->actingAs($this->admin)->get(route('corex.rental-fault-reports.show', $approved))->getContent());
+    }
+
+    // ── J8: flash messages never pile on top of each other ───────────────────
+
+    public function test_toasts_stack_in_one_column_dedupe_and_the_screens_do_not_repeat_the_message_as_a_second_banner(): void
+    {
+        $toast = view('components.toast-notifications')->render();
+        $this->assertStringContainsString('flex flex-col gap-2', $toast, 'one column, stacked');
+        $this->assertStringContainsString('t.visible && t.message === message', $toast, 'the same message is never shown twice at once');
+        $this->assertStringContainsString('live.length >= 3', $toast, 'at most three on screen');
+
+        // a flash on the fault, work order and job card screens appears ONCE (the layout's toast), not also as an inline banner
+        $fault = $this->approvedFault();
+        $msg = 'Flash message for J8 check';
+        foreach ([route('corex.rental-fault-reports.show', $fault), route('corex.rental-work-orders.show', $this->externalWorkOrder())] as $url) {
+            $html = $this->actingAs($this->admin)->withSession(['success' => $msg])->get($url)->assertOk()->getContent();
+            $this->assertSame(1, substr_count($html, $msg), "the message appears once on {$url}");
+        }
     }
 }

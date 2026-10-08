@@ -434,7 +434,9 @@ final class RentalJobCardAt442FollowUpTest extends TestCase
         ContactPropertyLinker::link($landlord->id, $this->property->id, 'landlord');
 
         $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);
-        app(RentalJobCardService::class)->addLine($jobCard, ['description' => 'Fix', 'quantity' => 1, 'unit_price' => 100], $this->admin);
+        // 9 Oct 2026 (Johan, J2): a price WITHIN the owner's no-approval limit is confirmed and approved automatically - nothing is mailed. This
+        // test is about the mail reaching the landlord, so the job is priced ABOVE the R500 default limit.
+        app(RentalJobCardService::class)->addLine($jobCard, ['description' => 'Fix', 'quantity' => 1, 'unit_price' => 1500], $this->admin);
 
         $fake = new class extends \App\Services\Rentals\RentalMailDispatcher {
             public array $sent = [];

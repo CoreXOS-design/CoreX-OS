@@ -150,8 +150,10 @@ final class QuoteEstimateTermTest extends TestCase
         };
         $this->app->instance(\App\Services\Rentals\RentalMailDispatcher::class, $mailbox);
         RentalWorkOrderSetting::where('agency_id', $this->agency->id)->update(['quote_estimate_term' => 'Mail wording: final cost may differ.']);
+        // 9 Oct 2026 (J2): within the owner's no-approval limit the price is confirmed and nothing is mailed, so this quote must NEED the owner.
+        $this->card->property->forceFill(['rental_no_approval_spend_threshold' => 1])->save();
 
-        app(RentalJobCardService::class)->sendToOwnerAsQuote($this->card, $this->admin, app(RentalDocumentPdfService::class));
+        app(RentalJobCardService::class)->sendToOwnerAsQuote($this->card->fresh(), $this->admin, app(RentalDocumentPdfService::class));
 
         $quoteMails = array_values(array_filter($mailbox->sent, fn ($m) => $m instanceof \App\Mail\Rentals\RentalOwnerQuoteMail));
         $this->assertCount(1, $quoteMails);

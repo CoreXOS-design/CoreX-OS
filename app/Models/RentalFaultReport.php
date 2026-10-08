@@ -690,7 +690,34 @@ class RentalFaultReport extends Model
         // The responsible agent is told the moment the owner has decided (after the decision is safely committed).
         $this->notifyAgentOfDecision($approval);
 
+        // J7 (Johan, 9 Oct 2026): a decline closes the fault by itself - nothing is left for the agent to pick by hand.
+        if ($approval->decision === RentalApproval::DECISION_DECLINED) {
+            $this->closeAfterDecline($approval, $recordedBy instanceof User ? $recordedBy : null);
+        }
+
         return $approval;
+    }
+
+    /**
+     * J7 (Johan, 9 Oct 2026): "after the owner's decline is recorded the fault sits at DECLINED with the Outcome block asking the agent to pick
+     * 'Owner declined' by hand. Close it automatically." The outcome is filled in at once - Owner declined, with the owner's reason in the agent's
+     * note - and marked automatic, so the agent can still change it (once, like a work order's automatic "Repaired"). The status stays DECLINED:
+     * that is already a finished state everywhere (lists, counts, the tenant's neutral "not approved" line), and the agent's later hand-recorded
+     * outcome still closes it to RESOLVED exactly as before. The tenant never sees the outcome word or the note (ClientTenantRentalsController).
+     */
+    private function closeAfterDecline(RentalApproval $approval, ?User $by): void
+    {
+        $this->refresh();
+        if ($this->status !== self::STATUS_DECLINED || $this->outcome !== null) {
+            return;
+        }
+        $reason = trim((string) $approval->evidence_text);
+        $this->forceFill([
+            'outcome' => self::OUTCOME_OWNER_DECLINED,
+            'outcome_note' => 'The owner declined this repair' . ($reason !== '' ? ': ' . $reason : '.'),
+            'outcome_set_automatically' => true,
+        ])->save();
+        $this->logUpdate(RentalFaultReportUpdate::TYPE_OUTCOME_SET, $by, 'Closed automatically: the owner declined. Change the outcome if that is not right.');
     }
 
     /**

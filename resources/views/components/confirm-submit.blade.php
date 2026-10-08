@@ -8,8 +8,24 @@
     Extra attributes (class, x-bind:disabled, data-*) go to the trigger button.
 --}}
 @props(['title' => 'Please confirm', 'message', 'confirmLabel' => 'Yes, continue', 'name' => null, 'value' => null, 'danger' => false])
-<span x-data="{ open: false, sending: false }" x-on:keydown.escape.window="open = false" class="inline-block">
-    <button type="button" {{ $attributes->merge(['class' => 'corex-btn-primary text-xs']) }} x-on:click="open = true" data-confirm-trigger>{{ $slot }}</button>
+<span x-data="{
+        open: false, sending: false, err: '',
+        // J6 (Johan, 9 Oct 2026): the dialog opens only when the form is valid. Otherwise the browser's own message shows on the field AND the
+        // field is named here, so a required field left empty is never hidden behind the dialog.
+        ask() {
+            const f = this.$el.closest('form');
+            this.err = '';
+            if (f && !f.reportValidity()) {
+                const bad = f.querySelector(':invalid');
+                const label = bad ? ((bad.closest('div') && bad.closest('div').querySelector('label')) || {}).textContent : '';
+                this.err = (label ? label.replace(/\s+/g, ' ').trim() + ' - ' : '') + ((bad && bad.validationMessage) || 'please complete the form first');
+                return;
+            }
+            this.open = true;
+        }
+    }" x-on:keydown.escape.window="open = false" class="inline-block">
+    <button type="button" {{ $attributes->merge(['class' => 'corex-btn-primary text-xs']) }} x-on:click="ask()" data-confirm-trigger>{{ $slot }}</button>
+    <span class="block text-xs mt-1" style="color: var(--ds-crimson, #b3261e);" x-show="err" x-cloak x-text="err" data-confirm-error></span>
     <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(15, 23, 42, .5);"
          x-on:click.self="open = false" role="dialog" aria-modal="true" aria-label="{{ $title }}" data-confirm-modal>
         <div class="rounded-md p-5 w-full max-w-md space-y-3" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">

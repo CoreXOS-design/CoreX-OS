@@ -17,12 +17,7 @@
      the agent needs or a control they act on, and the Job Card block below
      needs the room a narrow centre column didn't have. --}}
 <div class="p-6 max-w-7xl mx-auto space-y-4">
-    @if(session('success'))
-        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
-    @endif
-    @if(session('warning'))
-        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, #f59e0b 14%, transparent); color: #b45309;">{{ session('warning') }}</div>
-    @endif
+    {{-- (success and warning messages are the layout's toasts - J8: not repeated here as a second banner) --}}
     @if($errors->any())
         <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
             @foreach($errors->all() as $error)<div>{{ $error }}</div>@endforeach

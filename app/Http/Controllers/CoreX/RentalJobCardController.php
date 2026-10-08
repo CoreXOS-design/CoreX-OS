@@ -687,9 +687,7 @@ class RentalJobCardController extends Controller
 
         // Say what really happened (J2): approved automatically within the limit with nothing sent, or put to the owner.
         if ($workOrder && $workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_PENDING) {
-            $names = app(\App\Services\Rentals\RentalWorkOrderService::class)->ownerNames($workOrder);
-            $message = ($revision > 1 ? "Revised quote (Rev {$revision}) sent to " : 'Quote sent to ') . ($names !== '' ? $names : 'the owner') . ' for approval'
-                . ($revision > 1 ? ' - it replaces the earlier one.' : '.');
+            $message = $revision > 1 ? "Revised quote (Rev {$revision}) sent to the owner — it replaces the earlier one." : 'Quote sent to the owner.';
         } else {
             $limit = \App\Models\RentalWorkOrderSetting::thresholdFor($rentalJobCard->property);
             $message = "Price confirmed - it is within the owner's no-approval limit (R" . number_format($limit, 2) . '), so it is approved automatically. Nothing was sent to the owner.';

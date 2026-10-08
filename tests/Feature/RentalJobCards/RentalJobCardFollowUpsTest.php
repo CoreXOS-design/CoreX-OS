@@ -130,8 +130,15 @@ final class RentalJobCardFollowUpsTest extends TestCase
         $this->assertStringContainsString('onclick="event.preventDefault(); this.form.requestSubmit();"', $html);
         $this->assertStringNotContainsString('onclick="return false;"', $html);
 
-        foreach (['/tasks"', '/assign-crew', '/schedule', '/start', '/worker-sign-off', '/agent-sign-off', '/tenant-confirm'] as $needle) {
+        // 9 Oct 2026 (J3): the card screen shows what fits its stage - on a booked card the crew's sign-off is offered; the agent's sign-off and the
+        // tenant's confirmation only after the crew has signed off (checked in the second loop below).
+        foreach (['/tasks"', '/assign-crew', '/schedule', '/start', '/worker-sign-off'] as $needle) {
             $this->assertMatchesRegularExpression('/<form\b[^>]*data-keep-scroll[^>]*' . preg_quote($needle, '/') . '/', $html, "{$needle} form must keep scroll");
+        }
+        $card->fresh()->workerSignOff($this->admin, 'Sam');
+        $afterCrew = $this->show($card);
+        foreach (['/agent-sign-off', '/tenant-confirm'] as $needle) {
+            $this->assertMatchesRegularExpression('/<form\b[^>]*data-keep-scroll[^>]*' . preg_quote($needle, '/') . '/', $afterCrew, "{$needle} form must keep scroll");
         }
     }
 

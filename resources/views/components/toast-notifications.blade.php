@@ -70,7 +70,14 @@ function toastSystem() {
         toasts: [],
         nextId: 0,
 
+        // J8 (Johan, 9 Oct 2026): toasts STACK in the one column (never on top of each other); the same message is never shown twice at once
+        // (a page's flash plus a script's copy of it), at most three are on screen (the oldest goes first), and a long message stays long enough to read.
         addToast(message, type = 'success', duration = 4000) {
+            message = String(message == null ? '' : message);
+            if (this.toasts.some(t => t.visible && t.message === message && t.type === type)) { return; }
+            const live = this.toasts.filter(t => t.visible);
+            while (live.length >= 3) { this.removeToast(live.shift().id); }
+            if (duration > 0) { duration = Math.max(duration, Math.min(15000, 2500 + message.length * 45)); }
             const id = this.nextId++;
             this.toasts.push({ id, message, type, visible: true });
 

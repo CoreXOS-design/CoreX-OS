@@ -94,21 +94,24 @@
             danger: node.hasAttribute('data-confirm-danger'),
         };
     }
-    var bypass = new WeakSet();
+    var confirmedAt = new WeakMap();   // form -> when the person said yes; other submit listeners (the connection guard) re-submit it, never ask twice
 
     // A form (or the submit button that was pressed) carrying data-confirm: ask first, then submit it exactly as pressed.
     document.addEventListener('submit', function (e) {
         var form = e.target;
-        if (!form || !form.getAttribute || bypass.has(form)) { return; }
+        if (!form || !form.getAttribute) { return; }
+        if (confirmedAt.has(form) && Date.now() - confirmedAt.get(form) < 60000) { return; }
         var submitter = e.submitter && e.submitter.hasAttribute && e.submitter.hasAttribute('data-confirm') ? e.submitter : null;
         var source = submitter || (form.hasAttribute('data-confirm') ? form : null);
         if (!source) { return; }
+        // Not valid? Show the field's message on the form and do not open the dialog (the browser normally stops an invalid submit before this
+        // event; this covers a submit started from script).
+        if (form.checkValidity && !form.checkValidity()) { e.preventDefault(); e.stopImmediatePropagation(); form.reportValidity(); return; }
         e.preventDefault(); e.stopImmediatePropagation();
         window.corexConfirm(optionsFrom(source)).then(function (yes) {
             if (!yes) { return; }
-            bypass.add(form);
+            confirmedAt.set(form, Date.now());
             if (form.requestSubmit) { form.requestSubmit(submitter || undefined); } else { form.submit(); }
-            setTimeout(function () { bypass.delete(form); }, 0);
         });
     }, true);
 

@@ -27,6 +27,8 @@
     $latestDecision = $faultReport->decision();
     $prefillSupplier = ($latestDecision && $latestDecision->contractor_source === \App\Models\RentalApproval::CONTRACTOR_AGENCY) ? $latestDecision->contractorSupplier : null;
     $prefillOwner = ($latestDecision && $latestDecision->contractor_source === \App\Models\RentalApproval::CONTRACTOR_OWN) ? $latestDecision : null;
+    // J7: a declined fault whose outcome was filled in automatically - the Outcome block is then a summary, not a task.
+    $declinedClosed = $faultReport->status === \App\Models\RentalFaultReport::STATUS_DECLINED && (bool) $faultReport->outcome_set_automatically;
 @endphp
 
 @section('content')
@@ -35,9 +37,7 @@
      control they act on. Two-column below the header: record + actions
      left, photos/history right. --}}
 <div class="p-6 max-w-7xl mx-auto space-y-4">
-    @if(session('success'))
-        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
-    @endif
+    {{-- (the success message is the layout's toast - J8: it is not repeated here as a second banner) --}}
     {{-- §17.3.2 / §17.10.6 — a refused "Create work order" or a refused "repaired" outcome says WHY, in plain words. --}}
     @if($errors->any())
         <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
@@ -162,7 +162,8 @@
 
         <div class="flex gap-2 pt-2">
             @permission('rental_fault_reports.cancel')
-                @if(!in_array($faultReport->status, ['cancelled', 'resolved'], true))
+                {{-- J7 (Johan, 9 Oct 2026): "Cancel report" only while the owner has not decided; once decided the fault is handled through its work order / outcome. --}}
+                @if(in_array($faultReport->status, [\App\Models\RentalFaultReport::STATUS_REPORTED, \App\Models\RentalFaultReport::STATUS_UNDER_REVIEW, \App\Models\RentalFaultReport::STATUS_AWAITING_APPROVAL], true))
                     <button type="button" onclick="document.getElementById('cancel-fault-report-form').classList.toggle('hidden')" class="corex-btn-outline text-xs">Cancel report</button>
                 @endif
             @endpermission
@@ -412,8 +413,9 @@
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Outcome</h2>
         @if($faultReport->outcome_set_automatically)
-            <p class="text-xs" style="color: var(--text-muted);" data-outcome-automatic>Closed automatically as <strong>{{ str_replace('_', ' ', $faultReport->outcome) }}</strong> when the work order was completed. If the repair was not complete, change it here.</p>
+            <p class="text-xs" style="color: var(--text-muted);" data-outcome-automatic>Closed automatically as <strong>{{ str_replace('_', ' ', $faultReport->outcome) }}</strong> {{ $declinedClosed ? 'when the owner declined. Nothing more is needed; the tenant sees a neutral "not approved" line. Change the outcome only if that is not right.' : 'when the work order was completed. If the repair was not complete, change it here.' }}</p>
         @endif
+        @if($declinedClosed)<details data-change-outcome><summary class="text-xs cursor-pointer underline" style="color: var(--text-muted);">Change the outcome</summary><div class="pt-2">@endif
         <form method="POST" action="{{ route('corex.rental-fault-reports.outcome.store', $faultReport) }}" class="space-y-3" x-data="{ outcome: '{{ $faultReport->outcome_set_automatically ? $faultReport->outcome : '' }}' }">
             @csrf
             <div>
@@ -440,6 +442,7 @@
             </div>
             <x-confirm-submit title="Record the outcome" message="Recording the outcome closes this fault report. Record it now?" confirm-label="Record outcome">Save outcome</x-confirm-submit>
         </form>
+        @if($declinedClosed)</div></details>@endif
     </div>
     @endpermission
     @endif

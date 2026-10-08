@@ -296,7 +296,8 @@ final class RentalJobCardPrintFollowUpsTest extends TestCase
 
     public function test_schedule_boxes_are_empty_when_nothing_is_saved(): void
     {
-        $html = $this->show($this->card())->assertOk()->getContent();
+        // 9 Oct 2026 (J3): the booking boxes are offered once the job can be booked (approved / within the owner's limit) - a priced card here.
+        $html = $this->show($this->schedulableCard())->assertOk()->getContent();
         $this->assertMatchesRegularExpression('/name="scheduled_at" value=""/', $html);
         $this->assertMatchesRegularExpression('/name="due_at" value=""/', $html);
     }
