@@ -53,6 +53,10 @@ class LeaseEvent extends Model
     public const TYPE_LEASE_AGENT_CHANGED = 'lease_agent_changed';
     /** leases.md §17.6 — an existing lease's two agents filled in by `leases:backfill-agents` (reversible; the rule used is in metadata). */
     public const TYPE_LEASE_AGENTS_BACKFILLED = 'lease_agents_backfilled';
+    /** leases.md §18 — the notice / early-cancellation terms edited (who, which terms, from, to). All <= 40 characters. */
+    public const TYPE_NOTICE_TERMS_CHANGED = 'lease_notice_terms_changed';
+    /** leases.md §18.5 — an existing lease's notice terms filled from the agency defaults by `leases:backfill-notice-terms` (reversible). */
+    public const TYPE_NOTICE_TERMS_BACKFILLED = 'lease_notice_terms_backfilled';
 
     protected $fillable = [
         'lease_id',

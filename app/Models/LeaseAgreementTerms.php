@@ -36,6 +36,14 @@ class LeaseAgreementTerms extends Model
         'renewal_option_months',
         'electricity_arrangement',
         'other_conditions',
+        'notice_period',
+        'notice_period_unit',
+        'earliest_notice_date',
+        'early_cancellation_allowed',
+        'early_cancellation_notice',
+        'early_cancellation_notice_unit',
+        'early_cancellation_penalty',
+        'notice_terms_source',
         'extra',
         'source',
     ];
@@ -48,6 +56,9 @@ class LeaseAgreementTerms extends Model
         'escalation_month' => 'integer',
         'earliest_termination_date' => 'date',
         'renewal_option_months' => 'integer',
+        'notice_period' => 'integer',
+        'earliest_notice_date' => 'date',
+        'early_cancellation_notice' => 'integer',
         'extra' => 'array',
     ];
 

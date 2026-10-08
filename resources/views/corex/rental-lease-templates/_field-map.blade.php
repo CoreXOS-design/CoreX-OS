@@ -7,7 +7,7 @@
 @php
     $registry = config('lease-agreement-fields.fields', []);
     $requirable = config('lease-agreement-fields.requirable_groups', []);
-    $groupTitles = ['lease' => 'Lease', 'parties' => 'Parties', 'agreement' => 'Agreement terms', 'schedule' => 'Schedule', 'calculated' => 'Worked out by CoreX'];
+    $groupTitles = ['lease' => 'Lease', 'parties' => 'Parties', 'agreement' => 'Agreement terms', 'notice' => 'Notice and early cancellation', 'schedule' => 'Schedule', 'calculated' => 'Worked out by CoreX'];
     $byGroup = collect($mapLines)->groupBy('group', preserveKeys: true);
 @endphp
 <form id="field-map" method="POST" action="{{ route('corex.rental-lease-templates.field-map.update', $rentalLeaseTemplate) }}" class="space-y-4 rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">

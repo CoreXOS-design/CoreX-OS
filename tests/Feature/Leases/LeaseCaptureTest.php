@@ -223,7 +223,10 @@ final class LeaseCaptureTest extends TestCase
         $this->assertSame([$second->id, $this->tenant->id], $lease->tenants()->orderBy('id')->pluck('contact_id')->all());
         $this->assertTrue($lease->tenants()->where('contact_id', $second->id)->value('is_primary') == 1, 'the first tenant chosen is the primary');
         $this->assertSame(1, LeaseEvent::where('lease_id', $lease->id)->where('event_type', LeaseEvent::TYPE_LEASE_CREATED)->count());
-        $this->assertSame(0, LeaseAgreementTerms::count(), 'no agreement linked, no agreement section, no terms row');
+        // leases.md §18 — the notice terms (agency defaults) are the only thing the terms row holds: no agreement linked, no agreement values.
+        $this->assertSame(1, LeaseAgreementTerms::count(), 'only the notice terms row');
+        $this->assertNull(LeaseAgreementTerms::first()->adults, 'no agreement section, no agreement values');
+        $this->assertSame('agency_default', LeaseAgreementTerms::first()->notice_terms_source);
         $this->assertSame(0, Flow::count(), 'button (a) never makes a document');
     }
 

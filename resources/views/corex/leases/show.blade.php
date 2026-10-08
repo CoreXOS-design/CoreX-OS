@@ -638,6 +638,77 @@
                 @endpermission
             </div>
 
+            {{-- leases.md §18 — the lease's own notice and early-cancellation terms: what the signed lease says, what the tenant / owner portal
+                 FAQ answers from, and what the lease agreement is filled from. Starts from the agency defaults; changing is logged. --}}
+            @php $nt = $noticeTerms ?? null; @endphp
+            @if($nt)
+            <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);"
+                 x-data="{ editing: {{ $errors->has('notice') || $errors->hasAny(array_map(fn ($k) => 'notice.' . $k, \App\Services\Rentals\LeaseNoticeTermsService::EDIT_KEYS)) ? 'true' : 'false' }} }" data-qa="lease-notice-card">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-sm font-semibold">Notice terms</h2>
+                    @permission('lease_notice_terms.edit')
+                        @unless($nt['locked'])
+                            <button type="button" class="text-xs underline" style="color: var(--brand-icon, #0ea5e9);" x-show="!editing" x-on:click="editing = true" data-qa="lease-notice-change">{{ $nt['has'] ? 'Change' : 'Set' }}</button>
+                        @endunless
+                    @endpermission
+                </div>
+                @if($errors->has('notice'))
+                    <div class="text-xs" style="color: var(--ds-crimson);">{{ $errors->first('notice') }}</div>
+                @endif
+                <div x-show="!editing" class="space-y-1" data-qa="lease-notice-values">
+                    @if(! $nt['has'])
+                        <div style="color: var(--text-muted);">Not on record — the portal FAQ shows nothing for this lease.</div>
+                    @else
+                        @php $nv = $nt['values']; $w = $nt['worked']; @endphp
+                        <div><span style="color: var(--text-muted);">Notice period:</span> {{ $nt['periodText'] ?? 'not on record' }}</div>
+                        <div><span style="color: var(--text-muted);">Earliest notice may be given:</span> {{ $w['earliest_notice'] ?? 'not on record' }}</div>
+                        <div><span style="color: var(--text-muted);">Earliest the lease may end:</span> {{ $w['earliest_end'] ?? 'not on record' }}</div>
+                        @if($w['notice_by'])
+                            <div><span style="color: var(--text-muted);">Notice to leave at the end date, by:</span> {{ $w['notice_by'] }}</div>
+                        @endif
+                        <div><span style="color: var(--text-muted);">Early cancellation:</span>
+                            @if(($nv['early_cancellation_allowed'] ?? null) === 'yes')
+                                allowed{{ $nt['earlyPeriodText'] ? ' with ' . $nt['earlyPeriodText'] . ' notice' : '' }}
+                            @elseif(($nv['early_cancellation_allowed'] ?? null) === 'no')
+                                not allowed
+                            @else
+                                not on record
+                            @endif
+                        </div>
+                        @if(! empty($nv['early_cancellation_penalty']))
+                            <div><span style="color: var(--text-muted);">Penalty:</span> {{ $nv['early_cancellation_penalty'] }}</div>
+                        @endif
+                        @if($nt['source'] === 'agency_default')
+                            <div class="text-xs" style="color: var(--text-muted);">Filled from your agency defaults — check it against the signed lease.</div>
+                        @endif
+                        @if($nt['signedDocument'])
+                            <div class="text-xs" style="color: var(--text-muted);">Changing these does not change the signed document.</div>
+                        @endif
+                    @endif
+                </div>
+                @permission('lease_notice_terms.edit')
+                    @unless($nt['locked'])
+                        <form method="POST" action="{{ route('corex.leases.notice-terms.update', $lease) }}" x-show="editing" x-cloak class="space-y-3" data-qa="lease-notice-form">
+                            @csrf
+                            @method('PUT')
+                            @include('corex.leases._notice-terms', [
+                                'noticeValues' => $nt['has'] ? $nt['values'] : $nt['defaults'],
+                                'noticePrefix' => 'notice',
+                                'noticeHide' => [],
+                            ])
+                            <div class="flex items-center gap-2">
+                                <button type="submit" class="corex-btn-primary text-xs">Save notice terms</button>
+                                <button type="button" class="corex-btn-outline text-xs" x-on:click="editing = false">Cancel</button>
+                            </div>
+                        </form>
+                    @endunless
+                @endpermission
+                @if($nt['locked'])
+                    <div class="text-xs" style="color: var(--text-muted);">{{ \App\Models\Lease::LOCKED_FOR_SIGNING_MESSAGE }}</div>
+                @endif
+            </div>
+            @endif
+
             <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);">
                 <h2 class="text-sm font-semibold">Open items</h2>
                 @feature('rental-faults')

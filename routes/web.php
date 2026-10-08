@@ -3585,6 +3585,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // leases.md §17 — change the lease's owner's agent / tenant's agent (same permission as editing the lease; logged).
         Route::put('/{lease}/agents', [\App\Http\Controllers\CoreX\LeaseController::class, 'updateAgents'])
             ->middleware('permission:leases.create')->name('corex.leases.agents.update');
+        // leases.md §18 — the lease's notice / early-cancellation terms (own Role Manager permission; logged).
+        Route::put('/{lease}/notice-terms', [\App\Http\Controllers\CoreX\LeaseController::class, 'updateNoticeTerms'])
+            ->middleware('permission:lease_notice_terms.edit')->name('corex.leases.notice-terms.update');
         Route::post('/{lease}/activate', [\App\Http\Controllers\CoreX\LeaseController::class, 'activate'])
             ->middleware('permission:leases.create')->name('corex.leases.activate');
         // LEASE-CAPTURE BEGIN (leases.md §15.13 — Build L3a): "Prepare again" after a declined / voided / expired agreement.

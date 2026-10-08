@@ -232,7 +232,7 @@
         </div>
         <form method="POST" action="{{ route('corex.settings.rental-portal.faq-texts') }}" class="p-5 space-y-5">
             @csrf
-            <p class="text-xs" style="color: var(--text-muted);">Your wording, with the lease's own values merged in: <code>{notice_days}</code> <code>{earliest_termination_date}</code> <code>{earliest_notice_date}</code> <code>{lease_end_date}</code> <code>{early_cancellation_terms}</code>. Put a piece in double square brackets, <code>[[like this {lease_end_date}]]</code>, and it is left out whenever the lease does not have that value. A lease with no notice or cancellation terms shows no FAQ at all. Clear a box to go back to the default.</p>
+            <p class="text-xs" style="color: var(--text-muted);">Your wording, with the lease's own values merged in: <code>{notice_period}</code> <code>{earliest_notice_date}</code> <code>{notice_from}</code> <code>{notice_by_date}</code> <code>{earliest_termination_date}</code> <code>{lease_end_date}</code> <code>{early_cancellation_terms}</code> <code>{early_cancellation_notice}</code> <code>{early_cancellation_penalty}</code>. Put a piece in double square brackets, <code>[[like this {lease_end_date}]]</code>, and it is left out whenever the lease does not have that value. A lease with no notice or cancellation terms shows no FAQ at all. Clear a box to go back to the default.</p>
             @foreach([
                 'faq_tenant_notice' => 'Tenant &middot; question 1', 'faq_tenant_early' => 'Tenant &middot; question 2',
                 'faq_landlord_notice' => 'Owner &middot; question 1', 'faq_landlord_early' => 'Owner &middot; question 2',
@@ -242,6 +242,12 @@
                     <input type="text" name="{{ $base }}_question" value="{{ old($base . '_question', $faqTexts[$base . '_question']) }}" maxlength="200"
                            class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
                     <textarea name="{{ $base }}_answer" rows="3" maxlength="1500" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">{{ old($base . '_answer', $faqTexts[$base . '_answer']) }}</textarea>
+                </div>
+            @endforeach
+            @foreach(['faq_tenant_cancel_yes' => 'Tenant · when the lease allows early cancellation', 'faq_tenant_cancel_no' => 'Tenant · when it does not', 'faq_landlord_cancel_yes' => 'Owner · when the lease allows early cancellation', 'faq_landlord_cancel_no' => 'Owner · when it does not'] as $key => $heading)
+                <div class="space-y-1">
+                    <p class="text-xs font-semibold" style="color:var(--text-muted);">{{ $heading }}</p>
+                    <textarea name="{{ $key }}" rows="2" maxlength="1500" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">{{ old($key, $faqTexts[$key]) }}</textarea>
                 </div>
             @endforeach
             <button type="submit" class="corex-btn-primary text-xs">Save</button>

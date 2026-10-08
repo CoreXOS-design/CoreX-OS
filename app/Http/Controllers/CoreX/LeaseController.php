@@ -21,6 +21,7 @@ use App\Services\Rentals\LeaseAgreementTemplateGuard;
 use App\Services\Rentals\LeaseAgreementValuesReader;
 use App\Services\Rentals\LeaseCaptureService;
 use App\Services\Rentals\LeaseHubService;
+use App\Services\Rentals\LeaseNoticeTermsService;
 use App\Services\Rentals\LeaseSigningLauncher;
 use App\Services\Rentals\LeaseTimelineService;
 use App\Services\Rentals\RentalDocumentPdfService;
@@ -627,7 +628,62 @@ class LeaseController extends Controller
             'agentOptions' => $user->hasPermission('leases.create')
                 ? app(LeaseAgentService::class)->selectableAgents((int) $lease->agency_id, $lease->branch_id)->all()
                 : [],
+            // leases.md §18 — the lease's notice / early-cancellation terms (the "Notice terms" card).
+            'noticeTerms' => $this->noticeTermsCard($lease),
         ]);
+    }
+
+    /**
+     * The "Notice terms" card: what the lease holds (never a default shown as if it were recorded), where it came from, the
+     * dates worked out from it, and the agency defaults to start from when the lease holds none.
+     *
+     * @return array<string,mixed>
+     */
+    private function noticeTermsCard(Lease $lease): array
+    {
+        $svc = app(LeaseNoticeTermsService::class);
+        $terms = $svc->termsOf($lease);
+        $values = $svc->stored($terms);
+        $has = $svc->anyIn($values);
+
+        return [
+            'values' => $values,
+            'has' => $has,
+            'source' => $terms?->notice_terms_source,
+            'defaults' => $svc->defaultsFor((int) $lease->agency_id, $lease->start_date),
+            'locked' => $lease->isLockedForSigning(),
+            'signedDocument' => in_array($lease->signing_status, [Lease::SIGNING_SIGNED, Lease::SIGNING_SIGNED_ON_PAPER], true),
+            'periodText' => $svc->periodText($values['notice_period'], $values['notice_period_unit']),
+            'earlyPeriodText' => $svc->periodText($values['early_cancellation_notice'], $values['early_cancellation_notice_unit']),
+            'worked' => $svc->workedDates($lease, $values),
+        ];
+    }
+
+    /**
+     * leases.md §18 — change a lease's notice / early-cancellation terms. Its own permission (`lease_notice_terms.edit`, Role Manager),
+     * the usual own/branch/agency guard, nothing while the agreement is out for signing, every change logged (who, which terms, from, to).
+     */
+    public function updateNoticeTerms(Request $request, Lease $lease): RedirectResponse
+    {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
+        if ($lease->isLockedForSigning()) {
+            return redirect()->route('corex.leases.show', $lease)->withErrors(['notice' => Lease::LOCKED_FOR_SIGNING_MESSAGE]);
+        }
+
+        $svc = app(LeaseNoticeTermsService::class);
+        $data = $request->validate($svc->rules('notice'), $svc->messages('notice'));
+        $values = $svc->normalise((array) ($data['notice'] ?? []), (int) $lease->agency_id);
+
+        $errors = $svc->crossErrors($values, $lease->start_date?->toDateString());
+        if ($errors !== []) {
+            return back()->withInput()->withErrors($errors);
+        }
+
+        $changed = $svc->save($lease, $values, $request->user(), LeaseNoticeTermsService::SOURCE_EDITED);
+
+        return redirect()->route('corex.leases.show', $lease)
+            ->with('success', $changed === [] ? 'The notice terms were already set that way.' : 'Notice terms updated.');
     }
 
     /**

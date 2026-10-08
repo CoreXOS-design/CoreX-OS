@@ -293,6 +293,21 @@
 
         @if($agreementReady)
             @include('corex.leases._agreement-fields')
+        @endif
+
+        {{-- leases.md §18 — notice and early-cancellation terms: always asked (a linked agreement or not); they start from the
+             agency's defaults (or the term being renewed) and are what the lease agreement and the portal FAQ are filled from. --}}
+        <div class="space-y-2" data-qa="capture-notice-terms">
+            <h3 class="text-sm font-semibold">Notice and early cancellation <span class="text-xs font-normal" style="color: var(--text-muted);">· {{ $noticeDefaultsNote ?? 'From your agency defaults' }}</span></h3>
+            @include('corex.leases._notice-terms', [
+                'noticeValues' => $noticeValues ?? [],
+                'noticePrefix' => 'notice',
+                'noticeHide' => in_array('earliest_termination_date', $noticeAgreementKeys ?? [], true) ? ['earliest_termination_date'] : [],
+                'earliestNoticeMonths' => $earliestNoticeMonths ?? null,
+            ])
+        </div>
+
+        @if($agreementReady)
             @include('corex.leases._signers-panel')
             @include('corex.leases._signing-checklist')
         @endif
