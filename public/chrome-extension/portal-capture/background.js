@@ -171,7 +171,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'importOtherAgencyStock') {
     handleImportOtherAgencyStock(msg.apiUrl, msg.apiToken, msg.payload)
       .then(result => sendResponse(result))
-      .catch(err => sendResponse({ success: false, message: err.message }));
+      .catch(err => sendResponse({ success: false, message: err.message, code: err.code || null, url: err.url || null }));
     return true;
   }
 
@@ -1169,6 +1169,18 @@ async function handleImportOtherAgencyStock(apiUrl, apiToken, payload) {
     }
     if (response.status === 403) {
       throw new Error('You do not have permission to import Other Agency Stock.');
+    }
+    // 409 already_agency_stock — the listing is already on CoreX as the agency's own stock (an
+    // authorised user unlocked it). Spec §5e: refuse with CoreX's plain message and a link to it.
+    if (response.status === 409) {
+      let body = null;
+      try { body = JSON.parse(text); } catch (e) { body = null; }
+      if (body && body.code === 'already_agency_stock') {
+        const err = new Error(body.message || 'This property is already on CoreX as agency stock.');
+        err.code = body.code;
+        err.url = body.url || null;
+        throw err;
+      }
     }
     throw new Error('API error ' + response.status + ': ' + (text || 'Unknown error'));
   }

@@ -301,11 +301,14 @@ class LeaseController extends Controller
             ? $this->pickableRentalProperties($request)->find($request->integer('property_id'))
             : null;
 
+        // Johan, 2026-10-08: FICA is a WARNING here, never a stop — the one shared FicaGate (the rule sales' signer gate
+        // uses) says whether each party has submitted FICA; `needs` (which blocks "prepare") stays email / ID only.
         $present = fn (Contact $c, string $prefix) => [
             'id' => $c->id,
             'name' => $c->full_name ?: ('Contact #' . $c->id),
             'needs' => array_values($launcher->contactNeeds($c, $prefix, $map)),
             'url' => route('corex.contacts.show', $c),
+            'fica' => \App\Services\Compliance\FicaGate::describe($c, $prefix === 'landlord' ? 'the landlord' : 'the tenant'),
         ];
 
         $landlords = $launcher->landlordsOf($property);
@@ -599,6 +602,9 @@ class LeaseController extends Controller
             'agreementCard' => app(LeaseSigningLauncher::class)->cardFor($lease, $user),
             'openItemCounts' => $hubService->openItemCounts($lease),
             'landlords' => $lease->landlordContacts(),
+            // Johan, 2026-10-08 — FICA never stops a lease from being activated, signed or given portal access;
+            // this only WARNS (with the link to request/complete it) for any party who has not submitted FICA yet.
+            'ficaWarnings' => $this->ficaWarningsFor($lease),
             // .ai/specs/rental-renewals.md §19 — the notice dialogs' "Show
             // available-from date on portals" tick defaults from the
             // property's own current setting (ticked the first time, same
@@ -611,6 +617,36 @@ class LeaseController extends Controller
             'timelineFilters' => $filters,
             'jobCards' => $jobCards,
         ]);
+    }
+
+    /**
+     * The lease screen's FICA warnings — one entry per tenant / landlord whose FICA has not been submitted, from the
+     * one shared FicaGate (the same rule sales' signer gate uses). Empty for a lease that is over (expired /
+     * cancelled): nothing is left to carry on with.
+     *
+     * @return array<int, array{contact_id:int|null,name:string,state:string,open:bool,label:string,warning:?string,url:?string}>
+     */
+    private function ficaWarningsFor(Lease $lease): array
+    {
+        if (in_array($lease->status, [Lease::STATUS_EXPIRED, Lease::STATUS_CANCELLED], true)) {
+            return [];
+        }
+
+        $parties = [];
+        foreach ($lease->tenants as $leaseTenant) {
+            if ($leaseTenant->contact) {
+                $parties[$leaseTenant->contact->id] = ['contact' => $leaseTenant->contact, 'role' => 'the tenant'];
+            }
+        }
+        foreach ($lease->landlordContacts() as $landlord) {
+            $parties[$landlord->id] ??= ['contact' => $landlord, 'role' => 'the landlord'];
+        }
+
+        return collect($parties)
+            ->map(fn (array $p) => \App\Services\Compliance\FicaGate::describe($p['contact'], $p['role']))
+            ->reject(fn (array $d) => $d['open'])
+            ->values()
+            ->all();
     }
 
     /**

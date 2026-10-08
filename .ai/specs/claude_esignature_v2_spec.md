@@ -179,7 +179,7 @@
 1. Recipient receives email with signing link
 2. Opens link → SigningController::show()
 3. **FICA Gate**: If `fica_required=true` on the signature_request:
-   - Check if contact has FicaSubmission with status in (`submitted`, `under_review`, `agent_approved`, `approved`)
+   - Check the shared gate `FicaGate::isOpen()` — a FicaSubmission in (`submitted`, `under_review`, `agent_approved`, `referred_to_co`, `approved`)
    - If NO → show fica-gate.blade.php with "Complete FICA Form" button
    - If YES → proceed to signing (gate lifts on SUBMISSION, not approval)
 4. Document renders with signatures applied so far
@@ -351,7 +351,7 @@ identity — single-recipient/pre-identity docs — it falls back to the bare-ro
 - Wizard Step 6: "FICA verification required" checkbox per recipient (default ON)
 - Stored on `signature_requests.fica_required`
 - At send time: auto-creates FicaSubmission for contacts without approved FICA
-- Gate checks status IN (`submitted`, `under_review`, `agent_approved`, `approved`)
+- Gate checks status IN (`submitted`, `under_review`, `agent_approved`, `referred_to_co`, `approved`) via `App\Services\Compliance\FicaGate` (2026-10-08: the one shared rule, also used by rentals)
 - Gate lifts on SUBMISSION (not approval) — recipient has done their part
 - Contact FICA status only updates on final CO approval
 - Return-to-signing flow after FICA completion (hidden return_url field)

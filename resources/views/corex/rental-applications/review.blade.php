@@ -267,18 +267,27 @@
                          visual language for it. --}}
                     @php
                         $ficaStatus = $rentalApplication->contact?->ficaStatus() ?? 'incomplete';
-                        $ficaBadgeClass = match($ficaStatus) {
-                            'complete' => 'ds-badge-success',
-                            'expiring' => 'ds-badge-warning',
+                        // 2026-10-08, Johan: the FICA gate lifts on SUBMITTED. An applicant who has submitted (compliance has
+                        // not finished verifying) is not "Outstanding" in red — they have done their part; it reads amber.
+                        $ficaGateInfo = $rentalApplication->ficaGateDescribe();
+                        $ficaSubmittedOnly = $ficaStatus === 'incomplete' && $ficaGateInfo['open'];
+                        $ficaBadgeClass = match(true) {
+                            $ficaSubmittedOnly => 'ds-badge-warning',
+                            $ficaStatus === 'complete' => 'ds-badge-success',
+                            $ficaStatus === 'expiring' => 'ds-badge-warning',
                             default => 'ds-badge-danger',
                         };
-                        $ficaBadgeLabel = match($ficaStatus) {
-                            'complete' => 'FICA Complete',
-                            'expiring' => 'FICA Expiring',
+                        $ficaBadgeLabel = match(true) {
+                            $ficaSubmittedOnly => 'FICA Submitted',
+                            $ficaStatus === 'complete' => 'FICA Complete',
+                            $ficaStatus === 'expiring' => 'FICA Expiring',
                             default => 'FICA Outstanding',
                         };
                     @endphp
-                    <span class="ds-badge {{ $ficaBadgeClass }} flex-shrink-0" title="FICA status for {{ $rentalApplication->contact?->full_name }}">{{ $ficaBadgeLabel }}</span>
+                    <span class="ds-badge {{ $ficaBadgeClass }} flex-shrink-0" title="{{ $ficaSubmittedOnly ? 'The applicant has submitted FICA — it is with us for review.' : ($ficaGateInfo['warning'] ?? 'FICA status for ' . $rentalApplication->contact?->full_name) }}">{{ $ficaBadgeLabel }}</span>
+                    @if(! $ficaGateInfo['open'] && $ficaGateInfo['url'])
+                        <a href="{{ $ficaGateInfo['url'] }}" class="text-xs underline flex-shrink-0" style="color: var(--ds-amber, #b45309);" data-qa="fica-gate-link">Request / complete FICA</a>
+                    @endif
                     {{-- Submission identity gate, 2026-09-13 — two DISTINCT
                          states, never folded into one ambiguous tile:
                          "still waiting on the applicant" vs "we can't even
@@ -3630,8 +3639,10 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
                 const data = await res.json().catch(() => ({}));
                 if (res.ok && data.ok) {
                     this.agentActionError = false;
-                    this.agentActionStatus = 'Submitted to the authoriser.';
-                    setTimeout(() => window.location.reload(), 900);
+                    // Johan, 2026-10-08: not-yet-submitted FICA warns, it never stops — the warning rides along
+                    // with the success and stays up a little longer before the page reloads.
+                    this.agentActionStatus = 'Submitted to the authoriser.' + (data.fica_warning ? ' Note: ' + data.fica_warning : '');
+                    setTimeout(() => window.location.reload(), data.fica_warning ? 4500 : 900);
                 } else if (res.status === 409 && data.reason === 'generation_conflict') {
                     this.handleGenerationConflict(data);
                 } else {

@@ -1259,6 +1259,44 @@ class RentalApplication extends Model
     }
 
     /**
+     * Johan's ruling of 2026-10-08 (relayed by the conductor): the FICA gate lifts on SUBMITTED. ficaOutstanding() above answers a different
+     * question — "has compliance finished VERIFYING this person" (it drives the "approved, subject to FICA
+     * verification" label, the FICA tiles and the badge) — and stays exactly as it was. THIS answers "may the
+     * agent carry on?": yes once the applicant has submitted FICA (or any later review stage), via the one shared
+     * FicaGate that sales' signer gate uses. A contact with a signed legacy e-sign FICA document counts as done
+     * too (Contact::ficaStatus() sees those; FicaGate deliberately only reads submissions).
+     */
+    public function ficaGateOpen(): bool
+    {
+        if ($this->contact_id === null) {
+            return false;
+        }
+
+        return \App\Services\Compliance\FicaGate::isOpen((int) $this->contact_id)
+            || ($this->contact?->ficaStatus() ?? 'incomplete') !== 'incomplete';
+    }
+
+    /**
+     * What a screen shows when the gate is closed — the shared FicaGate::describe() (state, plain-language
+     * warning, link to request/complete FICA) for this application's applicant; `open` follows ficaGateOpen().
+     *
+     * @return array{contact_id:int|null,name:string,state:string,open:bool,label:string,warning:?string,url:?string}
+     */
+    public function ficaGateDescribe(): array
+    {
+        $described = \App\Services\Compliance\FicaGate::describe($this->contact, 'the applicant');
+
+        if (! $described['open'] && $this->ficaGateOpen()) {
+            // Legacy signed FICA document: open, nothing to warn about.
+            $described['open'] = true;
+            $described['warning'] = null;
+            $described['url'] = null;
+        }
+
+        return $described;
+    }
+
+    /**
      * ficaOutstanding() alone can't tell "never started" from "submitted,
      * waiting on our own staff to review it" — Contact::ficaStatus() only
      * has three buckets (complete/expiring/incomplete) and every

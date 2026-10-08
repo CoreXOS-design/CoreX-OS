@@ -21,7 +21,7 @@ Three principles:
 
 1. **The agency designs once, agents click forever.** Templates are crafted centrally with declarative metadata. Agents never configure fields, parties, or signatures — they fill in property/seller details and the system does the rest.
 
-2. **Every signature is legally defensible.** Audit trails are immutable. OTP verification is mandatory. Documents that cannot legally be e-signed (sale agreements) are physically blocked from the e-sign path, not just policy-blocked.
+2. **Every signature is legally defensible.** Audit trails are immutable. OTP verification is mandatory. A template classified or named as an alienation document (sale agreement / OTP / deed) cannot be stored e-signable (`Template::isEsignBlocked()`, the one code floor); every other document's e-sign eligibility is the template's own setting, respected as set (ESIGN-CANON.md §7, amended 2026-10-08).
 
 3. **The system is the compliance officer's deputy.** FICA gates, mandate approval gates, document packs, and amendment cascades are enforced by the system. A compliance officer reviews flags; the system handles enforcement.
 
@@ -37,7 +37,7 @@ Section 2(1): *No alienation of land shall be of any force or effect unless it i
 
 ECTA Section 13(1) explicitly excludes alienation of immovable property from electronic signature equivalence with wet-ink signatures.
 
-**Implication for CoreX:** Sale agreements, Offers to Purchase (OTP), Deeds of Sale, Deeds of Alienation, and Agreements of Sale **cannot** be e-signed. They must use wet-ink delivery only.
+**Implication for CoreX:** An e-signed alienation of land (sale agreements, Offers to Purchase, Deeds of Sale/Alienation) is void in law. E-sign eligibility is **the template's own setting** (`is_esign` / `allowed_delivery_modes`), respected as set (Johan, 2026-10-08, as relayed by the conductor); the code keeps ONE floor beneath that setting today — `Template::isEsignBlocked()` refuses to store such a template as e-signable — and whether that floor stays is Johan's explicit call. See ESIGN-CANON.md §7 (amended 2026-10-08): e-sign eligibility is the template's own setting; the one code floor is `Template::isEsignBlocked()`.
 
 **System enforcement:** `Template::isEsignBlocked()` must return true for any template falling into this category. Four-layer defence (see §5.3).
 
@@ -51,7 +51,7 @@ ECTA section 13 establishes that an electronic signature carries the same legal 
 
 Estate agents are accountable institutions. Every party to a property transaction must be FICA-verified before mandate execution.
 
-**Implication for CoreX:** FICA gate. No mandate can be sent for e-signature until the contact's FICA record is `STATUS_APPROVED`. System enforced.
+**Implication for CoreX:** FICA gate. The external signer's own signing page does not open until the signer has **submitted** FICA (submitted, under review, agent-approved, referred to the CO or approved — Johan's ruling of 2026-10-08, as relayed by the conductor: the gate lifts on SUBMITTED, not only on approved). The rule lives in one place, `App\Services\Compliance\FicaGate`. Everywhere else FICA warns with a link to request/complete it and does not stop the agent.
 
 ### 2.4 POPIA (Protection of Personal Information Act)
 
@@ -287,7 +287,7 @@ The 6-step flow agents follow to create and dispatch a document for signing:
 
 **Step 6: Gates & dispatch**
 
-- **FICA gate:** if `requires_fica` and contact's FICA != APPROVED, blocked with prompt to complete FICA first
+- **FICA gate:** if `requires_fica` and the contact has not SUBMITTED FICA (`FicaGate::isOpen()` false), the signer is held at the FICA page with a prompt to complete FICA; a submitted FICA (or any later review stage) lifts it
 - **CO approval gate:** if `requires_co_approval`, document enters `APPROVAL_PENDING` state, compliance officer must approve before dispatch
 - Once gates pass: document dispatched, party 1 receives signing invitation
 - Document state: `STATUS_SENT`
@@ -363,7 +363,7 @@ Word-boundary enforced — "Photoshop" does not match, "SB 2026 OTP" does.
 In the wizard Step 5 (delivery mode), if `Template::isEsignBlocked()` returns true:
 
 - E-sign mode option is disabled (greyed out)
-- Tooltip explains: "Sale agreements and offers to purchase cannot be e-signed under South African law. Please use wet-ink delivery."
+- Tooltip explains: "Sale agreements and offers to purchase cannot be e-signed under South African law. Please use wet-ink delivery." (This is the one code floor, `Template::isEsignBlocked()`; for every other template the delivery modes are the template's own setting.)
 - Only wet-ink and download options selectable
 
 ### 5.4 Layer 4 — Server hard block at dispatch
@@ -409,39 +409,37 @@ Run-once migration `2026_05_21_220002_classify_otp_templates.php`:
 
 ### 6.1 When the gate fires
 
-Any template with `metadata.requires_fica = true` (typically mandates, addenda) triggers the gate.
+Any signature request with `fica_required = true` (the wizard's per-recipient "FICA verification required before signing" tick, default ON; typically mandates, addenda and lease agreements) triggers the gate **on the external signer's own signing page**. It is the ONE place sales genuinely hard-stops on FICA.
 
-### 6.2 Gate logic
+### 6.2 Gate logic (as built — corrected 2026-10-08)
 
-In `SigningController::index()` and `SignWizardController::dispatch()`:
+The gate lifts on **SUBMITTED**, not only on approved (Johan's ruling of 2026-10-08, as relayed by the conductor). The rule is `App\Services\Compliance\FicaGate` — `SigningController::show()` and the wizard's FICA kick-off both call it; rentals asks the same class:
 
 ```php
-$fica = FicaSubmission::where('contact_id', $contact->id)
-    ->orderByDesc('created_at')
-    ->orderByDesc('id')  // ES-2 fix
-    ->first();
-
-if (!$fica || $fica->status !== 'approved') {
-    return redirect()->route('fica.create', [
-        'contact' => $contact->id,
-        'return_to' => $signingUrl,
-    ])->with('info', 'FICA verification required before signing.');
+if ($signingRequest->fica_required && $signingRequest->contact_id
+    && ! FicaGate::isOpen((int) $signingRequest->contact_id)) {
+    // show external.fica-gate with the link to the electronic FICA form (return_url = this signing link)
 }
 ```
 
+`FicaGate::OPEN_STATUSES` = `submitted`, `under_review`, `agent_approved`, `referred_to_co`, `approved`. Soft-deleted submissions never count; an approved submission outranks a newer unsubmitted draft.
+
 ### 6.3 The ES-2 bug
 
-Currently the orderBy is missing. When a contact has multiple `FicaSubmission` rows (common when wizard auto-creates), MySQL row order is non-deterministic. First request gets row A, refresh gets row B — status appears to "fix itself."
-
-**Fix:** Add `->orderByDesc('created_at')->orderByDesc('id')` to both query sites (`SigningController` line 106-108 + `SignWizardController` equivalent).
+(Historical.) When a contact had several `FicaSubmission` rows, MySQL row order was non-deterministic. The gate now asks "does ANY non-deleted submission of this contact sit in an open status", which has no ordering dependence; the FICA form link for the not-open case uses `orderByDesc('created_at')->orderByDesc('id')`.
 
 ### 6.4 FICA states relevant to e-sign
 
-- `pending` → blocked
-- `corrections_requested` → blocked, prompt to address corrections
-- `approved` → cleared, gate passes
-- `expired` → blocked (FICA expires 12 months after approval)
-- `rejected` → blocked
+- no submission → gate closed (signer sent to the FICA form)
+- `draft` (requested, not submitted) → gate closed
+- `corrections_requested` / `rejected` → gate closed, prompt to redo
+- `expired` → gate closed (FICA expires 12 months after approval)
+- `submitted` / `under_review` / `agent_approved` / `referred_to_co` → **gate OPEN** (the signer has done their part; staff review shows as a status)
+- `approved` → gate open
+
+### 6.5 Warn, don't stop (everywhere except the signer's page)
+
+An agent sending an application to the authoriser, approving, linking a property, creating or activating a lease, sending a lease agreement for signature, or setting up portal access is never stopped by FICA: the screen warns (plain message + link to request/complete FICA) and the agent carries on. The single opt-in exception is a rentals agency's own "FICA before authoriser" setting (OFF by default), which stops only an applicant who has not submitted. See `.ai/specs/compliance.md` §"The FICA gate".
 
 ---
 
@@ -715,7 +713,7 @@ condition_initials                   -- per-party initials on amended regions (i
 
 #### 7.5.11 Wet-Ink Path (OTPs, Sale Agreements)
 
-OTPs cannot be e-signed but **CAN** be created in DocuPerfect with full insertable conditions support:
+OTPs are held to wet-ink by the code floor (`Template::isEsignBlocked()`) but **CAN** be created in DocuPerfect with full insertable conditions support:
 
 1. Agent prepares OTP with all insertable blocks filled
 2. Delivery mode = wet-ink (forced — system blocks e-sign per §5)

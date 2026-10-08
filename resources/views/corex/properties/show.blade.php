@@ -2280,6 +2280,17 @@
                                 @endforeach
                             </div>
                         </div>
+                        <div>
+                            <p class="prop-subsection-heading">Building</p>
+                            <div class="flex flex-wrap gap-4">
+                                <div>
+                                    <label class="prop-label">Number of floors</label>
+                                    <input type="number" name="number_of_floors" value="{{ old('number_of_floors', $property->number_of_floors ?? '') }}" min="0" max="300" step="1"
+                                           placeholder="—"
+                                           class="prop-input prop-field-m2">
+                                </div>
+                            </div>
+                        </div>
 
                 {{-- Spaces & Features --}}
                 @php
@@ -11783,7 +11794,8 @@ const _DEFAULT_SPACE_FEATURES = {
 };
 const _ALL_SPACE_TYPES = ['Bedroom','Bathroom','Garage','Parking','Kitchen','Garden','Pool','Flatlet','Study','Domestic Room','Lounge','Dining Room','Outside Toilet','Domestic Bathroom','Entrance Hall','Bar','Boardroom','Boat Launch','Boathouse','Braai Room','Cellar','Changing Room','Clubhouse','Courtyard','Gazebo','Greenhouse','Gym','Jacuzzi','Jetty','Lapa','Laundry Room','Linen Room','Loft','Office','Patio','Pool Shed','Reception Room','Sauna','Scullery','Shed','Squash Court','Stable','Storeroom','Studio','Tennis Court','TV Room','Veranda','Wendy House','Workshop','Yard'];
 const _FEATURE_CATEGORIES = {
-    theProperty:    { label: 'The Property', features: ['Air Conditioned','Balcony','Cleaning Service','Communal Braai Area','Freehold','Furnished','Green Building','Ground Floor Unit','Investment','Leasehold','Multi Tenanted','Natural Light','Pet Friendly','Pets Not Allowed','Renovation Fixer-Upper','Sea View','Second Floor and Above','Sectional Title','Serviced','Single Storey','Standalone','Top Floor','Unfurnished','Wheelchair Friendly'] },
+    theProperty:    { label: 'The Property', features: ['Air Conditioned','Balcony','Cleaning Service','Communal Braai Area','Complex','Freehold','Furnished','Green Building','Ground Floor Unit','Investment','Leasehold','Multi Tenanted','Natural Light','No Transfer Duty','Office Building','Pet Friendly','Pets Not Allowed','Renovation Fixer-Upper','Sea View','Second Floor and Above','Sectional Title','Serviced','Single Storey','Standalone','Top Floor','Unfurnished','Wheelchair Friendly'] },
+    building:       { label: 'Building',     features: ['Wall: Brick','Wall: Concrete','Wall: Face Brick','Wall: Plaster','Wall: Stone','Wall: Timber','Floor: Carpeted','Floor: Concrete','Floor: Laminated','Floor: Marble','Floor: Parquet','Floor: Tiled','Floor: Vinyl','Floor: Wooden','Roof: Aluminium','Roof: Asbestos','Roof: Clay Tiles','Roof: Concrete','Roof: Concrete Tiles','Roof: Corrugated Iron','Roof: IBR','Roof: Insulation','Roof: Slate','Roof: Thatch','Roof: Tiles','Roof: Waterproofing','Roof: Zinc','Window: Aluminium','Window: Double Glazed','Window: PVC','Window: Steel','Window: Wood','Style: Cape Dutch','Style: Colonial','Style: Contemporary','Style: Conventional','Style: Mediterranean','Style: Modern','Style: Spanish','Style: Tuscan','Style: Victorian'] },
     security:       { label: 'Security',     features: ['24 Hour Access','24 Hour Guard','Alarm System','Armed Response','Boomed Area','Burglar Bars','CCTV','Electric Fence','Electric Gate','Gated Community','Guard House','In Security','Indoor Beams','Intercom','Outdoor Beams','Partially Fenced','Perimeter Wall','Safe','Security Gate','Totally Fenced','Totally Walled','Security Complex','Automated Garage Doors','Security Estate'] },
     connectivity:   { label: 'Connectivity', features: ['ADSL','Cable TV','Fibre','Internet Port','Satellite Dish','Satellite Internet','Telephone Port','TV Port','Wi-Fi'] },
     sustainability: { label: 'Sustainability',features: ['Backup Battery','Backup Water','Borehole','Gas Geyser','Gas Hob','Gas Oven','Generator','Inverter','Septic Tank','Solar Geyser','Solar Heating','Solar Panel','Water Tank'] },
@@ -11822,6 +11834,7 @@ const _SPACE_SVG = {
 };
 const _FEAT_CAT_SVG = {
     theProperty:    `<svg viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a1 1 0 01-1 1H4a1 1 0 01-1-1V9z"/><path d="M9 22V12h6v10"/></svg>`,
+    building:       `<svg viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V4a1 1 0 011-1h9a1 1 0 011 1v17M15 9h4a1 1 0 011 1v11M2 21h20"/><path d="M8 7h3M8 11h3M8 15h3"/></svg>`,
     security:       `<svg viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 3v5c0 5-3.5 9.74-8 11-4.5-1.26-8-6-8-11V5l8-3z"/><path d="M9 12l2 2 4-4"/></svg>`,
     connectivity:   `<svg viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8.5a15 15 0 0121 0M5 12.5a10 10 0 0114 0M8.5 16.5a5 5 0 017 0"/><circle cx="12" cy="20" r="1" fill="#22c55e" stroke="#22c55e"/></svg>`,
     sustainability: `<svg viewBox="0 0 24 24" fill="none" stroke="#14b8a6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a1 1 0 01-1 1H4a1 1 0 01-1-1V9z"/><path d="M9 14a3 3 0 006 0V11"/><circle cx="12" cy="8.5" r="1.5" fill="#14b8a6" stroke="none"/></svg>`,
@@ -11837,6 +11850,7 @@ function spacesAndFeaturesManager(initSpaces, initFeatures, initBeds, initBaths,
         spaces: initSpaces || [],
         features: {
             theProperty:    (initFeatures && Array.isArray(initFeatures.theProperty))    ? initFeatures.theProperty    : [],
+            building:       (initFeatures && Array.isArray(initFeatures.building))       ? initFeatures.building       : [],
             security:       (initFeatures && Array.isArray(initFeatures.security))       ? initFeatures.security       : [],
             connectivity:   (initFeatures && Array.isArray(initFeatures.connectivity))   ? initFeatures.connectivity   : [],
             sustainability: (initFeatures && Array.isArray(initFeatures.sustainability)) ? initFeatures.sustainability : [],

@@ -13,10 +13,12 @@ namespace App\Services\Properties;
  * a mapping can be corrected without shipping a new extension.
  *
  * What it produces
- *  - `global`  : the four property-wide groups the property page ticks (The Property, Security,
+ *  - `global`  : the five property-wide groups the property page ticks (The Property, Building, Security,
  *                Connectivity, Sustainability) — `spaces_json.features.*`;
  *  - `spaces`  : extra rooms P24 counts that CoreX also has as a space type (Reception Rooms,
  *                Office, Study …);
+ *  - `attributes`: single facts that live in a property column, not a tick (number_of_floors, floor_number,
+ *                occupation_date, lease_period) — applied by OtherAgencyStockImportService;
  *  - `unmapped`: rows P24 shows that have NO CoreX equivalent, as "Section / Label = value", so
  *                the gap is visible (reported, never invented into a new CoreX feature).
  *
@@ -26,7 +28,30 @@ namespace App\Services\Properties;
  */
 final class OtherAgencyStockFeatureMapper
 {
-    public const CATEGORIES = ['theProperty', 'security', 'connectivity', 'sustainability'];
+    public const CATEGORIES = ['theProperty', 'building', 'security', 'connectivity', 'sustainability'];
+
+    /**
+     * Property24's Building section: row label -> the CoreX label prefix ("Wall: Plaster"). The part after the
+     * prefix is looked up in the catalog, so the vocabulary lives in ONE place (config/property-spaces.php).
+     */
+    private const BUILDING_FACETS = [
+        'wall' => 'Wall', 'walls' => 'Wall',
+        'floor' => 'Floor', 'floors' => 'Floor',
+        'roof' => 'Roof',
+        'window' => 'Window', 'windows' => 'Window',
+        'style' => 'Style',
+    ];
+
+    /**
+     * Property24's wording of a building material -> CoreX's, per facet (after the facet's own word —
+     * "Floors", "Wall", "Roof", "Windows" — has been stripped). Right side is the part after "Wall: " etc.
+     */
+    private const BUILDING_VALUE_ALIASES = [
+        'Wall'   => ['wood' => 'Timber', 'wooden' => 'Timber'],
+        'Floor'  => ['carpet' => 'Carpeted', 'wood' => 'Wooden', 'tile' => 'Tiled', 'tiles' => 'Tiled'],
+        'Roof'   => ['tile' => 'Tiles', 'iron' => 'Corrugated Iron', 'corrugated' => 'Corrugated Iron', 'galvanised' => 'Zinc', 'galvanized' => 'Zinc', 'aluminum' => 'Aluminium'],
+        'Window' => ['aluminum' => 'Aluminium', 'upvc' => 'PVC', 'double glazing' => 'Double Glazed', 'wooden' => 'Wood', 'timber' => 'Wood'],
+    ];
 
     /**
      * In the property page's picker (show.blade.php `_FEATURE_CATEGORIES`) but missing from the
@@ -45,6 +70,7 @@ final class OtherAgencyStockFeatureMapper
      * TwentyFourHourResponse <- Armed Response, Guard <- 24 Hour Guard, Electricfencing <- Electric Fence.
      */
     private const ALIASES = [
+        'office'                => ['theProperty', 'Office Building'],
         'closed circuit tv'     => ['security', 'CCTV'],
         '24 hour response'      => ['security', 'Armed Response'],
         'guard'                 => ['security', '24 Hour Guard'],
@@ -62,6 +88,18 @@ final class OtherAgencyStockFeatureMapper
         'wheelchair accessible' => ['theProperty', 'Wheelchair Friendly'],
         'standalone building'   => ['theProperty', 'Standalone'],
         'generator'             => ['sustainability', 'Generator'],
+        'no transfer duty'      => ['theProperty', 'No Transfer Duty'],
+    ];
+
+    /**
+     * Rows that are single facts stored in a property COLUMN rather than a tick: row label -> attribute key.
+     * (floor_number is the unit's own floor; number_of_floors is the building's height.)
+     */
+    private const ATTRIBUTE_ROWS = [
+        'number of floors' => 'number_of_floors',
+        'floor number'     => 'floor_number',
+        'occupation date'  => 'occupation_date',
+        'lease period'     => 'lease_period',
     ];
 
     /** Rows already read into columns/spaces elsewhere (or plain facts, not features) — not "unmapped". */
@@ -97,12 +135,13 @@ final class OtherAgencyStockFeatureMapper
     /**
      * @param  array<int, array{s?: mixed, k?: mixed, v?: mixed}>  $rows      every accordion row: section, label, values
      * @param  string[]                                            $stripTags  the tags beside the icon strip ("Furnished", "Pet Friendly" …)
-     * @return array{global: array<string, string[]>, spaces: array<int, array{type: string, count: int}>, unmapped: string[]}
+     * @return array{global: array<string, string[]>, spaces: array<int, array{type: string, count: int}>, attributes: array<string, int|string>, unmapped: string[]}
      */
     public static function map(array $rows, array $stripTags = []): array
     {
         $global = array_fill_keys(self::CATEGORIES, []);
         $spaces = [];
+        $attributes = [];
         $unmapped = [];
 
         $tick = function (string $cat, string $label) use (&$global): void {
@@ -140,7 +179,24 @@ final class OtherAgencyStockFeatureMapper
                 continue;
             }
 
-            if ($key === 'furnished') {
+            if (isset(self::ATTRIBUTE_ROWS[$key])) {
+                $attr = self::ATTRIBUTE_ROWS[$key];
+                $value = self::attributeValue($attr, $values[0]);
+                if ($value !== null) {
+                    $attributes[$attr] = $value;
+                } else {
+                    $unmapped[] = "{$where} = " . implode(', ', $values);
+                }
+            } elseif (isset(self::BUILDING_FACETS[$key])) {
+                foreach ($values as $v) {
+                    $label = self::buildingLabel(self::BUILDING_FACETS[$key], $v);
+                    if ($label !== null) {
+                        $tick('building', $label);
+                    } else {
+                        $unmapped[] = "{$where} = {$v}";
+                    }
+                }
+            } elseif ($key === 'furnished') {
                 if ($first === 'yes') {
                     $tick('theProperty', 'Furnished');
                 } elseif ($first === 'no') {
@@ -208,10 +264,46 @@ final class OtherAgencyStockFeatureMapper
         }
 
         return [
-            'global'   => $global,
-            'spaces'   => array_values($spaces),
-            'unmapped' => array_values(array_unique($unmapped)),
+            'global'     => $global,
+            'spaces'     => array_values($spaces),
+            'attributes' => $attributes,
+            'unmapped'   => array_values(array_unique($unmapped)),
         ];
+    }
+
+    /** A row's first value as the column wants it, or null when it can't be read (never guessed). */
+    private static function attributeValue(string $attr, string $raw): int|string|null
+    {
+        switch ($attr) {
+            case 'number_of_floors':
+                // "1", "12" — a whole number of floors; "Ground + 2" style text is not guessed at.
+                return ctype_digit($raw) && (int) $raw <= 300 ? (int) $raw : null;
+            case 'occupation_date':
+                // "01 October 2026"; "Immediately" and the like are not a date, so nothing is stored.
+                $d = \DateTime::createFromFormat('!d F Y', $raw) ?: \DateTime::createFromFormat('!j F Y', $raw);
+
+                return $d ? $d->format('Y-m-d') : null;
+            case 'lease_period':
+                return mb_substr($raw, 0, 100);
+            default: // floor_number
+                return mb_substr($raw, 0, 50);
+        }
+    }
+
+    /** Property24's Building value ("Tiled Floors", "Zinc", "Brick") -> the catalog label ("Floor: Tiled"), or null. */
+    private static function buildingLabel(string $facet, string $value): ?string
+    {
+        $k = strtolower(self::clean($value));
+        $k = trim((string) preg_replace('/\s+(floors?|walls?|roofs?|windows?)$/', '', $k));
+        $k = self::BUILDING_VALUE_ALIASES[$facet][$k] ?? $k;
+
+        foreach ((array) config('property-spaces.feature_categories.building.features', []) as $label) {
+            if (strcasecmp((string) $label, "{$facet}: {$k}") === 0) {
+                return (string) $label;
+            }
+        }
+
+        return null;
     }
 
     /**

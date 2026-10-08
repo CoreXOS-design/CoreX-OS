@@ -213,6 +213,8 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
     // AT-445 — .ai/specs/rental-portal-access.md §9. Tenant rentals.
     Route::prefix('rentals')->name('client.rentals.')->group(function () {
         Route::middleware('rental-portal.enabled:tenant')->group(function () {
+            // §20 — the portal home: agent contact, inspection dates, lease end / renewal status.
+            Route::get('/overview', [ClientTenantRentalsController::class, 'overview'])->name('overview');
             Route::get('/leases', [ClientTenantRentalsController::class, 'leases'])->name('leases.index');
             Route::get('/leases/{lease}', [ClientTenantRentalsController::class, 'leaseShow'])->name('leases.show');
             Route::get('/documents', [ClientTenantRentalsController::class, 'documents'])->name('documents.index');
@@ -239,6 +241,7 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
 
         // Landlord rentals.
         Route::prefix('landlord')->name('landlord.')->middleware('rental-portal.enabled:landlord')->group(function () {
+            Route::get('/overview', [ClientLandlordRentalsController::class, 'overview'])->name('overview');
             Route::get('/properties', [ClientLandlordRentalsController::class, 'properties'])->name('properties.index');
             Route::get('/properties/{property}', [ClientLandlordRentalsController::class, 'propertyShow'])->name('properties.show');
             // §15 (AT-447 follow-up) — "Request work / report a problem."

@@ -944,15 +944,22 @@ class RentalApplicationReviewController extends Controller
         // not fica." Agency-configurable (default required, matching
         // Johan's own stated answer for HFC) — never blocks the
         // application's own receipt, only this hand-off to the authoriser.
-        // Reads the SAME status the Contact page's own FICA badge already
-        // shows (RentalApplication::ficaOutstanding()) — an agent walk-in
-        // verification (FicaController::agentApprove()) moves this exactly
-        // like an online one would, since both write to the same table.
-        if (RentalApplicationQualifyingSetting::requireFicaBeforeAuthorisationFor((int) $rentalApplication->agency_id)
-            && $rentalApplication->ficaOutstanding()) {
+        //
+        // 2026-10-08, Johan's ruling (relayed by the conductor): the FICA gate lifts on SUBMITTED. This asks the
+        // one shared gate (RentalApplication::ficaGateOpen() → FicaGate, the
+        // same rule sales' signer gate uses): an applicant who has SUBMITTED
+        // FICA no longer holds this up — only an applicant who has not
+        // submitted does, and only for an agency that switched the hard stop
+        // on. Otherwise the hand-off goes ahead and the response carries a
+        // plain warning with the link to request/complete FICA.
+        $ficaGate = $rentalApplication->ficaGateDescribe();
+        if (! $ficaGate['open']
+            && RentalApplicationQualifyingSetting::requireFicaBeforeAuthorisationFor((int) $rentalApplication->agency_id)) {
             return response()->json([
-                'error' => 'FICA verification is still outstanding for this applicant — it must be complete before this can go to the authoriser.',
+                'error' => 'The applicant has not submitted their FICA yet, and your agency requires that before this goes to the authoriser. '
+                    . 'Request it from the applicant (or complete it with them) and try again.',
                 'reason' => 'fica_outstanding',
+                'fica_url' => $ficaGate['url'],
             ], 422);
         }
 
@@ -971,6 +978,9 @@ class RentalApplicationReviewController extends Controller
         return response()->json([
             'ok' => true,
             'submitted_for_approval_at' => $rentalApplication->submitted_for_approval_at->toIso8601String(),
+            // A warning, never a stop: set only while the applicant has not submitted FICA.
+            'fica_warning' => $ficaGate['warning'],
+            'fica_url' => $ficaGate['url'],
         ]);
     }
 

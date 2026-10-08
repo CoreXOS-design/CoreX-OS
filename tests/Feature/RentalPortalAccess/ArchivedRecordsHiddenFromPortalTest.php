@@ -111,9 +111,12 @@ class ArchivedRecordsHiddenFromPortalTest extends TestCase
 
     private function makeInspection(): RentalInspection
     {
+        // Completed = sent: the portal lists only sent inspections and booked dates (rental-portal-access.md §20), so a bare
+        // draft would never be listed and this test could not tell "archived" from "not yet sent".
         return RentalInspection::create([
             'agency_id' => $this->agency->id, 'lease_id' => $this->lease->id,
             'type' => RentalInspection::TYPE_IN, 'created_by_user_id' => $this->agent->id,
+            'status' => RentalInspection::STATUS_COMPLETED, 'completed_at' => now()->subDay(),
         ]);
     }
 

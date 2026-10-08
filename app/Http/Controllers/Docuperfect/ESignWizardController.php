@@ -3575,9 +3575,8 @@ class ESignWizardController extends Controller
                 // Auto-create FICA submission if required and contact has none approved
                 $ficaSubId = null;
                 if ($ficaRequired && $contactId) {
-                    $hasApprovedFica = FicaSubmission::where('contact_id', $contactId)
-                        ->whereIn('status', ['submitted', 'under_review', 'agent_approved', 'approved'])
-                        ->exists();
+                    // The one FICA gate (Johan, 2026-10-08): submitted — or further — is enough.
+                    $hasApprovedFica = \App\Services\Compliance\FicaGate::isOpen($contactId);
                     if (! $hasApprovedFica) {
                         $existingDraft = FicaSubmission::where('contact_id', $contactId)
                             ->whereIn('status', ['draft', 'submitted', 'under_review', 'agent_approved'])

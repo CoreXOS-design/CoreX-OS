@@ -1177,6 +1177,7 @@ class PropertyController extends Controller
             'complex_name'     => 'nullable|string|max:255',
             'unit_number'      => 'nullable|string|max:100',
             'floor_number'     => 'nullable|string|max:50',
+            'number_of_floors' => 'nullable|integer|min:0|max:300',
             'unit_section_block' => 'nullable|string|max:255',
             'stand_number'     => 'nullable|string|max:100',
             // 2026-09-30 — erf_number was fillable and used for search, but
@@ -1608,6 +1609,7 @@ class PropertyController extends Controller
             'complex_name'     => 'nullable|string|max:255',
             'unit_number'      => 'nullable|string|max:100',
             'floor_number'     => 'nullable|string|max:50',
+            'number_of_floors' => 'nullable|integer|min:0|max:300',
             'unit_section_block' => 'nullable|string|max:255',
             'stand_number'     => 'nullable|string|max:100',
             // 2026-09-30 — erf_number was fillable and used for search, but
@@ -3538,6 +3540,18 @@ class PropertyController extends Controller
         if (!empty($rawJson)) {
             $decoded = json_decode($rawJson, true);
             if ($decoded) {
+                // 2026-10-08 — the page now always posts a "building" feature group. A property saved before that
+                // group existed has none stored; posting it back empty is not an edit. For Other Agency Stock
+                // spaces_json is a locked column, so without this every such property's next save (an internal
+                // street-number fix, say) would be refused as "spaces_json is read-only".
+                if ($property !== null
+                    && is_array($decoded['features'] ?? null)
+                    && array_key_exists('building', $decoded['features'])
+                    && empty($decoded['features']['building'])
+                    && ! array_key_exists('building', (array) ($property->spaces_json['features'] ?? []))) {
+                    unset($decoded['features']['building']);
+                }
+
                 $data['spaces_json'] = $decoded;
 
                 // Build flat features_json for backward compat (overview tab)
