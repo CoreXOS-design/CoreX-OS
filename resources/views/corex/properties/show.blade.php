@@ -3261,7 +3261,7 @@
                                     $importedFields = ! $isNew && $property->isUntouchedImportedStock();
                                     $listedDateValue = $importedFields
                                         ? now()->format('Y-m-d')   // what a takeover will set; also the earliest expiry
-                                        : ($property->created_at?->format('Y-m-d') ?? now()->format('Y-m-d'));
+                                        : (($property->listed_date ?? $property->created_at)?->format('Y-m-d') ?? now()->format('Y-m-d'));
                                     $expiryInitial = $importedFields
                                         ? (string) old('expiry_date', '')
                                         : (string) old('expiry_date', $property->expiry_date?->format('Y-m-d'));
@@ -3288,6 +3288,10 @@
                                                class="prop-input prop-field-lifecycle"
                                                style="color-scheme: light dark; opacity:.75; cursor:not-allowed;"
                                                title="Listed Date is always the date the property was loaded">
+                                        @if(!$isNew)
+                                        <button type="button" class="text-xs underline mt-1" style="color:var(--brand-default);"
+                                                onclick="window.dispatchEvent(new CustomEvent('open-listed-date-fix'))">Correct listed date</button>
+                                        @endif
                                         @endif
                                     </div>
                                     <div x-data="{ qaOpen: false, picked: {{ $importedFields && $expiryInitial !== '' ? 'true' : 'false' }} }" @click.outside="qaOpen = false" class="relative" data-tour="prop-expiry">
@@ -3584,6 +3588,70 @@
                 </section>{{-- /Mandate section --}}
 
             </form>{{-- /prop-update-form --}}
+
+            @if(!$isNew)
+            {{-- Correct listed date — outside the update form (no nested forms). Reason is mandatory and lands in the notes. --}}
+            <div x-data="{ open: {{ $errors->has('reason') || $errors->has('listed_date') ? 'true' : 'false' }} }" @open-listed-date-fix.window="open = true" @keydown.escape.window="open = false">
+                <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,.5);">
+                    <form method="POST" action="{{ route('corex.properties.listed-date.update', $property) }}" @click.outside="open = false"
+                          class="w-full max-w-md rounded-lg p-5 space-y-3" style="background:var(--surface); border:1px solid var(--border);">
+                        @csrf @method('PUT')
+                        <h3 class="text-sm font-semibold" style="color:var(--text-primary);">Correct listed date</h3>
+                        <p class="text-xs" style="color:var(--text-secondary);">The listed date is the day the property went live on the portals. Say why you are changing it &mdash; the reason is saved in this property's notes.</p>
+                        <div>
+                            <label class="prop-label">New listed date</label>
+                            <div class="relative" x-data="{
+                                    cal: false,
+                                    value: '{{ old('listed_date', $property->listed_date?->toDateString()) }}',
+                                    max: '{{ now()->toDateString() }}',
+                                    y: 0, m: 0,
+                                    months: ['January','February','March','April','May','June','July','August','September','October','November','December'],
+                                    init() { const d = this.value ? new Date(this.value + 'T00:00:00') : new Date(); this.y = d.getFullYear(); this.m = d.getMonth(); },
+                                    pad(n) { return String(n).padStart(2, '0'); },
+                                    iso(d) { return this.y + '-' + this.pad(this.m + 1) + '-' + this.pad(d); },
+                                    get blanks() { return (new Date(this.y, this.m, 1).getDay() + 6) % 7; },
+                                    get days() { return new Date(this.y, this.m + 1, 0).getDate(); },
+                                    shift(n) { this.m += n; if (this.m < 0) { this.m = 11; this.y--; } if (this.m > 11) { this.m = 0; this.y++; } },
+                                    pick(d) { if (this.iso(d) > this.max) return; this.value = this.iso(d); this.cal = false; },
+                                    label() { if (!this.value) return 'Select a date'; const d = new Date(this.value + 'T00:00:00'); return d.getDate() + ' ' + this.months[d.getMonth()] + ' ' + d.getFullYear(); }
+                                 }" @click.outside="cal = false">
+                                <input type="hidden" name="listed_date" :value="value" required>
+                                <button type="button" @click="cal = !cal" class="prop-input text-left flex items-center justify-between" style="cursor:pointer;">
+                                    <span x-text="label()"></span><span aria-hidden="true">&#128197;</span>
+                                </button>
+                                <div x-show="cal" x-cloak class="absolute z-50 mt-1 p-3 rounded-md shadow-lg" style="background:var(--surface); border:1px solid var(--border); width:260px;">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <button type="button" @click="shift(-1)" class="px-2 py-1 text-sm" style="color:var(--text-primary);">&lsaquo;</button>
+                                        <span class="text-xs font-semibold" style="color:var(--text-primary);" x-text="months[m] + ' ' + y"></span>
+                                        <button type="button" @click="shift(1)" class="px-2 py-1 text-sm" style="color:var(--text-primary);">&rsaquo;</button>
+                                    </div>
+                                    <div class="grid grid-cols-7 gap-1 text-center text-xs" style="color:var(--text-secondary);">
+                                        <template x-for="h in ['Mo','Tu','We','Th','Fr','Sa','Su']"><span x-text="h"></span></template>
+                                        <template x-for="b in blanks"><span></span></template>
+                                        <template x-for="d in days" :key="d">
+                                            <button type="button" @click="pick(d)" :disabled="iso(d) > max"
+                                                    class="py-1 rounded text-xs"
+                                                    :style="iso(d) === value ? 'background:var(--brand-button); color:#fff;' : (iso(d) > max ? 'opacity:.3; cursor:not-allowed;' : 'color:var(--text-primary);')"
+                                                    x-text="d"></button>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+                            @error('listed_date')<p class="text-xs mt-1" style="color:var(--ds-red,#dc2626);">{{ $message }}</p>@enderror
+                        </div>
+                        <div>
+                            <label class="prop-label">Reason (required)</label>
+                            <textarea name="reason" required minlength="5" maxlength="2000" rows="3" class="prop-input" placeholder="e.g. Date on the Property24 listing page is 12 Mar 2026">{{ old('reason') }}</textarea>
+                            @error('reason')<p class="text-xs mt-1" style="color:var(--ds-red,#dc2626);">{{ $message }}</p>@enderror
+                        </div>
+                        <div class="flex justify-end gap-2">
+                            <button type="button" @click="open = false" class="px-4 py-2 rounded-md text-xs font-medium" style="color:var(--text-secondary);">Cancel</button>
+                            <button type="submit" class="px-4 py-2 rounded-md text-xs font-semibold text-white" style="background:var(--brand-button);">Save</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            @endif
 
             {{-- Save / Delete — outside the update form to prevent nesting --}}
             <div class="flex items-center justify-between pt-4">
