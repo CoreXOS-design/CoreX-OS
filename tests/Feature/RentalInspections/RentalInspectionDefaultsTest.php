@@ -146,6 +146,12 @@ final class RentalInspectionDefaultsTest extends TestCase
     {
         Notification::fake();
         $i = $this->ready();
+        // The reminder goes through the notification gateway, whose per-user cooldown (default 6 real hours) would swallow
+        // every simulated "next day" in this test - switch it off so the milestone logic is what is under test.
+        \App\Models\CommandCenter\UserDashboardSetting::updateOrCreate(
+            ['user_id' => $this->inspector->id],
+            array_merge(\App\Models\CommandCenter\UserDashboardSetting::defaults(), ['min_minutes_between_same' => 0])
+        );
         $closes = $i->fresh()->signing_deadline_at->copy()->startOfDay();
         $service = app(RentalInspectionSigningReminderService::class);
 

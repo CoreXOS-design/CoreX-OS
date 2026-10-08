@@ -76,11 +76,25 @@ final class NotificationCatalogueHasProducersTest extends TestCase
         );
 
         // And the retired ones must NOT be live — that is the whole point of R1.
-        foreach (['contact.fica_expiring', 'deal.milestone_due', 'leave.cancelled'] as $retired) {
+        foreach (['contact.fica_expiring'] as $retired) {
             $this->assertFalse(
                 NotificationEventType::where('key', $retired)->exists(),
                 "{$retired} was retired — it must not be offered in the settings UI"
             );
+        }
+
+        // AT-259 (migration 2026_08_01_140001) deliberately UN-RETIRED these two when it built their
+        // watchers (ScanDealNotifications / the leave watcher), as opt-in (default OFF). The schema
+        // snapshot is now a from-scratch migrate, so it correctly carries them live. They are not
+        // "retired" any more - so this guard now holds them to the stronger condition: if they are
+        // offered, a producer must exist in source and they must stay opt-in.
+        foreach (['deal.milestone_due', 'leave.cancelled'] as $unretired) {
+            $row = NotificationEventType::where('key', $unretired)->first();
+            if ($row === null) {
+                continue;   // still retired somewhere: fine
+            }
+            $this->assertTrue($this->hasProducerInSource($unretired), "{$unretired} is offered in the settings UI but nothing can fire it");
+            $this->assertFalse((bool) $row->default_enabled, "{$unretired} was un-retired as opt-in (AT-259) - it must not switch itself on for everyone");
         }
     }
 

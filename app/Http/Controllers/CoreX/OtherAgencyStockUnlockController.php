@@ -12,7 +12,7 @@ use App\Notifications\OtherAgencyStockUnlockDecidedNotification;
 use App\Notifications\OtherAgencyStockUnlockRequestedNotification;
 use App\Services\Properties\OtherAgencyStockStatusGate;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Notification;
+use App\Services\CommandCenter\NotificationDispatcher;
 
 /**
  * .ai/specs/other-agency-stock.md §8a — the request → approve/decline →
@@ -53,7 +53,14 @@ class OtherAgencyStockUnlockController extends Controller
         $authorisedUsers = OtherAgencyStockStatusGate::authorisedUsersFor((int) $property->agency_id);
 
         if ($authorisedUsers->isNotEmpty()) {
-            Notification::send($authorisedUsers, new OtherAgencyStockUnlockRequestedNotification($unlockRequest, $property, $user));
+            // Through the notification gateway (preference, open hours, ledger) - one send per authorised user.
+            foreach ($authorisedUsers as $recipient) {
+                app(NotificationDispatcher::class)->send(
+                    $recipient, 'other_agency_stock.unlock_requested', $unlockRequest,
+                    new OtherAgencyStockUnlockRequestedNotification($unlockRequest, $property, $user),
+                    ['threshold_hit_at' => now()],
+                );
+            }
 
             foreach ($authorisedUsers as $authorisedUser) {
                 CommandTask::create([
@@ -102,7 +109,11 @@ class OtherAgencyStockUnlockController extends Controller
         ]);
 
         if ($unlock->requestedBy) {
-            $unlock->requestedBy->notify(new OtherAgencyStockUnlockDecidedNotification($decision, $property, $user));
+            app(NotificationDispatcher::class)->send(
+                $unlock->requestedBy, 'other_agency_stock.unlock_decided', $decision,
+                new OtherAgencyStockUnlockDecidedNotification($decision, $property, $user),
+                ['threshold_hit_at' => now()],
+            );
         }
 
         CommandTask::where('source_type', 'other_agency_stock_unlock')

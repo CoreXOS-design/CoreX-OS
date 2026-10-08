@@ -8,6 +8,7 @@ use App\Models\LeaseEvent;
 use App\Models\LeaseSetting;
 use App\Models\User;
 use App\Notifications\LeaseMonthToMonthNotice;
+use App\Services\CommandCenter\NotificationDispatcher;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -129,7 +130,13 @@ class LeaseAutoMonthToMonthService
     {
         try {
             $agent = $lease->createdByUser ?? ($lease->property?->agent_id ? User::withoutGlobalScopes()->find($lease->property->agent_id) : null);
-            $agent?->notify(new LeaseMonthToMonthNotice($lease, $previousEnd->toDateString()));
+            if ($agent) {
+                app(NotificationDispatcher::class)->send(
+                    $agent, 'lease.auto_month_to_month', $lease,
+                    new LeaseMonthToMonthNotice($lease, $previousEnd->toDateString()),
+                    ['threshold_hit_at' => now()],
+                );
+            }
         } catch (\Throwable $e) {
             Log::warning('Auto month-to-month: could not tell the agent', ['lease_id' => $lease->id, 'error' => $e->getMessage()]);
         }

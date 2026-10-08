@@ -98,9 +98,12 @@ class BackfillLeaseNoticeTerms extends Command
                     if ($terms) {
                         DB::table('lease_agreement_terms')->where('id', $terms->id)->update($write + ['notice_terms_source' => LeaseNoticeTermsService::SOURCE_AGENCY_DEFAULT]);
                     } else {
-                        DB::table('lease_agreement_terms')->insert($write + [
+                        // One literal row with agency_id stamped in plain sight (the notice values spread last: they
+                        // never overlap these keys). The raw-insert guard reads this shape as verified.
+                        DB::table('lease_agreement_terms')->insert([
                             'agency_id' => $lease->agency_id, 'lease_id' => $lease->id, 'source' => 'captured',
                             'notice_terms_source' => LeaseNoticeTermsService::SOURCE_AGENCY_DEFAULT, 'created_at' => $now, 'updated_at' => $now,
+                            ...$write,
                         ]);
                     }
                     LeaseEvent::create([

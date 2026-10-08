@@ -8,6 +8,7 @@ use App\Models\RentalInspectionSetting;
 use App\Models\RentalInspectionSigningNotice;
 use App\Models\User;
 use App\Notifications\RentalInspectionSigningReminder;
+use App\Services\CommandCenter\NotificationDispatcher;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Log;
 
@@ -91,11 +92,11 @@ class RentalInspectionSigningReminderService
             } elseif ($day->diffInDays($today) > self::CATCH_UP_DAYS) {
                 $skip = 'already past before reminders began';
             }
-            $this->record($inspection, (string) $milestone, $closingDay, $outstanding, $skip, $tally, $dryRun);
+            $this->record($inspection, (string) $milestone, $closingDay, $outstanding, $skip, $tally, $dryRun, $today);
         }
     }
 
-    private function record(RentalInspection $inspection, string $milestone, CarbonInterface $closingDay, int $outstanding, ?string $skip, array &$tally, bool $dryRun): void
+    private function record(RentalInspection $inspection, string $milestone, CarbonInterface $closingDay, int $outstanding, ?string $skip, array &$tally, bool $dryRun, CarbonInterface $today): void
     {
         $agent = $inspection->inspector ?? $inspection->createdBy;
         if ($skip === null && (! $agent || ! $agent->is_active)) {
@@ -117,15 +118,27 @@ class RentalInspectionSigningReminderService
         }
 
         try {
-            $agent->notify(new RentalInspectionSigningReminder(
-                inspectionTypeName: RentalInspection::typeName($inspection->type),
-                milestone: $milestone,
-                closesOn: $closingDay->toDateString(),
-                outstanding: $outstanding,
-                propertyAddress: $inspection->property?->buildDisplayAddress() ?? 'Unknown property',
-                inspectionId: $inspection->id,
-                url: route('corex.rental-inspections.show', $inspection->id),
-            ));
+            $delivered = app(NotificationDispatcher::class)->send(
+                $agent, 'rental_inspection.signing_reminder', $inspection,
+                new RentalInspectionSigningReminder(
+                    inspectionTypeName: RentalInspection::typeName($inspection->type),
+                    milestone: $milestone,
+                    closesOn: $closingDay->toDateString(),
+                    outstanding: $outstanding,
+                    propertyAddress: $inspection->property?->buildDisplayAddress() ?? 'Unknown property',
+                    inspectionId: $inspection->id,
+                    url: route('corex.rental-inspections.show', $inspection->id),
+                ),
+                // threshold_hit_at is the day this milestone was handled - a stable fact, not now(): the gateway's
+                // once-only check compares it, and the reminder's own notice row stays the real idempotency.
+                ['threshold_hit_at' => $today],
+            );
+            if (! $delivered) {
+                RentalInspectionSigningNotice::withoutGlobalScopes()->create($common + ['recipient_user_id' => $agent->id, 'channel' => null, 'status' => 'skipped', 'detail' => "switched off in the agent's notification settings, or outside their open hours"]);
+                $tally['skipped']++;
+
+                return;
+            }
             RentalInspectionSigningNotice::withoutGlobalScopes()->create($common + [
                 'recipient_user_id' => $agent->id,
                 'channel' => $agent->email ? 'in_app,mail' : 'in_app',
