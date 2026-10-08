@@ -164,6 +164,11 @@
             <label class="text-xs" style="color: var(--text-muted);">Reported to</label><br>
             <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
         </div>
+        @if(!empty($filters['cc_scope']))<input type="hidden" name="cc_scope" value="{{ $filters['cc_scope'] }}">@endif
+        <label class="flex items-center gap-1 text-xs pb-2">
+            <input type="checkbox" name="open" value="1" @checked(($filters['open'] ?? false)) data-qa="wo-filter-open">
+            Open only
+        </label>
         <label class="flex items-center gap-1 text-xs pb-2">
             <input type="checkbox" name="overdue" value="1" @checked(($filters['overdue'] ?? false))>
             Overdue only
@@ -177,7 +182,7 @@
             Variation pending
         </label>
         <button type="submit" class="corex-btn-outline text-xs">Filter</button>
-        @if(request()->hasAny(['q', 'status', 'trade_type', 'priority', 'property_id', 'paid_by', 'date_from', 'date_to', 'overdue', 'awaiting_owner', 'variation_pending']))
+        @if(request()->hasAny(['q', 'status', 'trade_type', 'priority', 'property_id', 'paid_by', 'date_from', 'date_to', 'overdue', 'awaiting_owner', 'variation_pending', 'open']))
             <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-btn-outline text-xs">Clear</a>
         @endif
     </form>

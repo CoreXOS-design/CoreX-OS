@@ -164,7 +164,7 @@ class SigningController extends Controller
                 // the FICA link always works — the page must never 500 here.
                 if ($ficaSub && empty($ficaSub->token)) {
                     $ficaSub->token = \Illuminate\Support\Str::random(64);
-                    $ficaSub->token_expires_at = now()->addDays(14);
+                    $ficaSub->token_expires_at = now()->addDays(\App\Services\Compliance\FicaWindows::linkExpiryDays((int) $ficaSub->agency_id));
                     $ficaSub->save();
                 }
 

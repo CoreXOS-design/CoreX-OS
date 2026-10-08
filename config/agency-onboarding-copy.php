@@ -1372,6 +1372,8 @@ return [
             // PPRA FFC Employment Letter — .ai/specs/ppra-ffc-employment-letter.md §11.
             // The saver is has()-guarded (§6.1), so a post without the field leaves it alone.
             ['controller' => SettingsController::class, 'method' => 'savePpraEmploymentLetterSettings'],
+            // Rentals cross-cut — FICA time windows; has()-guarded per field (§6.1).
+            ['controller' => FicaOfficerAppointmentsController::class, 'method' => 'saveWindowSettings'],
         ],
         'controls' => [
             ['key' => 'financial_year_start_month', 'source' => 'agency', 'type' => 'select', 'default' => 3,
@@ -1413,6 +1415,23 @@ return [
              'label' => 'PPRA employment letter — who it is addressed to',
              'explain' => 'Each agent needs a signed "Confirmation of Employment" letter from you to renew their Fidelity Fund Certificate. This is the address block at the top of that letter (the "RE:" line). Leave it blank to use the Property Practitioners Regulatory Board\'s own published address — change it only if your agency writes to a different PPRA office.',
              'affects' => 'The addressee printed at the top of every PPRA employment letter your agents and admins generate (My Portal → Documents, and Admin → PPRA Employment Letters). Letters already printed keep what they were printed with.'],
+            // Rentals cross-cut (8 Oct 2026) — the FICA time windows that were literals in code. Plain number inputs; the saver is has()-guarded (§6.1).
+            ['key' => 'fica_link_expiry_days', 'source' => 'agency', 'type' => 'number', 'default' => 14, 'min' => 1, 'max' => 90,
+             'label' => 'FICA link stays valid for (days)',
+             'explain' => 'How long the FICA link emailed to a client works before it expires and has to be re-sent.',
+             'affects' => 'The expiry date printed in the FICA request email and the day the client\'s link stops working.'],
+            ['key' => 'fica_current_months', 'source' => 'agency', 'type' => 'number', 'default' => 11, 'min' => 1, 'max' => 60,
+             'label' => 'An approved FICA counts as current for (months)',
+             'explain' => 'How long an approved FICA is treated as up to date before CoreX flags it as expiring.',
+             'affects' => 'When a contact\'s FICA badge turns to "Expiring", and when a repeat rental applicant is asked for FICA again.'],
+            ['key' => 'fica_validity_months', 'source' => 'agency', 'type' => 'number', 'default' => 24, 'min' => 1, 'max' => 120,
+             'label' => 'An approval is valid for (months)',
+             'explain' => 'The expiry date CoreX stamps on a FICA when your compliance officer approves it.',
+             'affects' => 'The expiry date shown on approved FICA records and on the compliance calendar.'],
+            ['key' => 'fica_expiring_soon_days', 'source' => 'agency', 'type' => 'number', 'default' => 60, 'min' => 1, 'max' => 365,
+             'label' => '"Expiring soon" looks ahead (days)',
+             'explain' => 'How far ahead the "expiring soon" list looks for FICA approvals about to lapse.',
+             'affects' => 'Which FICA approvals appear under "Expiring soon" in document filing.'],
         ],
     ],
 

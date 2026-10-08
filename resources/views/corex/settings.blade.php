@@ -75,7 +75,7 @@
             [
                 'label' => 'My Preferences',
                 'items' => [
-                    ['key'=>'user', 'label'=>'Profile & Account', 'type'=>'section', 'keywords'=>'compliance officer fica information officer reporting officers popia mlro money laundering appointment section 43 s55 s56 password change name email photo'],
+                    ['key'=>'user', 'label'=>'Profile & Account', 'type'=>'section', 'keywords'=>'fica time windows link expiry expires valid validity months expiring soon current compliance officer fica information officer reporting officers popia mlro money laundering appointment section 43 s55 s56 password change name email photo'],
                     ['key'=>'my-portal', 'label'=>'My Portal', 'type'=>'section', 'keywords'=>'api token chrome extension social media facebook instagram visibility'],
                 ],
             ],
@@ -1546,6 +1546,36 @@
                         </select>
                         <p class="text-xs mb-3" style="color:var(--text-muted);">The recipient must be an active compliance officer; otherwise referrals fall back to the primary CO.</p>
                         <button type="submit" class="corex-btn-primary text-xs">Save Referral Settings</button>
+                    </form>
+                </div>
+            </div>
+
+            {{-- FICA time windows — were literals in code (link 14 days, current 11 months, valid 24 months, expiring-soon 60 days) --}}
+            <div x-data="{ open: false }" class="rounded-md overflow-hidden mt-3" style="border:1px solid var(--border);" data-qa="fica-windows-settings">
+                <button type="button" @click="open = !open"
+                        class="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold transition-colors hover:opacity-80"
+                        style="background:var(--surface-2); color:var(--text-primary);">
+                    <span>FICA time windows</span>
+                    <svg class="w-4 h-4 transition-transform duration-150" :class="open && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+                </button>
+                <div x-show="open" x-cloak x-transition class="p-4" style="border-top:1px solid var(--border); background:var(--surface);">
+                    <form method="POST" action="{{ route('corex.settings.fica-windows.save') }}" class="space-y-3">
+                        @csrf
+                        @foreach([
+                            'fica_link_expiry_days' => ['FICA link stays valid for (days)', 'How long the FICA link emailed to a client works before it expires and has to be re-sent.'],
+                            'fica_current_months' => ['An approved FICA counts as current for (months)', 'After this many months an approved FICA shows as "expiring" and a repeat applicant is asked for FICA again.'],
+                            'fica_validity_months' => ['An approval is valid for (months)', 'The expiry date stamped on a FICA when the compliance officer approves it.'],
+                            'fica_expiring_soon_days' => ['"Expiring soon" looks ahead (days)', 'How far ahead the document filing "expiring soon" list looks for FICA approvals about to lapse.'],
+                        ] as $fkey => [$flabel, $fhelp])
+                            @php [$fdefault, $fmin, $fmax] = \App\Services\Compliance\FicaWindows::WINDOWS[$fkey]; @endphp
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);" for="{{ $fkey }}">{{ $flabel }}</label>
+                                <input type="number" id="{{ $fkey }}" name="{{ $fkey }}" min="{{ $fmin }}" max="{{ $fmax }}" value="{{ $agency->{$fkey} ?? $fdefault }}"
+                                       class="w-32 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <span class="text-xs ml-2" style="color:var(--text-muted);">{{ $fhelp }} Standard: {{ $fdefault }}.</span>
+                            </div>
+                        @endforeach
+                        <button type="submit" class="corex-btn-primary text-xs">Save FICA time windows</button>
                     </form>
                 </div>
             </div>

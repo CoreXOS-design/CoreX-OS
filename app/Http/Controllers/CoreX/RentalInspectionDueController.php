@@ -14,7 +14,6 @@ use App\Services\PermissionService;
 use App\Services\Rentals\RentalDataScope;
 use App\Services\Rentals\RentalInspectionDueService;
 use Carbon\CarbonInterface;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -228,6 +227,7 @@ class RentalInspectionDueController extends Controller
     /** Move a date (only while it is still just "planned") and/or edit its note. */
     public function update(Request $request, RentalInspectionPlannedDate $plannedDate): RedirectResponse
     {
+        $this->assertLeaseWithinReach($request, $plannedDate);
         $this->assertActionable($plannedDate);
 
         $validated = $request->validate([
@@ -261,6 +261,7 @@ class RentalInspectionDueController extends Controller
 
     public function skip(Request $request, RentalInspectionPlannedDate $plannedDate): RedirectResponse
     {
+        $this->assertLeaseWithinReach($request, $plannedDate);
         $this->assertActionable($plannedDate);
         $validated = $request->validate(['skipped_reason' => ['required', 'string', 'max:500']], [
             'skipped_reason.required' => 'Say why this inspection is being skipped.',
@@ -278,6 +279,7 @@ class RentalInspectionDueController extends Controller
     /** The reverse of skip — a skipped date goes back to planned. */
     public function reopen(Request $request, RentalInspectionPlannedDate $plannedDate): RedirectResponse
     {
+        $this->assertLeaseWithinReach($request, $plannedDate);
         $this->assertActionable($plannedDate);
         if ($plannedDate->status === RentalInspectionPlannedDate::STATUS_SKIPPED) {
             $plannedDate->update(['status' => RentalInspectionPlannedDate::STATUS_PLANNED, 'skipped_reason' => null]);
@@ -288,6 +290,7 @@ class RentalInspectionDueController extends Controller
 
     public function archive(Request $request, RentalInspectionPlannedDate $plannedDate): RedirectResponse
     {
+        $this->assertLeaseWithinReach($request, $plannedDate);
         if ($plannedDate->trashed()) {
             return redirect()->route('corex.rental-inspections.due')->with('success', 'Already archived.');
         }
@@ -299,6 +302,7 @@ class RentalInspectionDueController extends Controller
 
     public function restore(Request $request, RentalInspectionPlannedDate $plannedDate): RedirectResponse
     {
+        $this->assertLeaseWithinReach($request, $plannedDate);
         if ($plannedDate->trashed()) {
             // A restored date must not collide with a live twin that was loaded since it was archived.
             $twin = RentalInspectionPlannedDate::where('lease_id', $plannedDate->lease_id)->where('type', $plannedDate->type)
@@ -313,6 +317,52 @@ class RentalInspectionDueController extends Controller
     }
 
     // ── Rows ───────────────────────────────────────────────────────────────
+
+    /**
+     * The ONE definition of "a lease this user may act on" for planned dates, under the `rental_inspections` data scope: all = the
+     * agency, branch = the property's branch, own = a property they are the agent on or a lease they created / are an agent on.
+     * It bounds the In/Out due items, the lease picker AND the server-side check on every planned-date action, so they cannot
+     * disagree. Returns a constraint to apply to a Lease query.
+     */
+    private function leaseReach(User $user, ?string $requestedScope): \Closure
+    {
+        return function ($q) use ($user, $requestedScope) {
+            $max = RentalDataScope::ceiling($user, 'rental_inspections');
+            $scope = PermissionService::clampScope($requestedScope, $max);
+            if ($scope === 'all') {
+                return;
+            }
+            if ($scope === 'branch') {
+                $q->whereHas('property', fn ($p) => $p->withoutGlobalScopes()->where('properties.branch_id', $user->effectiveBranchId()));
+
+                return;
+            }
+            if ($scope === 'own') {
+                $ids = $user->dataIdentityIds();
+                $q->where(fn ($w) => $w->whereHas('property', fn ($p) => $p->withoutGlobalScopes()->whereIn('properties.agent_id', $ids))
+                    ->orWhere(fn ($mine) => $mine->involvingUsers($ids)));
+
+                return;
+            }
+            $q->whereRaw('1 = 0');
+        };
+    }
+
+    /**
+     * Acting on a loaded date also needs its LEASE to be one the user may act on — the date being visible (e.g. because they once
+     * loaded it) is not enough once the lease is outside their own/branch/agency reach. Same 404 as any record they cannot see.
+     */
+    private function assertLeaseWithinReach(Request $request, RentalInspectionPlannedDate $plannedDate): void
+    {
+        $user = $request->user();
+        $reach = Lease::withoutGlobalScopes()->withTrashed()
+            ->where('leases.agency_id', $user->effectiveAgencyId())
+            ->whereKey($plannedDate->lease_id)
+            ->where($this->leaseReach($user, null))
+            ->exists();
+
+        abort_unless($reach, 404);
+    }
 
     /** An archived date is read-only until restored. */
     private function assertActionable(RentalInspectionPlannedDate $plannedDate): void
@@ -339,25 +389,11 @@ class RentalInspectionDueController extends Controller
     {
         return Lease::query()
             ->where('status', Lease::STATUS_ACTIVE)
-            ->whereHas('property', fn (Builder $p) => $this->propertyScope($p, $user, null))
+            ->where($this->leaseReach($user, null))
             ->with(['property', 'tenants.contact'])
             ->orderByDesc('id')
             ->limit(500)
             ->get();
-    }
-
-    /** own = the property's agent (or whoever loaded/created it), branch = the property's branch, all = the agency. */
-    private function propertyScope(Builder $propertyQuery, User $user, ?string $requested): Builder
-    {
-        $max = RentalDataScope::ceiling($user, 'rental_inspections');
-        $scope = PermissionService::clampScope($requested, $max);
-
-        return match ($scope) {
-            'all' => $propertyQuery,
-            'branch' => $propertyQuery->where('properties.branch_id', $user->effectiveBranchId()),
-            'own' => $propertyQuery->whereIn('properties.agent_id', $user->dataIdentityIds()),
-            default => $propertyQuery->whereRaw('1 = 0'),
-        };
     }
 
     /**
@@ -375,26 +411,7 @@ class RentalInspectionDueController extends Controller
         $rows = collect();
 
         if (! $archived) {
-            $leaseConstraint = function ($q) use ($user, $requestedScope) {
-                $max = RentalDataScope::ceiling($user, 'rental_inspections');
-                $scope = PermissionService::clampScope($requestedScope, $max);
-                if ($scope === 'all') {
-                    return;
-                }
-                if ($scope === 'branch') {
-                    $q->whereHas('property', fn ($p) => $p->withoutGlobalScopes()->where('properties.branch_id', $user->effectiveBranchId()));
-
-                    return;
-                }
-                if ($scope === 'own') {
-                    $ids = $user->dataIdentityIds();
-                    $q->where(fn ($w) => $w->whereHas('property', fn ($p) => $p->withoutGlobalScopes()->whereIn('properties.agent_id', $ids))
-                        ->orWhere(fn ($mine) => $mine->involvingUsers($ids)));
-
-                    return;
-                }
-                $q->whereRaw('1 = 0');
-            };
+            $leaseConstraint = $this->leaseReach($user, $requestedScope);
 
             foreach ($this->due->inOutItemsFor($agencyId, $leaseConstraint, $today) as $item) {
                 $lease = $item['lease'];
