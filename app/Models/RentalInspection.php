@@ -458,9 +458,124 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      * interim) inspection completes. Never ad_hoc. This is a record-keeping rule, not a setting: it only
      * asks that the outcome be written down. It does not stop anyone from not attending.
      */
+    /**
+     * §51 — the checklist items this inspection has a recorded, applicable condition for but NO photo on: the list behind the
+     * "N items without a photo" warning at Ready to sign. Items marked Not applicable and items not yet recorded are not counted
+     * (the first has nothing to photograph, the second is the every-item-recorded gate's business).
+     *
+     * @return \Illuminate\Support\Collection<int, RentalInspectionItem>
+     */
+    public function itemsWithoutPhoto(): \Illuminate\Support\Collection
+    {
+        $recorded = $this->observations()->recorded()->orderBy('id')->get(['id', 'rental_inspection_item_id', 'condition']);
+        $latestByItem = $recorded->groupBy('rental_inspection_item_id')->map(fn ($g) => $g->last());
+        $photographed = RentalInspectionPhoto::query()
+            ->where('rental_inspection_id', $this->id)
+            ->whereNotNull('rental_inspection_observation_id')
+            ->pluck('rental_inspection_observation_id');
+        $observationIdsByItem = $recorded->groupBy('rental_inspection_item_id')->map(fn ($g) => $g->pluck('id'));
+
+        return RentalInspectionItem::query()
+            ->where('property_id', $this->property_id)
+            ->notRetired()
+            ->with('room')
+            ->orderBy('property_room_id')->orderBy('sort_order')->orderBy('id')
+            ->get()
+            ->filter(function (RentalInspectionItem $item) use ($latestByItem, $photographed, $observationIdsByItem) {
+                $latest = $latestByItem->get($item->id);
+                if (! $latest || $latest->condition === RentalInspectionObservation::CONDITION_NA) {
+                    return false;
+                }
+
+                return $observationIdsByItem->get($item->id, collect())->intersect($photographed)->isEmpty();
+            })
+            ->values();
+    }
+
+    /**
+     * §51 — who the report says it is from: the agency's name and logo (the SAME source the tenant / owner portal header uses,
+     * Agency::publicBrandingFor()) and the inspecting agent's name, role, phone and email. Null when the agency switched
+     * `report_shows_agency_branding` off. `logo_data_uri` is for the PDF (a file:// logo cannot be fetched by the renderer);
+     * `logo_url` for the web page. A missing or unreadable logo file simply yields no logo — the name still shows.
+     *
+     * @return array{agency_name:string, logo_url:?string, logo_data_uri:?string, agent:?array{name:string, designation:?string, phone:?string, email:?string}}|null
+     */
+    public function reportBranding(): ?array
+    {
+        if (! RentalInspectionSetting::ruleFor($this->agency_id, 'report_shows_agency_branding')) {
+            return null;
+        }
+        $branding = Agency::publicBrandingFor((int) $this->agency_id);
+        $agency = Agency::withoutGlobalScopes()->find($this->agency_id);
+
+        $dataUri = null;
+        if ($agency?->logo_path) {
+            $abs = storage_path('app/public/' . ltrim((string) $agency->logo_path, '/'));
+            $mime = ['png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'gif' => 'image/gif'][strtolower(pathinfo($abs, PATHINFO_EXTENSION))] ?? null;
+            if ($mime && is_file($abs)) {
+                $dataUri = 'data:' . $mime . ';base64,' . base64_encode((string) file_get_contents($abs));
+            }
+        }
+
+        $agent = $this->inspector_user_id
+            ? User::withoutGlobalScopes()->find($this->inspector_user_id)
+            : ($this->created_by_user_id ? User::withoutGlobalScopes()->find($this->created_by_user_id) : null);
+
+        return [
+            'agency_name' => (string) $branding['name'],
+            'logo_url' => $dataUri ? $branding['logoUrl'] : null,
+            'logo_data_uri' => $dataUri,
+            'agent' => $agent ? [
+                'name' => (string) $agent->name,
+                'designation' => $agent->designation ? ucwords(str_replace('_', ' ', (string) $agent->designation)) : null,
+                'phone' => ($agent->cell ?: $agent->phone) ?: null,
+                'email' => ($agent->outward_email ?: $agent->email) ?: null,
+            ] : null,
+        ];
+    }
+
+    /**
+     * §51 — where the signing window stands, for the screens ("5 days left", "closed 2 days ago — 1 still outstanding"). Null
+     * unless the report is waiting for signatures. `days_left` is whole calendar days from today to the closing day (0 = it
+     * closes today, negative = it closed). `outstanding` counts the tenants and the landlord who have no signing outcome yet.
+     *
+     * @return array{deadline:string, days_left:int, closed:bool, outstanding:int, label:string}|null
+     */
+    public function signingWindowStatus(): ?array
+    {
+        if ($this->status !== self::STATUS_AWAITING_SIGNATURE || ! $this->signing_deadline_at) {
+            return null;
+        }
+        $daysLeft = (int) now()->startOfDay()->diffInDays($this->signing_deadline_at->copy()->startOfDay(), false);
+        $outstanding = $this->outstandingSignatories()->count();
+        $closes = $this->signing_deadline_at->format('j M Y');
+        $label = match (true) {
+            $daysLeft > 1 => "Signing window: {$daysLeft} days left (closes {$closes})",
+            $daysLeft === 1 => "Signing window: 1 day left (closes {$closes})",
+            $daysLeft === 0 => "Signing window: closes today ({$closes})",
+            $daysLeft === -1 => 'Signing window: closed yesterday',
+            default => 'Signing window: closed ' . abs($daysLeft) . ' days ago',
+        };
+        if ($outstanding > 0) {
+            $label .= ' — ' . $outstanding . ' still to sign';
+        }
+
+        return ['deadline' => $this->signing_deadline_at->toDateString(), 'days_left' => $daysLeft, 'closed' => $daysLeft < 0, 'outstanding' => $outstanding, 'label' => $label];
+    }
+
+    /**
+     * §51 — a Routine (stored `ad_hoc`) inspection used to be exempt from every-item-recorded, required notes and attendance.
+     * With the agency rule `routine_follows_full_checks` (default ON) it needs the same checks as the others; switch it off and
+     * Routine is the light-weight check it was. Signatures are a separate, per-type setting (§49.4).
+     */
+    public function isRoutineExemptFromChecks(): bool
+    {
+        return $this->type === self::TYPE_AD_HOC && ! RentalInspectionSetting::ruleFor($this->agency_id, 'routine_follows_full_checks');
+    }
+
     private function guardAttendanceRecorded(string $action): void
     {
-        if ($this->type === self::TYPE_AD_HOC) {
+        if ($this->isRoutineExemptFromChecks()) {
             return;
         }
 
@@ -479,11 +594,18 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      */
     private function guardUngradedItems(string $action): void
     {
-        if ($this->type === self::TYPE_AD_HOC) {
+        if ($this->isRoutineExemptFromChecks()) {
             return;
         }
         if (! RentalInspectionSetting::allItemsRequiredToCompleteFor($this->agency_id)) {
             return;
+        }
+
+        // §51 — "every item recorded" is vacuously true on an inspection with NOTHING to inspect, which used to be signed and
+        // sent as an empty report (QA1 #38 is a completed Out with 0 items). Agency rule, default ON.
+        if (RentalInspectionSetting::ruleFor($this->agency_id, 'empty_checklist_blocks_signing')
+            && ! RentalInspectionItem::query()->where('property_id', $this->property_id)->notRetired()->exists()) {
+            throw new \LogicException('There is nothing to inspect yet — add the rooms and items for this property first, then ' . $action . '.');
         }
 
         $ungraded = $this->itemsStillUngraded();
@@ -514,6 +636,9 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      */
     private function guardMissingRequiredNotes(string $action): void
     {
+        if ($this->isRoutineExemptFromChecks()) {
+            return;
+        }
         if (! RentalInspectionSetting::requireNotesBlocksProgressionFor($this->agency_id)) {
             return;
         }
@@ -1005,6 +1130,14 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
         $this->guardUngradedItems('start the signing window');
         $this->guardMissingRequiredNotes('start the signing window');
 
+        // §51 — "photos on everything": the count is always shown at Ready to sign; the agency can make it a hard stop.
+        if (RentalInspectionSetting::ruleFor($this->agency_id, 'photos_required_to_sign')) {
+            $bare = $this->itemsWithoutPhoto();
+            if ($bare->isNotEmpty()) {
+                throw new \LogicException($bare->count() . ' item' . ($bare->count() === 1 ? ' has' : 's have') . ' no photo yet (for example ' . $bare->first()->label . ') — add them, or ask an administrator to relax the "photos required" rule, before this can be marked ready to sign.');
+            }
+        }
+
         $this->forceFill([
             'status' => self::STATUS_AWAITING_SIGNATURE,
             'signing_deadline_at' => now()->addDays(RentalInspectionSetting::signingWindowDaysFor($this->agency_id)),
@@ -1148,6 +1281,12 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      */
     public function cancel(User $by, string $reason): void
     {
+        // §51 — people have already signed this report: cancelling it would leave their signatures standing on a cancelled
+        // record. The agent presses "Edit report" first (clears every signature, records why), then cancels. Agency rule.
+        if ($this->isSignedLocked() && RentalInspectionSetting::ruleFor($this->agency_id, 'cancel_signed_requires_edit')) {
+            throw new \App\Exceptions\RentalInspectionSignedLockedException('This report has been signed. Press "Edit report" first — that clears the signatures and records why — and then cancel it.');
+        }
+
         // Audit H2 — a completed (signed) inspection is a record, not a
         // draft: it can never be cancelled, and cancelling twice must not
         // overwrite the first reason/actor.
@@ -2115,7 +2254,10 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             // The "Ready to complete" pill follows the SAME per-type rules the server's Complete enforces (a Routine
             // inspection needs no attendance, and signatures only where the agency's setting asks for them).
             $insp?->setAttribute('signatures_required', $insp?->signaturesRequired());
-            $insp?->setAttribute('attendance_required', $insp ? $insp->type !== self::TYPE_AD_HOC : true);
+            $insp?->setAttribute('attendance_required', $insp ? ! $insp->isRoutineExemptFromChecks() : true);
+            // §51 — "days left" in the signing window, and the "N items without a photo" warning at Ready to sign.
+            $insp?->setAttribute('signing_window', $insp?->signingWindowStatus());
+            $insp?->setAttribute('items_without_photo', $insp ? $insp->itemsWithoutPhoto()->map(fn ($i) => ['id' => $i->id, 'label' => $i->label, 'room' => $i->room?->label])->values()->all() : []);
             // The "Resend report" popover must show exactly who the SERVER will send to (tenants, landlords, the agency's
             // copy addresses, the inspector, the creator) — never a list the browser rebuilds for itself.
             $insp?->setAttribute('report_recipients', $insp && $insp->status === self::STATUS_COMPLETED ? $insp->distributionRecipients() : []);

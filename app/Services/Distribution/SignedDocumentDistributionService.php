@@ -144,7 +144,11 @@ class SignedDocumentDistributionService
      * parties recorded as `skipped` rows (with the reason) on a FULL send, never silently dropped. The sending
      * agent is CC'd unless their own address is already one of the recipients (no double copy).
      *
+     * `$withoutPdfEmails` (lower-cased addresses): these recipients get the same email with the link but WITHOUT the PDF
+     * attached (a consumer's own rule, e.g. rental inspections for a person who refused to sign — spec §51).
+     *
      * @param array<int, string>|null $onlyEmails
+     * @param array<int, string>|null $withoutPdfEmails
      * @return array<int, array{role:string, email:string, status:string, message_id:?string, error:?string}>
      */
     public function emailParties(
@@ -155,6 +159,7 @@ class SignedDocumentDistributionService
         ?User $sendAs = null,
         ?User $triggeredBy = null,
         ?array $onlyEmails = null,
+        ?array $withoutPdfEmails = null,
     ): array {
         $agent = $sendAs ?? $doc->distributionAgent();
         $testOverride = ! app()->environment('production');
@@ -198,7 +203,7 @@ class SignedDocumentDistributionService
                 propertyAddress: $doc->distributionProperty()?->buildDisplayAddress() ?? '',
                 emailSubject: $doc->distributionSubject(),
                 publicUrl: $doc->publicShareUrl(),
-                pdfPath: $pdfPath,
+                pdfPath: in_array(mb_strtolower($recipient['email']), $withoutPdfEmails ?? [], true) ? null : $pdfPath,
                 pdfFilename: $pdfFilename,
             );
             $mail->fromAgent($agent);

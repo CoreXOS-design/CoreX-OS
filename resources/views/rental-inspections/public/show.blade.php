@@ -71,6 +71,24 @@
             @endif
         @endisset
         <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+            @if(! empty($branding))
+                {{-- §51 — who this report is from: the agency (name + logo, the portal's own branding source) and the inspecting agent. --}}
+                <div class="flex items-center justify-between gap-3 pb-4 mb-4 border-b border-slate-100" data-qa="report-branding">
+                    <div class="flex items-center gap-3">
+                        @if(! empty($branding['logo_url']))
+                            <img src="{{ $branding['logo_url'] }}" alt="" class="h-10 max-w-[9rem] object-contain" onerror="this.style.display='none'">
+                        @endif
+                        <span class="text-sm font-bold text-slate-700">{{ $branding['agency_name'] }}</span>
+                    </div>
+                    @if(! empty($branding['agent']))
+                        <div class="text-xs text-slate-500 text-right">
+                            <div class="font-semibold text-slate-700">{{ $branding['agent']['name'] }}@if($branding['agent']['designation']), {{ $branding['agent']['designation'] }}@endif</div>
+                            @if($branding['agent']['phone'])<div>{{ $branding['agent']['phone'] }}</div>@endif
+                            @if($branding['agent']['email'])<div>{{ $branding['agent']['email'] }}</div>@endif
+                        </div>
+                    @endif
+                </div>
+            @endif
             <div class="flex items-start justify-between gap-3">
                 <div>
                     <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">{{ \App\Models\RentalInspection::typeName($inspection->type) }} report</p>

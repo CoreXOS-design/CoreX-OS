@@ -1558,7 +1558,12 @@
              yet require any of this on either type (Stage 5) — Complete
              still works unsigned/undispositioned in the meantime. --}}
         <template x-if="currentInspection({{ $sectionJs }}).status !== 'awaiting_signature'">
-            <div class="flex justify-end pt-1">
+            <div class="flex justify-end items-center gap-3 pt-1">
+                {{-- §51 — the count is always shown; an agency rule can make it a hard stop (the server refuses). --}}
+                <span x-show="(currentInspection({{ $sectionJs }}).items_without_photo || []).length" x-cloak data-qa="items-without-photo"
+                      class="text-xs font-semibold px-2 py-1 rounded-md" style="background:color-mix(in srgb, #d97706 14%, transparent); color:#b45309;"
+                      :title="(currentInspection({{ $sectionJs }}).items_without_photo || []).map(i => (i.room ? i.room + ' — ' : '') + i.label).join('\n')"
+                      x-text="(currentInspection({{ $sectionJs }}).items_without_photo || []).length + ((currentInspection({{ $sectionJs }}).items_without_photo || []).length === 1 ? ' item has' : ' items have') + ' no photo'"></span>
                 <button type="button" :disabled="hasUnresolvedDiscrepancy({{ $sectionJs }})" @click="startAwaitingSignature({{ $sectionJs }})"
                         class="px-4 py-2 rounded-md text-sm font-semibold"
                         :style="hasUnresolvedDiscrepancy({{ $sectionJs }}) ? 'background:var(--surface-2); color:var(--text-muted);' : 'background:var(--brand-button,#0ea5e9); color:#fff;'">
@@ -1569,6 +1574,10 @@
 
         <template x-if="currentInspection({{ $sectionJs }}).status === 'awaiting_signature'">
             <div class="space-y-2 pt-1" style="border-top:1px solid var(--border);">
+                {{-- §51 — the signing window: days left, or how long ago it closed, and how many still have to sign. --}}
+                <p x-show="currentInspection({{ $sectionJs }}).signing_window" x-cloak data-qa="signing-window" class="text-xs font-semibold"
+                   :style="currentInspection({{ $sectionJs }}).signing_window?.closed ? 'color:#b45309;' : 'color:var(--text-secondary);'"
+                   x-text="currentInspection({{ $sectionJs }}).signing_window?.label"></p>
                 <template x-for="tenant in inspectionTenants({{ $sectionJs }})" :key="tenant.contact_id">
                     <div class="py-1.5" style="border-bottom:1px solid var(--border);">
                         <div class="flex items-center justify-between gap-3">

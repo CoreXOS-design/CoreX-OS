@@ -46,6 +46,8 @@ final class RentalInspectionRecordingControllerTest extends TestCase
 
         $this->agency = Agency::create(['name' => 'RI Recording Agency', 'slug' => 'ri-recording-' . uniqid()]);
         $this->branch = Branch::forceCreate(['name' => 'Main', 'agency_id' => $this->agency->id]);
+        // These fixtures have no checklist; the "empty checklist cannot be signed" and "Routine follows the full checks" rules (spec §51) have their own tests.
+        \App\Models\RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['empty_checklist_blocks_signing' => false, 'routine_follows_full_checks' => false]);
         $this->agent = User::factory()->create([
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent',
         ]);
@@ -152,8 +154,7 @@ final class RentalInspectionRecordingControllerTest extends TestCase
      */
     public function test_adding_a_space_pulls_the_agencys_own_configured_room_type_defaults(): void
     {
-        RentalInspectionSetting::create([
-            'agency_id' => $this->agency->id,
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'room_type_item_defaults' => ['Bedroom' => ['Built-in Cupboard', 'Aircon']],
         ]);
 
@@ -1427,8 +1428,7 @@ final class RentalInspectionRecordingControllerTest extends TestCase
 
     public function test_a_condition_key_the_agency_has_removed_is_rejected(): void
     {
-        RentalInspectionSetting::create([
-            'agency_id' => $this->agency->id,
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'condition_states' => [['key' => 'good', 'label' => 'Good', 'requires_notes' => false]],
         ]);
         $item = $this->makeItem();
@@ -1444,8 +1444,7 @@ final class RentalInspectionRecordingControllerTest extends TestCase
     /** Retha's Good/OK/Bad — a fully custom 3-state vocabulary, distinct keys, distinct requires_notes. */
     public function test_a_fully_custom_condition_vocabulary_is_honoured(): void
     {
-        RentalInspectionSetting::create([
-            'agency_id' => $this->agency->id,
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'condition_states' => [
                 ['key' => 'good', 'label' => 'Good', 'requires_notes' => false],
                 ['key' => 'ok', 'label' => 'OK', 'requires_notes' => false],
@@ -1492,8 +1491,7 @@ final class RentalInspectionRecordingControllerTest extends TestCase
 
     public function test_mark_room_na_is_rejected_when_the_agency_has_removed_na(): void
     {
-        RentalInspectionSetting::create([
-            'agency_id' => $this->agency->id,
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'condition_states' => [['key' => 'good', 'label' => 'Good', 'requires_notes' => false]],
         ]);
         $room = $this->makeRoomWithItems(1);

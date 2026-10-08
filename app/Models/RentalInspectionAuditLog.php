@@ -46,6 +46,8 @@ class RentalInspectionAuditLog extends Model
     // §47 — "Edit report" on a signed inspection.
     public const EVENT_REOPENED = 'report_reopened';
     public const EVENT_REPLACED = 'replaced';
+    // §51 — the signing-window reminder to the agent.
+    public const EVENT_SIGNING_REMINDER = 'signing_reminder';
 
     /** @var array<string, string> event key => the label the History panel's filter shows */
     public const EVENT_LABELS = [
@@ -70,6 +72,7 @@ class RentalInspectionAuditLog extends Model
         self::EVENT_SIGNED_BY_LINK => 'Signed from a link',
         self::EVENT_REOPENED => 'Report reopened for editing',
         self::EVENT_REPLACED => 'Replaced / replaces',
+        self::EVENT_SIGNING_REMINDER => 'Signing reminder to the agent',
     ];
 
     protected $fillable = [

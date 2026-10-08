@@ -55,6 +55,8 @@ final class RentalInspectionI6bTest extends TestCase
 
         $this->agency = Agency::create(['name' => 'I6b Agency', 'slug' => 'i6b-' . uniqid()]);
         $this->branch = Branch::forceCreate(['name' => 'Main', 'agency_id' => $this->agency->id]);
+        // These fixtures have no checklist; the "empty checklist cannot be signed" and "Routine follows the full checks" rules (spec §51) have their own tests.
+        \App\Models\RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['empty_checklist_blocks_signing' => false, 'routine_follows_full_checks' => false]);
         $this->admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin', 'name' => 'Admin Alba']);
         $this->agent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent', 'name' => 'Agent Aileen']);
         $this->actingAs($this->admin);

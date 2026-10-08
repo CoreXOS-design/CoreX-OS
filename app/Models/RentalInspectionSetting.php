@@ -378,6 +378,48 @@ class RentalInspectionSetting extends Model
     ];
 
     /**
+     * §51 — the business rules the 8 Oct 2026 walk turned into agency settings. column => [recommended default, label,
+     * explain, affects]. Read at run time through ruleFor() (null in the table = "use the default"); the settings page, the saver and
+     * the Setup Wizard all read THIS list, so a rule cannot exist in one place and be missing from another.
+     */
+    public const INSPECTION_RULES = [
+        'signing_window_reminders_enabled' => [true,
+            'Remind the agent when the signing window is about to close, and when it has',
+            'When someone still has not signed, the agent is reminded (in CoreX and by email) a few days before the signing window closes and again the day after it has closed. Nothing happens automatically to the inspection.',
+            'Whether the agent gets a reminder about a report people have not signed yet. On by default; the number of days before closing is set below.'],
+        'calendar_include_lease_agents' => [true,
+            'Put a booked inspection on the calendar of the lease\'s owner\'s agent and tenant\'s agent as well',
+            'A booked inspection normally sits on the inspector\'s calendar only. With this on, the other agent(s) on the lease see it too, so nobody is surprised.',
+            'Whether the lease\'s other agent(s) also get the booking on their calendar. On by default; off keeps it on the inspector\'s calendar only.'],
+        'cancel_signed_requires_edit' => [true,
+            'An inspection people have already signed must go through "Edit report" before it can be cancelled',
+            'Cancelling a signed report would leave the signatures standing on a cancelled record. With this on, the agent presses Edit report first (which clears the signatures and keeps a record of why), then cancels.',
+            'Whether a signed report can be cancelled directly. On by default: Edit report first, so no signature is left standing on a cancelled report.'],
+        'photos_required_to_sign' => [false,
+            'Do not allow "Ready to sign" while items have no photo',
+            'The count of items without a photo is always shown at Ready to sign. Turn this on to make it a hard stop instead of a warning.',
+            'Whether missing photos only warn (off, the default) or stop Ready to sign (on).'],
+        'empty_checklist_blocks_signing' => [true,
+            'Do not allow "Ready to sign" on an inspection with no rooms or items',
+            'An inspection with nothing to inspect would otherwise be signed and sent as an empty report. With this on, the agent must add rooms and items first. Only applies while "every item recorded" is on.',
+            'Whether an inspection with no rooms or items can be marked ready to sign. On by default: it cannot.'],
+        'routine_follows_full_checks' => [true,
+            'A Routine inspection needs the same checks as the others (every item recorded, required notes, attendance)',
+            'Signatures for Routine are decided by their own setting. This setting decides the other checks. Off keeps a Routine inspection a light check with none of them.',
+            'Whether a Routine inspection must have every item recorded, required notes and attendance before Ready to sign / Complete. On by default; off keeps Routine light.'],
+        'hold_pdf_when_refused' => [true,
+            'When a person refused to sign, do not attach the PDF to the completion email they receive',
+            'The completed report is still sent to the agency copy addresses and the people who did sign; the person who refused gets the email without the PDF (the agent can still hand it over by choice).',
+            'Whether the person who refused to sign gets the completion email without the PDF. On by default.'],
+        'report_shows_agency_branding' => [true,
+            'Put the agency name, logo and the agent\'s contact details on the inspection report and PDF',
+            'The same logo and name the tenant and owner portal shows, plus the inspecting agent\'s name, role, phone and email, at the top of the report a tenant or landlord receives.',
+            'Whether the report and PDF open with the agency logo, name and the agent\'s contact details. On by default.'],
+    ];
+    /** §51 — how many days before the signing window closes the first reminder goes out. */
+    public const DEFAULT_SIGNING_REMINDER_LEAD_DAYS = 2;
+
+    /**
      * §41, 2026-09-28, Johan's ruling — "auto-send on/off is an agency
      * setting, default ON." When true, a completed inspection's signed
      * report is filed to the property and emailed to every party
@@ -416,6 +458,9 @@ class RentalInspectionSetting extends Model
         // §46 — signing by personal link.
         'signing_link_enabled',
         'signing_link_expiry_days',
+        // §51 — the walk's rules (INSPECTION_RULES) and the first-reminder lead.
+        'signing_window_reminders_enabled', 'signing_reminder_lead_days', 'calendar_include_lease_agents', 'cancel_signed_requires_edit',
+        'photos_required_to_sign', 'empty_checklist_blocks_signing', 'routine_follows_full_checks', 'hold_pdf_when_refused', 'report_shows_agency_branding',
         // §49 — are the three signatures required to complete an inspection of each type?
         'signatures_required_in',
         'signatures_required_out',
@@ -459,6 +504,9 @@ class RentalInspectionSetting extends Model
         'public_link_expiry_days' => 'integer',
         'signing_link_enabled' => 'boolean',
         'signing_link_expiry_days' => 'integer',
+        'signing_window_reminders_enabled' => 'boolean', 'signing_reminder_lead_days' => 'integer', 'calendar_include_lease_agents' => 'boolean',
+        'cancel_signed_requires_edit' => 'boolean', 'photos_required_to_sign' => 'boolean', 'empty_checklist_blocks_signing' => 'boolean',
+        'routine_follows_full_checks' => 'boolean', 'hold_pdf_when_refused' => 'boolean', 'report_shows_agency_branding' => 'boolean',
         'signatures_required_in' => 'boolean',
         'signatures_required_out' => 'boolean',
         'signatures_required_interim' => 'boolean',
@@ -696,6 +744,29 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value($column);
 
         return $value !== null ? (bool) $value : $default;
+    }
+
+    /** §51 — one of INSPECTION_RULES for this agency, with its recommended default when the agency never set it. */
+    public static function ruleFor(?int $agencyId, string $column): bool
+    {
+        $default = (bool) (self::INSPECTION_RULES[$column][0] ?? false);
+        if (! $agencyId || ! isset(self::INSPECTION_RULES[$column])) {
+            return $default;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value($column);
+
+        return $value !== null ? (bool) $value : $default;
+    }
+
+    /** §51 — days before the signing window closes that the first reminder goes out. Read-time default: 2. */
+    public static function signingReminderLeadDaysFor(?int $agencyId): int
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_SIGNING_REMINDER_LEAD_DAYS;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('signing_reminder_lead_days');
+
+        return $value !== null ? max(0, (int) $value) : self::DEFAULT_SIGNING_REMINDER_LEAD_DAYS;
     }
 
     /** §46 — days a personal signing link stays live from the day it is issued. Read-time default: 30. */

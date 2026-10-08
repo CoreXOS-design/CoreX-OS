@@ -183,6 +183,9 @@ final class RentalInspectionPublicLinkLifecycleTest extends TestCase
         $url = route('rental-inspections.public.signature-file', [$token, $sig->id, 'signature']);
         $this->get($url)->assertOk();
 
+        // A signed report normally goes through "Edit report" before it can be cancelled (spec §51); this test is about the
+        // cancelled state, so the agency rule is off here.
+        \App\Models\RentalInspectionSetting::updateOrCreate(['agency_id' => $s['agency']->id], ['cancel_signed_requires_edit' => false]);
         $s['inspection']->cancel($s['agent'], 'Duplicate booking');
 
         $this->get($url)->assertNotFound();

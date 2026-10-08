@@ -181,7 +181,11 @@
             <div><span style="color: var(--text-muted);">Inspector:</span> {{ $inspection->inspector?->name ?? '—' }}</div>
             <div><span style="color: var(--text-muted);">Completed:</span> {{ $inspection->completed_at?->format('Y-m-d H:i') ?? '—' }}</div>
             <div><span style="color: var(--text-muted);">Fault-report deadline:</span> {{ $inspection->fault_report_deadline_at?->format('Y-m-d H:i') ?? '—' }}</div>
-            <div><span style="color: var(--text-muted);">Signing deadline:</span> {{ $inspection->signing_deadline_at?->format('Y-m-d H:i') ?? '—' }}</div>
+            <div data-qa="signing-window"><span style="color: var(--text-muted);">Signing deadline:</span> {{ $inspection->signing_deadline_at?->format('Y-m-d H:i') ?? '—' }}
+                @if($windowStatus = $inspection->signingWindowStatus())
+                    <span class="font-semibold" style="color: {{ $windowStatus['closed'] ? '#b45309' : 'var(--text-secondary)' }};">— {{ \Illuminate\Support\Str::after($windowStatus['label'], 'Signing window: ') }}</span>
+                @endif
+            </div>
             @if($inspection->schedule_note)
                 <div class="col-span-2"><span style="color: var(--text-muted);">Schedule note:</span> {{ $inspection->schedule_note }}</div>
             @endif

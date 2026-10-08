@@ -61,6 +61,11 @@ final class RentalInspectionReadyToCompletePillTest extends TestCase
         $this->assertTrue($tail->signatures_required);
         $this->assertTrue($tail->attendance_required);
         $inspection->forceFill(['type' => RentalInspection::TYPE_AD_HOC])->save();
+        // §51: Routine now follows the full checks by default (agency rule) …
+        $routine = \App\Models\RentalInspection::tabPayloadFor($property->fresh())['chain_tail'];
+        $this->assertTrue($routine->attendance_required);
+        // … and stays light when the agency switches that rule off.
+        \App\Models\RentalInspectionSetting::updateOrCreate(['agency_id' => $agency->id], ['routine_follows_full_checks' => false]);
         $routine = \App\Models\RentalInspection::tabPayloadFor($property->fresh())['chain_tail'];
         $this->assertFalse($routine->attendance_required);
         $this->assertFalse($routine->signatures_required, 'Routine: signatures optional by default');
