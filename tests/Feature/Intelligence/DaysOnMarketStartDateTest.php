@@ -97,7 +97,13 @@ final class DaysOnMarketStartDateTest extends TestCase
         $p->forceFill(['imported_released_at' => now()->subDays(10)])->save();   // AT-422 takeover
         $this->assertSame(10, DaysOnMarket::for($p->fresh()));
 
+        // Rule (Staging hotfix d50bc9495): a real listed date is the start of the count and a later portal
+        // submit is only a refresh - it never moves it.
         $this->p24Log($p, 'submit', 200, now()->subDays(8));
+        $this->assertSame(10, DaysOnMarket::for($p->fresh()));
+
+        // What moves it is the listed date itself (CoreX stamps it at go-live; an agent can correct it).
+        $p->forceFill(['listed_date' => now()->subDays(8)->toDateString()])->save();
         $this->assertSame(8, DaysOnMarket::for($p->fresh()));
     }
 
@@ -117,16 +123,28 @@ final class DaysOnMarketStartDateTest extends TestCase
 
     // ── CoreX-created stock ──────────────────────────────────────────────
 
-    public function test_native_listing_counts_from_its_real_go_live_not_the_capture_date(): void
+    public function test_native_listing_counts_from_its_listed_date_which_corex_stamps_at_go_live(): void
     {
+        // Rule (Staging hotfix d50bc9495): the listed date IS the go-live date (stamped at first publish) and
+        // wins over later portal activations / refreshes.
         $p = $this->native([
-            'listed_date' => now()->subDays(30)->toDateString(),
+            'listed_date' => now()->subDays(26)->toDateString(),
             'pp_activated_at' => now()->subDays(25),
             'p24_activated_at' => now()->subDays(2),
         ]);
         $this->p24Log($p, 'submit', 200, now()->subDays(26));
+        $this->p24Log($p, 'submit', 200, now()->subDays(2));    // refresh - must not move it
 
         $this->assertSame(26, DaysOnMarket::for($p));
+
+        // A listed date set earlier than the portal go-live is trusted as it stands (an agent corrects it with a reason).
+        $earlier = $this->native([
+            'listed_date' => now()->subDays(30)->toDateString(),
+            'pp_activated_at' => now()->subDays(25),
+        ]);
+        $this->p24Log($earlier, 'submit', 200, now()->subDays(26));
+
+        $this->assertSame(30, DaysOnMarket::for($earlier));
     }
 
     public function test_native_listing_with_no_go_live_proof_uses_the_listing_date_corex_stamped(): void
@@ -180,11 +198,15 @@ final class DaysOnMarketStartDateTest extends TestCase
         $this->assertNull(DaysOnMarket::for($p));
     }
 
-    public function test_rental_counts_from_its_go_live(): void
+    public function test_rental_counts_from_its_listed_date_which_is_the_go_live(): void
     {
-        $p = $this->native(['listing_type' => 'rental', 'status' => 'to_let', 'listed_date' => now()->subDays(40)->toDateString(), 'pp_activated_at' => now()->subDays(12)]);
-
+        // Rule (Staging hotfix d50bc9495): the listed date (stamped at go-live) is the start; a later portal
+        // activation does not move it.
+        $p = $this->native(['listing_type' => 'rental', 'status' => 'to_let', 'listed_date' => now()->subDays(12)->toDateString(), 'pp_activated_at' => now()->subDays(12)]);
         $this->assertSame(12, DaysOnMarket::for($p));
+
+        $earlier = $this->native(['listing_type' => 'rental', 'status' => 'to_let', 'listed_date' => now()->subDays(40)->toDateString(), 'pp_activated_at' => now()->subDays(12)]);
+        $this->assertSame(40, DaysOnMarket::for($earlier));
     }
 
     // ── not on the market ────────────────────────────────────────────────

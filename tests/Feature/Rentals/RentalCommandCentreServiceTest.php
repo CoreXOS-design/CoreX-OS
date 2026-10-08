@@ -814,6 +814,29 @@ final class RentalCommandCentreServiceTest extends TestCase
         self::assertCount(0, $review());
     }
 
+    public function test_queue_resolve_dispute_rule_lists_a_disputed_work_order_with_scoping_and_leaves_when_put_right(): void
+    {
+        [$agency, $branch, $agentOne] = $this->makeAgencyBranchAgent();
+        $agentTwo = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
+        $mine = $this->makeWorkOrder($agency, $branch, $this->makeRentalProperty($agency, $branch, $agentOne), RentalWorkOrder::STATUS_DISPUTED, now()->subDays(2));
+        $colleagues = $this->makeWorkOrder($agency, $branch, $this->makeRentalProperty($agency, $branch, $agentTwo), RentalWorkOrder::STATUS_DISPUTED, now()->subDays(2));
+        $notDisputed = $this->makeWorkOrder($agency, $branch, $this->makeRentalProperty($agency, $branch, $agentOne), RentalWorkOrder::STATUS_IN_PROGRESS, now()->subDays(2));
+
+        $this->grantAllScope($agentOne, 'rental_command_centre', $agency->id);
+        $this->actingAs($agentOne);
+        $ids = fn (string $scope) => $this->service->queueItems($agentOne, $scope)->filter(fn ($i) => $i['type'] === 'work_order_disputed')
+            ->pluck('route_params.rentalWorkOrder')->sort()->values()->all();
+
+        self::assertSame([$mine->id], $ids('own'));
+        self::assertEqualsCanonicalizing([$mine->id, $colleagues->id], $ids('branch'));
+        self::assertNotContains($notDisputed->id, $ids('all'));
+        self::assertSame('Resolve dispute', $this->service->queueItems($agentOne, 'own')->firstWhere('type', 'work_order_disputed')['label']);
+
+        // Reported done again -> back in progress -> gone.
+        RentalWorkOrder::where('id', $mine->id)->update(['status' => RentalWorkOrder::STATUS_IN_PROGRESS]);
+        self::assertSame([], $ids('own'));
+    }
+
     public function test_queue_review_fault_rule_respects_own_branch_and_agency_scoping(): void
     {
         [$agency, $branch, $agentOne] = $this->makeAgencyBranchAgent();

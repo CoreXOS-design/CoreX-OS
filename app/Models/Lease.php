@@ -614,6 +614,20 @@ class Lease extends Model
      * existing role-manager scope UI covers this module without a new
      * mechanism.
      */
+    /**
+     * leases.md §18.7 — leases whose notice terms no agent has confirmed against the signed lease (none on record, or only an
+     * agency default). The "to check" list on the lease list and the rentals needs-action queue share this one definition.
+     */
+    public function scopeNoticeTermsUnconfirmed($query)
+    {
+        return $query->whereNotExists(function ($sub) {
+            $sub->selectRaw('1')->from('lease_agreement_terms as nt')
+                ->whereColumn('nt.lease_id', 'leases.id')
+                ->whereNull('nt.deleted_at')
+                ->whereNotNull('nt.notice_terms_confirmed_at');
+        });
+    }
+
     public function scopeVisibleTo($query, User $user, ?string $requestedScope = null)
     {
         $scope = \App\Services\Rentals\RentalDataScope::resolve($user, 'leases', $requestedScope);

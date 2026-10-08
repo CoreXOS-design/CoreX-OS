@@ -723,6 +723,32 @@ class RentalCommandCentreService
             ]);
         });
 
+        // C3 - a tenant said the finished work is NOT complete (work order status "disputed", spec 17.10.6). The agent gets an in-app
+        // note when it happens, but the tenant is waiting and nothing else puts it in front of anyone: it stays here until the work is
+        // reported done again (status leaves "disputed"). Same own / branch / agency scoping as every rule here.
+        $this->applyPropertyIdScope(
+            $applyQueueFilters(
+                RentalWorkOrder::query()->where('status', RentalWorkOrder::STATUS_DISPUTED),
+                'updated_at'
+            )->with('property'),
+            $user,
+            $scope,
+            'property_id'
+        )->get()->each(function (RentalWorkOrder $workOrder) use (&$items, $today) {
+            $items->push([
+                'type' => 'work_order_disputed',
+                'urgency' => 1,
+                'age_days' => $workOrder->updated_at ? (int) abs($today->diffInDays($workOrder->updated_at)) : 0,
+                'item_date' => $workOrder->updated_at,
+                'property' => $workOrder->property,
+                'lease' => null,
+                'label' => 'Resolve dispute',
+                'detail' => $workOrder->title . ' - the tenant says it is not complete',
+                'route' => 'corex.rental-work-orders.show',
+                'route_params' => ['rentalWorkOrder' => $workOrder->id],
+            ]);
+        });
+
         // D — work order overdue. Reuses RentalWorkOrder::scopeOverdue()
         // directly — the SAME scope RentalWorkOrderController::index()'s own
         // "Overdue" tile and ?overdue=1 filter use (status IN
@@ -813,6 +839,33 @@ class RentalCommandCentreService
                 'detail' => 'Loaded date ' . $date->planned_on->format('j M Y') . ($date->note ? ' — ' . $date->note : ''),
                 'route' => 'corex.rental-inspections.due',
                 'route_params' => [],
+            ]);
+        });
+
+        // I — an active lease whose notice terms no agent has confirmed against the signed lease (leases.md §18.7). The portal
+        // states nothing about notice until they are; the row opens the lease, whose card has the one-click "Confirm terms".
+        $this->applyPropertyIdScope(
+            $applyQueueFilters(
+                Lease::query()->where('status', Lease::STATUS_ACTIVE)->noticeTermsUnconfirmed(),
+                'start_date'
+            )->with(['property', 'agreementTerms']),
+            $user,
+            $scope,
+            'property_id'
+        )->with('tenants.contact')->get()->each(function (Lease $lease) use (&$items) {
+            $held = $lease->agreementTerms?->notice_terms_source;
+            $items->push([
+                'type' => 'confirm_notice_terms',
+                'urgency' => 3,
+                'age_days' => 0,
+                'item_date' => $lease->start_date,
+                'property' => $lease->property,
+                'lease' => $lease,
+                'label' => 'Confirm notice terms',
+                'detail' => ($held === 'agency_default' ? 'Filled from the agency defaults — check against the signed lease' : ($held ? 'Not yet confirmed against the signed lease' : 'No notice terms on record'))
+                    . ' · Tenant: ' . $lease->tenantNames(),
+                'route' => 'corex.leases.show',
+                'route_params' => ['lease' => $lease->id],
             ]);
         });
 

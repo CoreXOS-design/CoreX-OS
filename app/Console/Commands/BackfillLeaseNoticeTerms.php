@@ -151,7 +151,8 @@ class BackfillLeaseNoticeTerms extends Command
                     ->where('id', '>', $latest->id)
                     ->exists();
 
-                $stillThere = $terms && ! $changedSince && $terms->notice_terms_source === LeaseNoticeTermsService::SOURCE_AGENCY_DEFAULT;
+                $stillThere = $terms && ! $changedSince && $terms->notice_terms_source === LeaseNoticeTermsService::SOURCE_AGENCY_DEFAULT
+                    && $terms->notice_terms_confirmed_at === null; // an agent confirmed them since: they are the lease's now
                 if ($stillThere) {
                     $current = $svc->stored($terms);
                     foreach ($wrote as $key => $value) {
@@ -187,7 +188,7 @@ class BackfillLeaseNoticeTerms extends Command
             }
         });
 
-        $this->line(($dryRun ? 'DRY RUN — nothing written. ' : '') . "Reverted {$reverted} lease(s); {$kept} left as they were because the terms were changed after the back-fill.");
+        $this->line(($dryRun ? 'DRY RUN — nothing written. ' : '') . "Reverted {$reverted} lease(s); {$kept} left as they were because the terms were changed or confirmed after the back-fill.");
 
         return self::SUCCESS;
     }

@@ -80,7 +80,8 @@ class LeaseRenewalService
             // start), or start from the agency's defaults when that term held none. The capture screen may then change them.
             $notice = app(LeaseNoticeTermsService::class);
             [$noticeValues, $noticeSource] = $notice->forRenewal($current, \Illuminate\Support\Carbon::parse($newTerm->start_date));
-            $notice->save($newTerm, $noticeValues, $user, $noticeSource, false);
+            // No screen here: the new term is confirmed only if the term it carries from was (a default stays unconfirmed).
+            $notice->save($newTerm, $noticeValues, $user, $noticeSource, false, null, $noticeSource === LeaseNoticeTermsService::SOURCE_CARRIED_FORWARD && $notice->isConfirmed($current));
 
             $this->logEvent($current, LeaseEvent::TYPE_RENEWAL_DRAFT_CREATED, "Renewal draft created (new term #{$newTerm->id})", $user);
 

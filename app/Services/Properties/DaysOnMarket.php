@@ -106,11 +106,17 @@ final class DaysOnMarket
         $inferred = $this->inferredStart($p, $transitions, $logs);
         $listed   = $this->realListedDate($p);
 
-        // A REAL listing date (e.g. set by hand to the portal's own date) is trusted and is the start of
-        // the count - unless a later re-publish / move on-market proves the current advert went live
-        // after it.
-        if ($listed && $inferred) {
-            return $listed->gt($inferred) ? $listed : $inferred;
+        // A REAL listing date is trusted: CoreX stamps it at go-live and re-stamps it on a re-publish, and it
+        // is the date an agent corrects by hand. A later portal submit alone is just a refresh and never moves
+        // it. Only a later move INTO an on-market status (or a takeover) proves a new on-market period, and
+        // then the start is that period's own go-live (the inferred start).
+        if ($listed) {
+            $moved = $this->moveOnMarketBoundary($p, $transitions);
+            if ($moved && $moved->copy()->startOfDay()->gt($listed)) {
+                return $inferred ?? $moved->copy()->startOfDay();
+            }
+
+            return $listed;
         }
 
         return $listed ?? $inferred;
@@ -156,22 +162,7 @@ final class DaysOnMarket
         $untouchedImport = $p->p24_imported_at !== null && $p->imported_released_at === null;
 
         // A - the boundary: last move INTO an on-market status, or the takeover.
-        $boundary = null;
-        foreach ($transitions as $t) {
-            $to   = $t['to'];
-            $from = $t['from'];
-            if ($to !== null && in_array($to, self::ON_MARKET_STATUSES, true)
-                && ($from === null || !in_array($from, self::ON_MARKET_STATUSES, true))
-                && !($p->p24_imported_at !== null && $this->isImportArtefact($p, $t['at'], false))) {
-                $boundary = $t['at'];
-            }
-        }
-        if ($p->imported_released_at) {
-            $released = Carbon::parse($p->imported_released_at);
-            if (!$boundary || $released->gt($boundary)) {
-                $boundary = $released;
-            }
-        }
+        $boundary = $this->moveOnMarketBoundary($p, $transitions);
         // A deactivate/re-publish pushed through the P24 status endpoint is also a boundary.
         $lastStatusPush = $logs['status_updates'] ? max($logs['status_updates']) : null;
         $afterBoundary  = $boundary;
@@ -221,6 +212,33 @@ final class DaysOnMarket
         }
 
         return null;
+    }
+
+    /**
+     * The last move INTO an on-market status (never an import artefact), or the takeover, whichever is later.
+     *
+     * @param array<int, array{at:Carbon, from:?string, to:?string}> $transitions oldest first
+     */
+    private function moveOnMarketBoundary(Property $p, array $transitions): ?Carbon
+    {
+        $boundary = null;
+        foreach ($transitions as $t) {
+            $to   = $t['to'];
+            $from = $t['from'];
+            if ($to !== null && in_array($to, self::ON_MARKET_STATUSES, true)
+                && ($from === null || !in_array($from, self::ON_MARKET_STATUSES, true))
+                && !($p->p24_imported_at !== null && $this->isImportArtefact($p, $t['at'], false))) {
+                $boundary = $t['at'];
+            }
+        }
+        if ($p->imported_released_at) {
+            $released = Carbon::parse($p->imported_released_at);
+            if (!$boundary || $released->gt($boundary)) {
+                $boundary = $released;
+            }
+        }
+
+        return $boundary;
     }
 
     /**

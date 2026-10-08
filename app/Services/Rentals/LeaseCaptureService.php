@@ -614,7 +614,8 @@ class LeaseCaptureService
             unset($values['earliest_termination_date']); // the agreement section owns it for this agency's lease
         }
 
-        app(LeaseNoticeTermsService::class)->save($lease, $values, $user, $source, false);
+        // The agent captured this lease on this screen (the terms were in front of them): that confirms them (leases.md §18.7).
+        app(LeaseNoticeTermsService::class)->save($lease, $values, $user, $source, false, null, true);
 
         return ['source' => $source] + array_filter($values, fn ($v) => $v !== null);
     }

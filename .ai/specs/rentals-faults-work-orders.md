@@ -1136,3 +1136,5 @@ Each reached step shows its date; the last reached is `current`. A declined faul
 
 **Tests:** `OwnerFaultScreenTest` (screen, deep link, leak, recipients + fallback chain, state→step on the internal / agency-contractor / owner-contractor routes and the declined path, reopened / cancelled, data-driven words, tenant mails once), `RentalCommandCentreServiceTest` (Review fault: appears, leaves, scoping).
 
+**Back-half walk follow-up (8 Oct 2026).** Step 5 of the progress line ("Sent to contractor for scheduling") is reached on the agency-contractor route only when the office actually sends the work order (`ordered_at`), not at creation; a fault whose work order was CANCELLED may get a new one (`RentalFaultReport::hasLiveWorkOrder()`); the command centre gains "Resolve dispute" for a disputed work order. Full list and the walk: `rental-work-orders.md` §17.30; tests `tests/Feature/RentalMaintenanceWalk/BackHalfWalkTest.php`.
+

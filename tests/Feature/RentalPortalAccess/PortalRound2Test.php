@@ -104,7 +104,7 @@ final class PortalRound2Test extends TestCase
     {
         $lease ??= $this->lease;
 
-        return LeaseAgreementTerms::withoutGlobalScopes()->create($attrs + ['agency_id' => $lease->agency_id, 'lease_id' => $lease->id]);
+        return LeaseAgreementTerms::withoutGlobalScopes()->create($attrs + ['notice_terms_confirmed_at' => now(), 'agency_id' => $lease->agency_id, 'lease_id' => $lease->id]);
     }
 
     private function faqFor(Contact $c, string $audience = 'tenant'): array
@@ -210,6 +210,17 @@ final class PortalRound2Test extends TestCase
     }
 
     // ── P2 · the Home FAQ from the lease's own terms ────────────────────────
+
+    public function test_unconfirmed_terms_are_never_stated_to_the_tenant_or_the_owner(): void
+    {
+        $this->terms(['notice_period' => 30, 'notice_period_unit' => 'days', 'early_cancellation_allowed' => 'yes', 'notice_terms_source' => 'agency_default', 'notice_terms_confirmed_at' => null]);
+
+        $this->assertSame([], $this->faqFor($this->tenant), 'agency-default terms: the portal says nothing about notice');
+        $this->assertSame([], $this->faqFor($this->landlord, 'landlord'));
+
+        LeaseAgreementTerms::withoutGlobalScopes()->where('lease_id', $this->lease->id)->update(['notice_terms_confirmed_at' => now()]);
+        $this->assertNotEmpty($this->faqFor($this->tenant), 'once an agent confirms them');
+    }
 
     public function test_a_lease_with_an_earliest_termination_date_and_a_notice_period_gets_both_answers(): void
     {
