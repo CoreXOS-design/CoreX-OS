@@ -210,10 +210,12 @@ final class DaysOnMarketStartDateTest extends TestCase
 
     public function test_other_agency_stock_uses_the_portals_own_listing_date(): void
     {
-        $p = $this->native(['status' => Property::STATUS_OTHER_AGENCY_STOCK, 'listed_date' => now()->subDays(63)->toDateString()]);
+        // In-memory: the OAS status is only persistable once the OAS feature is on the branch; the
+        // calculation itself only reads the attributes.
+        $p = (new Property())->forceFill(['id' => 987654, 'status' => Property::STATUS_OTHER_AGENCY_STOCK, 'listed_date' => now()->subDays(63)->toDateString()]);
         $this->assertSame(63, DaysOnMarket::for($p));
 
-        $none = $this->native(['status' => Property::STATUS_OTHER_AGENCY_STOCK, 'listed_date' => null]);
+        $none = (new Property())->forceFill(['id' => 987655, 'status' => Property::STATUS_OTHER_AGENCY_STOCK, 'listed_date' => null]);
         $this->assertNull(DaysOnMarket::for($none));
     }
 
