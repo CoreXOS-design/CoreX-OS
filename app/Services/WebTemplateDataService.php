@@ -328,6 +328,14 @@ class WebTemplateDataService
             'min_term_month'        => '',
             'min_term_year'         => '',
             'renewal_months'        => '',
+            // Lease notice and early cancellation (leases.md §18.8)
+            'notice_period'                  => '',
+            'notice_period_unit'             => '',
+            'earliest_notice_date'           => '',
+            'early_cancellation_allowed'     => '',
+            'early_cancellation_notice'      => '',
+            'early_cancellation_notice_unit' => '',
+            'early_cancellation_penalty'     => '',
             // Utilities
             'electricity_settlement'=> '',
             'electricity_deposit'   => '',
@@ -1249,6 +1257,11 @@ class WebTemplateDataService
             'lease_start_day'   => $leaseStart ? (int) date('d', strtotime($leaseStart)) : '',
             'lease_start_month' => $leaseStart ? date('F', strtotime($leaseStart)) : '',
             'lease_start_year'  => $leaseStart ? date('Y', strtotime($leaseStart)) : '',
+            // leases.md §18.8 — the lease's own notice / early-cancellation terms. A lease agreement is filled from the lease's
+            // terms through the agency's field map (LeaseAgreementDocumentValues); these arms let the catalogue fields resolve
+            // from the same values when a document carries them in its details, and print nothing otherwise.
+            'notice_period', 'notice_period_unit', 'earliest_notice_date', 'early_cancellation_allowed',
+            'early_cancellation_notice', 'early_cancellation_notice_unit', 'early_cancellation_penalty' => (string) ($details[$attr] ?? ''),
             default             => '',
         };
     }
