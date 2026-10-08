@@ -46,7 +46,13 @@ final class RentalImagesTabRendersTest extends TestCase
             ->get(route('corex.properties.show', $property->id))
             ->assertOk()
             ->assertSee('Inspection Items')
-            ->assertSee('Start In-Inspection')
+            // §49 (8 Oct 2026, Johan): the first inspection of a property can be any of the four types — the old
+            // "In only" button is now a picker with all four, each with its meaning beside it.
+            ->assertSee('data-qa="start-type"', false)
+            ->assertSee('In — move-in condition')
+            ->assertSee('Routine — an unplanned mid-tenancy check')
+            ->assertSee('Interim — a planned mid-tenancy inspection, from a date you loaded')
+            ->assertSee('Out — move-out condition')
             ->assertDontSee('Start Out-Inspection');
     }
 

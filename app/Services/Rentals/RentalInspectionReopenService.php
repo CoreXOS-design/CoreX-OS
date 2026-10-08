@@ -93,6 +93,9 @@ class RentalInspectionReopenService
 
             // Back to the normal recording state: the agent edits, then marks it ready to sign again (the usual checks run).
             $locked->forceFill(['status' => RentalInspection::STATUS_DRAFT, 'signing_deadline_at' => null])->save();
+            // §49 — nobody's signature stands any more, so the checklist wording they signed is no longer fixed; it is
+            // taken afresh when someone signs again. (What they signed is kept on the reopen record above.)
+            $locked->clearChecklistWordingSnapshot();
 
             RentalInspectionAuditLog::record(
                 $locked,

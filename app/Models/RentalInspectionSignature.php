@@ -301,13 +301,22 @@ class RentalInspectionSignature extends Model
         // fingerprint of the report as it stood when it was given.
         $attributes['signed_report_fingerprint'] ??= $inspection->reportFingerprint();
 
-        return self::create(array_merge($attributes, [
+        $row = self::create(array_merge($attributes, [
             'agency_id' => $inspection->agency_id,
             'rental_inspection_id' => $inspection->id,
             'party_role' => $partyRole,
             'disposition' => $disposition,
             'disposition_recorded_at' => $attributes['disposition_recorded_at'] ?? now(),
         ]));
+
+        // §49 — the moment someone really signs (a drawn / link / PIN signature, or a paper one on file), the checklist
+        // wording they signed is fixed on the report: renaming or retiring a checklist item later must not change how a
+        // signed report reads. Fill-if-empty — a second signer never re-takes it.
+        if (in_array($disposition, [self::DISPOSITION_SIGNED, self::DISPOSITION_WET_INK], true)) {
+            $inspection->ensureChecklistWordingSnapshot();
+        }
+
+        return $row;
     }
 
     /**

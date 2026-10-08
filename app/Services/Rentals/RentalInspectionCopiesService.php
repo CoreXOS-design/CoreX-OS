@@ -38,6 +38,12 @@ class RentalInspectionCopiesService
      */
     public function fileAndSend(RentalInspection $inspection, bool $autoOnly, ?User $triggeredBy = null, ?array $onlyEmails = null): array
     {
+        // §49 — a copy leaves CoreX for a tenant / landlord only once everyone has signed; the completion that calls this
+        // can only have happened with the agency's required signatures in. A direct call on an unfinished report refuses.
+        if ($inspection->status !== RentalInspection::STATUS_COMPLETED && ! $inspection->partyCopyAvailable()) {
+            throw new \LogicException('The report cannot be sent to the parties until everyone has signed it.');
+        }
+
         $this->distribution->ensurePublicLink($inspection);
         $pdfBytes = $this->pdf->generate($inspection)->output();
         $filename = $this->pdf->filenameFor($inspection);

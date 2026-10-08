@@ -7694,3 +7694,98 @@ Both tickets were still "In Progress" in Jira. Checked against the QA1 code of 7
 ### 48.4 Verification (7 Oct 2026)
 
 `php -l` clean · `node --check` clean · `view:clear` · `bash scripts/lane-test.sh`: `RentalInspectionPhotoSafetyTest` 7 passed (46 assertions); `RentalInspectionRecordingControllerTest` 110 passed (292 assertions, includes the §20.22 backend cases) · `node tests/js/photo-batch-uploader.mjs` 25/25 (against the QA1-tip uploader: 3 fail, 1 crashes).
+
+---
+
+## 49. Johan's rulings of 8 Oct 2026 — downloads only once everyone has signed · DRAFT stamp · signatures per type · all four types everywhere · added-after-sent · checklist wording fixed (cc6) — BUILT on QA1
+
+Answers the open questions of §47.8 and the "Behaviour left as it was" line there. QA1 only; nothing on Staging or live; no data repaired.
+
+### 49.1 What "everyone has signed", "sent", "final" and "locked" mean (the vocabulary these rules share)
+
+| Word | Defined by | Meaning |
+|---|---|---|
+| **Fully signed** | `RentalInspection::isFullySigned()` | Every tenant on the lease, the landlord (when the property resolves one) and the agent each hold a LIVE drawn / link / PIN signature or a paper signature on file. A refusal, a "paper sent" marker and a voided signature are not signatures. |
+| **Distributed / sent** | `isDistributed()` — **unchanged (§47.5)** | Completed, with the copies sent (or an email copy to a tenant/landlord logged as sent). **A party's own signature does not make a report "sent".** |
+| **All required parties signed** | `allRequiredPartiesSigned()` | `! signaturesRequired() || isFullySigned()` — honours the agency's per-type setting (§49.4): where signatures are optional (Routine by default) nothing is outstanding; where required, every party must hold a live signature. A refusal never counts. |
+| **Party copy available** | `partyCopyAvailable()` | `allRequiredPartiesSigned() && (isDistributed() || isFullySigned())`; never for a cancelled or archived inspection. So a required-type report with a refusal on record never opens a party-side PDF, even once completed. |
+| **Final report** | `isFinalReport()` | Completed. (Completion itself requires the agency's signatures for the type — §49.4 — so a completed report is final.) |
+| **Locked** | §47.3 / §47.5 — **unchanged** | A signed report's content is locked (changed only by "Edit report"); a sent report can never be edited or reopened. |
+
+**Held for Johan (§49.9 Q1):** the ruling reads "a party's own signature does not lock the report". Read as "a party's own signature is not what *sends* the report — sending stays Complete + copies sent", which is what is built. §47.3's "a signed report is locked" (his ruling of 7 Oct) was NOT removed.
+
+### 49.2 Rule 1 — a tenant's / landlord's PDF exists only once EVERYONE has signed (and stays after)
+
+Every path a party can take a copy of the report by, server-side (the button is hidden too, but the server refuses):
+
+| Path | Before everyone has signed | Once fully signed / after completion |
+|---|---|---|
+| Signing link PDF — `GET /rental-inspection-sign/{token}/report.pdf` (`RentalInspectionSigningController::pdf`) | **403** with the plain page `public/download-not-ready` ("The PDF isn't ready yet…"), nothing generated | the PDF, as before |
+| Signing page (`public/show` + `partials/sign-section` + `partials/download-link`) | the report is on screen; the "Download the report (PDF)" button is replaced by "A PDF copy … becomes available once everyone has signed it…" (also under the party's own "Thank you, your signature is recorded" confirmation) | the button |
+| Browser Print / Save-as-PDF on the signing page and on the general public link (`/rental-inspection-report/{token}`) | the Print button is replaced by "Printing and the PDF open once everyone has signed"; a `@media print` rule prints only "This report can only be printed … once everyone has signed it" instead of the report | the Print button and the report print |
+| Agent's "Sign on this device" page | same page, same rule (it shares `reportData()` and `signingContext()`) | same |
+| Portal Documents (tenant / owner) — `RentalPortalDocumentService::inspectionIsShareable()` | not listed — offered only when the report has been **sent** (`isDistributed()`) **and** `allRequiredPartiesSigned()`; the file route 404s | listed. The portal names the type with the one shared wording (`RentalInspection::typeLabel()` / `typeName()`: In, Out, Routine, Interim — it used to say "Move-in", "Move-out" and "Ad hoc"). |
+| Emailed copy at completion / Resend (`RentalInspectionCopiesService::fileAndSend()`) | refuses a report that is neither completed nor party-copy-available (`LogicException`); the agent's Resend endpoints already refuse a non-completed inspection. The completion mail is the agency's own act and is unchanged (it also goes out when a refusal is on record — see §49.9 Q4) | sent |
+
+`public/show.blade.php` is the one page for the general link, a party's link and the agent's device, so all three agree. Wet-ink scan links on that page are a party's own paper signature and unchanged.
+
+**The agent's own Print / PDF is not governed by this rule** (§49.3). The blank capture form (`…/form`) is not a report and is untouched.
+
+### 49.3 Rule 2 — the agent may print an unfinished report; every page says "DRAFT - not final"
+
+`RentalInspectionReportPdfService::generate()` / `generateForSignature()` pass `isDraft = ! isFinalReport()` to `corex.rental-inspections.report-pdf`. When true, two `position: fixed` elements repeat on **every page** (DomPDF repeats fixed elements): a bold band in the top margin and a faint diagonal across the page body, both reading exactly **DRAFT - not final**. The stamp is absent only when the inspection is completed. So: draft, ready to sign, part signed, fully signed but not completed, cancelled → stamped; completed → clean. A party downloading after everyone has signed but before the agent presses Complete therefore receives a stamped PDF — the stamp leaves only on the completed report (Johan's wording). The emailed copy at completion is generated after the status flips to completed, so it is clean.
+
+### 49.4 Rule 3 — signatures per inspection type are an agency setting
+
+Migration `2026_10_16_100000`: four nullable booleans on `rental_inspection_settings` — `signatures_required_in`, `_out`, `_interim`, `_routine` (Routine = the stored `ad_hoc`). Read-time default (`RentalInspectionSetting::signaturesRequiredFor($agencyId, $storedType)`): **In, Out, Interim required; Routine optional**; an unknown type is treated as required. **Required** = `markCompleted()` refuses until every tenant, the landlord and the agent have an outcome and the agent has signed (the existing §15.7 gate, unchanged in content); **optional** = it completes without them. What stays by type and is NOT a setting: every-item-recorded, required notes and attendance (§45.3, §45.5) — Routine remains exempt from those (the existing `all_items_required_to_complete` setting still governs the first). Signing itself is open for every type (§47.1) whatever the setting says.
+
+Surfaced in **Settings → Rental inspections** ("Signatures needed before an inspection can be completed", four ticks) and in the **Setup Wizard** (four toggle controls with explain/affects, config/agency-onboarding-copy.php, values in `AgencySetupWizardController::currentValues()`), both through the one shared saver `RentalInspectionSettingsController::update()` — each field `has()`-guarded so a step that renders only some cannot wipe the rest (§6.1).
+
+### 49.5 Rule 4 — all four types wherever an inspection is started or scheduled
+
+One list, `RentalInspection::TYPE_PICKER` / `typePickerOptions()`: **In** — move-in condition · **Routine** — an unplanned mid-tenancy check · **Interim** — a planned mid-tenancy inspection, from a date you loaded · **Out** — move-out condition.
+
+Where only three (or one) showed, and what changed:
+
+| Place | Before | Now |
+|---|---|---|
+| Inspection page → **Next inspection** (`corex/rental-inspections/show.blade.php`) | Routine, Interim, Out — **no In** | all four |
+| Property **Inspections tab** header → **Next inspection** (also what the phone recording screen shows — it is the same tab) (`corex/properties/show.blade.php`) | Routine, Interim, Out — **no In** | all four |
+| Property **Inspections tab**, first inspection of a property | a single "Start In-Inspection" button — **only In** | a picker with all four + "Start inspection" |
+| `POST …/rental-inspections/start` (tab) | accepted In, Out, Routine — **not Interim** | accepts all four |
+| New-inspection form (`rental-inspections/create`, reached from the list, the lease hub, the command centre and the Due tab) | all four, own hand-written list | all four from the shared list |
+| List filter | all four | unchanged |
+
+**In after other inspections.** An In is offered in the Next pickers. A tenancy has one move-in condition, so `RentalInspection::startNext()` now accepts `in` when the lease has no live In-inspection (it chains after the predecessor like any link) and refuses it plainly ("This tenancy already has an In-inspection (#N)…") when it has one; the pickers grey the option out with that reason (`leaseInInspection()`, `lease_in_inspection_id` on the tab payload). Start messages now say "Routine inspection started." (they said "Ad_hoc-inspection started."). Also fixed in the same sweep: the portal Documents label "Ad hoc" → "Routine"; the PDF cover and the inspection page said "Compared against the ad_hoc-inspection".
+
+### 49.6 Rule 5 — added after the report was sent
+
+`RentalInspectionAddedAfterSentService::entriesFor()` is the one builder (inspection page, PDF, general public link, a party's link, the agent's device page). A block titled **Added after the report was sent**, boxed apart from and below the report body, says "The report above is exactly as it was sent", and lists each entry with its kind, date/time and who:
+
+* a **tenant fault report** — an observation with source `tenant_fault_report` created at or after the inspection was completed (the §3.5 window; filed through the existing observation endpoint). `RentalInspection::isAddedAfterSent()` / `bodyObservations()` keep it OUT of the body: the item's condition and notes in the body read exactly as sent. Who = the tenant when the record names one, otherwise "<agent> (recorded for the tenant)". Its photos, if any, appear in the block on the web pages and are counted in the PDF.
+* a **move-out comparison finding** — a live (not superseded) finding on a completed Out recorded at or after completion. Findings recorded before completion are not part of this block (they were never printed and still are not); a corrected finding shows only its live version. **New:** these findings are now shown on the PDF and the web report pages at all (§47.8 said the PDF and public page did not print them).
+
+Unchanged: the write paths themselves (the fault-report window; the findings screen), archiving, and attendance records. Not changed: the Inspections tab's read-only predecessor panel and the Out comparison still read a tenant fault report as the In's latest condition for an item (it is a comparison working surface, not the sent report).
+
+### 49.7 Rule 6 — a sent (or signed) report keeps the checklist wording it was sent with
+
+`rental_inspections.checklist_wording_snapshot` (JSON `{item id: label}` for every item of the property, live or retired) + `checklist_wording_snapshot_at` (migration `2026_10_16_100010`). Taken, fill-if-empty (`ensureChecklistWordingSnapshot()`), at the first live signed / paper signature (`RentalInspectionSignature::capture()` — every route funnels through it) and at completion (`markCompleted()`); **cleared by "Edit report"** (nobody's signature stands, `RentalInspectionReopenService`; what the signers saw stays in the reopen record's `report_snapshot`, which now stores the snapshot wording). Every report builder applies it in memory (`applyWordingSnapshot()` sets the label and syncs the original — nothing is ever written back to the checklist): the PDF, the public / signing / device pages, the inspection page (items, discrepancies, comparison rows), the reopen snapshot and the added-after-sent block. An item added later is simply not in the snapshot and keeps its own label; a retired item was already kept on a report that assessed it (§47 scope `listedOnReportOf`) and now also keeps its wording. A rename or a retire of the *live* checklist still works exactly as before — the checklist changes, the sent report does not.
+
+**Existing inspections on QA1 (no data repair).** The column starts empty, so every report that exists today reads from the live checklist exactly as before. Counts on QA1 at build time: **6 completed (sent) inspections** (all 6 carry signatures), **3 open inspections already carrying a live signature**; 0 retired checklist items on those properties; 0 tenant fault reports and 0 move-out findings filed after a completion. A back-fill would freeze *today's* wording, which may already differ from what was sent and cannot be proved either way — it is **not done; asked of Johan (§49.9 Q2).**
+
+### 49.8 Files
+
+Migrations `2026_10_16_100000_add_signature_requirements_to_rental_inspection_settings_table`, `2026_10_16_100010_add_checklist_wording_snapshot_to_rental_inspections_table`. `RentalInspection` (picker list; `signaturesRequired`, `isFullySigned`, `partyCopyAvailable`, `isFinalReport`, `isAddedAfterSent`, `bodyObservations`, wording snapshot methods, `leaseInInspection`, `startNext` In rule, `markCompleted` gate + snapshot, `reportSnapshot`), `RentalInspectionSetting` (signature requirement constants + `signaturesRequiredFor`), `RentalInspectionSignature::capture` (snapshot hook), `RentalInspectionReopenService` (snapshot clear), `RentalInspectionAddedAfterSentService` (new), `RentalInspectionReportPdfService` + `report-pdf.blade.php` (stamp, wording, body observations, marked block), `RentalInspectionPublicController::reportData` + `RentalInspectionSigningController` (download gate, `pdf_available`), `public/show.blade.php`, `public/partials/sign-section` + `download-link` + `public/download-not-ready` (new), `RentalInspectionController` (show: wording, marked block, `next` accepts all four), `RentalInspectionRecordingController` (`start`/`next` accept all four), `RentalInspectionCopiesService` (guard), `RentalPortalDocumentService` (gate, label), `RentalInspectionSettingsController` + settings page + `config/agency-onboarding-copy.php` + `AgencySetupWizardController::currentValues`, `corex/rental-inspections/create`, `show` and `corex/properties/show.blade.php` (pickers).
+
+### 49.9 Tests and questions
+
+Tests (one file at a time through `scripts/lane-test.sh`): `RentalInspectionRulingsDownloadsTest` (24), `RentalInspectionRulingsSettingsAndPickersTest` (39), `RentalInspectionRulingsAfterSentAndWordingTest` (20), `RentalImagesTabRendersTest` updated (its "In-only button" assertion encoded the old rule). Every download path is asserted refused in every pre-signature state for every type, opened once fully signed, and still open after completion; the stamp is asserted on EVERY page of a multi-page PDF (pdftotext) and absent on the completed report.
+
+**Questions for Johan (business, not decided):**
+
+1. *"A party's own signature does not lock the report."* Yesterday's ruling was "a signed report is locked" (Edit report voids every signature). Is the lock to stay — edits after someone has signed go through **Edit report** — or should a signature no longer block edits? If it should not block: an agent could change the report under a tenant's signature, and we would need your rule for what then happens to that signature.
+2. The 6 sent reports (and 3 signed open ones) on QA1 pre-date the wording snapshot. Back-fill them with today's wording (cannot prove it matches what was sent), or leave them reading from the live checklist as before?
+4. A tenant who **refused** to sign: the report can still be completed and the agency's completion email still goes to them, but the party-side PDF (their link, the portal) stays closed because "all parties have signed" is not true. Should the completion email also hold back the PDF for them?
+3. A Routine inspection is still exempt from "every item recorded", required notes and attendance (only the signatures became a setting). Should those follow the per-type setting too?
+
+Reported, not changed: the Inspections tab's read-only panels show the live checklist wording and a post-sent fault report as the In's latest condition (a working comparison surface); room names are not part of the wording snapshot; `…/form` (blank capture form) carries no stamp.

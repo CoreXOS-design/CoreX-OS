@@ -97,11 +97,15 @@ class RentalInspectionPublicController extends Controller
             ->listedOnReportOf($inspection->id)
             ->with(['room' => $unscoped])
             ->get();
+        // §49 — a sent (or signed) report keeps the checklist wording it was sent with, whatever the checklist says now.
+        $inspection->applyWordingSnapshot($items);
 
         // AT-433, §20.22 — a photo-anchor row (CONDITION_PENDING) is not an
         // assessment; excluded before the latest-per-item pick, the same
         // rule RentalInspectionReportPdfService::generate() already applies.
-        $observationsByItem = $inspection->observations->groupBy('rental_inspection_item_id');
+        // §49 — what was added after the report was sent (a tenant fault report in the window) is not part of the body;
+        // it is shown in its own marked block below.
+        $observationsByItem = $inspection->bodyObservations()->groupBy('rental_inspection_item_id');
         $currentByItem = $observationsByItem
             ->map(fn ($group) => $group->where('condition', '!=', RentalInspectionObservation::CONDITION_PENDING)->sortByDesc('created_at')->first())
             ->filter();
@@ -180,6 +184,10 @@ class RentalInspectionPublicController extends Controller
             'signatureRows' => $inspection->signatureSummaryRows(),
             'refusalReasonLabels' => collect(RentalInspectionSetting::refusalReasonPresetsFor($agencyId))->pluck('label', 'key'),
             'severityColors' => RentalInspectionSetting::SEVERITY_COLORS,
+            // §49 — a tenant or landlord may print / download this report only once everyone has signed (and it stays
+            // available after). Until then the page is for reading on screen only.
+            'downloadAllowed' => $inspection->partyCopyAvailable(),
+            'addedAfterSent' => app(\App\Services\Rentals\RentalInspectionAddedAfterSentService::class)->entriesFor($inspection),
         ];
     }
 
