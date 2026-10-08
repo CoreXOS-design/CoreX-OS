@@ -55,6 +55,12 @@ class LeaseSettingsController extends Controller
             // plus whatever this agency has activated under Settings →
             // Property Statuses), same source the dashboard's own Status
             // filter already draws from.
+            // Property status follows the lease (rental-renewals.md "status follows the lease", rows 2/6/7).
+            'autoReadvertiseOnNotice' => LeaseSetting::autoReadvertiseOnNoticeFor($agencyId),
+            'autoRestoreStatusOnLeaseEnded' => LeaseSetting::autoRestoreStatusOnLeaseEndedFor($agencyId),
+            'autoRestoreStatusOnLeaseCancelled' => LeaseSetting::autoRestoreStatusOnLeaseCancelledFor($agencyId),
+            'defaultPreLetStatus' => LeaseSetting::defaultPreLetStatusFor($agencyId),
+            'defaultPreLetStatusDefault' => LeaseSetting::DEFAULT_PRE_LET_STATUS,
             'activeRentalStatuses' => LeaseSetting::activeRentalStatusesFor($agencyId),
             'activeRentalStatusesDefault' => LeaseSetting::defaultActiveRentalStatuses(),
             'allowedPropertyStatuses' => Property::allowedStatuses($agencyId),
@@ -103,6 +109,11 @@ class LeaseSettingsController extends Controller
             // valid, if unusual, choice, so 'array' here, never 'required'.
             'active_rental_statuses' => ['nullable', 'array'],
             'active_rental_statuses.*' => ['string'],
+            // Property status follows the lease — same §6.1 has()-guard: absent = "not shown", never "off".
+            'auto_readvertise_on_notice' => ['nullable', 'boolean'],
+            'auto_restore_status_on_lease_ended' => ['nullable', 'boolean'],
+            'auto_restore_status_on_lease_cancelled' => ['nullable', 'boolean'],
+            'default_pre_let_status' => ['nullable', 'string', 'max:40', \Illuminate\Validation\Rule::in(Property::allowedStatuses($agencyId))],
         ]);
 
         $data = [
@@ -139,6 +150,14 @@ class LeaseSettingsController extends Controller
         }
         if ($request->has('month_to_month_after_end_days')) {
             $data['month_to_month_after_end_days'] = $validated['month_to_month_after_end_days'];
+        }
+        foreach (['auto_readvertise_on_notice', 'auto_restore_status_on_lease_ended', 'auto_restore_status_on_lease_cancelled'] as $field) {
+            if ($request->has($field)) {
+                $data[$field] = $request->boolean($field);
+            }
+        }
+        if ($request->has('default_pre_let_status')) {
+            $data['default_pre_let_status'] = trim((string) ($validated['default_pre_let_status'] ?? '')) ?: null; // blank = back to the default
         }
         foreach (['require_end_or_month_to_month_for_signing', 'restore_end_date_on_leaving_month_to_month'] as $field) {
             if ($request->has($field)) {

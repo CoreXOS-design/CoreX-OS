@@ -41,6 +41,10 @@ class OutboundMailGuardServiceProvider extends ServiceProvider
 {
     public function boot(): void
     {
+        // Config-only boot check: a non-production environment pointed at a real mail host trips
+        // the guard (loud log + nothing sends) — see OutboundMailGuard::auditBootConfiguration().
+        OutboundMailGuard::auditBootConfiguration();
+
         $this->app['events']->listen(MessageSending::class, function (MessageSending $event) {
             // AT-423 — FIRST re-address anything sent to a sub-user's username (not a real
             // address) to their shared inbox, so the guard below — and the real send — see
@@ -57,6 +61,19 @@ class OutboundMailGuardServiceProvider extends ServiceProvider
     {
         if (! OutboundMailGuard::isActive()) {
             return true;
+        }
+
+        // Tripped (non-production pointed at a real mail host): refuse EVERYTHING, even our own
+        // redirected copy — the "sink" is not a sink. Capture for the record, send nothing.
+        if (OutboundMailGuard::isTripped()) {
+            $o = $event->message;
+            Log::critical('OUTBOUND MAIL REFUSED — guard is tripped (real mail host on a non-production environment)', [
+                'app_env' => config('app.env'),
+                'subject' => $o->getSubject(),
+            ]);
+            $this->capture($o, $this->formatAddresses($o->getTo()), $this->formatAddresses($o->getCc()), $this->formatAddresses($o->getBcc()), false);
+
+            return false;
         }
 
         // This is our own redirected copy being sent through the sink

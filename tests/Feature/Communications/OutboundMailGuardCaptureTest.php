@@ -78,4 +78,58 @@ final class OutboundMailGuardCaptureTest extends TestCase
 
         $this->assertSame(1, OutboundMailGuardCapture::count(), 'capture must be written even when the best-effort sink forward fails');
     }
+
+    public function test_a_restored_from_live_database_on_staging_config_still_intercepts_a_real_send(): void
+    {
+        // Staging's shape: APP_ENV=staging, local catcher, and live's dev_settings row restored with the
+        // guard switched OFF. The send goes through the real MessageSending listener and must be held.
+        config([
+            'app.env' => 'staging',
+            'app.url' => 'https://staging.corexos.co.za',
+            'mail.mailers.smtp.host' => '127.0.0.1', 'mail.mailers.corex.host' => '127.0.0.1', 'mail.mailers.otp.host' => '127.0.0.1',
+            'mail.guard.sink_host' => '127.0.0.1',
+        ]);
+        \App\Models\DevSetting::set(\App\Support\OutboundMailGuard::TOGGLE_KEY, '0');
+        Cache::flush();
+
+        Mail::to('tenant@example.test')->send(new QueueBacklogAlertMail(
+            lane: 'default', ageSeconds: 10, backlog: 1, maxAge: 60,
+            supervisor: 'x', host: 'x', checkedAt: 'x',
+        ));
+
+        $this->assertSame(1, OutboundMailGuardCapture::count(), 'held, not sent');
+        $this->assertSame('staging', OutboundMailGuardCapture::first()->environment);
+    }
+
+    public function test_production_config_still_sends_through_the_guard(): void
+    {
+        // Production + live host + no override: the listener lets the message through (the array/log mailer in
+        // the test environment is what "sends"), and nothing is captured.
+        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za']);
+        Cache::flush();
+
+        Mail::to('someone@example.test')->send(new QueueBacklogAlertMail(
+            lane: 'default', ageSeconds: 10, backlog: 1, maxAge: 60,
+            supervisor: 'x', host: 'x', checkedAt: 'x',
+        ));
+
+        $this->assertSame(0, OutboundMailGuardCapture::count(), 'production is not intercepted');
+    }
+
+    public function test_a_tripped_guard_refuses_even_the_sink_copy_and_captures_the_message(): void
+    {
+        config([
+            'app.env' => 'staging', 'app.url' => 'https://staging.corexos.co.za',
+            'mail.mailers.smtp.host' => 'mail.hfcoastal.co.za', 'mail.guard.sink_host' => 'mail.hfcoastal.co.za',
+        ]);
+        \App\Support\OutboundMailGuard::auditBootConfiguration();
+
+        Mail::to('tenant@example.test')->send(new QueueBacklogAlertMail(
+            lane: 'default', ageSeconds: 10, backlog: 1, maxAge: 60,
+            supervisor: 'x', host: 'x', checkedAt: 'x',
+        ));
+
+        $this->assertSame(1, OutboundMailGuardCapture::count());
+        $this->assertFalse((bool) OutboundMailGuardCapture::first()->forwarded_to_sink, 'a tripped guard forwards nothing, not even to its sink');
+    }
 }

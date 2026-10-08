@@ -105,28 +105,30 @@ opcache/views being served.
 sudo systemctl reload php8.2-fpm
 ```
 
-## 7. Outbound-mail reminder (do not silently flip this — read it, then decide)
+## 7. Outbound mail after a restore — Staging cannot send real mail (2026-10-08)
 
-A restore brings in real client/agent/landlord email addresses. Staging is
-configured to send real mail **by default** (`app/Support/OutboundMailGuard.php`
-lists `staging.corexos.co.za` as a `SENDING_ENVIRONMENTS` entry — Johan's own
-earlier instruction, so real people's real addresses can end up in real outbound
-mail the moment anyone triggers a send-shaped action (declines, work orders,
-Core Matches composer "I sent this" flows that also fire a system notification,
-etc.) Check the live state before testing starts:
+A restore brings in real client/agent/landlord email addresses **and live's `dev_settings`
+table** (including `mail_intercept_forced`). Since 2026-10-08 that cannot make Staging send:
+`app/Support/OutboundMailGuard.php` decides by **environment configuration** — only
+`production` on `corexos.co.za` / `www.corexos.co.za` sends. Every other environment (Staging,
+QA1/QA2, demo, live-testing, local) intercepts, whatever the database says, and agent
+mailboxes' own SMTP/IMAP are redirected to the local Mailpit or simulated. Nothing to flip.
+
+Still check, after every restore, that the box's own mail config points at the local catcher
+(the guard refuses to send at all if it does not, and logs `OUTBOUND MAIL GUARD BOOT CHECK
+FAILED` at CRITICAL):
 
 ```
 php artisan tinker --execute="
-echo 'override: ' . (App\Models\DevSetting::get('mail_intercept_forced', null) ?? 'none (environment default applies)') . PHP_EOL;
-echo 'currently sending for real: ' . (App\Support\OutboundMailGuard::isActive() ? 'NO (intercepted)' : 'YES') . PHP_EOL;
+echo 'intercepting: ' . (App\Support\OutboundMailGuard::isActive() ? 'YES' : 'NO - STOP') . PHP_EOL;
+echo 'tripped (real mail host configured): ' . (App\Support\OutboundMailGuard::isTripped() ? 'YES - fix .env MAIL_HOST / MAIL_COREX_HOST / MAIL_OTP_HOST' : 'no') . PHP_EOL;
+echo 'stored override (ignored here): ' . (App\Models\DevSetting::get('mail_intercept_forced', null) ?? 'none') . PHP_EOL;
 "
 ```
 
-If it says "YES", that is Staging's normal, deliberate default — not a bug.
-Whether to force-intercept for a given test session is Johan's call (only a
-super_admin can flip `DevSetting::TOGGLE_KEY` via the Settings → Mail
-Interception screen) — this runbook does not make that call for him, it just
-makes sure he's looking at the real current state before testing starts.
+Expected: `intercepting: YES`, `tripped: no`. `MAIL_HOST`, `MAIL_COREX_HOST` and `MAIL_OTP_HOST`
+must all be 127.0.0.1 (or another local catcher). Held messages are listed under Settings →
+Email Setup and in the `outbound_mail_guard_captures` table.
 
 ## 8. Verify with a real fetch
 
