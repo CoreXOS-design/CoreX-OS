@@ -90,7 +90,7 @@
                                             class="w-full rounded-md px-3 py-2 text-sm"
                                             style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                                         <template x-for="st in data.statuses" :key="st.value">
-                                            <option :value="st.value" x-text="st.label"></option>
+                                            <option :value="st.value" :selected="st.value === form['prop:' + item.property_id].viewing_status" x-text="st.label"></option>
                                         </template>
                                     </select>
                                 </div>
@@ -103,7 +103,7 @@
                                                 style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                                             <option value="">Select…</option>
                                             <template x-for="o in data.outcomes" :key="o.id">
-                                                <option :value="String(o.id)" x-text="o.label"></option>
+                                                <option :value="String(o.id)" :selected="String(o.id) === String(form['prop:' + item.property_id].outcome_id)" x-text="o.label"></option>
                                             </template>
                                         </select>
                                     </div>
