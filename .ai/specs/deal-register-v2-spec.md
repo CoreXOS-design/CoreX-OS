@@ -293,12 +293,12 @@ Complete the Pipeline Overview (index is table-only today):
 `deals.deal_v2_id` ↔ `deals_v2.legacy_deal_id` (§4.2). Nullable both sides; a DR1 deal and its DR2 twin point at each other.
 
 ### 13.2 `DealSyncService` (single-writer mirror, `ContactIdentifierService` pattern)
-- **One service owns the shared-field invariant.** Mirrors only: status (mapped DR1 `accepted_status`/`commission_status` ↔ DR2 `status`), granted/registration dates, party names, commission totals. **DR2-only concepts (pipeline steps, distributions) never mirror back to DR1.**
+- **One service owns the shared-field invariant.** Mirrors only: status (mapped DR1 `accepted_status`/`commission_status` ↔ DR2 `status`), granted/registration dates, party names, and — **one way only, DR1 → DR2** — the commission total (see §22: the real deal owns a deal's money). **DR2-only concepts (pipeline steps, distributions) never mirror back to DR1.**
 - **Thin observers on both sides** (`DealObserver`, `DealV2Observer`) only *call* the service; the service never re-triggers itself (quiet writes, no recursion), wrapped in `DB::transaction`, and **idempotent** — a re-run converges.
 - **Mapping table** for the status axes is explicit and agency-agnostic (DR1's two-axis P/G/R/D + Paid ↔ DR2's `active/completed/cancelled/on_hold` + a derived registration/commission state). Documented in the service; the reconciliation (§13.3) is the safety net for anything the mapping can't express.
 
 ### 13.3 Parity harness — HFC's real backfilled deals as truth set
-- The **131 live `deals` (Oct 2025 → now)** are the parallel-run truth set. Build a `deals:parity-check` command that, for every linked pair, compares the shared fields and reports mismatches (agency-scoped, read-only, `--dry-run` default). Feature tests seed real-shaped SA deals (BUILD_STANDARD §5 — real addresses/prices/messy data, not "Test/0000").
+- The **131 live `deals` (Oct 2025 → now)** are the parallel-run truth set. Build a `deals:parity-check` command that, for every linked pair, compares the shared fields and reports mismatches (agency-scoped, read-only, `--dry-run` default). Since 2026-10-08 it also guards the money and the link itself, in cents, and runs daily (§22). Feature tests seed real-shaped SA deals (BUILD_STANDARD §5 — real addresses/prices/messy data, not "Test/0000").
 - **Verification gate:** create/edit a DR1 deal → the mirror appears/updates in DR2 (shared fields only) and vice versa; `deals:parity-check` reports **0 mismatches** across the linked set; a status change on either side lands on the other; no pipeline data leaks into DR1.
 
 ### 13.4 Transition & retirement (Leave precedent)
@@ -405,3 +405,56 @@ guarded so it's a no-op wherever those objects don't exist. See that
 migration's own docblock for the exact objects and its `down()` (which
 restores them) if this ever needs to be re-applied instead of relying on
 Andre's fix.
+
+
+---
+
+## 22. One source for a deal's money (2026-10-08, Johan: "follow the money and not hit wrong figures because of duplicate dr2 deals")
+
+**The fault.** The v2 ("twin") row of 10 of the 96 linked deals on QA1 — deal 1818 among them — had lost the
+"other agency handled this side" marker and the real splits (the backfill/`ensureTwin` copy only the commission
+total; both sides default to "ours, 50/50"). The v2 settlement worked its money out from those copied columns, so it
+showed HFC's share **doubled** (deal 1818: R51,000 instead of R25,500). Nothing had been paid from that page. It
+also had no agents on any of the 102 linked twins (`deal_v2_agents` is empty for every backfilled deal), and the old
+parity check compared only status/price/commission total and was never scheduled, so nothing flagged it.
+
+**The rule (permanent).** A deal's money has exactly ONE set of inputs.
+- A v2 row **linked to a real deal** (`deals_v2.legacy_deal_id`) is **never** its own money source. Every v2 reading —
+  `DealV2::money()`, `commissionExVat()`, `listingPool()`, `sellingPool()`, `totalOurCommission()`, the external payable —
+  is built from the **real deal's** `total_commission`, splits, external markers and the agency VAT rate, through
+  `App\Services\Finance\DealMoney`. Chosen over "keep a synced copy" because a synced copy can always drift (a raw
+  write, a quiet save, a missed observer); reading through makes a diverging copy impossible for anything that displays.
+- A **native** v2 deal (no `legacy_deal_id`) is its own source (none exist live; the register's create screen is retired).
+- A linked row whose deal is missing **throws**; it never falls back to its own columns.
+- The twin's own money columns on a linked row are a **dormant** copy. Nothing displays them. They are not repaired
+  automatically (no silent data repair); the integrity check lists any that are stale.
+
+**`DealMoney`** — whole cents, integer arithmetic only (no float anywhere): inc-VAT cents → ex-VAT (÷(1+VAT), half-up) →
+per-side pool = ex-VAT × split% (half-up, side by side — the rounding `deal_money_lines` is stored with); an external side
+contributes 0 to our pool and owes its whole side amount (incl VAT) out; "Our Share %" is never a factor. Floats exist
+only as a final text→number hand-off for views that still take a float.
+
+**Write paths closed.**
+- `DealSyncService::syncFromV2` no longer writes `total_commission` back to the real deal (an old twin copy could overwrite
+  the real figure on any v2 save — a pipeline step, a RAG refresh — without the money lines being rebuilt).
+- `DealV2Controller::update` treats a linked row like a Paid deal: money fields are not editable or written; notes/contacts still save.
+- `DealV2SettlementController`: for a linked row the settlement, print, agent payslip and **save** redirect to the Deal Register
+  (DR2) screens (`deals-dr2.settle*`), which work from the real deal. Save writes nothing — no second `deal_v2_settlements`
+  row, and v2 can no longer flip a real deal to Paid. A native row computes as before (headline figures from `DealMoney`).
+- `deals_v2.legacy_deal_id` is UNIQUE (migration `2026_10_15_000500`; skipped with a critical log if a duplicate already exists);
+  `ensureTwin` adopts the winner on a unique-violation race instead of erroring.
+
+**The guard.** `php artisan deals:parity-check` (scheduled daily 05:15 SAST, `onOneServer`, after the 04:45 money-line
+rebuild; NOT run on QA1 — no scheduler there, run it by hand) → `DealTwinIntegrityService`, read-only:
+- **FAIL** (exit 1, `Log::critical`): more than one v2 row for a deal; a broken/one-sided link; what v2 would show differs from the
+  real deal; the saved money lines (what dashboards, Performance & ROI and payslip feeds sum) differ from the real deal.
+- **WARN** (listed with the exact right and wrong figure, `Log::warning`; fails only with `--strict`): a linked row's own saved copy is
+  stale; a deal with agents has no money lines yet.
+- Tests: `tests/Feature/DealV2/DealV2SingleMoneySourceTest.php` (every deal shape, odd cents, 1818, no-sync follow, no write-back,
+  v2 edit blocked, settlement redirects, DB refuses a second twin, recalculation of every linked deal, and a simulated
+  regression the guard must catch).
+
+**Known, reported, NOT changed (Johan's call).** The legacy Deal Register settlement screen (`computeDealPools`, unrounded) and the
+saved money lines (`DealMoneyLineRebuilder`, ex-VAT rounded to the cent before the split) differ by 1–2 cents on 22 of 102 QA1 deals.
+`DealMoney` follows the saved lines. The legacy float calculators (`CommissionPoolCalculator`, `computeDealPools`, the rebuilder) are
+untouched (AT-417).
