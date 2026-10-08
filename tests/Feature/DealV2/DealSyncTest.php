@@ -56,7 +56,7 @@ final class DealSyncTest extends TestCase
         $this->assertSame('2026-06-01', $v2->actual_registration->format('Y-m-d'));
     }
 
-    public function test_commission_and_price_mirror_both_ways(): void
+    public function test_price_mirrors_both_ways_and_commission_only_flows_from_the_real_deal(): void
     {
         [$v1, $v2] = $this->linkedPair();
 
@@ -66,10 +66,11 @@ final class DealSyncTest extends TestCase
         $this->assertEqualsWithDelta(115000, (float) $v2->commission_amount + (float) $v2->commission_vat, 0.01, 'commission total mirrors DR1→DR2');
         $this->assertSame(2_000_000, (int) $v2->purchase_price);
 
-        // DR2 → DR1
+        // DR2 → DR1: the price still mirrors, but the commission does NOT — the real deal owns a
+        // deal's money (2026-10-08, one source). An old copy on the twin must never overwrite it.
         $v2->update(['commission_amount' => 90000, 'commission_vat' => 13500, 'purchase_price' => 2_500_000]);
         $v1->refresh();
-        $this->assertEqualsWithDelta(103500, (float) $v1->total_commission, 0.01, 'commission total mirrors DR2→DR1');
+        $this->assertEqualsWithDelta(115000, (float) $v1->total_commission, 0.01, 'commission is not written back from DR2');
         $this->assertSame(2_500_000, (int) $v1->sale_price);
     }
 

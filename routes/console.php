@@ -391,6 +391,21 @@ Schedule::command('deals:recalc-money-lines')
     ->onOneServer()
     ->withoutOverlapping();
 
+// ── DR1↔DR2 twin money guard ──
+// ONE SOURCE for a deal's money (2026-10-08): compares every linked deal against its v2 row,
+// in cents — what v2 would show, what the saved money lines hold, and the link itself — and
+// logs Log::critical on any disagreement. Read-only; never repairs. Before this the parity
+// harness only compared status/price and was never scheduled, which is how the v2 copy of 10
+// deals lost the "other agency handled this side" marker unnoticed. Runs after the 04:45
+// money-line rebuild so a stale line is judged against the freshly rebuilt ones. NB: like the
+// rebuild above, inert on QA1 (no scheduler cron) — run `php artisan deals:parity-check` by hand there.
+Schedule::command('deals:parity-check')
+    ->dailyAt('05:15')
+    ->timezone('Africa/Johannesburg')
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->name('deals-parity-check');
+
 // ── Leave Management ──
 Schedule::command('corex:leave:accrue-daily')->dailyAt('02:00')->onOneServer()->withoutOverlapping();
 Schedule::command('corex:leave:cycle-rollover')->dailyAt('02:30')->onOneServer()->withoutOverlapping();

@@ -5,7 +5,9 @@ namespace App\Console\Commands\DealV2;
 use App\Models\Deal;
 use App\Models\DealV2\DealV2;
 use App\Services\DealV2\DealSyncService;
+use App\Services\DealV2\DealTwinIntegrityService;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 
 /**
  * WS1 (AT-158 / DR2, spec §13.3) — the DR1↔DR2 parity harness.
@@ -16,20 +18,32 @@ use Illuminate\Console\Command;
  * 131 real backfilled deals during the parallel run); `--fix` re-runs the mirror
  * from DR1 to converge a drifted pair. Exit code is non-zero on any mismatch so
  * it can gate a promotion.
+ *
+ * 2026-10-08 — also the MONEY guard (one source for a deal's money): for every
+ * linked pair it compares, in whole cents, the real deal's money against what the v2
+ * screens show, against the saved money lines the dashboards sum, and against the
+ * twin's own dormant copy, plus the link structure (one twin per deal). See
+ * DealTwinIntegrityService. FAIL findings fail the command; WARN findings (a stale
+ * dormant copy nothing displays) are listed and fail only with --strict. It never
+ * repairs money — `--fix` still only re-mirrors the status/price fields above.
+ * Scheduled daily (routes/console.php) so a divergence cannot go unnoticed.
  */
 class DealParityCheck extends Command
 {
-    protected $signature = 'deals:parity-check {--fix : Converge mismatched pairs by re-mirroring DR1→DR2 (default: report only)}';
+    protected $signature = 'deals:parity-check
+        {--fix : Converge mismatched status/price pairs by re-mirroring DR1→DR2 (default: report only; never touches money)}
+        {--strict : Also fail on WARN findings (a stale saved copy on the v2 row that nothing displays)}
+        {--agency= : Limit the money/link check to one agency id}';
 
     protected $description = 'Compare shared core fields for every linked DR1↔DR2 deal pair; report mismatches (read-only by default).';
 
-    public function handle(DealSyncService $sync): int
+    public function handle(DealSyncService $sync, DealTwinIntegrityService $integrity): int
     {
         $pairs = Deal::withoutGlobalScopes()->whereNotNull('deal_v2_id')->get();
 
         if ($pairs->isEmpty()) {
             $this->info('deals:parity-check — no linked pairs.');
-            return self::SUCCESS;
+            return $this->reportMoney($integrity, 0);
         }
 
         $mismatch = 0;
@@ -52,9 +66,38 @@ class DealParityCheck extends Command
             }
         }
 
-        $this->info("deals:parity-check — {$pairs->count()} pair(s), {$mismatch} mismatch(es).");
+        $this->info("deals:parity-check — {$pairs->count()} pair(s), {$mismatch} field mismatch(es).");
 
-        return $mismatch === 0 ? self::SUCCESS : self::FAILURE;
+        return $this->reportMoney($integrity, $mismatch);
+    }
+
+    /** Money + link-structure guard; returns the command's exit code. */
+    private function reportMoney(DealTwinIntegrityService $integrity, int $fieldMismatches): int
+    {
+        $agency = $this->option('agency') ? (int) $this->option('agency') : null;
+        $result = $integrity->audit($agency);
+
+        $fails = array_values(array_filter($result['findings'], fn ($f) => $f['severity'] === DealTwinIntegrityService::FAIL));
+        $warns = array_values(array_filter($result['findings'], fn ($f) => $f['severity'] === DealTwinIntegrityService::WARN));
+
+        foreach ($fails as $f) {
+            $this->line("FAIL deal " . ($f['deal_no'] ?? $f['deal_id']) . " (id {$f['deal_id']}" . ($f['v2_id'] ? ", v2 {$f['v2_id']}" : '') . "): {$f['message']}");
+        }
+        foreach ($warns as $f) {
+            $this->line("WARN deal " . ($f['deal_no'] ?? $f['deal_id']) . " (id {$f['deal_id']}" . ($f['v2_id'] ? ", v2 {$f['v2_id']}" : '') . "): {$f['message']}");
+        }
+        $this->info("deals:parity-check money — {$result['pairs']} linked deal(s) compared in cents: " . count($fails) . ' FAIL, ' . count($warns) . ' WARN.');
+
+        if ($fails) {
+            Log::critical('deals:parity-check — a v2 deal no longer matches its real deal', ['fail_count' => count($fails), 'first' => array_slice($fails, 0, 20)]);
+        }
+        if ($warns) {
+            Log::warning('deals:parity-check — stale saved copies on v2 rows (not displayed)', ['warn_count' => count($warns), 'first' => array_slice($warns, 0, 20)]);
+        }
+
+        $bad = $fieldMismatches > 0 || $fails || ($this->option('strict') && $warns);
+
+        return $bad ? self::FAILURE : self::SUCCESS;
     }
 
     /** @return string[] human-readable diffs (empty = in parity) */
