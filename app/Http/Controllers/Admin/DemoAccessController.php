@@ -5,14 +5,18 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\DemoAccessGrant;
 use App\Models\DemoConnector;
+use App\Models\DemoPageView;
 use App\Models\DemoTncVersion;
 use App\Models\SiteConnector;
 use App\Services\Demo\DemoAccessService;
+use App\Support\DemoAccessListing;
 use App\Support\DemoResetSchedule;
 use App\Support\Instance;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Demo Access Control — the system-owner admin surface.
@@ -36,6 +40,10 @@ use Illuminate\Support\Facades\Auth;
  */
 class DemoAccessController extends Controller
 {
+    /** How many sessions, and how many page views across them, the grant page lists. */
+    private const SHOW_SESSIONS   = 50;
+    private const SHOW_PAGE_VIEWS = 200;
+
     public function __construct(private readonly DemoAccessService $service)
     {
     }
@@ -51,35 +59,20 @@ class DemoAccessController extends Controller
     {
         $this->assertOwner();
 
-        $query = DemoAccessGrant::query()->with(['issuer', 'contact'])->withCount('sessions');
-
-        // Archived grants are hidden by default but NEVER deleted — the toggle is
-        // how you prove that to yourself.
-        if (! $request->boolean('archived')) {
-            $query->notArchived();
-        }
-
-        if ($search = trim((string) $request->input('q', ''))) {
-            $query->where(function ($w) use ($search) {
-                $w->where('company_name', 'like', "%{$search}%")
-                  ->orWhere('contact_email', 'like', "%{$search}%");
-            });
-        }
-
-        $grants = $query->orderByDesc('id')->paginate(25)->withQueryString();
-
-        // Status is DERIVED, so it cannot be filtered in SQL without re-implementing
-        // the rules (and drifting from them). Filter the page in PHP against the one
-        // authoritative method instead — correctness over a marginally cheaper query.
-        $statusFilter = $request->input('status');
+        // Archived grants are hidden from every view except "Archived" but NEVER
+        // deleted. Status is DERIVED, so it is classified in PHP against the one
+        // authoritative DemoAccessGrant::status() — see DemoAccessListing.
+        $listing = DemoAccessListing::build($request);
 
         return view('admin.demo-access.index', [
-            'grants'       => $grants,
-            'statusFilter' => $statusFilter,
-            'search'       => $search,
-            'showArchived' => $request->boolean('archived'),
+            'listing'      => $listing,
             'tncVersion'   => DemoTncVersion::current(),
             'nextReset'    => DemoResetSchedule::next(),
+            // Where prospects are sent, and how often it is rebuilt — read from the
+            // same config / schedule the invitation email and the scheduler use, never
+            // typed into the view where it would drift.
+            'demoHost'     => DemoAccessListing::demoHost(),
+            'resetDays'    => DemoResetSchedule::INTERVAL_DAYS,
             // No connector = the demo cannot reach us = nobody can sign in to it.
             // Surfaced on the list page so it is impossible to miss.
             'connector'    => DemoConnector::current(),
@@ -131,20 +124,53 @@ class DemoAccessController extends Controller
     {
         $this->assertOwner();
 
-        $grant->load([
-            'issuer',
-            'revoker',
-            'contact',
-            'acceptances.version',
-            'sessions' => fn ($q) => $q->orderByDesc('started_at')->limit(50),
-            'sessions.pageViews' => fn ($q) => $q->orderByDesc('viewed_at')->limit(200),
-        ]);
+        $grant->load(['issuer', 'revoker', 'contact', 'acceptances.version']);
+
+        // Sessions: the newest SHOW_SESSIONS, each with its TRUE page-view count from a
+        // count query. Page views themselves are fetched in one query for the shown
+        // sessions and capped as a whole, so the cap must never be mistaken for a count —
+        // the view prints "latest N of M" whenever it bites.
+        $sessions = $grant->sessions()
+            ->withCount('pageViews')
+            ->orderByDesc('started_at')
+            ->limit(self::SHOW_SESSIONS)
+            ->get();
+
+        $views = $sessions->isEmpty()
+            ? collect()
+            : DemoPageView::query()
+                ->whereIn('demo_session_id', $sessions->pluck('id'))
+                ->orderByDesc('viewed_at')
+                ->limit(self::SHOW_PAGE_VIEWS)
+                ->get()
+                ->groupBy('demo_session_id');
+
+        foreach ($sessions as $session) {
+            $session->setRelation('pageViews', $views->get($session->id, collect()));
+        }
+        $grant->setRelation('sessions', $sessions);
+
+        $viewsListed = $views->sum(fn ($g) => $g->count());
+        $viewsInShown = (int) $sessions->sum('page_views_count');
 
         return view('admin.demo-access.show', [
             'grant'      => $grant,
             // Flashed exactly once, straight after issue.
             'plainCode'  => session('demo_access_code'),
             'cacheTtl'   => (int) config('corex.instance.gate_cache_ttl', 60),
+            // "Time added" history — the durable table, merged with older extensions
+            // that only exist in the audit log (spec §9.1).
+            'extensions' => DemoAccessListing::extensionHistory($grant),
+            'sessionTotal'   => $grant->sessions()->count(),
+            'sessionsShown'  => $sessions->count(),
+            'viewsListed'    => $viewsListed,
+            'viewsInShown'   => $viewsInShown,
+            // The same figure the list card shows, over every session of the grant.
+            'viewsAll'       => (int) DB::table('demo_page_views')
+                ->join('demo_sessions', 'demo_sessions.id', '=', 'demo_page_views.demo_session_id')
+                ->where('demo_sessions.demo_access_grant_id', $grant->getKey())
+                ->count(),
+            'extendPayload' => DemoAccessListing::meta($grant, \Illuminate\Support\Carbon::now())['extend'],
         ]);
     }
 
@@ -161,9 +187,10 @@ class DemoAccessController extends Controller
      *
      * Notes and the CRM link only.
      *
-     * NOT expiry_hours — that length was quoted to the prospect and copied onto
-     * the row at issue; editing it later would silently move a deadline they were
-     * told. Issue a new grant instead.
+     * NOT expiry_hours / the deadline — that length was quoted to the prospect and
+     * copied onto the row at issue; a free edit would silently move a deadline they
+     * were told. Time only ever MOVES through extend() below: additive, audited,
+     * and logged against who did it.
      *
      * NOT the access code — the DB holds bcrypt(code) and there is nothing to
      * recover. A "change the code" button would have to mint a new one, which is
@@ -188,6 +215,71 @@ class DemoAccessController extends Controller
         return redirect()
             ->route('admin.demo-access.show', $grant)
             ->with('status', 'Grant updated.');
+    }
+
+    /**
+     * POST /admin/dev-settings/demo-access/{grant}/extend
+     *
+     * Add time to a grant so a prospect needs no new code and no new terms
+     * acceptance. Works on a grant that has not started, is still running, or has
+     * already ended (see DemoAccessService::extend for where the time lands).
+     *
+     * `token` is minted per dialog-open and consumed here: a double-click or a
+     * resubmitted form applies ONCE. The second request is absorbed with a plain
+     * message, never a second extension — adding time twice by accident is not a
+     * mistake a person can see afterwards.
+     *
+     * Spec: .ai/specs/demo-access-control.md §9.1
+     */
+    public function extend(Request $request, DemoAccessGrant $grant)
+    {
+        $this->assertOwner();
+
+        $data = $request->validate([
+            'days'  => ['required', 'integer', 'min:1', 'max:365'],
+            'token' => ['required', 'string', 'min:16', 'max:64'],
+            'note'  => ['nullable', 'string', 'max:500'],
+        ], [
+            'days.required' => 'Choose how much time to add.',
+            'days.integer'  => 'Enter the number of days as a whole number.',
+            'days.min'      => 'Add at least 1 day.',
+            'days.max'      => 'You can add at most 365 days at a time.',
+        ]);
+
+        // Consumed only once validation has passed, so a typo can be corrected and resent.
+        if (! Cache::add('demo_extend_token:' . sha1($data['token']), true, now()->addHour())) {
+            return back()->with('status', 'That extension was already applied — nothing was added twice.');
+        }
+
+        try {
+            $updated = $this->service->extend($grant, (int) $data['days'] * 24, (int) Auth::id(), $data['note'] ?? null);
+        } catch (\DomainException $e) {
+            // Free the token: nothing was applied, so the person may try again.
+            Cache::forget('demo_extend_token:' . sha1($data['token']));
+
+            return back()->withErrors(['extend' => $e->getMessage()]);
+        } catch (\Throwable $e) {
+            // Any other failure (deadlock, lock timeout, a grant deleted mid-request)
+            // also applied nothing — free the token so a retry is not told "already
+            // applied", then let the exception surface as normal.
+            Cache::forget('demo_extend_token:' . sha1($data['token']));
+
+            throw $e;
+        }
+
+        $ttl   = (int) config('corex.instance.gate_cache_ttl', 60);
+        $added = DemoAccessListing::humanHours((int) $data['days'] * 24);
+        $where = $updated->expires_at
+            ? 'Access now runs until ' . $updated->expires_at->format('D j M Y, H:i') . '.'
+            : 'Their trial is now ' . DemoAccessListing::humanHours((int) $updated->expiry_hours) . ' long, starting when they first sign in.';
+
+        $told = match ($this->service->lastNotice()) {
+            DemoAccessService::NOTICE_SENT     => " We have emailed {$updated->contact_email} to let them know.",
+            DemoAccessService::NOTICE_NO_EMAIL => ' This grant has no valid email address, so the prospect was not notified.',
+            default                            => ' The prospect could not be emailed - please let them know yourself.',
+        };
+
+        return back()->with('status', "Added {$added} for {$updated->company_name}. {$where} It reaches the demo within {$ttl} seconds.{$told}");
     }
 
     /** POST /admin/dev-settings/demo-access/{grant}/revoke */

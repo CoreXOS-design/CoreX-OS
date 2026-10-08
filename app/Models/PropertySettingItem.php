@@ -130,6 +130,10 @@ class PropertySettingItem extends Model
             ['name' => 'On Show'],
             ['name' => 'On Auction'],
             ['name' => 'Draft'],
+            // AT-448 — pickable by agents, not just written by the midnight
+            // mandates:expire sweep. Its slug is the system value `expired`.
+            // Sits next to Withdrawn, where an agent looks for an off-market end.
+            ['name' => 'Expired'],
             ['name' => 'Withdrawn'],
             ['name' => 'Unavailable'],
             ['name' => 'Archived'],

@@ -219,19 +219,22 @@ class DemoAccessGrant extends Model
     {
         $now = $now ? $now->copy() : Carbon::now();
 
-        // NULL for a fixed-deadline grant — there is no rolling value to fall back on,
-        // and addHours(null) would quietly mean "expires now".
-        $rollingExpiry = $this->expiry_hours !== null
-            ? $now->copy()->addHours($this->expiry_hours)->toDateTimeString()
-            : null;
-
+        // The rolling expiry is computed IN SQL from the row's own expiry_hours, at the
+        // moment the UPDATE takes its row lock — not from the copy this instance loaded
+        // earlier. An "Add time" (DemoAccessService::extend) that commits between that
+        // load and this UPDATE has already grown expiry_hours; reading it here means the
+        // prospect gets the extended trial instead of silently losing it.
+        //
+        // A fixed-deadline grant has expiry_hours NULL: DATE_ADD(..., INTERVAL NULL HOUR)
+        // is NULL, COALESCE(expires_at, NULL) leaves the deadline exactly as issued, and
+        // there is no `addHours(null)` "expires now" trap.
         $won = DB::update(
             'UPDATE ' . $this->getTable() . '
                 SET first_login_at = ?,
-                    expires_at     = COALESCE(expires_at, ?),
+                    expires_at     = COALESCE(expires_at, DATE_ADD(?, INTERVAL expiry_hours HOUR)),
                     updated_at     = ?
               WHERE id = ? AND first_login_at IS NULL',   // ← the guard IS the fix
-            [$now->toDateTimeString(), $rollingExpiry, $now->toDateTimeString(), $this->getKey()]
+            [$now->toDateTimeString(), $now->toDateTimeString(), $now->toDateTimeString(), $this->getKey()]
         );
 
         // Either way, this instance must reflect what is actually in the DB —
@@ -291,6 +294,12 @@ class DemoAccessGrant extends Model
     public function sessions(): HasMany
     {
         return $this->hasMany(DemoSession::class);
+    }
+
+    /** Every applied "Add time" (spec §4.6, §9.1). Append-only. */
+    public function extensions(): HasMany
+    {
+        return $this->hasMany(DemoAccessGrantExtension::class);
     }
 
     /**
