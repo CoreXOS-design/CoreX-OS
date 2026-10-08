@@ -1438,13 +1438,25 @@ class RentalApplicationController extends Controller
                 ->with('error', 'Add an email address and save before sending.');
         }
 
+        // Declined / withdrawn: the applicant's link is closed on purpose (the way back is Reopen) - never mail them a
+        // link that opens "no longer available".
+        if (in_array($rentalApplication->status, RentalApplication::DOCUMENT_UPLOADS_ALWAYS_CLOSED_STATUSES, true)) {
+            return redirect()
+                ->route('corex.rental-applications.show', $rentalApplication)
+                ->with('error', 'This application is ' . $rentalApplication->status . ', so the applicant\'s link is closed. Use Reopen if they should be able to continue.');
+        }
+
+        $expiryDays = RentalApplicationQualifyingSetting::reopenLinkExpiryDaysFor($rentalApplication->agency_id);
         if (! $rentalApplication->token) {
             $rentalApplication->token = $this->generateToken();
             // Same agency-configurable setting as store() above — see that
             // comment for why this is no longer hardcoded.
-            $rentalApplication->token_expires_at = now()->addDays(
-                RentalApplicationQualifyingSetting::reopenLinkExpiryDaysFor($rentalApplication->agency_id)
-            );
+            $rentalApplication->token_expires_at = now()->addDays($expiryDays);
+            $rentalApplication->save();
+        } elseif ($rentalApplication->token_expires_at && $rentalApplication->token_expires_at->isPast()) {
+            // A resend exists to give the applicant a working link: renew the expired one (same token, so a link already
+            // sitting in their inbox works again).
+            $rentalApplication->token_expires_at = now()->addDays($expiryDays);
             $rentalApplication->save();
         }
 

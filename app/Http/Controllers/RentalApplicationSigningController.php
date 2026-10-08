@@ -545,16 +545,22 @@ class RentalApplicationSigningController extends Controller
         return redirect()->route('rental-applications.public.show', $token)->with('gate_status', 'A new code has been sent.');
     }
 
+    /** Why this applicant link cannot be used right now (null = it can). One rule for the form and the PDF. */
+    private function linkUnavailableReason(RentalApplication $application): ?string
+    {
+        if ($application->token_expires_at && $application->token_expires_at->isPast()) {
+            return 'expired';
+        }
+
+        return $application->status === 'draft' ? 'not_sent' : null;
+    }
+
     public function show(Request $request, string $token): View|\Illuminate\Http\RedirectResponse
     {
         $application = $this->findByToken($token);
 
-        if ($application->token_expires_at && $application->token_expires_at->isPast()) {
-            return view('rental-applications.public.unavailable', ['reason' => 'expired']);
-        }
-
-        if ($application->status === 'draft') {
-            return view('rental-applications.public.unavailable', ['reason' => 'not_sent']);
+        if ($reason = $this->linkUnavailableReason($application)) {
+            return view('rental-applications.public.unavailable', ['reason' => $reason]);
         }
 
         // Return gate, AT-392 round 4, 2026-09-13 — Johan: "initial open is
@@ -1296,6 +1302,12 @@ class RentalApplicationSigningController extends Controller
     public function pdf(Request $request, string $token)
     {
         $application = $this->findByToken($token);
+
+        // The PDF carries the applicant's name, ID number, email and address: a withdrawn / declined / expired / never-sent
+        // link must not serve it (show() already refused these; this route used to skip straight past).
+        if ($reason = $this->linkUnavailableReason($application)) {
+            return view('rental-applications.public.unavailable', ['reason' => $reason]);
+        }
 
         // Return gate, AT-392 round 4, 2026-09-13 — the PDF holds the exact
         // same sensitive fields (ID number, income, bank details) as the

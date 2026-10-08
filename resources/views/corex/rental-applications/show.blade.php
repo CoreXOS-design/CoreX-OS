@@ -122,7 +122,11 @@
         </div>
     @endif
 
-    @if($rentalApplication->token)
+    @if($rentalApplication->token && $rentalApplication->status === 'draft')
+    <div class="rounded-md p-4 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);">
+        The applicant's link starts working once you send the application (it needs an email address). Until then there is nothing to share.
+    </div>
+    @elseif($rentalApplication->token)
     <div class="rounded-md p-4 text-xs space-y-1" style="background: var(--surface); border: 1px solid var(--border);">
         <div><strong>Online link:</strong> <a href="{{ route('rental-applications.public.show', $rentalApplication->token) }}" target="_blank" style="color: var(--brand-icon, #2563eb);">{{ route('rental-applications.public.show', $rentalApplication->token) }}</a></div>
         <div><strong>Download link:</strong> <a href="{{ route('rental-applications.public.pdf', $rentalApplication->token) }}" style="color: var(--brand-icon, #2563eb);">{{ route('rental-applications.public.pdf', $rentalApplication->token) }}</a></div>

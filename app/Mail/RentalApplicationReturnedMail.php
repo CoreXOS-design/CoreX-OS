@@ -34,7 +34,9 @@ class RentalApplicationReturnedMail extends Mailable implements ShouldQueue
         $this->agentName = $application->createdBy->name ?? 'there';
         $this->contactName = $application->contact->full_name ?: 'A tenant';
         $this->agencyName = $application->agency->name ?? config('mail.from.name', 'CoreX OS');
-        $this->reviewUrl = route('corex.rental-applications.show', $application);
+        // The REVIEW screen: for a returned application the plain show page is the read-only copy, which has no way
+        // on to assessing it. (review() itself falls back to show for a status it no longer applies to.)
+        $this->reviewUrl = route('corex.rental-applications.review', $application);
         $this->submittedAt = $application->submitted_at?->format('d M Y \a\t H:i') ?? '';
 
         // Prod-audit 2026-09-16 — request-triggered mail is queued (CLAUDE.md), never

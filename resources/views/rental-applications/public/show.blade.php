@@ -714,6 +714,36 @@
 </div>
 
 <script>
+// BEGIN corexNestFormEntries (tested by tests/js/rental-application-autosave-nesting.test.mjs)
+// FormData names like custom_field_values[pet] are expanded into nested objects/arrays by PHP only for a
+// form-encoded body; the autosave sends JSON, where Laravel reads them as flat literal keys and the custom answers
+// were never saved. Nest them here so the JSON has the same shape as the form post. Files are skipped (they upload
+// on selection).
+function corexNestFormEntries(entries) {
+    const out = {};
+    for (const [key, value] of entries) {
+        if (typeof File !== 'undefined' && value instanceof File) { continue; }
+        const m = String(key).match(/^([^\[\]]+)((?:\[[^\[\]]*\])+)$/);
+        if (!m) { out[key] = value; continue; }
+        const path = [m[1]].concat((m[2].match(/\[([^\[\]]*)\]/g) || []).map(seg => seg.slice(1, -1)));
+        let node = out;
+        for (let i = 0; i < path.length; i++) {
+            const last = i === path.length - 1;
+            const seg = path[i];
+            if (seg === '') {                       // "a[]" - push onto an array
+                if (!Array.isArray(node)) { break; }
+                node.push(value);
+                break;
+            }
+            if (last) { node[seg] = value; break; }
+            const nextIsPush = path[i + 1] === '';
+            if (node[seg] === undefined || typeof node[seg] !== 'object') { node[seg] = nextIsPush ? [] : {}; }
+            node = node[seg];
+        }
+    }
+    return out;
+}
+// END corexNestFormEntries
 function rentalApplicationForm() {
     return {
         submitting: false,
@@ -872,7 +902,7 @@ function rentalApplicationForm() {
         // themselves independently, on selection).
         collectAutosavePayload() {
             const form = document.getElementById('rentalApplicationSubmitForm');
-            const data = Object.fromEntries(new FormData(form).entries());
+            const data = corexNestFormEntries(new FormData(form).entries());
             delete data._token;
             delete data.declaration_signature;
             delete data.tpn_consent_signature;
