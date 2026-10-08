@@ -30,6 +30,6 @@ trait SeedsWetInkDocumentTypes
         // the five are LIVE rows — the state the migration guarantees on every real environment.
         \Illuminate\Support\Facades\DB::table('document_types')
             ->whereIn('slug', ['otp', 'offer_to_purchase', 'sale_agreement', 'deed_of_sale', 'deed_of_alienation'])
-            ->update(['deleted_at' => null, 'is_active' => true]);
+            ->update(['deleted_at' => null, 'is_active' => true, 'esign_warning_required' => true]);
     }
 }

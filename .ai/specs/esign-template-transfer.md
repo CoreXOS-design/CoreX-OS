@@ -3,7 +3,7 @@
 > Status: BUILT on QA1 (lane cc2, 2026-10-06). Approved by Johan 2026-10-06 15:11.
 > Investigation behind it: `/tmp/qa1-cc6-template-transfer-2026-10-06.md` (build steps T1 export + T2 import; T3 whole document sets is NOT built — see §12).
 > Pillars: Documents (templates are the source of every e-sign document). Agency is the outer boundary.
-> Related: `esign-v3-complete-spec.md` §5 (ECTA block), `multi-tenancy.md`, `leases.md` §15.12 (lease template guard).
+> Related: `esign-v3-complete-spec.md` §5 (e-sign guard), `multi-tenancy.md`, `leases.md` §15.12 (lease template guard).
 
 ## 1. What it does and why
 
@@ -45,11 +45,11 @@ A web template whose wording lives only in a generated page file (no `editor_sta
 ## 4. Import rules
 
 1. **Validate before anything is written** (§6): format + version, checksum, required parts, shape, safety scan. Failures are logged as `rejected` and shown in plain language.
-2. **Preview** (read-only): name, kind, category, document type, signer roles, field definitions that exist / will be created, field groups that exist / will be created, page count and images, whether e-signing will be switched off (ECTA §13(1) alienation rule — computed by the model's own `isEsignBlocked()`, never a copy of the rule), name clash in the chosen agency, warnings.
+2. **Preview** (read-only): name, kind, category, document type, signer roles, field definitions that exist / will be created, field groups that exist / will be created, page count and images, whether e-signing will be switched off (a template of a document type flagged `esign_warning_required` always arrives on wet ink — an acknowledgement belongs to the admin who gives it in template setup, so a package cannot carry one; computed from the flag, never a copy of a rule), name clash in the chosen agency, warnings.
 3. **Target agency** — required; list of all agencies.
 4. **Name clash** — if an active or archived template of the same name exists in the target agency the user must choose **new version** (`Name v2`, next free number) or **new copy** (`Name (imported 06 Oct 2026)`) or cancel. Nothing is ever replaced. The old template is left exactly as is; archiving it is a human decision.
 5. **Create**, in one DB transaction: new `docuperfect_templates` row (`agency_id` = target, `owner_id` = importer, visibility per setting §8, `archived_at` null, no branches, no compiled_* binding), signature zones, missing named fields (matched by `(source_type, source_column, source_contact_type)`; manual fields by name + type; created only if absent — row ids are never copied), missing field groups in the target agency (matched by name in that agency or a global group of that name), page images under the new id, then the page file is regenerated from the stored data with `WebTemplateBladeEnsurer::regenerate`. Any failure → rollback **and** removal of every file written.
-6. `document_type_id` is resolved by slug. Unknown slug: blocking if the slug is one of the ECTA-blocked slugs; otherwise the user must tick "import without a document type" in the preview.
+6. `document_type_id` is resolved by slug. Unknown slug: blocking if the slug is one of the flagged sale-document slugs (the warning attaches through the document type); otherwise the user must tick "import without a document type" in the preview.
 7. A lease agreement link, a web pack or a branch assignment is **never** created implicitly; the agency links the template where it already does (Settings → Rental lease agreements, where the lease guard runs).
 8. Soft delete only. Nothing is hard-deleted by this feature.
 

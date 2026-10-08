@@ -56,16 +56,16 @@ final class ComposeSalesMandatePack extends Command
             return self::FAILURE;
         }
 
-        // Resolve real, e-signable web templates by document_type. A mandate that is blocked
-        // (isEsignBlocked — e.g. mis-typed as an OTP) is excluded so a candidate pack can never carry
-        // an un-e-signable document.
+        // Resolve real, e-signable web templates by document_type. A document of a type that carries the
+        // e-sign legal warning (a sale agreement / OTP — e.g. a mandate mis-typed as an OTP) is excluded:
+        // this pack is for mandates, and a sale document must never join it by name.
         //
         // The MANDATE slot also accepts a NAME fallback (the same pattern the classifier uses:
         // "authority to sell" / "exclusive authority" / "mandate"). This is the belt for tonight:
         // when an agent imports the EATS through the builder, the classifier normally stamps
         // document_type=mandate — but if it lands null (an unusual name), the fallback still wires the
-        // real mandate rather than silently composing without it. It is SAFE because isEsignBlocked()
-        // still excludes every alienation document, so a sale can never enter via the name path. Any
+        // real mandate rather than silently composing without it. It is SAFE because the warning-flag
+        // exclusion below still drops every sale document, so a sale can never enter via the name path. Any
         // name-fallback match is reported, never silent.
         $mandates    = $this->esignableByType($agencyId, 'mandate', '/\b(mandate|authority\s+to\s+sell|exclusive\s+authority)\b/i');
         $disclosures = $this->esignableByType($agencyId, 'disclosure');
@@ -144,12 +144,12 @@ final class ComposeSalesMandatePack extends Command
     }
 
     /**
-     * e-signable web templates of a document_type, agency-visible, excluding legally-blocked ones.
+     * e-signable web templates of a document_type, agency-visible, excluding sale documents (types carrying the e-sign legal warning).
      *
      * @param  string|null  $nameFallback  optional regex — also include e-signable web templates whose
      *                                      NAME matches, even if their document_type is unset/other.
      *                                      Used only for the mandate slot; every match still passes
-     *                                      through the isEsignBlocked() exclusion below.
+     *                                      through the sale-document exclusion below.
      */
     private function esignableByType(int $agencyId, string $slug, ?string $nameFallback = null)
     {
@@ -176,7 +176,8 @@ final class ComposeSalesMandatePack extends Command
         }
 
         return $templates
-            ->reject(fn (Template $t) => $t->isEsignBlocked())
+            ->reject(fn (Template $t) => $t->requiresEsignAcknowledgement()
+                || app(\App\Services\Docuperfect\EsignAcknowledgementService::class)->typeRequiresAcknowledgement(null, (string) $t->name))
             ->unique('id')
             ->sortBy('name')
             ->values();

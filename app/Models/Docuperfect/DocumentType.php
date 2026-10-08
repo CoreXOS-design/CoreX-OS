@@ -17,11 +17,13 @@ class DocumentType extends Model
         'sort_order',
         'is_active',
         'grouping',
+        'esign_warning_required',
     ];
 
     protected $casts = [
         'sort_order' => 'integer',
         'is_active'  => 'boolean',
+        'esign_warning_required' => 'boolean',
     ];
 
     /**

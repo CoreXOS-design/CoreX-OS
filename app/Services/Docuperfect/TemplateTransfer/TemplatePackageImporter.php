@@ -91,7 +91,7 @@ final class TemplatePackageImporter
                 $docType = ['status' => $found ? 'found' : 'missing', 'slug' => $dt['slug'], 'label' => $dt['label'] ?? $dt['slug']];
                 if (! $found) {
                     if (in_array($dt['slug'], self::ectaBlockedSlugs(), true)) {
-                        $blocking[] = 'The document type "' . $docType['label'] . '" does not exist on this system, and it is a type the law does not allow to be e-signed. Add the document type first, then import again.';
+                        $blocking[] = 'The document type "' . $docType['label'] . '" does not exist on this system, and it is a type that carries the e-sign legal warning, and that warning is attached through the document type. Add the document type first, then import again.';
                     } else {
                         $needsAck[] = 'The document type "' . $docType['label'] . '" does not exist on this system. The template can be imported without a document type (you can set it afterwards).';
                     }
@@ -127,22 +127,14 @@ final class TemplatePackageImporter
                 }
             }
 
-            // ECTA — asked of the model itself, in a transaction that is rolled back so the
-            // model's own audit-log write for the check leaves nothing behind.
-            $esignOff = false;
-            if (! empty($t['is_esign'])) {
-                DB::beginTransaction();
-                try {
-                    $probe = new Template([
-                        'name' => (string) $t['name'],
-                        'template_type' => (string) $t['template_type'],
-                        'document_type_id' => $docType['status'] === 'found' ? DocumentType::where('slug', $docType['slug'])->value('id') : null,
-                    ]);
-                    $esignOff = $probe->isEsignBlocked();
-                } finally {
-                    DB::rollBack();
-                }
-            }
+            // A template of a flagged document type (sale agreement, OTP, deed) is always imported
+            // with e-signing OFF: an acknowledgement belongs to the admin who gives it in setup, and
+            // a package cannot carry one. Asked of the document-type flag (data), not a code list.
+            $esignOff = ! empty($t['is_esign']) && app(\App\Services\Docuperfect\EsignAcknowledgementService::class)
+                ->typeRequiresAcknowledgement(
+                    $docType['status'] === 'found' ? DocumentType::where('slug', $docType['slug'])->value('id') : null,
+                    (string) $t['name'],
+                );
 
             // Name clash in the target agency
             $clash = ['exists' => false, 'archived' => false];

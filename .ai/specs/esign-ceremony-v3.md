@@ -69,7 +69,7 @@ settled doctrine and where V3 leans on it:
 
 | Settled decision | Where it lives | How the ceremony extends it |
 |------------------|----------------|-----------------------------|
-| **ECTA §13(1) — an e-signed alienation of land is void; e-sign eligibility is otherwise the template's own setting (ESIGN-CANON.md §7, amended 2026-10-08). The code floor `Template::isEsignBlocked()` keeps sale agreements / OTPs wet-ink today — flagged for Johan.** The wizard **greys the e-sign option** with the plain reason ("Sale agreements and offers to purchase cannot be e-signed under South African law — please use wet-ink delivery"); an `is_e_sign_blocked` template throws a `DomainException` if bypassed. | `esign-v3-complete-spec.md` §5 (ll. 38-40, 365-375); V2 §1 legal boundaries | The ceremony's **delivery mode is not free** — it is **computed** from the pack's templates (below). The OTP two-act ceremony (§10) therefore runs in **wet-ink mode**, not e-sign. |
+| **ECTA §13(1) — an e-signed alienation of land is void; e-sign eligibility is otherwise the template's own setting (ESIGN-CANON.md §7, amended 2026-10-08). There is no hard block: sale agreements / OTPs default to wet ink (document types flagged `esign_warning_required`), and an admin may switch e-signing on in template setup after acknowledging a legal warning that is recorded and shown nowhere an agent sees.** | `esign-v3-complete-spec.md` §5 (ll. 38-40, 365-375); V2 §1 legal boundaries | The ceremony's **delivery mode is not free** — it is **computed** from the pack's templates (below). The OTP two-act ceremony (§10) therefore runs in **wet-ink mode**, not e-sign. |
 | **Pack e-sign eligibility is COMPUTED from its templates.** Any template with `is_esign=false` in a pack makes the **whole pack wet-ink/download only** — shown greyed in the wizard with the plain reason. | `esign-v3-complete-spec.md` (delivery modes, ll. 137, 169, 283-286); web_packs (ll. 816-839) | Slot resolution (§1) feeds eligibility: resolve a wet-ink-only variant into a slot and the **pack's mode downgrades**, visibly, with the reason. The agent never has to know the law — the system computes and explains. |
 | **web_packs / web_pack_items + `splitMergedHtml()` = one session, many filings.** A pack signs as one flow and files as separate `Document` records per template (V2 §8, §19). "Document pack system fully built — no further work needed." | `esign-v3-complete-spec.md` (ll. 816-839); V2 §19; `SignatureService::splitMergedHtml` | This is exactly §1's "one ceremony → many independent filings." V3 adds slot→variant resolution on top; it does **not** touch the split/file machinery. |
 | **Mixed-mode handoff — per-recipient delivery mode; wet-ink portal = download-print-sign-upload.** An agent may pick mode per recipient (e.g. seller wet-ink, agent e-sign); the wet-ink party downloads, signs physically, and **uploads via the portal**, and the agent reviews the uploaded copy → approves. | `esign-v3-complete-spec.md` §5 (ll. 286, 721-733) | This is the mechanism behind **one document carrying an e-signed stage and a wet-ink stage** (§11.4, answer 1). A ceremony chain can legitimately mix e-sign and wet-ink handoffs. |
@@ -439,7 +439,7 @@ irrevocable deadline.**
   revival is only via a strike-and-fill date extension (**§11-A**); the lapse is an attributed
   evidence event (§6).
 
-**Delivery mode: the OTP runs WET-INK, not e-sign.** Under ECTA §13(1) an e-signed OTP is void and the code floor (`Template::isEsignBlocked()`) holds it to wet-ink
+**Delivery mode: the OTP runs WET-INK, not e-sign.** Under ECTA §13(1) an e-signed OTP is currently not recognised in law; the OTP template defaults to wet ink (a flagged document type — ESIGN-CANON.md §7) unless an admin has switched e-signing on in template setup, which holds it to wet-ink
 (§0.1; ESIGN-CANON.md §7, amended 2026-10-08); its pack eligibility computes to wet-ink/download only, greyed in the wizard with the plain
 reason. So the "signing" in this two-act flow is the **download-print-sign-upload** wet-ink handoff
 (§0.1) — the ceremony doctrine (groups, checkpoints, amendments, visible countdown, evidence
@@ -774,7 +774,7 @@ so the resolution is on the page, not just in the section it touched:
 
 1. **Disclosure re-serve → RESOLVED (§11.4).** It is **one document, two signing stages** — stage 1
    (seller, at mandate) may be **e-signed**; stage 2 (purchaser countersign) sits **inside the OTP /
-   sales pack and is wet-ink today** (the OTP floor, `Template::isEsignBlocked()` — ESIGN-CANON.md §7). One document can carry
+   sales pack and is wet-ink today** (the OTP's wet-ink default — a flagged document type, ESIGN-CANON.md §7). One document can carry
    an e-signed stage and a wet-ink stage; there is no "sleeping ceremony vs two ceremonies" dilemma —
    each stage signs in the delivery mode its pack computes.
 2. **Amendment blast radius → RESOLVED (§5).** **All parties, all surfaces, always — no auto-added

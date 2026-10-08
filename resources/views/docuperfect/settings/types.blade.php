@@ -118,6 +118,18 @@
                         </div>
                     </form>
 
+                    @if(auth()->user()->isOwnerRole())
+                    <form method="POST" action="{{ route('docuperfect.settings.types.esign-warning', $type->id) }}" class="mt-2 flex items-center gap-2">
+                        @csrf
+                        <input type="hidden" name="esign_warning_required" value="0">
+                        <label class="text-xs flex items-center gap-2" style="color: var(--text-secondary);">
+                            <input type="checkbox" name="esign_warning_required" value="1" {{ $type->esign_warning_required ? 'checked' : '' }}>
+                            Ask the admin to acknowledge a legal warning when e-signing is switched on for a template of this type
+                        </label>
+                        <button class="corex-btn-outline text-xs">Save</button>
+                    </form>
+                    @endif
+
                     <form method="POST" action="{{ route('docuperfect.settings.types.destroy', $type->id) }}"
                           onsubmit="return confirm('Archive this document type? An admin can restore it later.');"
                           class="mt-2">

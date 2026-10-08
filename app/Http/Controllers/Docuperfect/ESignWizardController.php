@@ -134,17 +134,19 @@ class ESignWizardController extends Controller
 
         $pdfPackId = $request->input('pdf_pack_id');
 
-        // HARD BLOCK: Single template — check if sale agreement / OTP
+        // Single template: e-signing is the template's own setting. A template of a flagged document
+        // type (sale agreement, OTP, deed) that no admin has switched e-signing on for stays on its
+        // wet-ink default. The agent is told only that it is not set up for e-signing — the legal
+        // warning is shown to the admin in template setup and nowhere an agent sees.
         $templateId = $request->input('template_id');
         if ($templateId && !$isPackFlow && !$pdfPackId) {
             $selectedTemplate = Template::find($templateId);
             if ($selectedTemplate) {
                 $selectedTemplate->assertAccessibleBy($request->user());
             }
-            if ($selectedTemplate && $selectedTemplate->isEsignBlocked()) {
+            if ($selectedTemplate && $selectedTemplate->esignAwaitingAcknowledgement()) {
                 return response()->json([
-                    'error' => 'Sale agreements must be signed with wet ink per the Alienation of Land Act. E-signing is not permitted.',
-                    'esign_blocked' => true,
+                    'error' => 'This template is not set up for e-signing. Ask an administrator to switch e-signing on for it in template setup.',
                 ], 422);
             }
         }
@@ -164,10 +166,7 @@ class ESignWizardController extends Controller
             try {
                 $templates = $slotResolver->resolve($pack, is_array($resolvedIds) ? $resolvedIds : null);
             } catch (WebPackSlotException $e) {
-                return response()->json(array_filter([
-                    'error'         => $e->getMessage(),
-                    'esign_blocked' => $e->esignBlocked ?: null,
-                ]), 422);
+                return response()->json(['error' => $e->getMessage()], 422);
             }
 
             $primaryTemplate = $templates->first();
@@ -2620,14 +2619,15 @@ class ESignWizardController extends Controller
 
         $template = $flow->template;
 
-        // Auto-flag template as e-sign capable when used via the wizard
-        if (!$template->is_esign) {
+        // Auto-flag template as e-sign capable when used via the wizard — except a flagged type
+        // (sale agreement, OTP, deed): only an admin switches e-signing on for those, in setup.
+        if (!$template->is_esign && !$template->requiresEsignAcknowledgement()) {
             $template->update(['is_esign' => true]);
         }
 
-        // HARD BLOCK: Sale agreements cannot enter the e-sign pipeline (Alienation of Land Act)
-        if ($template->isEsignBlocked()) {
-            $blockMsg = 'Sale agreements and OTPs must be signed with wet ink per the Alienation of Land Act. E-signing is not permitted for this document type.';
+        // E-signing not switched on for this template: it stays on its wet-ink default.
+        if ($template->esignAwaitingAcknowledgement()) {
+            $blockMsg = 'This template is not set up for e-signing. Ask an administrator to switch e-signing on for it in template setup, or send it for wet-ink signing.';
             if ($request->expectsJson()) {
                 return response()->json(['ok' => false, 'error' => $blockMsg], 422);
             }
@@ -7272,8 +7272,8 @@ class ESignWizardController extends Controller
      */
     private function prepareDownloadOnly(Request $request, Flow $flow, Template $template)
     {
-        // Auto-flag template as e-sign capable when used via the wizard
-        if (!$template->is_esign) {
+        // Auto-flag template as e-sign capable when used via the wizard (never a flagged type).
+        if (!$template->is_esign && !$template->requiresEsignAcknowledgement()) {
             $template->update(['is_esign' => true]);
         }
 
@@ -7457,8 +7457,8 @@ class ESignWizardController extends Controller
 
         $template = $flow->template;
 
-        // Auto-flag template as e-sign capable when used via the wizard
-        if (!$template->is_esign) {
+        // Auto-flag template as e-sign capable when used via the wizard (never a flagged type).
+        if (!$template->is_esign && !$template->requiresEsignAcknowledgement()) {
             $template->update(['is_esign' => true]);
         }
 

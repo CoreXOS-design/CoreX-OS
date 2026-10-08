@@ -199,9 +199,10 @@ class SigningController extends Controller
             return redirect()->route('signatures.external.wetInkPortal', $token);
         }
 
-        // Also check if template is e-sign blocked — force to wet ink portal
+        // A template of a flagged type that no admin has switched e-signing on for stays on its
+        // wet-ink default — nothing is explained to the signer (no legal wording on this page).
         $docTemplate = $signingRequest->template?->document?->template;
-        if ($docTemplate && $docTemplate->isEsignBlocked()) {
+        if ($docTemplate && $docTemplate->esignAwaitingAcknowledgement()) {
             $signingRequest->update([
                 'signing_method' => 'wet_ink',
                 'wet_ink_status' => $signingRequest->wet_ink_status ?: SignatureRequest::WET_INK_PENDING_UPLOAD,

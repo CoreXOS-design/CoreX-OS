@@ -20,13 +20,9 @@
 - Inspection reports
 - Any internal agency document
 
-### What CANNOT be e-signed (triple-enforced block)
-- Agreement for alienation of immovable property (sale agreement / OTP)
-- Lease agreements over 10 years
-- Template types `sale_agreement` and `otp` are blocked at THREE levels:
-  1. Model: `Template::isEsignBlocked()` (Template.php:149-160) — checks template_type AND name patterns
-  2. Client JS: `effectiveDeliveryModes` getter (wizard.blade.php:1573-1580) — removes 'esign' from modes
-  3. Server: `prepareSigning()` hard block (ESignWizardController.php:1208-1212)
+### Sale agreements / OTPs (amended 2026-10-08 — no hard block)
+- South African law currently does not recognise an e-signed agreement for the alienation of immovable property, and lease agreements over 10 years.
+- CoreX does not block them. E-sign eligibility is the template's own setting (`is_esign`). Template types flagged `document_types.esign_warning_required` (`sale_agreement`, `otp`, …) default to wet ink; an admin switches e-signing on in template setup after acknowledging a legal warning, recorded in `template_esign_acknowledgements`. Nothing is shown to an agent. See ESIGN-CANON.md §7.
 
 ---
 

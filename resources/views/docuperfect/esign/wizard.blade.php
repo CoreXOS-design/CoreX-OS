@@ -1434,13 +1434,6 @@
                         <span class="text-xs ml-2" style="color: var(--text-muted);" x-text="'(only available mode for this template)'"></span>
                     </div>
                 </template>
-                <template x-if="esignBlocked">
-                    <div class="mb-4 p-3 rounded-md text-sm"
-                         style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); color: var(--text-primary);">
-                        <strong>Sale agreements must be signed with wet ink</strong> per the Alienation of Land Act. E-signing is not permitted for this document type.
-                    </div>
-                </template>
-
                 {{-- Only show signing order for e-sign mode --}}
                 <div x-show="deliveryMode === 'esign'">
 
@@ -2379,21 +2372,8 @@ function esignWizard() {
         // Delivery mode
         deliveryMode: serverStepData?.delivery_mode || 'esign',
         templateDeliveryModes: (serverTemplate?.allowed_delivery_modes || 'esign,wet_ink,download').split(',').map(s => s.trim()).filter(Boolean),
-        esignBlocked: (() => {
-            const tpl = serverTemplate;
-            if (!tpl) return false;
-            const t = (tpl.template_type || '').toLowerCase();
-            if (t === 'sale_agreement' || t === 'otp') return true;
-            const n = (tpl.name || '').toLowerCase();
-            return n.includes('agreement of sale') || n.includes('deed of sale') || n.includes('offer to purchase');
-        })(),
         get effectiveDeliveryModes() {
-            let modes = [...this.templateDeliveryModes];
-            if (this.esignBlocked) {
-                modes = modes.filter(m => m !== 'esign');
-                if (modes.length === 0) modes = ['wet_ink', 'download'];
-            }
-            return modes;
+            return [...this.templateDeliveryModes];
         },
         deliveryModeLabel(mode) {
             const labels = { 'esign': 'E-Signature', 'wet_ink': 'Wet Ink (Print & Sign)', 'download': 'Download Only' };
