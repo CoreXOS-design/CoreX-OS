@@ -87,6 +87,17 @@ class LeaseNoticeTermsService
         return $this->anyIn($this->forLease($lease));
     }
 
+    /**
+     * Has an agent confirmed this lease's notice terms against the signed lease (leases.md §18.7)? Only confirmed terms are ever
+     * stated to a tenant or owner. (What the FAQ then says still depends on the terms the lease holds: none = nothing to say.)
+     */
+    public function isConfirmed(Lease $lease): bool
+    {
+        $terms = $this->termsOf($lease);
+
+        return $terms !== null && $terms->notice_terms_confirmed_at !== null;
+    }
+
     /** @param array<string,mixed> $values */
     public function anyIn(array $values): bool
     {
@@ -244,17 +255,20 @@ class LeaseNoticeTermsService
     // ── Writing (audited) ─────────────────────────────────────────────────────────────────────
 
     /**
-     * Save notice terms on a lease. Writes only what CHANGED, stamps the source, and (unless `$log` is false — the capture
-     * writes its own lease_created history row) logs one `lease_notice_terms_changed` row: who, from, to, when.
+     * Write the terms (only what changed), audited. `$confirmed` says whether this save counts as an agent's confirmation: null =
+     * by source (an agent capturing or editing them confirms them; a carried-forward or agency-default fill does not).
+     * `$reason` is recorded with the change (required by the caller on a lease whose agreement is already signed).
      *
-     * @param array<string,mixed> $input  keys of EDIT_KEYS, already normalised (see normalise()); absent keys are left alone
-     * @return array<string,array{from:mixed,to:mixed}> the terms that changed
+     * @param array<string,mixed> $input
+     * @return array<string,array{from:mixed,to:mixed}> the changes made (empty = nothing to write)
      */
-    public function save(Lease $lease, array $input, ?User $actor, string $source = self::SOURCE_EDITED, bool $log = true): array
+    public function save(Lease $lease, array $input, ?User $actor, string $source = self::SOURCE_EDITED, bool $log = true, ?string $reason = null, ?bool $confirmed = null): array
     {
         $input = array_intersect_key($input, array_flip(self::EDIT_KEYS));
+        $confirm = $confirmed ?? in_array($source, [self::SOURCE_CAPTURED, self::SOURCE_EDITED], true);
+        $explicit = $confirmed === true;
 
-        return DB::transaction(function () use ($lease, $input, $actor, $source, $log) {
+        return DB::transaction(function () use ($lease, $input, $actor, $source, $log, $reason, $confirm, $explicit) {
             $terms = LeaseAgreementTerms::forLease($lease);
             $changes = [];
 
@@ -268,25 +282,65 @@ class LeaseNoticeTermsService
             }
 
             if ($changes === []) {
+                // Nothing differs, but the caller explicitly confirms (the capture screen showed these very terms): record that.
+                if ($explicit && $terms->exists && $terms->notice_terms_confirmed_at === null && $this->anyIn($this->stored($terms))) {
+                    $terms->notice_terms_confirmed_at = now();
+                    $terms->notice_terms_confirmed_by = $actor?->id;
+                    $terms->save();
+                }
+
                 return [];
             }
 
             $terms->notice_terms_source = $source;
+            $terms->notice_terms_confirmed_at = $confirm ? now() : null;
+            $terms->notice_terms_confirmed_by = $confirm ? $actor?->id : null;
             $terms->save();
 
             if ($log) {
+                $reason = $reason !== null ? trim($reason) : null;
                 LeaseEvent::create([
                     'lease_id' => $lease->id,
                     'event_type' => LeaseEvent::TYPE_NOTICE_TERMS_CHANGED,
-                    'description' => mb_substr($this->describeChanges($changes), 0, 500),
+                    'description' => mb_substr($this->describeChanges($changes) . ($reason ? ' — reason: ' . $reason : ''), 0, 500),
                     'actor_user_id' => $actor?->id,
-                    'metadata' => ['source' => $source, 'changes' => $changes],
+                    'metadata' => ['source' => $source, 'changes' => $changes, 'confirmed' => $confirm, 'reason' => $reason ?: null],
                     'occurred_at' => now(),
                     'created_at' => now(),
                 ]);
             }
 
             return $changes;
+        });
+    }
+
+    /**
+     * An agent confirms the terms the lease holds against its signed copy (one click, audited). False = nothing to confirm
+     * (the lease holds no terms, or they are already confirmed).
+     */
+    public function confirm(Lease $lease, ?User $actor): bool
+    {
+        return DB::transaction(function () use ($lease, $actor) {
+            $terms = $this->termsOf($lease);
+            if (! $terms || $terms->notice_terms_confirmed_at !== null || ! $this->anyIn($this->stored($terms))) {
+                return false;
+            }
+
+            $terms->notice_terms_confirmed_at = now();
+            $terms->notice_terms_confirmed_by = $actor?->id;
+            $terms->save();
+
+            LeaseEvent::create([
+                'lease_id' => $lease->id,
+                'event_type' => LeaseEvent::TYPE_NOTICE_TERMS_CONFIRMED,
+                'description' => mb_substr('Notice terms confirmed against the signed lease', 0, 500),
+                'actor_user_id' => $actor?->id,
+                'metadata' => ['source' => $terms->notice_terms_source, 'terms' => $this->stored($terms)],
+                'occurred_at' => now(),
+                'created_at' => now(),
+            ]);
+
+            return true;
         });
     }
 

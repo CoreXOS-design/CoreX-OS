@@ -509,6 +509,22 @@
             this lease has been signed and agreed to by the Lessee, Lessor and or
             Agency. Please refer to clause 17 on how the termination of a lease
             agreement works.</div>
+
+        {{-- leases.md §18.8 — the lease's own notice / early-cancellation terms, printed from the same values the lease record and the
+             tenant / owner portal hold (system-filled; not editable by a signer). Prints nothing when the lease holds none. --}}
+        @if(!empty($notice_period ?? '') || !empty($earliest_notice_date ?? '') || !empty($early_cancellation_allowed ?? ''))
+        <div class="sub-clause">5.5 The notice and early cancellation terms recorded for this lease are:
+            @if(!empty($notice_period ?? ''))
+            <div class="sub-sub-clause">5.5.1 The notice period is <span class="field field-short" data-field="notice_period">{{ $notice_period ?? '' }}</span> <span class="field field-short" data-field="notice_period_unit">{{ $notice_period_unit ?? '' }}</span>.</div>
+            @endif
+            @if(!empty($earliest_notice_date ?? ''))
+            <div class="sub-sub-clause">5.5.2 Notice may be given from <span class="field field-medium" data-field="earliest_notice_date">{{ $earliest_notice_date ?? '' }}</span>.</div>
+            @endif
+            @if(!empty($early_cancellation_allowed ?? ''))
+            <div class="sub-sub-clause">5.5.3 Cancellation by the Lessee before the end of the lease is permitted: <span class="field field-short" data-field="early_cancellation_allowed">{{ $early_cancellation_allowed ?? '' }}</span>@if(!empty($early_cancellation_notice ?? '')), on <span class="field field-short" data-field="early_cancellation_notice">{{ $early_cancellation_notice ?? '' }}</span> <span class="field field-short" data-field="early_cancellation_notice_unit">{{ $early_cancellation_notice_unit ?? '' }}</span> written notice{{-- --}}@endif{{-- --}}@if(!empty($early_cancellation_penalty ?? '')), subject to: <span class="field field-medium" data-field="early_cancellation_penalty">{{ $early_cancellation_penalty ?? '' }}</span>{{-- --}}@endif.</div>
+            @endif
+        </div>
+        @endif
     </div>
 
     <div class="initials-row">

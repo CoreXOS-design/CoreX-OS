@@ -3588,6 +3588,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // leases.md §18 — the lease's notice / early-cancellation terms (own Role Manager permission; logged).
         Route::put('/{lease}/notice-terms', [\App\Http\Controllers\CoreX\LeaseController::class, 'updateNoticeTerms'])
             ->middleware('permission:lease_notice_terms.edit')->name('corex.leases.notice-terms.update');
+        Route::post('/{lease}/notice-terms/confirm', [\App\Http\Controllers\CoreX\LeaseController::class, 'confirmNoticeTerms'])
+            ->middleware('permission:lease_notice_terms.edit')->name('corex.leases.notice-terms.confirm');
         Route::post('/{lease}/activate', [\App\Http\Controllers\CoreX\LeaseController::class, 'activate'])
             ->middleware('permission:leases.create')->name('corex.leases.activate');
         // LEASE-CAPTURE BEGIN (leases.md §15.13 — Build L3a): "Prepare again" after a declined / voided / expired agreement.
@@ -5519,6 +5521,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // per Johan's build standard, without touching the large existing
         // update() method. Spec: .ai/specs/rentals-shared-screens.md §5.
         Route::put('/{property}/rental-details', [\App\Http\Controllers\CoreX\PropertyController::class, 'updateRentalDetails'])->name('rental-details.update');
+        // Listed date correction (reason required, recorded as a property note)
+        Route::put('/{property}/listed-date', [\App\Http\Controllers\CoreX\PropertyListedDateController::class, 'update'])->middleware('permission:properties.listed_date.correct')->name('listed-date.update');
         // Notes
         Route::post('/{property}/notes',                [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'store'])->name('notes.store');
         Route::delete('/{property}/notes/{note}',       [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'destroy'])->name('notes.destroy');

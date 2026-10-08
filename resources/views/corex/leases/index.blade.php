@@ -106,6 +106,13 @@
                 @endforeach
             </select>
         </div>
+        <div>
+            <label class="text-xs" style="color: var(--text-muted);">Notice terms</label><br>
+            <select name="notice_terms" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);" data-qa="lease-filter-notice-terms">
+                <option value="">All</option>
+                <option value="unconfirmed" @selected(($filters['notice_terms'] ?? '') === 'unconfirmed')>To check — not confirmed</option>
+            </select>
+        </div>
         <div class="relative">
             <label class="text-xs" style="color: var(--text-muted);">Property</label><br>
             {{-- Only properties with a lease visible to this user — never
@@ -132,7 +139,7 @@
             <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
         </div>
         <button type="submit" class="corex-btn-outline text-xs">Filter</button>
-        @if(request()->hasAny(['q', 'status', 'agreement', 'property_id', 'date_from', 'date_to']))
+        @if(request()->hasAny(['q', 'status', 'agreement', 'notice_terms', 'property_id', 'date_from', 'date_to']))
             <a href="{{ route('corex.leases.index') }}" class="corex-btn-outline text-xs">Clear</a>
         @endif
     </form>
