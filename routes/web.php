@@ -5520,7 +5520,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // update() method. Spec: .ai/specs/rentals-shared-screens.md §5.
         Route::put('/{property}/rental-details', [\App\Http\Controllers\CoreX\PropertyController::class, 'updateRentalDetails'])->name('rental-details.update');
         // Listed date correction (reason required, recorded as a property note)
-        Route::put('/{property}/listed-date', [\App\Http\Controllers\CoreX\PropertyListedDateController::class, 'update'])->name('listed-date.update');
+        Route::put('/{property}/listed-date', [\App\Http\Controllers\CoreX\PropertyListedDateController::class, 'update'])->middleware('permission:properties.listed_date.correct')->name('listed-date.update');
         // Notes
         Route::post('/{property}/notes',                [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'store'])->name('notes.store');
         Route::delete('/{property}/notes/{note}',       [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'destroy'])->name('notes.destroy');

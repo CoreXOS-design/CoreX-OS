@@ -3412,7 +3412,7 @@
                                                class="prop-input prop-field-lifecycle"
                                                style="color-scheme: light dark; opacity:.75; cursor:not-allowed;"
                                                title="Listed Date is always the date the property was loaded">
-                                        @if(!$isNew)
+                                        @if(!$isNew && auth()->user()->hasPermission('properties.listed_date.correct'))
                                         <button type="button" class="text-xs underline mt-1" style="color:var(--brand-default);"
                                                 onclick="window.dispatchEvent(new CustomEvent('open-listed-date-fix'))">Correct listed date</button>
                                         @endif

@@ -19,6 +19,7 @@ class PropertyListedDateController extends Controller
 
     public function update(Request $request, Property $property)
     {
+        abort_unless(auth()->user()->hasPermission('properties.listed_date.correct'), 403);
         $this->authorizeProperty($property);
 
         $data = $request->validate([

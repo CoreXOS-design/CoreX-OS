@@ -561,6 +561,9 @@ return [
         // agency's roster itself, resolved by SyndicationApprovalService::canApprove().
         // Two lists of "who approves" would drift.
         ['key' => 'properties.syndication.manage_approvers', 'label' => 'Configure Syndication Approval (switch + approvers)', 'section' => 'properties', 'type' => 'action', 'module' => 'properties', 'sort_order' => 16],
+        // Correct a property's Listed Date (reason required, recorded in the notes + audited).
+        // Default: admin (all-minus-exclude) and branch manager. Spec: .ai/specs/property-listed-date-correction.md
+        ['key' => 'properties.listed_date.correct', 'label' => 'Correct Listed Date (reason required)', 'section' => 'properties', 'type' => 'action', 'module' => 'properties', 'sort_order' => 17],
 
         // ── Contacts ──
         ['key' => 'access_contacts',             'label' => 'Access Contacts',             'section' => 'contacts',         'type' => 'access',  'module' => 'contacts',         'sort_order' => 1],
@@ -1068,6 +1071,7 @@ return [
                 'view_worksheet', 'edit_worksheet', 'view_deals', 'create_deals', 'proforma.generate', 'proforma.view',
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile
                 'viewing_feedback_edit.view', // viewing feedback edit - scope branch (scope_defaults)
+                'properties.listed_date.correct', // Correct Listed Date (reason required) - Johan's default: admin + branch manager
                 'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view', 'performance_report.view', 'manage_targets',
                 'manage_rentals', 'view_daily_activity', 'manage_tv_messages',
                 'deals.view', 'deals.create', 'deals.edit',
