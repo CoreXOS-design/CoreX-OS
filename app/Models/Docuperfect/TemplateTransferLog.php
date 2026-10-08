@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Docuperfect;
 
+use App\Models\Concerns\StampsOnBehalfOf;
 use DomainException;
 use Illuminate\Database\Eloquent\Model;
 
@@ -16,6 +17,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class TemplateTransferLog extends Model
 {
+    use StampsOnBehalfOf;
+
     protected $table = 'template_transfer_log';
 
     public $timestamps = false;

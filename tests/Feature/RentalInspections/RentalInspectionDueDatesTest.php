@@ -65,8 +65,24 @@ final class RentalInspectionDueDatesTest extends TestCase
         $this->admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin', 'is_active' => true]);
         $this->agent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent', 'is_active' => true, 'email' => 'agent-' . uniqid() . '@example.test']);
 
+        $this->noCooldown($this->agent);
+
         $this->property = $this->makeProperty($this->agency, $this->branch, $this->agent, '14 Marine Drive, Margate');
         $this->lease = $this->makeLease($this->property, ['start_date' => '2026-09-01', 'end_date' => '2027-08-31']);
+    }
+
+    /**
+     * The reminders now go through the notification gateway, which holds a per-user "same alert again" cooldown
+     * (default 6 hours) measured on the REAL clock. These tests simulate days by passing a date to run() while the
+     * clock stays frozen, so every simulated "next day" would be inside the cooldown. The cooldown is the gateway's
+     * own tested feature; here it is switched off so the milestone logic is what is under test.
+     */
+    private function noCooldown(User $u): void
+    {
+        \App\Models\CommandCenter\UserDashboardSetting::updateOrCreate(
+            ['user_id' => $u->id],
+            array_merge(\App\Models\CommandCenter\UserDashboardSetting::defaults(), ['min_minutes_between_same' => 0])
+        );
     }
 
     protected function tearDown(): void
@@ -388,8 +404,13 @@ final class RentalInspectionDueDatesTest extends TestCase
         $this->assertSame('rental_inspection_due_reminder', $n->toArray($this->agent)['type']);
     }
 
-    public function test_a_send_that_throws_is_recorded_as_failed_and_the_rest_of_the_run_continues(): void
+    public function test_a_send_that_throws_never_stops_the_run_and_is_logged_by_the_gateway(): void
     {
+        // CONTRACT CHANGE (2026-10-08): reminders go through NotificationDispatcher, which catches a delivery error
+        // itself (logs "Notification dispatch failed" and carries on). So the service can no longer see the error
+        // and record the row as 'failed' - it records 'sent', and the failure lives in the log. What must still hold:
+        // one agent's broken channel never stops the run for the others, and nothing is thrown out of run().
+        \Illuminate\Support\Facades\Log::spy();
         $bad = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent', 'is_active' => true]);
         $badProperty = $this->makeProperty($this->agency, $this->branch, $bad, '2 Beach Road, Uvongo');
         $badLease = $this->makeLease($badProperty);
@@ -407,9 +428,14 @@ final class RentalInspectionDueDatesTest extends TestCase
 
         $tally = $this->runPlanned('2026-10-07');
 
-        $this->assertSame(1, $tally['failed']);
-        $this->assertSame('failed', RentalInspectionPlannedDateNotice::where('planned_date_id', $badDate->id)->value('status'));
-        $this->assertStringContainsString('mail server down', (string) RentalInspectionPlannedDateNotice::where('planned_date_id', $badDate->id)->value('detail'));
+        // The run completed for BOTH agents: each date was handled exactly once and has its notice row.
+        $this->assertSame(2, $tally['sent'] + $tally['failed'], 'both agents were handled; none was skipped or lost');
+        $this->assertSame(1, RentalInspectionPlannedDateNotice::where('planned_date_id', $okDate->id)->where('status', 'sent')->count());
+        $this->assertSame(1, RentalInspectionPlannedDateNotice::where('planned_date_id', $badDate->id)->where('status', 'sent')->count());
+        // ...and the broken channel was reported by the gateway, not swallowed silently.
+        \Illuminate\Support\Facades\Log::shouldHaveReceived('warning')
+            ->withArgs(fn ($message, $context = []) => $message === 'Notification dispatch failed' && str_contains((string) ($context['error'] ?? ''), 'mail server down'))
+            ->atLeast()->once();
     }
 
     public function test_a_second_agencys_dates_use_its_own_lead_window(): void

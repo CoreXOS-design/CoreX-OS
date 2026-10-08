@@ -9,6 +9,7 @@ use App\Models\RentalInspectionPlannedDateNotice;
 use App\Models\RentalInspectionSetting;
 use App\Models\User;
 use App\Notifications\RentalInspectionDueReminder;
+use App\Services\CommandCenter\NotificationDispatcher;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Log;
 
@@ -37,6 +38,9 @@ class RentalInspectionDueReminderService
     /** A dry run counts what WOULD be sent and writes/sends nothing (set per run by runPlanned()/runDue()). */
     private bool $dryRun = false;
 
+    /** The day being run (set by runPlanned()/runDue()); the gateway's threshold_hit_at for every reminder sent in this run. */
+    private ?CarbonInterface $runDay = null;
+
     public function __construct(private RentalInspectionDueService $due) {}
 
     /**
@@ -48,6 +52,7 @@ class RentalInspectionDueReminderService
     {
         $this->dryRun = $dryRun;
         $today = ($today ?? now())->copy()->startOfDay();
+        $this->runDay = $today;
         $tally = ['sent' => 0, 'skipped' => 0, 'failed' => 0];
 
         $agencyIds = RentalInspectionPlannedDate::withoutGlobalScopes()
@@ -81,6 +86,7 @@ class RentalInspectionDueReminderService
     {
         $this->dryRun = $dryRun;
         $today = ($today ?? now())->copy()->startOfDay();
+        $this->runDay = $today;
         $tally = ['sent' => 0, 'skipped' => 0, 'failed' => 0];
 
         $agencyIds = Lease::withoutGlobalScopes()->whereNull('deleted_at')->where('status', Lease::STATUS_ACTIVE)
@@ -201,15 +207,29 @@ class RentalInspectionDueReminderService
         }
 
         try {
-            $agent->notify(new RentalInspectionDueReminder(
-                inspectionType: $payload['type'],
-                milestone: $milestone,
-                dueOn: $payload['due_on'],
-                propertyAddress: $lease->property?->buildDisplayAddress() ?? 'Unknown property',
-                leaseId: $lease->id,
-                source: $payload['source'],
-                url: route('corex.rental-inspections.due'),
-            ));
+            $delivered = app(NotificationDispatcher::class)->send(
+                $agent, 'rental_inspection.due_reminder', $lease,
+                new RentalInspectionDueReminder(
+                    inspectionType: $payload['type'],
+                    milestone: $milestone,
+                    dueOn: $payload['due_on'],
+                    propertyAddress: $lease->property?->buildDisplayAddress() ?? 'Unknown property',
+                    leaseId: $lease->id,
+                    source: $payload['source'],
+                    url: route('corex.rental-inspections.due'),
+                ),
+                // threshold_hit_at is the day this milestone was handled - a stable fact, not now(): the gateway's
+                // once-only check compares it, and the reminder's own notice row stays the real idempotency.
+                ['threshold_hit_at' => $this->runDay ?? now()->startOfDay()],
+            );
+            if (! $delivered) {
+                // The agent switched this reminder off (or it is outside their open hours): not an error, and the
+                // milestone is still handled once - the row below is what stops it being retried.
+                $create($common + ['recipient_user_id' => $agent->id, 'channel' => null, 'status' => 'skipped', 'detail' => "switched off in the agent's notification settings, or outside their open hours"]);
+                $tally['skipped']++;
+
+                return;
+            }
             $create($common + [
                 'recipient_user_id' => $agent->id,
                 'channel' => $agent->email ? 'in_app,mail' : 'in_app',

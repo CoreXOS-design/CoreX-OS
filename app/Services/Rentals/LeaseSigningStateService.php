@@ -11,6 +11,7 @@ use App\Models\Lease;
 use App\Models\LeaseEvent;
 use App\Models\User;
 use App\Notifications\SignatureActivityNotification;
+use App\Services\CommandCenter\NotificationDispatcher;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -440,13 +441,17 @@ class LeaseSigningStateService
                 default => "The lease agreement for {$address} expired before everyone signed",
             };
 
-            $agent->notify(new SignatureActivityNotification(
-                type: 'lease_agreement_' . $outcome,
-                message: $message,
-                url: route('corex.leases.show', $lease->id),
-                documentId: $envelope->document_id,
-                metadata: ['lease_id' => $lease->id],
-            ));
+            app(NotificationDispatcher::class)->send(
+                $agent, 'lease.agreement_signing_outcome', $envelope,
+                new SignatureActivityNotification(
+                    type: 'lease_agreement_' . $outcome,
+                    message: $message,
+                    url: route('corex.leases.show', $lease->id),
+                    documentId: $envelope->document_id,
+                    metadata: ['lease_id' => $lease->id],
+                ),
+                ['threshold_hit_at' => now()],
+            );
 
             if ($agent->email) {
                 $this->mail->send($agent->email, (new LeaseAgreementStatusMail($lease, $outcome, $detail))->fromAgent($agent));

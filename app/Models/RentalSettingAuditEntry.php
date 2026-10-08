@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\StampsOnBehalfOf;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -11,6 +12,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class RentalSettingAuditEntry extends Model
 {
+    use StampsOnBehalfOf;
+
     protected $table = 'rental_setting_audit';
 
     public $timestamps = false;

@@ -7,6 +7,7 @@ use App\Models\RentalInspection;
 use App\Models\SignedDocumentDistributionLog;
 use App\Models\User;
 use App\Notifications\RentalInspectionCopiesNotDelivered;
+use App\Services\CommandCenter\NotificationDispatcher;
 use App\Services\Distribution\SignedDocumentDistributionService;
 use Illuminate\Support\Facades\Log;
 
@@ -141,13 +142,17 @@ class RentalInspectionCopiesService
             if (! $user) {
                 return;
             }
-            $user->notify(new RentalInspectionCopiesNotDelivered(
-                inspectionId: $inspection->id,
-                inspectionType: (string) $inspection->type,
-                propertyAddress: $inspection->property?->buildDisplayAddress() ?: 'the property',
-                problemCount: $problemCount,
-                url: route('corex.rental-inspections.show', $inspection),
-            ));
+            app(NotificationDispatcher::class)->send(
+                $user, 'rental_inspection.copies_not_delivered', $inspection,
+                new RentalInspectionCopiesNotDelivered(
+                    inspectionId: $inspection->id,
+                    inspectionType: (string) $inspection->type,
+                    propertyAddress: $inspection->property?->buildDisplayAddress() ?: 'the property',
+                    problemCount: $problemCount,
+                    url: route('corex.rental-inspections.show', $inspection),
+                ),
+                ['threshold_hit_at' => now()],
+            );
         } catch (\Throwable $e) {
             // An alert that cannot be delivered must never break the completion that triggered it.
             Log::warning('Rental inspection copies alert could not be sent', ['inspection_id' => $inspection->id, 'error' => $e->getMessage()]);
