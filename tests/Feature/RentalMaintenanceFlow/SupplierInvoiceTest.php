@@ -133,6 +133,23 @@ final class SupplierInvoiceTest extends TestCase
         $this->assertSame(['pdf', 'jpg', 'jpeg', 'png', 'webp'], RentalWorkOrderSetting::invoiceAllowedExtensionsFor(999999));
     }
 
+    public function test_an_empty_file_an_ancient_date_and_a_failed_save_never_leave_a_bad_invoice_or_an_orphan_file(): void
+    {
+        $this->fileInvoice(['document' => UploadedFile::fake()->create('empty.pdf', 0, 'application/pdf')])->assertSessionHasErrors('document');
+        $this->fileInvoice(['invoice_date' => '1999-12-31'])->assertSessionHasErrors('invoice_date');
+        $this->assertSame(0, RentalWorkOrderInvoice::count());
+
+        // a save that fails after the file was stored removes the file again
+        try {
+            app(RentalWorkOrderInvoiceService::class)->upload($this->workOrder, ['invoice_number' => 'BAD-1', 'amount' => 10, 'invoice_date' => null], $this->pdf(), $this->admin);
+            $this->fail('the save should have failed');
+        } catch (\Throwable $e) {
+            $this->assertNotInstanceOf(\PHPUnit\Framework\AssertionFailedError::class, $e);
+        }
+        $this->assertSame([], Storage::disk('local')->allFiles('rental-work-order-invoices'), 'no orphan file');
+        $this->assertSame(0, RentalWorkOrderInvoice::count());
+    }
+
     // ── Change, replace, archive, restore ───────────────────────────────
 
     public function test_changing_the_facts_and_replacing_the_file_keeps_the_old_file_and_is_audited(): void

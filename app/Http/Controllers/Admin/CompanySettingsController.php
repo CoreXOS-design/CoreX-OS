@@ -131,7 +131,7 @@ class CompanySettingsController extends Controller
             'icon_color'            => ['nullable', 'string', 'max:20'],
             'default_color'         => ['nullable', 'string', 'max:20'],
             'button_color'          => ['nullable', 'string', 'max:20'],
-            'logo'                  => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'logo'                  => ['nullable', new \App\Rules\AgencyLogoFile()],
             // Viewing Pack cover style (.ai/specs/viewing-pack.md §14). Only the keys the
             // posting form rendered reach $data (the sibling company/website forms never post them).
             'viewing_pack_cover_style'        => ['nullable', 'string', 'in:' . implode(',', array_keys(ViewingPackCoverService::STYLES))],

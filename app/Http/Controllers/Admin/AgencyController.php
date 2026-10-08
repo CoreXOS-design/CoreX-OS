@@ -101,7 +101,7 @@ class AgencyController extends Controller
             'p24_agency_label' => 'nullable|string|max:100',
             'p24_max_photos'        => 'nullable|integer|min:1|max:200',
             'p24_http_read_timeout' => 'nullable|integer|min:30|max:600',
-            'logo'             => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'logo'             => ['nullable', new \App\Rules\AgencyLogoFile()],
 
             // First Admin — required for live agencies, skipped for demo agencies.
             // Email-only invite, no password captured here. See .ai/specs/agency-admin-rule.md §R1a.
@@ -349,7 +349,7 @@ class AgencyController extends Controller
             'pp_image_base_url' => 'nullable|string|max:255',
             'pp_webhook_secret' => 'nullable|string|max:255',
             'pp_max_photos'     => 'nullable|integer|min:1|max:200',
-            'logo'            => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'logo'            => ['nullable', new \App\Rules\AgencyLogoFile()],
             'remove_logo'     => 'nullable|boolean',
         ]);
 

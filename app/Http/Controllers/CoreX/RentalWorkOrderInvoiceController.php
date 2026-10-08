@@ -114,7 +114,7 @@ class RentalWorkOrderInvoiceController extends Controller
     {
         return [
             'invoice_number' => [$creating ? 'required' : 'sometimes', 'string', 'max:100'],
-            'invoice_date' => [$creating ? 'required' : 'sometimes', 'date', 'before_or_equal:today'],
+            'invoice_date' => [$creating ? 'required' : 'sometimes', 'date', 'after_or_equal:2000-01-01', 'before_or_equal:today'],
             'amount' => [$creating ? 'required' : 'sometimes', 'numeric', 'min:0', 'max:9999999999.99'],
             'agency_service_provider_id' => ['nullable', Rule::exists('agency_service_providers', 'id')->where('agency_id', $workOrder->agency_id)],
             'supplier_name' => ['nullable', 'string', 'max:191'],
