@@ -963,6 +963,45 @@
         </form>
     </div>
 
+    {{-- Rentals front-half decisions (8 Oct 2026) - six switches, each with the recommended value as its default. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Applying, handing over and withdrawing</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">Every switch is on by default; turn any off to go back to the earlier behaviour. Every change is logged below.</p>
+        <form method="POST" action="{{ route('corex.settings.rental-applications.front-half') }}" class="space-y-3">
+            @csrf
+            @foreach([
+                'allow_manual_link_share' => ['Let the agent hand the applicant their link themselves', 'WhatsApp or in person - for a tenant with no email. The application page gets a "Share the link myself" button.'],
+                'notify_agents_on_application_returned' => ['Tell the property\'s and lease\'s agents (in the app) when a tenant submits', 'The agent who created the application is still emailed as before.'],
+                'notify_authoriser_on_hand_over' => ['Tell the authoriser(s) when an application is handed to them', 'In the app and by email, subject to each person\'s own notification settings.'],
+                'prefill_lease_from_application' => ['Suggest the lease start date and term from what the applicant asked for', 'The agent can change both on the lease screen.'],
+                'allow_withdraw_after_approval' => ['Allow an approved application with no lease yet to be withdrawn', 'A note is required and the withdrawal is logged.'],
+            ] as $key => [$label, $help])
+                <div>
+                    <input type="hidden" name="{{ $key }}" value="0">
+                    <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                        <input type="checkbox" name="{{ $key }}" value="1" @checked(old($key, $frontHalf[$key]))> {{ $label }}
+                    </label>
+                    <p class="text-xs ml-6" style="color: var(--text-muted);">{{ $help }}</p>
+                </div>
+            @endforeach
+            <div>
+                <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);">Your sentence in the applicant's email and PDF (for example about pre-approval)</label>
+                <textarea name="invite_policy_sentence" rows="2" maxlength="{{ \App\Models\RentalApplicationQualifyingSetting::INVITE_POLICY_SENTENCE_MAX }}"
+                          class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">{{ old('invite_policy_sentence', $frontHalf['invite_policy_sentence']) }}</textarea>
+                <p class="text-xs" style="color: var(--text-muted);">Type {agency} where your agency name should appear. Empty = no sentence.</p>
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+        @if($recentFrontHalfChanges->isNotEmpty())
+            <div class="text-xs mt-3" style="color: var(--text-muted);">
+                <div class="font-semibold mb-1">Recent changes</div>
+                @foreach($recentFrontHalfChanges as $change)
+                    <div>{{ $change->created_at?->format('j M Y H:i') }} - {{ $change->user?->name ?? 'System' }} changed {{ str_replace('_', ' ', $change->setting_key) }}: {{ \Illuminate\Support\Str::limit((string) $change->old_value, 40) }} &rarr; {{ \Illuminate\Support\Str::limit((string) $change->new_value, 40) }}{{ $change->source === 'wizard' ? ' (setup wizard)' : '' }}</div>
+                @endforeach
+            </div>
+        @endif
+    </div>
+
     {{-- Contact-type ruling, 2026-09-11 — Johan, verbatim: "contact type
          can be added, not changed... the seller of unit a decides to rent
          but their property has not sold yet. so that contact will be

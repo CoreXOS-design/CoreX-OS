@@ -325,8 +325,9 @@ class RentalCommandCentreService
             // stock (LeaseSetting::activeRentalStatusesFor()) — the
             // "inactive" tile below is the restriction's own complement, so
             // occupied + unoccupied + inactive always equals 'all'.
-            'unoccupied' => ["active_lease_id IS NULL AND LOWER(status) IN ({$activeStatusPlaceholders})", $activeStatusesLower],
-            'inactive' => ["active_lease_id IS NULL AND LOWER(status) NOT IN ({$activeStatusPlaceholders})", $activeStatusesLower],
+            'unoccupied' => ["active_lease_id IS NULL AND LOWER(COALESCE(status, '')) IN ({$activeStatusPlaceholders})", $activeStatusesLower],
+            // COALESCE: a NULL status must land in exactly one of unoccupied / inactive, never neither.
+            'inactive' => ["active_lease_id IS NULL AND LOWER(COALESCE(status, '')) NOT IN ({$activeStatusPlaceholders})", $activeStatusesLower],
             'expiring' => ['active_lease_id IS NOT NULL AND active_end_date BETWEEN ? AND ?', [$today, $windowEnd]],
             'notice_given' => ['active_lease_id IS NOT NULL AND active_notice_date IS NOT NULL', []],
             'renewals_in_progress' => ['active_lease_id IS NOT NULL AND pending_renewal_draft_count > 0', []],
@@ -414,9 +415,12 @@ class RentalCommandCentreService
                         $sub->selectRaw(1)->from('lease_tenants')
                             ->join('contacts', 'contacts.id', '=', 'lease_tenants.contact_id')
                             ->whereColumn('lease_tenants.lease_id', 'properties.active_lease_id')
+                            ->whereNull('contacts.deleted_at')
                             ->where(function ($c) use ($search) {
+                                // first, last, or the full name together ("John Smith")
                                 $c->where('contacts.first_name', 'like', "%{$search}%")
-                                    ->orWhere('contacts.last_name', 'like', "%{$search}%");
+                                    ->orWhere('contacts.last_name', 'like', "%{$search}%")
+                                    ->orWhereRaw("CONCAT(contacts.first_name, ' ', COALESCE(contacts.last_name, '')) LIKE ?", ["%{$search}%"]);
                             });
                     })
                     // Landlord — same source Property::sellerOwnerContact()
@@ -828,6 +832,12 @@ class RentalCommandCentreService
             ->with(['property' => fn ($q) => $q->withoutGlobalScopes(), 'lease' => fn ($q) => $q->withoutGlobalScopes()->with('tenants.contact')]);
         $this->applyPropertyIdScope($plannedQuery, $user, $scope, 'rental_inspection_planned_dates.property_id');
         $plannedQuery->get()->each(function (RentalInspectionPlannedDate $date) use (&$items, $today) {
+            // Properties are loaded withoutGlobalScopes() above (so the row can still name them);
+            // an ARCHIVED property is not stock any more and must not raise a needs-action row —
+            // the tiles and the In/Out rule already exclude it.
+            if (! $date->property || $date->property->trashed()) {
+                return;
+            }
             $items->push([
                 'type' => 'interim_inspection_due',
                 'urgency' => $date->planned_on->lt($today) ? 2 : 3,

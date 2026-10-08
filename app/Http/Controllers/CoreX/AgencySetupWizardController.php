@@ -213,6 +213,8 @@ class AgencySetupWizardController extends Controller
                 // LEASE-AGREEMENT BEGIN (leases.md §15.14 — Build L0): done / not done for the lease-agreement row.
                 'wzLeaseAgreementLinked' => app(\App\Services\Rentals\LeaseAgreementTemplateGuard::class)->linkedFor((int) $agency->id) !== null,
                 // LEASE-AGREEMENT END
+                // Rentals front-half decision D6: how many decline reasons the agency has (the link row on the Rentals step).
+                'wzDeclineTemplateCount' => \App\Models\RentalApplicationDeclineReasonTemplate::where('agency_id', $agency->id)->count(),
             ],
             // Same reads settings.prospecting.index itself uses (SettingsController)
             // — the wizard step shows exactly what that page would.
@@ -664,6 +666,10 @@ class AgencySetupWizardController extends Controller
                     'default_early_cancellation_penalty' => LeaseSetting::earlyCancellationPenaltyFor($agency->id) ?? '',
                     // Johan, 7 Oct 2026 — leases.md §5.3.
                     'month_to_month_after_end_days' => LeaseSetting::monthToMonthAfterEndDaysFor($agency->id),
+                    // Rentals front-half decisions (8 Oct 2026).
+                    'require_end_or_month_to_month_for_signing' => LeaseSetting::requireEndOrMonthToMonthForSigningFor($agency->id),
+                    'restore_end_date_on_leaving_month_to_month' => LeaseSetting::restoreEndDateOnLeavingMonthToMonthFor($agency->id),
+                    'signed_copy_not_live_note' => LeaseSetting::signedCopyNotLiveNoteFor($agency->id),
                     default => $control['default'] ?? null,
                 },
                 // .ai/specs/rental-work-orders.md §3.4b/§8, Stage 3 — only one

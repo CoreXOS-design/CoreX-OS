@@ -980,6 +980,9 @@ class RentalApplicationReviewController extends Controller
             'Submitted for authorisation.',
         );
 
+        // Rentals front-half decision D4: tell the authoriser(s) (agency setting, default on); never part of the hand-off's success.
+        app(\App\Services\RentalApplications\RentalApplicationNotifier::class)->notifyAuthorisersOfHandOver($rentalApplication, $request->user());
+
         return response()->json([
             'ok' => true,
             'submitted_for_approval_at' => $rentalApplication->submitted_for_approval_at->toIso8601String(),

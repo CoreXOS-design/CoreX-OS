@@ -49,7 +49,9 @@ class RentalCommandCentreController extends Controller
             // handled separately below rather than forcing every key
             // through $request->boolean().
             'preference_key' => ['required', 'string', 'in:queue_collapsed,collapsed_queue_groups'],
-            'value' => ['required'],
+            // `present`, not `required`: expanding every queue group saves an EMPTY array, which
+            // `required` rejects (422) so the collapsed state would stick on reload.
+            'value' => ['present'],
         ]);
 
         $key = $validated['preference_key'];
@@ -190,6 +192,7 @@ class RentalCommandCentreController extends Controller
         $tenantNamesByLeaseId = $leaseIds->isEmpty() ? collect() : \Illuminate\Support\Facades\DB::table('lease_tenants')
             ->join('contacts', 'contacts.id', '=', 'lease_tenants.contact_id')
             ->whereIn('lease_tenants.lease_id', $leaseIds)
+            ->whereNull('contacts.deleted_at')
             ->selectRaw("lease_tenants.lease_id, GROUP_CONCAT(DISTINCT TRIM(CONCAT(contacts.first_name, ' ', COALESCE(contacts.last_name, ''))) SEPARATOR ', ') as names")
             ->groupBy('lease_tenants.lease_id')
             ->pluck('names', 'lease_id');

@@ -53,6 +53,14 @@ final class RentalCommandCentreLayoutTest extends TestCase
         $this->assertStringContainsString('Showing: Occupied', $html);
     }
 
+    public function test_tile_text_is_clamped_to_two_lines(): void
+    {
+        $html = $this->page();
+
+        // Johan's ruling: max 2 lines of text per tile (full wording stays in the tooltip).
+        $this->assertSame(11, substr_count($html, '-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">'), 'one clamp per tile label');
+    }
+
     public function test_the_right_hand_panel_has_a_heading(): void
     {
         $html = $this->page();

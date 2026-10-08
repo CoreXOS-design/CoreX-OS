@@ -3318,6 +3318,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/rental-applications/identity-gate', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateIdentityGate'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.identity-gate');
     // Item 2 follow-up, 2026-09-10 — lock the property link once submitted for authorisation.
+    // Rentals front-half decisions (8 Oct 2026) - six has()-guarded switches in one narrow saver (also a Setup Wizard saver).
+    Route::post('/settings/rental-applications/front-half', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateFrontHalfDefaults'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.front-half');
+
     Route::post('/settings/rental-applications/property-lock', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updatePropertyLock'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.property-lock');
     // Contact-type ruling, 2026-09-11 — tag the contact "Tenant" on approval.
@@ -3485,6 +3489,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::put('/{rentalApplication}', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'update'])->name('corex.rental-applications.update');
         Route::post('/{rentalApplication}/send', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'send'])
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.send');
+        Route::post('/{rentalApplication}/share-link', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'shareLinkManually'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.share-link');
         Route::get('/{rentalApplication}/pdf', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'pdf'])->name('corex.rental-applications.pdf');
         Route::get('/{rentalApplication}/pdf-inline', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'pdfInline'])->name('corex.rental-applications.pdf-inline');
         Route::get('/{rentalApplication}/documents/{document}', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'downloadDocument'])->name('corex.rental-applications.documents.download');
@@ -6698,8 +6704,8 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::get('/leases', [\App\Http\Controllers\Docuperfect\SignatureController::class, 'leases'])->name('docuperfect.leases.index');
 
     // Lease lifecycle
-    Route::post('/leases/{lease}/renew', [\App\Http\Controllers\Docuperfect\LeaseController::class, 'renewLease'])->name('docuperfect.leases.renew');
-    Route::post('/leases/{lease}/terminate', [\App\Http\Controllers\Docuperfect\LeaseController::class, 'terminateLease'])->name('docuperfect.leases.terminate');
+    Route::post('/leases/{lease}/renew', [\App\Http\Controllers\Docuperfect\LeaseController::class, 'renewLease'])->middleware('permission:leases.renew')->name('docuperfect.leases.renew');
+    Route::post('/leases/{lease}/terminate', [\App\Http\Controllers\Docuperfect\LeaseController::class, 'terminateLease'])->middleware('permission:leases.cancel')->name('docuperfect.leases.terminate');
     Route::get('/leases/{lease}/history', [\App\Http\Controllers\Docuperfect\LeaseController::class, 'leaseHistory'])->name('docuperfect.leases.history');
 
     // ===== SALES DOCUMENTS =====
@@ -6738,10 +6744,10 @@ Route::prefix('rental')->middleware(['auth'])->name('rental.')->group(function (
         Route::get('/properties/{property}/edit', fn () => redirect()->route('corex.properties.index'))->name('properties.edit');
 
         // Document Types — UNCHANGED, still live (not part of this retirement).
-        Route::get('/document-types', [\App\Http\Controllers\Rental\RentalDocumentTypeController::class, 'index'])->name('document-types.index');
-        Route::post('/document-types', [\App\Http\Controllers\Rental\RentalDocumentTypeController::class, 'store'])->name('document-types.store');
-        Route::put('/document-types/{type}', [\App\Http\Controllers\Rental\RentalDocumentTypeController::class, 'update'])->name('document-types.update');
-        Route::post('/document-types/{type}/toggle', [\App\Http\Controllers\Rental\RentalDocumentTypeController::class, 'toggleActive'])->name('document-types.toggle');
+        Route::get('/document-types', [\App\Http\Controllers\Rental\RentalDocumentTypeController::class, 'index'])->middleware('permission:access_settings')->name('document-types.index');
+        Route::post('/document-types', [\App\Http\Controllers\Rental\RentalDocumentTypeController::class, 'store'])->middleware('permission:access_settings')->name('document-types.store');
+        Route::put('/document-types/{type}', [\App\Http\Controllers\Rental\RentalDocumentTypeController::class, 'update'])->middleware('permission:access_settings')->name('document-types.update');
+        Route::post('/document-types/{type}/toggle', [\App\Http\Controllers\Rental\RentalDocumentTypeController::class, 'toggleActive'])->middleware('permission:access_settings')->name('document-types.toggle');
 
         // Reminders — screen + menu entry retired (Johan's ruling: leave the
         // rental_reminder_settings table, retire the screen). GET redirects;

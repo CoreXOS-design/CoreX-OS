@@ -655,3 +655,26 @@ Johan, QA1: "the tiles are way too big. can we get this to a max of 2 lines, and
 - **Needs action + the property list sit higher.** No change to their own code: both panels are sized from the top of `#rcc-layout` to the bottom of the viewport (§14.2), so the height the tiles gave back is now rows.
 - **Heading on the right-hand panel.** **"Property list (N)"** — N is the row count the current tile / search / filters leave (the paginator's total) — with "Showing: <tile>" beside it while a tile is filtering the list. Mirrors the left panel's "Needs action (N)".
 - **Tests.** `tests/Feature/Rentals/RentalCommandCentreLayoutTest.php` (six across, no five across, every tile present and still a filter link, active highlight kept, heading present); `RentalCommandCentreServiceTest` unchanged and green.
+
+---
+
+## 17. Cross-cutting audit fixes (2026-10-08, qa1-cc2 — no new features)
+
+Audit of every tile and queue against the data (QA1, agency 1) found the numbers right and these defects, all fixed:
+
+- **Queue collapse state did not save when every group was expanded.** `POST …/preference` validated `value` as `required`, which rejects the empty list "Expand all" sends (422), so the collapsed state stuck on reload. Now `present`. Test: `RentalCommandCentreServiceTest::test_expanding_every_queue_group_saves_an_empty_list_instead_of_a_422`.
+- **Tiles: max 2 lines of text, enforced.** The label (and the "· on N properties" note) is clamped to two lines; the full wording stays in the tooltip. The Tenant(s) cell is clamped to two lines too (joint tenants). Test: `RentalCommandCentreLayoutTest::test_tile_text_is_clamped_to_two_lines`.
+- **Queue buttons are gated like the Actions menu.** Each button sits behind the agency feature switch of the screen it opens (leases / faults / work orders / inspections), so a switched-off module never shows a button that can only 404. The route's own permission middleware still decides access.
+- **Archived properties raise no "Interim inspection" row.** The loaded-date rule loaded properties without scopes, so an archived property showed as "(archived)". The tiles and the In/Out rule already excluded them. Test: `…::test_an_archived_property_with_a_planned_inspection_date_raises_no_needs_action_row`.
+- **Tenant search and the tenant column ignore archived contacts, and search finds a full name** ("Zandile Nkosi"), not only first or last name. Test: `…::test_tenant_search_matches_a_full_name_and_ignores_archived_contacts`.
+- **A property with no status** lands in exactly one of Unoccupied / Inactive (COALESCE), so occupied + unoccupied + inactive can no longer fall short of the total.
+- **Empty queue under a filter** says "Nothing needs action for this filter." instead of implying nothing needs action at all.
+- **An "Inventories" button** on the toolbar (permission `rental_inventories.view`) is the one door to the all-inventories list, whose sidebar entry was retired on purpose (§0b of rental-inventory.md: it lives on a property) and which otherwise had no inbound link.
+
+**Corrections to earlier text in this spec:** §3.2 says the Start-inspection parameter is ignored — the controller reads it now; and the queue has more rules than §3 lists (review fault, renewal draft ready, out-inspection, interim). §3 should be read together with `rental-inspections.md` §45.7 for the inspection rules.
+
+**Open for Johan (recorded, not changed):**
+1. *"Inspections due" tile counts any open inspection.* Spec §3.1 says so (a property with an open inspection OR one due). The queue only raises a row for DUE ones, so six QA1 properties are in the tile with no queue row. Recommended: keep the tile as specified and add nothing — an in-progress inspection is already being worked on. Say if you would rather the tile counted only due ones.
+2. *"Record outcome" still lists a lease past its end date even when notice is on file or a renewal draft exists.* Spec §3 says "unchanged"; the Lease Hub treats those as an outcome on file. Recommended: hide it when notice is on file or a draft exists.
+3. *Own scope on the queue is the property's agent only.* Johan's 8 Oct lease rule says own = creator, owner's agent or tenant's agent. A tenant's agent sees the lease on /leases but not its queue row. Recommended: use the lease rule for the lease-based queue rules.
+4. *"N faults / N work orders" links open the list for the property with all statuses,* while the count is open ones only. Needs an open-only filter in the fault and work-order lists (another lane's screens).

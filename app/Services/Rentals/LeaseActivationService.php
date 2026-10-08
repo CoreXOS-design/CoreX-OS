@@ -33,6 +33,23 @@ class LeaseActivationService
      * @throws ValidationException if another lease on this property is
      *   already active and is not the one being renewed.
      */
+    /**
+     * The OTHER lease that would stop this one going active right now - active on the same property and not the term this one
+     * renews - or null when nothing does. The same test activate() applies (kept in one place for the signed-copy mail, which
+     * goes out before the lease is activated).
+     */
+    public function blockingLease(Lease $lease): ?Lease
+    {
+        $other = Lease::withoutGlobalScopes()
+            ->whereNull('deleted_at')
+            ->where('property_id', $lease->property_id)
+            ->where('status', Lease::STATUS_ACTIVE)
+            ->where('id', '!=', $lease->id)
+            ->first();
+
+        return $other && (int) $lease->previous_lease_id !== (int) $other->id ? $other : null;
+    }
+
     public function activate(Lease $lease): Lease
     {
         return DB::transaction(function () use ($lease) {
