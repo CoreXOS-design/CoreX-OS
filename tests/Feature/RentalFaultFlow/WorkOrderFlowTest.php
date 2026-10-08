@@ -350,6 +350,95 @@ class WorkOrderFlowTest extends TestCase
         $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$internal->id}/progress", ['action' => 'started'])->assertStatus(422);
     }
 
+    // ── Follow-up: the responsible agent is told when the OWNER acts ─────────────────────────
+
+    public function test_the_owners_side_agent_is_notified_when_the_owner_sets_changes_and_reports_progress(): void
+    {
+        $wo = $this->ownerContractorWorkOrder();
+        $ownerAgent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->property->branch_id, 'role' => 'agent']);
+        $this->lease->forceFill(['owner_agent_user_id' => $ownerAgent->id])->saveQuietly();
+
+        $notifier = \Mockery::spy(\App\Services\CommandCenter\NotificationDispatcher::class);
+        $this->app->instance(\App\Services\CommandCenter\NotificationDispatcher::class, $notifier);
+        Sanctum::actingAs($this->clientUserFor($this->landlord), ['client']);
+        $base = "/api/v1/client/rentals/landlord/work-orders/{$wo->id}";
+
+        $this->postJson("$base/appointment", ['appointment_at' => now()->addDays(2)->format('Y-m-d') . 'T10:00'])->assertOk();
+        $notifier->shouldHaveReceived('fire')->withArgs(fn ($user, $key, $subject) => $user->id === $ownerAgent->id && $key === 'rental_work_order.owner_appointment' && $subject->id === $wo->id)->once();
+
+        // The same date again: nothing changed, so nobody is told twice.
+        $this->postJson("$base/appointment", ['appointment_at' => now()->addDays(2)->format('Y-m-d') . 'T10:00'])->assertOk();
+        $notifier->shouldHaveReceived('fire')->withArgs(fn ($user, $key) => $key === 'rental_work_order.owner_appointment')->once();
+
+        // A real change is a new fact.
+        $this->postJson("$base/appointment", ['appointment_at' => now()->addDays(3)->format('Y-m-d') . 'T15:00'])->assertOk();
+        $notifier->shouldHaveReceived('fire')->withArgs(fn ($user, $key, $subject, $args) => $key === 'rental_work_order.owner_appointment' && str_contains($args['title'], 'changed'))->once();
+
+        $this->postJson("$base/progress", ['action' => 'started'])->assertOk();
+        $this->postJson("$base/progress", ['action' => 'started'])->assertOk();   // already started: no second message
+        $notifier->shouldHaveReceived('fire')->withArgs(fn ($user, $key, $s, $args) => $key === 'rental_work_order.owner_progress' && str_contains($args['title'], 'started'))->once();
+
+        $this->postJson("$base/progress", ['action' => 'finished'])->assertOk();
+        $this->postJson("$base/progress", ['action' => 'finished'])->assertOk();  // same job reported done twice: one tenant check, one message
+        $notifier->shouldHaveReceived('fire')->withArgs(fn ($user, $key, $s, $args) => $key === 'rental_work_order.owner_progress' && str_contains($args['title'], 'finished'))->once();
+        $notifier->shouldHaveReceived('fire')->times(4);
+    }
+
+    public function test_the_agent_is_not_notified_of_their_own_appointment_and_falls_back_to_the_property_agent(): void
+    {
+        $wo = $this->ownerContractorWorkOrder();
+        $notifier = \Mockery::spy(\App\Services\CommandCenter\NotificationDispatcher::class);
+        $this->app->instance(\App\Services\CommandCenter\NotificationDispatcher::class, $notifier);
+
+        // The agent's own booking tells the tenant, not the agent.
+        $this->actingAs($this->agent)->post(route('corex.rental-work-orders.appointment.store', $wo), ['appointment_at' => now()->addDay()->format('Y-m-d\TH:i')])->assertRedirect();
+        $notifier->shouldNotHaveReceived('fire');
+
+        // The lease has no owner-side agent set: the portal's fallback (the property's agent) is used.
+        Sanctum::actingAs($this->clientUserFor($this->landlord), ['client']);
+        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/progress", ['action' => 'started'])->assertOk();
+        $notifier->shouldHaveReceived('fire')->withArgs(fn ($user, $key) => $user->id === $this->property->agent_id && $key === 'rental_work_order.owner_progress')->once();
+
+        // Nobody responsible (agent deactivated, no lease agent): no error, no message.
+        User::withoutGlobalScopes()->whereKey($this->property->agent_id)->update(['is_active' => false]);
+        $wo2 = RentalWorkOrder::withoutGlobalScopes()->whereKey($wo->id)->first();
+        $wo2->forceFill(['status' => RentalWorkOrder::STATUS_ORDERED])->saveQuietly();
+        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/progress", ['action' => 'started'])->assertOk();
+        $notifier->shouldHaveReceived('fire')->once();
+    }
+
+    public function test_the_real_dispatcher_sends_in_app_by_default_email_when_the_agent_wants_it_and_nothing_when_the_event_is_off(): void
+    {
+        \Illuminate\Support\Facades\Notification::fake();
+        $wo = $this->ownerContractorWorkOrder();
+        Sanctum::actingAs($this->clientUserFor($this->landlord), ['client']);
+        $url = "/api/v1/client/rentals/landlord/work-orders/{$wo->id}/appointment";
+
+        // Default settings: the in-app alert (email is the agent's own per-event opt-in).
+        $this->postJson($url, ['appointment_at' => now()->addDays(2)->format('Y-m-d') . 'T10:00'])->assertOk();
+        \Illuminate\Support\Facades\Notification::assertSentTo($this->agent, \App\Notifications\PillarEventNotification::class,
+            fn ($n, $channels) => in_array('database', $channels, true) && ! in_array('mail', $channels, true));
+
+        // The agent switches the email on for this event: the next change arrives by email too.
+        $type = \App\Models\CommandCenter\NotificationEventType::where('key', 'rental_work_order.owner_appointment')->firstOrFail();
+        \App\Models\CommandCenter\UserNotificationPreference::forceCreate([
+            'user_id' => $this->agent->id, 'notification_event_type_id' => $type->id,
+            'enabled' => true, 'channel_in_app' => true, 'channel_email' => true, 'channel_push' => false,
+        ]);
+        \Illuminate\Support\Facades\Notification::fake();
+        $this->travel(7)->hours();   // the agent's own cooldown (default 6h between the same alert) has passed
+        $this->postJson($url, ['appointment_at' => now()->addDays(3)->format('Y-m-d') . 'T11:00'])->assertOk();
+        \Illuminate\Support\Facades\Notification::assertSentTo($this->agent, \App\Notifications\PillarEventNotification::class,
+            fn ($n, $channels) => in_array('database', $channels, true) && in_array('mail', $channels, true));
+
+        // The agent switches the event off: nothing more is sent.
+        \App\Models\CommandCenter\UserNotificationPreference::where('user_id', $this->agent->id)->update(['enabled' => false]);
+        \Illuminate\Support\Facades\Notification::fake();
+        $this->travel(7)->hours();
+        $this->postJson($url, ['appointment_at' => now()->addDays(4)->format('Y-m-d') . 'T12:00'])->assertOk();
+        \Illuminate\Support\Facades\Notification::assertNothingSent();
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────────────────────
 
     private function tenantFault(string $title = 'Leaking tap in the kitchen'): RentalFaultReport

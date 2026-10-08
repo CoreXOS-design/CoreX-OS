@@ -127,29 +127,15 @@ class RentalPortalOverviewService
     public function agentContact(?Lease $lease, Property $property, int $agencyId, string $audience = self::AUDIENCE_TENANT): array
     {
         $side = $audience === self::AUDIENCE_LANDLORD ? LeaseAgentService::SIDE_OWNER : LeaseAgentService::SIDE_TENANT;
-        $leaseAgentId = $lease ? app(LeaseAgentService::class)->effectiveIds($lease)[$side] : null;
+        $user = app(LeaseAgentService::class)->responsibleUser($lease, $property, $agencyId, $side);
 
-        $agent = null;
-        foreach ([$leaseAgentId, $property->agent_id] as $userId) {
-            if (! $userId) {
-                continue;
-            }
-            $user = User::withoutGlobalScopes()
-                ->where('agency_id', $agencyId)
-                ->whereNull('deleted_at')
-                ->where('is_active', true)
-                ->find($userId);
-            if ($user) {
-                $agent = [
-                    'name' => trim((string) $user->name),
-                    'designation' => $user->designation ?: null,
-                    'phone' => $user->cell ?: ($user->phone ?: null),
-                    // The outward-facing address, never the login (User::outwardEmail — CLAUDE.md, public-facing surfaces).
-                    'email' => $user->outward_email ?: null,
-                ];
-                break;
-            }
-        }
+        $agent = $user ? [
+            'name' => trim((string) $user->name),
+            'designation' => $user->designation ?: null,
+            'phone' => $user->cell ?: ($user->phone ?: null),
+            // The outward-facing address, never the login (User::outwardEmail — CLAUDE.md, public-facing surfaces).
+            'email' => $user->outward_email ?: null,
+        ] : null;
 
         return ['agent' => $agent, 'office' => $this->office($lease?->branch_id ?: $property->branch_id, $agencyId)];
     }

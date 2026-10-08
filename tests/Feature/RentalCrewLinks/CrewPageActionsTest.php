@@ -315,15 +315,24 @@ final class CrewPageActionsTest extends TestCase
         $this->post($this->url('/photos'), ['photo_type' => 'in_progress', 'photos' => [UploadedFile::fake()->image('a.jpg')]]);
         $this->post($this->url('/complete'), ['full_name' => 'Sipho Dlamini', 'confirm' => '1']);
 
+        // W4 (8 Oct 2026): the job card is INTERNAL - tenant and owner read the WORK ORDER (the crew's photos on it, never the
+        // crew's sign-off); the job-card portal endpoints are gone.
+        $workOrderId = $this->card->fresh()->rental_work_order_id;
+        // (this fixture put the tenancy on the card only; the portal reads the work order's own lease)
+        \App\Models\RentalWorkOrder::withoutGlobalScopes()->whereKey($workOrderId)->update(['lease_id' => $lease->id]);
+
         \Laravel\Sanctum\Sanctum::actingAs(\App\Models\ClientUser::find($tenant->fresh()->client_user_id), ['client']);
-        $t = $this->getJson('/api/v1/client/rentals/job-cards/' . $this->card->id)->assertOk();
-        $t->assertJsonPath('job_card.crew_completion.signed_by', 'Sipho Dlamini')->assertJsonPath('job_card.crew_completion.via', 'crew_page');
-        $this->assertCount(1, $t->json('job_card.photos'));
+        $this->getJson('/api/v1/client/rentals/job-cards/' . $this->card->id)->assertNotFound();
+        $t = $this->getJson('/api/v1/client/rentals/work-orders/' . $workOrderId)->assertOk();
+        $this->assertCount(1, $t->json('work_order.photos'));
+        $this->assertArrayNotHasKey('crew_completion', $t->json('work_order'));
+        // (the tenant-check round, which is work-order progress, still names who reported the work done)
 
         \Laravel\Sanctum\Sanctum::actingAs(\App\Models\ClientUser::find($landlord->fresh()->client_user_id), ['client']);
-        $l = $this->getJson('/api/v1/client/rentals/landlord/job-cards/' . $this->card->id)->assertOk();
-        $l->assertJsonPath('job_card.crew_completion.via', 'crew_page');
-        $this->assertCount(1, $l->json('job_card.photos'));
+        $this->getJson('/api/v1/client/rentals/landlord/job-cards/' . $this->card->id)->assertNotFound();
+        $l = $this->getJson('/api/v1/client/rentals/landlord/work-orders/' . $workOrderId)->assertOk();
+        $this->assertCount(1, $l->json('work_order.photos'));
+        $this->assertArrayNotHasKey('crew_completion', $l->json('work_order'));
     }
 
     public function test_every_action_tags_the_card_history_with_the_crew_and_the_page_not_the_job_link(): void

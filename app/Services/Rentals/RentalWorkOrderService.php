@@ -268,7 +268,16 @@ class RentalWorkOrderService
             ]);
         });
 
-        $this->notifyTenantAppointment($workOrder->fresh(), (bool) $previous);
+        $fresh = $workOrder->fresh();
+        $this->notifyTenantAppointment($fresh, (bool) $previous);
+        if ($byContact) {
+            $this->notifyAgentOfOwnerAction(
+                $fresh, 'rental_work_order.owner_appointment',
+                ($previous ? 'Owner changed the repair appointment' : 'Owner set the repair appointment') . ' - ' . $this->addressFor($fresh),
+                $fresh->title . ': ' . $when->format('D j M Y H:i') . ($note ? ' - ' . $note : ''),
+                $fresh->appointment_set_at   // the fact's own moment: a real change is a new fact, a repeat save never gets here
+            );
+        }
 
         return true;
     }
@@ -311,11 +320,48 @@ class RentalWorkOrderService
                 'agency_id' => $workOrder->agency_id, 'update_type' => 'owner_progress',
                 'note' => 'Work started - ' . $via . (trim((string) $note) !== '' ? ': ' . trim((string) $note) : ''),
             ]);
+            $this->notifyAgentOfOwnerAction(
+                $workOrder->fresh(), 'rental_work_order.owner_progress',
+                'Owner reported the work started - ' . $this->addressFor($workOrder), $workOrder->title, now()
+            );
 
             return;
         }
 
-        app(\App\Services\Rentals\RentalCompletionService::class)->recordOwnerReportedDone($workOrder, $owner, $note);
+        $round = app(\App\Services\Rentals\RentalCompletionService::class)->recordOwnerReportedDone($workOrder, $owner, $note);
+        // The same job reported done twice opens ONE tenant check, so it is ONE message to the agent.
+        if ($round->wasRecentlyCreated) {
+            $this->notifyAgentOfOwnerAction(
+                $workOrder->fresh(), 'rental_work_order.owner_progress',
+                'Owner reported the work finished - ' . $this->addressFor($workOrder), $workOrder->title . ' (the tenant has been asked to check)', $round->opened_at ?? now()
+            );
+        }
+    }
+
+    /**
+     * Follow-up (8 Oct 2026): when the OWNER acts on a work order from the portal, the responsible agent - the lease's
+     * owner-side agent, else the property's agent (the rule the portal's "who to call" uses) - gets the in-app alert and
+     * the email, through the one NotificationDispatcher, so each person's own settings (event on/off, channels, open hours)
+     * decide. $hitAt is the fact's own moment: the dispatcher will not tell the same agent the same fact twice.
+     */
+    public function notifyAgentOfOwnerAction(RentalWorkOrder $workOrder, string $eventKey, string $title, string $body, $hitAt): void
+    {
+        $property = $workOrder->property()->withoutGlobalScopes()->first();
+        if (! $property) {
+            return;
+        }
+        $agent = app(LeaseAgentService::class)->responsibleUser($workOrder->lease, $property, (int) $workOrder->agency_id, LeaseAgentService::SIDE_OWNER);
+        if (! $agent) {
+            return;
+        }
+
+        app(NotificationDispatcher::class)->fire($agent, $eventKey, $workOrder, [
+            'title' => $title,
+            'body' => $body,
+            'action_url' => route('corex.rental-work-orders.show', $workOrder->id),
+            'severity' => 'info',
+            'threshold_hit_at' => $hitAt,
+        ]);
     }
 
     // ───────────────────────── Build 2 mails (§17.16) — all through the agency mailbox path ─────────────────────────

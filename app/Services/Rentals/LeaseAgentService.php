@@ -231,6 +231,33 @@ final class LeaseAgentService
         return ['owner' => $owner, 'tenant' => $tenant];
     }
 
+    /**
+     * The ACTIVE user responsible for one side of a lease: the lease's own agent for that side, else the property's agent
+     * (anyone no longer an active user of the agency is skipped). The single rule behind "who to call" on the portal and
+     * "who is told" when the owner acts on a work order. Null when nobody qualifies (the branch alone has no user).
+     *
+     * @param 'owner'|'tenant' $side
+     */
+    public function responsibleUser(?Lease $lease, Property $property, int $agencyId, string $side): ?User
+    {
+        $leaseAgentId = $lease ? $this->effectiveIds($lease)[$side] : null;
+        foreach ([$leaseAgentId, $property->agent_id] as $userId) {
+            if (! $userId) {
+                continue;
+            }
+            $user = User::withoutGlobalScopes()
+                ->where('agency_id', $agencyId)
+                ->whereNull('deleted_at')
+                ->where('is_active', true)
+                ->find($userId);
+            if ($user) {
+                return $user;
+            }
+        }
+
+        return null;
+    }
+
     // ── Changing them ─────────────────────────────────────────────────────────────────────────
 
     /**
