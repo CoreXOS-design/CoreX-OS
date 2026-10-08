@@ -5,6 +5,7 @@ namespace App\Services\Rentals;
 use App\Models\Lease;
 use App\Models\LeaseSetting;
 use App\Models\RentalPortalSetting;
+use Carbon\Carbon;
 use Carbon\CarbonInterface;
 
 /**
@@ -24,7 +25,7 @@ use Carbon\CarbonInterface;
  */
 class RentalPortalFaqService
 {
-    public const TOKENS = ['notice_days', 'earliest_termination_date', 'earliest_notice_date', 'lease_end_date', 'early_cancellation_terms'];
+    public const TOKENS = ['notice_period', 'notice_days', 'earliest_notice_date', 'notice_from', 'notice_by_date', 'earliest_termination_date', 'lease_end_date', 'early_cancellation_terms', 'early_cancellation_notice', 'early_cancellation_penalty'];
 
     /**
      * @return array<int,array{key:string,question:string,answer:string}>
@@ -36,14 +37,14 @@ class RentalPortalFaqService
         }
 
         $agencyId = (int) $lease->agency_id;
-        $values = $this->values($lease, $agencyId);
+        $who = $audience === RentalPortalOverviewService::AUDIENCE_LANDLORD ? 'landlord' : 'tenant';
+        $values = $this->values($lease, $agencyId, $who);
 
         // No notice / cancellation term on THIS lease → no FAQ. (Agency standard notice days alone are not the lease's terms.)
-        if (!$values['_lease_has_terms']) {
+        if (! $values['_lease_has_terms']) {
             return [];
         }
 
-        $who = $audience === RentalPortalOverviewService::AUDIENCE_LANDLORD ? 'landlord' : 'tenant';
         $faqs = [];
 
         $noticeAnswer = $this->render(RentalPortalSetting::faqTextFor($agencyId, "faq_{$who}_notice_answer"), $values);
@@ -75,40 +76,84 @@ class RentalPortalFaqService
      *
      * @return array<string,mixed>
      */
-    public function values(Lease $lease, int $agencyId): array
+    public function values(Lease $lease, int $agencyId, string $who = 'tenant'): array
     {
-        // Read explicitly (agency and lease pinned, scope off): this runs for a portal person, not a staff user, so the staff agency scope must not decide.
-        $terms = \App\Models\LeaseAgreementTerms::withoutGlobalScopes()
-            ->whereNull('deleted_at')->where('agency_id', $agencyId)->where('lease_id', $lease->id)->first(); // null = no terms row (or a soft-deleted one)
+        $notice = app(LeaseNoticeTermsService::class);
+        $stored = $notice->forLease($lease); // includes earliest_termination_date
+        $terms = $notice->termsOf($lease);
         $extra = is_array($terms?->extra) ? $terms->extra : [];
 
-        $earliest = $terms?->earliest_termination_date;
+        $length = $stored['notice_period'];
+        $unit = $stored['notice_period_unit'] ?? 'days';
 
-        $leaseNoticeDays = $this->positiveInt($extra['notice_period_days'] ?? null);
-        $earlyTerms = $this->cleanText($extra['early_cancellation_terms'] ?? null);
+        // Older route: the agency's own agreement map may declare the length / cancellation wording in `extra`.
+        $extraDays = $this->positiveInt($extra['notice_period_days'] ?? null);
+        if ($length === null && $extraDays !== null) {
+            $length = $extraDays;
+            $unit = 'days';
+        }
+        $extraEarly = $this->cleanText($extra['early_cancellation_terms'] ?? null);
 
-        // The notice LENGTH: the lease's own when its agreement map carries it, otherwise the agency's standard — and only
-        // if the agency has actually saved one (LeaseSetting falls back to 30 when nothing is saved; that is a default, not a term).
-        $noticeDays = $leaseNoticeDays ?? $this->positiveInt(
-            LeaseSetting::withoutGlobalScopes()->where('agency_id', $agencyId)->value('tenant_notice_period_days')
-        );
+        $earliestEnd = $stored['earliest_termination_date'] ? Carbon::parse($stored['earliest_termination_date']) : null;
+        $today = now()->startOfDay();
 
-        $earliestNotice = null;
-        if ($earliest && $noticeDays) {
-            $candidate = $earliest->copy()->startOfDay()->subDays($noticeDays);
-            // A date already behind us is not "the earliest you can give notice" — it is simply "now". Say nothing rather than a past date.
-            $earliestNotice = $candidate->gte(now()->startOfDay()) ? $candidate : null;
+        // The notice LENGTH: the lease's own; otherwise (a lease that holds other terms but no length) the agency's standard,
+        // and only if the agency has actually saved one — the 30-day fallback is a default, not a term.
+        if ($length === null) {
+            $saved = $this->positiveInt(LeaseSetting::withoutGlobalScopes()->where('agency_id', $agencyId)->value('tenant_notice_period_days'));
+            if ($saved !== null) {
+                $length = $saved;
+                $unit = LeaseSetting::tenantNoticePeriodUnitFor($agencyId);
+            }
+        }
+
+        $workedLease = $notice->workedDates($lease, array_merge($stored, ['notice_period' => $length, 'notice_period_unit' => $unit]));
+        $earliestNotice = $workedLease['earliest_notice'] ? Carbon::parse($workedLease['earliest_notice']) : null;
+        $noticeBy = $workedLease['notice_by'] ? Carbon::parse($workedLease['notice_by']) : null;
+
+        $noticeFrom = null;
+        if ($earliestNotice) {
+            $noticeFrom = $earliestNotice->lte($today) ? 'now' : 'from ' . $this->day($earliestNotice);
         }
 
         return [
             // Does the LEASE itself carry any notice / cancellation term? (the gate for showing any FAQ)
-            '_lease_has_terms' => $earliest !== null || $leaseNoticeDays !== null || $earlyTerms !== null,
-            'notice_days' => $noticeDays !== null ? (string) $noticeDays : null,
-            'earliest_termination_date' => $earliest ? $this->day($earliest) : null,
+            '_lease_has_terms' => $notice->anyIn($stored) || $extraDays !== null || $extraEarly !== null,
+            'notice_period' => $notice->periodText($length, $unit),
+            'notice_days' => $length !== null && $unit === 'days' ? (string) $length : ($length !== null && $unit === 'weeks' ? (string) ($length * 7) : null),
+            'earliest_termination_date' => $earliestEnd ? $this->day($earliestEnd) : null,
             'earliest_notice_date' => $earliestNotice ? $this->day($earliestNotice) : null,
-            'lease_end_date' => $lease->end_date && !$lease->is_month_to_month ? $this->day($lease->end_date) : null,
-            'early_cancellation_terms' => $earlyTerms,
+            'notice_from' => $noticeFrom,
+            // To leave exactly when a fixed term ends: the last day to give notice (only while that day is still ahead).
+            'notice_by_date' => $noticeBy && $noticeBy->gte($today) ? $this->day($noticeBy) : null,
+            'lease_end_date' => $lease->end_date && ! $lease->is_month_to_month ? $this->day($lease->end_date) : null,
+            'early_cancellation_notice' => $notice->periodText($stored['early_cancellation_notice'], $stored['early_cancellation_notice_unit']),
+            'early_cancellation_penalty' => $stored['early_cancellation_penalty'],
+            'early_cancellation_terms' => $this->cancellationSentence($stored, $extraEarly, $agencyId, $who, $notice),
         ];
+    }
+
+    /**
+     * The early-cancellation sentence, from the agency's own wording for "allowed" / "not allowed" (settings, not code) merged
+     * with this lease's values; the older `extra.early_cancellation_terms` text when the lease holds no structured answer.
+     *
+     * @param array<string,mixed> $stored
+     */
+    private function cancellationSentence(array $stored, ?string $extraText, int $agencyId, string $who, LeaseNoticeTermsService $notice): ?string
+    {
+        $allowed = $stored['early_cancellation_allowed'] ?? null;
+        if ($allowed === 'yes' || $allowed === 'no') {
+            $template = RentalPortalSetting::faqTextFor($agencyId, "faq_{$who}_cancel_" . $allowed);
+            $v = [
+                'early_cancellation_notice' => $notice->periodText($stored['early_cancellation_notice'], $stored['early_cancellation_notice_unit']),
+                'early_cancellation_penalty' => $stored['early_cancellation_penalty'],
+            ];
+            $sentence = $this->render($template, $v);
+
+            return $sentence !== '' ? $sentence : null;
+        }
+
+        return $extraText;
     }
 
     /**

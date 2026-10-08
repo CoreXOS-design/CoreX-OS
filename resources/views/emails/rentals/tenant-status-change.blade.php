@@ -7,9 +7,9 @@
     </div>
     <div style="padding: 30px 20px; background-color: #ffffff; border: 1px solid #e0e0e0; border-top: none;">
         <p>Dear {{ $recipientName }},</p>
-        <p>At {{ $propertyAddress }}, your fault report "{{ $faultReport->title }}" is now:
-            <strong>{{ ucfirst(str_replace('_', ' ', $faultReport->status)) }}</strong></p>
-        <p>Log in to your portal for the full details.</p>
+        <p>At {{ $propertyAddress }}, your fault report "{{ $faultReport->title }}":</p>
+        <p style="font-size: 18px;"><strong>{{ $stepLabel }}</strong>@if($stepDate) <span style="color: #666; font-size: 14px;">&middot; {{ $stepDate }}</span>@endif</p>
+        <p>You can follow it step by step on your <a href="{{ $portalUrl }}">portal</a>.</p>
     </div>
 </body>
 </html>

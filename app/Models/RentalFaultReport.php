@@ -384,6 +384,8 @@ class RentalFaultReport extends Model
 
         // AT-445 - .ai/specs/rental-portal-access.md §6. A decision is now waiting in the landlord's portal.
         app(\App\Services\Rentals\RentalPortalNotificationService::class)->notifyLandlordDecisionNeeded($this);
+        // Johan, 8 Oct 2026: the tenant is told their fault has gone to the owner for approval.
+        app(\App\Services\Rentals\RentalPortalNotificationService::class)->notifyTenantStatusChanged($this);
     }
 
     /**

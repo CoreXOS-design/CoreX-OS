@@ -655,6 +655,13 @@ class AgencySetupWizardController extends Controller
                     'default_deposit_months' => LeaseSetting::defaultDepositMonthsFor($agency->id),
                     // .ai/specs/rental-renewals.md §2 — AT-444.
                     'tenant_notice_period_days' => LeaseSetting::tenantNoticePeriodDaysFor($agency->id),
+                    // leases.md §18.2 — the notice / early-cancellation defaults (each needs its own explicit arm, §6.2).
+                    'tenant_notice_period_unit' => LeaseSetting::tenantNoticePeriodUnitFor($agency->id),
+                    'default_earliest_notice_months' => LeaseSetting::earliestNoticeMonthsFor($agency->id),
+                    'default_early_cancellation_allowed' => LeaseSetting::earlyCancellationAllowedFor($agency->id),
+                    'default_early_cancellation_notice' => LeaseSetting::earlyCancellationNoticeFor($agency->id),
+                    'default_early_cancellation_notice_unit' => LeaseSetting::earlyCancellationNoticeUnitFor($agency->id) ?? LeaseSetting::tenantNoticePeriodUnitFor($agency->id),
+                    'default_early_cancellation_penalty' => LeaseSetting::earlyCancellationPenaltyFor($agency->id) ?? '',
                     // Johan, 7 Oct 2026 — leases.md §5.3.
                     'month_to_month_after_end_days' => LeaseSetting::monthToMonthAfterEndDaysFor($agency->id),
                     default => $control['default'] ?? null,
@@ -729,6 +736,10 @@ class AgencySetupWizardController extends Controller
                     'faq_landlord_notice_answer' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_landlord_notice_answer'),
                     'faq_landlord_early_question' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_landlord_early_question'),
                     'faq_landlord_early_answer' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_landlord_early_answer'),
+                    'faq_tenant_cancel_yes' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_tenant_cancel_yes'),
+                    'faq_tenant_cancel_no' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_tenant_cancel_no'),
+                    'faq_landlord_cancel_yes' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_landlord_cancel_yes'),
+                    'faq_landlord_cancel_no' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_landlord_cancel_no'),
                     default => $control['default'] ?? null,
                 },
                 'rental_inspections' => match ($key) {

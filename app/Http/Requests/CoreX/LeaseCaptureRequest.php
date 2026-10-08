@@ -9,6 +9,7 @@ use App\Models\Property;
 use App\Models\RentalApplication;
 use App\Services\Rentals\LeaseAgentService;
 use App\Services\Rentals\LeaseCaptureService;
+use App\Services\Rentals\LeaseNoticeTermsService;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -144,12 +145,15 @@ class LeaseCaptureRequest extends FormRequest
             $rules['agreement.' . $field['key']] = $this->agreementRule($field);
         }
 
+        // leases.md §18 — the notice / early-cancellation terms (their own block, whether or not the agency has a linked agreement).
+        $rules += app(LeaseNoticeTermsService::class)->rules('notice');
+
         return $rules;
     }
 
     public function messages(): array
     {
-        return [
+        return app(LeaseNoticeTermsService::class)->messages('notice') + [
             'property_id.required' => 'Please choose a property from the list.',
             'property_id.integer' => 'Please choose a property from the list.',
             'tenant_contact_ids.required' => 'At least one tenant is required.',
@@ -162,6 +166,22 @@ class LeaseCaptureRequest extends FormRequest
     {
         $validator->after(function (Validator $validator) {
             $data = $validator->getData();
+
+            // leases.md §18 — the notice dates against the lease's start.
+            if (is_array($data['notice'] ?? null) && ! empty($data['start_date']) && is_scalar($data['start_date']) && strtotime((string) $data['start_date']) !== false && ! $validator->errors()->has('notice')) {
+                $svc = app(LeaseNoticeTermsService::class);
+                $agency = (int) ($this->previousLease()?->agency_id ?? $this->user()?->effectiveAgencyId());
+                try {
+                    $values = $svc->normalise($data['notice'], $agency);
+                } catch (\Throwable) {
+                    $values = [];
+                }
+                foreach ($svc->crossErrors($values, (string) \Carbon\Carbon::parse((string) $data['start_date'])->toDateString()) as $field => $message) {
+                    if (! $validator->errors()->has($field)) {
+                        $validator->errors()->add($field, $message);
+                    }
+                }
+            }
 
             // A fixed-term lease has an end date, a month-to-month one has none — never both (§15.3).
             if (filter_var($data['is_month_to_month'] ?? false, FILTER_VALIDATE_BOOLEAN) && ! empty($data['end_date'])) {

@@ -35,11 +35,20 @@ class RentalPortalNotificationService
 
         foreach ($landlords as $landlord) {
             if ($landlord->email) {
-                Mail::to($landlord->email)->send(new RentalLandlordDecisionNeededMail($subject, $landlord->first_name ?? ''));
+                Mail::to($landlord->email)->send(new RentalLandlordDecisionNeededMail($subject, $landlord->first_name ?? '', $landlord->email));
             }
         }
     }
 
+    /** The steps the tenant is told about (Johan, 8 Oct 2026) - the appointment has its own mail; "work completed - please check" is the completion-check mail. */
+    public const TENANT_STEPS = ['sent_to_owner', 'owner_approved', 'not_approved', 'completed'];
+
+    /**
+     * Tell the tenant where their fault now is - at sent to owner, owner approved / not approved, and work completed, each ONCE
+     * (the last step told is remembered on the fault, so a work order completing and then the fault outcome being saved is one
+     * mail, not two). Under the agency's existing "notify tenant on status change" setting. The mail carries the progress line's
+     * own wording - for a declined fault the neutral "Not approved", never the owner's reason.
+     */
     public function notifyTenantStatusChanged(RentalFaultReport $faultReport): void
     {
         if (!RentalPortalSetting::notifyTenantOnStatusChangeFor($faultReport->agency_id)) {
@@ -51,10 +60,18 @@ class RentalPortalNotificationService
             return;
         }
 
+        $fresh = RentalFaultReport::withoutGlobalScopes()->find($faultReport->id) ?? $faultReport;
+        $key = app(\App\Services\Rentals\RentalFaultProgressService::class)->currentKey($fresh);
+        if (!in_array($key, self::TENANT_STEPS, true) || $fresh->tenant_progress_notified === $key) {
+            return;
+        }
+
         foreach ($lease->tenantContacts() as $tenant) {
             if ($tenant->email) {
-                Mail::to($tenant->email)->send(new RentalTenantStatusChangeMail($faultReport, $tenant->first_name ?? ''));
+                Mail::to($tenant->email)->send(new RentalTenantStatusChangeMail($fresh, $tenant->first_name ?? ''));
             }
         }
+        RentalFaultReport::withoutGlobalScopes()->whereKey($fresh->id)->update(['tenant_progress_notified' => $key]);
+        $faultReport->setAttribute('tenant_progress_notified', $key);
     }
 }

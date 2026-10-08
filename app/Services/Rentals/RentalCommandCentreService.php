@@ -697,6 +697,32 @@ class RentalCommandCentreService
             ]);
         });
 
+        // C2 — a fault nobody has looked at yet (Johan, 8 Oct 2026): status "reported" = no agent has reviewed it, prepared the owner's
+        // version, sent it, recorded a decision or raised a work order. It is "Review fault" until the agent moves it on (any other
+        // status leaves this queue by itself - there is no separate flag to clear). Same own / branch / agency scoping as every rule here.
+        $this->applyPropertyIdScope(
+            $applyQueueFilters(
+                RentalFaultReport::query()->where('status', RentalFaultReport::STATUS_REPORTED),
+                'reported_at'
+            )->with('property'),
+            $user,
+            $scope,
+            'property_id'
+        )->get()->each(function (RentalFaultReport $fault) use (&$items, $today) {
+            $items->push([
+                'type' => 'fault_to_review',
+                'urgency' => 2,
+                'age_days' => $fault->reported_at ? (int) abs($today->diffInDays($fault->reported_at)) : 0,
+                'item_date' => $fault->reported_at,
+                'property' => $fault->property,
+                'lease' => null,
+                'label' => 'Review fault',
+                'detail' => $fault->title,
+                'route' => 'corex.rental-fault-reports.show',
+                'route_params' => ['rentalFaultReport' => $fault->id],
+            ]);
+        });
+
         // D — work order overdue. Reuses RentalWorkOrder::scopeOverdue()
         // directly — the SAME scope RentalWorkOrderController::index()'s own
         // "Overdue" tile and ?overdue=1 filter use (status IN
