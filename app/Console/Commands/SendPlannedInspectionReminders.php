@@ -12,14 +12,14 @@ use Illuminate\Console\Command;
  */
 class SendPlannedInspectionReminders extends Command
 {
-    protected $signature = 'rentals:send-planned-inspection-reminders';
+    protected $signature = 'rentals:send-planned-inspection-reminders {--agency= : Only this agency id (a hand run on a shared box)} {--dry-run : Count what would be sent; write and send nothing}';
 
     protected $description = 'Remind the responsible agent about the interim inspection dates the agency has loaded (lead, due and overdue).';
 
     public function handle(RentalInspectionDueReminderService $service): int
     {
-        $tally = $service->runPlanned();
-        $this->info("Done. Reminders sent: {$tally['sent']}, skipped: {$tally['skipped']}, failed: {$tally['failed']}.");
+        $tally = $service->runPlanned(null, $this->option('agency') !== null ? (int) $this->option('agency') : null, (bool) $this->option('dry-run'));
+        $this->info(($this->option('dry-run') ? '[dry run - nothing written or sent] ' : '') . "Done. Reminders sent: {$tally['sent']}, skipped: {$tally['skipped']}, failed: {$tally['failed']}.");
 
         return 0;
     }

@@ -789,6 +789,55 @@ final class RentalCommandCentreServiceTest extends TestCase
         self::assertSame(1, $tiles['inactive']);
     }
 
+    public function test_queue_review_fault_rule_lists_a_reported_fault_and_drops_it_once_the_agent_progresses_it(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+        $fault = $this->makeFaultReport($agency, $branch, $property, RentalFaultReport::STATUS_REPORTED, 'Roof leak');
+
+        $this->grantAllScope($agent, 'rental_command_centre', $agency->id);
+        $this->actingAs($agent);
+
+        $review = fn () => $this->service->queueItems($agent, 'all')->filter(fn ($i) => $i['type'] === 'fault_to_review');
+        self::assertCount(1, $review());
+        $row = $review()->first();
+        self::assertSame('Review fault', $row['label']);
+        self::assertSame($fault->id, $row['route_params']['rentalFaultReport']);
+
+        // Sent to the owner: it leaves "Review fault" (and, being unanswered, becomes "awaiting approval").
+        RentalFaultReport::where('id', $fault->id)->update(['status' => RentalFaultReport::STATUS_AWAITING_APPROVAL]);
+        self::assertCount(0, $review());
+        self::assertTrue($this->service->queueItems($agent, 'all')->contains(fn ($i) => $i['type'] === 'fault_awaiting_approval'));
+
+        // Any other progress also leaves it.
+        RentalFaultReport::where('id', $fault->id)->update(['status' => RentalFaultReport::STATUS_UNDER_REVIEW]);
+        self::assertCount(0, $review());
+    }
+
+    public function test_queue_review_fault_rule_respects_own_branch_and_agency_scoping(): void
+    {
+        [$agency, $branch, $agentOne] = $this->makeAgencyBranchAgent();
+        $agentTwo = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
+        $otherBranch = Branch::create(['agency_id' => $agency->id, 'name' => 'Other ' . uniqid()]);
+        $agentThree = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $otherBranch->id, 'role' => 'agent']);
+        $mine = $this->makeFaultReport($agency, $branch, $this->makeRentalProperty($agency, $branch, $agentOne), RentalFaultReport::STATUS_REPORTED);
+        $colleagues = $this->makeFaultReport($agency, $branch, $this->makeRentalProperty($agency, $branch, $agentTwo), RentalFaultReport::STATUS_REPORTED);
+        $otherBranchFault = $this->makeFaultReport($agency, $otherBranch, $this->makeRentalProperty($agency, $otherBranch, $agentThree), RentalFaultReport::STATUS_REPORTED);
+
+        $ids = function (string $scope) use ($agentOne) {
+            $this->actingAs($agentOne);
+
+            return $this->service->queueItems($agentOne, $scope)->filter(fn ($i) => $i['type'] === 'fault_to_review')
+                ->pluck('route_params.rentalFaultReport')->sort()->values()->all();
+        };
+
+        // The ceiling is "all"; the narrower scopes are requested explicitly, exactly as the screen's own/branch/all switch does.
+        $this->grantAllScope($agentOne, 'rental_command_centre', $agency->id);
+        self::assertSame([$mine->id], $ids('own'));
+        self::assertSame([$mine->id, $colleagues->id], $ids('branch'));
+        self::assertEqualsCanonicalizing([$mine->id, $colleagues->id, $otherBranchFault->id], $ids('all'));
+    }
+
     /**
      * Conductor browser-verification fix — two identical "Fault awaiting
      * owner approval" rows on the same property were indistinguishable.

@@ -58,16 +58,22 @@ class RentalPortalSetting extends Model
     public const FAQ_KEYS = [
         'faq_tenant_notice_question', 'faq_tenant_notice_answer', 'faq_tenant_early_question', 'faq_tenant_early_answer',
         'faq_landlord_notice_question', 'faq_landlord_notice_answer', 'faq_landlord_early_question', 'faq_landlord_early_answer',
+        'faq_tenant_cancel_yes', 'faq_tenant_cancel_no', 'faq_landlord_cancel_yes', 'faq_landlord_cancel_no',
     ];
     public const FAQ_DEFAULTS = [
         'faq_tenant_notice_question' => 'Can I give notice?',
-        'faq_tenant_notice_answer' => 'Yes, in writing[[, at least {notice_days} days before you want to move out]].[[ Your lease cannot end before {earliest_termination_date}.]][[ The earliest you can give notice is {earliest_notice_date}.]][[ Your lease runs until {lease_end_date}.]]',
+        'faq_tenant_notice_answer' => 'Yes, in writing[[, at least {notice_period} before you want to move out]].[[ Your lease cannot end before {earliest_termination_date}.]][[ You can give notice {notice_from}.]][[ Your lease runs until {lease_end_date}.]][[ To leave when it ends, give notice by {notice_by_date}.]]',
         'faq_tenant_early_question' => 'What happens if I give notice before my lease expires?',
         'faq_tenant_early_answer' => '[[Notice that would end the lease before {earliest_termination_date} does not end it before then.]][[ {early_cancellation_terms}]] The full terms are in your signed lease under Documents.',
         'faq_landlord_notice_question' => 'Can the tenant give notice?',
-        'faq_landlord_notice_answer' => 'Yes, in writing[[, at least {notice_days} days before they move out]].[[ The lease cannot end before {earliest_termination_date}.]][[ The earliest the tenant can give notice is {earliest_notice_date}.]][[ The lease runs until {lease_end_date}.]]',
+        'faq_landlord_notice_answer' => 'Yes, in writing[[, at least {notice_period} before they move out]].[[ The lease cannot end before {earliest_termination_date}.]][[ The tenant can give notice {notice_from}.]][[ The lease runs until {lease_end_date}.]][[ To leave when it ends, the tenant must give notice by {notice_by_date}.]]',
         'faq_landlord_early_question' => 'What happens if the tenant gives notice before the lease expires?',
         'faq_landlord_early_answer' => '[[Notice that would end the lease before {earliest_termination_date} does not end it before then.]][[ {early_cancellation_terms}]] The full terms are in the signed lease under Documents.',
+        // The sentence {early_cancellation_terms} stands for: the lease says early cancellation IS / IS NOT allowed.
+        'faq_tenant_cancel_yes' => 'You may cancel early[[ by giving {early_cancellation_notice} written notice]].[[ A penalty applies: {early_cancellation_penalty}]]',
+        'faq_tenant_cancel_no' => 'Your lease does not allow early cancellation.',
+        'faq_landlord_cancel_yes' => 'The tenant may cancel early[[ by giving {early_cancellation_notice} written notice]].[[ A penalty applies: {early_cancellation_penalty}]]',
+        'faq_landlord_cancel_no' => 'This lease does not allow the tenant to cancel early.',
     ];
 
     protected $fillable = [
@@ -92,6 +98,7 @@ class RentalPortalSetting extends Model
         'fault_photo_max_mb',
         'faq_tenant_notice_question', 'faq_tenant_notice_answer', 'faq_tenant_early_question', 'faq_tenant_early_answer',
         'faq_landlord_notice_question', 'faq_landlord_notice_answer', 'faq_landlord_early_question', 'faq_landlord_early_answer',
+        'faq_tenant_cancel_yes', 'faq_tenant_cancel_no', 'faq_landlord_cancel_yes', 'faq_landlord_cancel_no',
     ];
 
     protected $casts = [

@@ -2,7 +2,7 @@
      dates, where the lease stands. Reads /api/v1/client/rentals[/landlord]/overview (the person's OWN properties only). --}}
 <div data-portal-home>
     <div class="card" data-portal-home-decisions x-show="activeRole === 'landlord' && overview.decisions_waiting > 0" style="padding:12px 16px;">
-        <a class="link" href="#" @click.prevent="landlordTab='decisions'; loadDecisions()" x-text="overview.decisions_waiting + (overview.decisions_waiting === 1 ? ' decision waiting for you →' : ' decisions waiting for you →')"></a>
+        <a class="link" href="#" @click.prevent="landlordTab='faults'; loadLandlordFaults()" x-text="overview.decisions_waiting + (overview.decisions_waiting === 1 ? ' decision waiting for you →' : ' decisions waiting for you →')"></a>
     </div>
 
     <template x-for="h in overview.homes" :key="h.property.id">

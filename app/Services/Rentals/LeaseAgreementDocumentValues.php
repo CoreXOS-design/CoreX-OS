@@ -56,7 +56,7 @@ class LeaseAgreementDocumentValues
 
         // ── Agreement terms and schedule (typed, stored on lease_agreement_terms) ────────────
         foreach ($registry as $key => $def) {
-            if (! isset($map[$key]) || ! in_array($def['group'] ?? '', ['agreement', 'schedule'], true)) {
+            if (! isset($map[$key]) || ! in_array($def['group'] ?? '', ['agreement', 'notice', 'schedule'], true)) {
                 continue;
             }
             $raw = array_key_exists($key, $typed) ? $typed[$key] : $this->termValue($terms, $def, $key);

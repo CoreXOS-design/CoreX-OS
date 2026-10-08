@@ -224,8 +224,9 @@ final class PortalRound2Test extends TestCase
         $a1 = $faq[0]['answer'];
         $this->assertStringContainsString('at least 60 days', $a1);
         $this->assertStringContainsString('cannot end before 28 Feb 2027', $a1);
-        $this->assertStringContainsString('earliest you can give notice is 30 Dec 2026', $a1, '28 Feb 2027 less 60 days');
+        $this->assertStringContainsString('You can give notice from 30 Dec 2026', $a1, '28 Feb 2027 less 60 days');
         $this->assertStringContainsString('runs until 31 May 2027', $a1);
+        $this->assertStringContainsString('give notice by 1 Apr 2027', $a1, '31 May 2027 less 60 days');
         $this->assertStringContainsString('28 Feb 2027', $faq[1]['answer']);
         $this->assertStringContainsString('under Documents', $faq[1]['answer']);
         foreach ($faq as $q) {
@@ -269,18 +270,19 @@ final class PortalRound2Test extends TestCase
         $faq = $this->faqFor($this->tenant);
 
         $this->assertStringNotContainsString('days before', $faq[0]['answer'], 'the 30-day fallback is a default, not a term');
-        $this->assertStringNotContainsString('earliest you can give notice', $faq[0]['answer'], 'cannot be worked out without a length');
+        $this->assertStringNotContainsString('You can give notice', $faq[0]['answer'], 'cannot be worked out without a length');
         $this->assertStringContainsString('cannot end before 28 Feb 2027', $faq[0]['answer']);
     }
 
-    public function test_an_earliest_notice_date_that_has_already_passed_is_not_printed(): void
+    public function test_an_earliest_notice_date_that_has_already_passed_reads_now(): void
     {
         $this->terms(['earliest_termination_date' => '2026-11-15']);
         LeaseSetting::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'tenant_notice_period_days' => 60]); // 15 Nov - 60d = 16 Sep: behind us
 
         $faq = $this->faqFor($this->tenant);
 
-        $this->assertStringNotContainsString('earliest you can give notice', $faq[0]['answer']);
+        $this->assertStringContainsString('You can give notice now.', $faq[0]['answer'], '16 Sep 2026 is behind us: it is simply "now", never a past date');
+        $this->assertStringNotContainsString('16 Sep 2026', $faq[0]['answer']);
         $this->assertStringContainsString('cannot end before 15 Nov 2026', $faq[0]['answer']);
     }
 

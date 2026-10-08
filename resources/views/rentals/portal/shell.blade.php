@@ -27,6 +27,16 @@
         header.top button { background:transparent; border:1px solid var(--border); color:var(--brand); border-radius:8px; padding:6px 10px; font-size:13px; }
         .card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px; margin-bottom:14px; }
         .muted { color:var(--muted); font-size:13px; }
+        .steps { margin:8px 0 2px; }
+        .step { display:flex; align-items:baseline; gap:10px; padding:5px 0; color:var(--muted); font-size:14px; flex-wrap:wrap; }
+        .step .dot { width:10px; height:10px; border-radius:50%; border:2px solid #c3cad6; flex:0 0 10px; align-self:center; }
+        .step.done { color:var(--text); }
+        .step.done .dot { background:#1f9d55; border-color:#1f9d55; }
+        .step.current { font-weight:700; }
+        .step.current .dot { box-shadow:0 0 0 3px rgba(31,157,85,.25); }
+        .step .when { margin-left:auto; font-size:12px; color:var(--muted); font-weight:400; }
+        .step .detail { flex-basis:100%; padding-left:20px; font-size:13px; color:var(--muted); font-weight:400; }
+        .tabs .count { display:inline-block; min-width:18px; margin-left:4px; padding:0 5px; border-radius:9px; background:#d93025; color:#fff; font-size:11px; line-height:18px; text-align:center; }
         .row { display:flex; justify-content:space-between; align-items:center; gap:8px; }
         h2 { font-size:15px; margin:0 0 10px; }
         label { display:block; font-size:13px; font-weight:600; margin:10px 0 4px; }
@@ -146,7 +156,7 @@
                             <button :class="{active: tenantTab==='home'}" @click="tenantTab='home'; loadOverview()">Home</button>
                             <button :class="{active: tenantTab==='lease'}" @click="tenantTab='lease'; loadTenantLeases()">Lease</button>
                             <button :class="{active: tenantTab==='faults'}" @click="tenantTab='faults'; loadFaultReports()">Faults</button>
-                            <button :class="{active: tenantTab==='jobs'}" @click="tenantTab='jobs'; loadWorkOrders()">Jobs</button>
+                            <button :class="{active: tenantTab==='jobs'}" @click="tenantTab='jobs'; loadWorkOrders()">Work orders<span class="count" data-workorders-count x-show="tenantChecksWaiting() > 0" x-text="tenantChecksWaiting()"></span></button>
                             <button :class="{active: tenantTab==='documents'}" @click="tenantTab='documents'; loadDocuments()">Documents</button>
                         </div>
 
@@ -235,25 +245,22 @@
                                     </div>
                                 </template>
 
-                                <div class="card">
-                                    <h2>My faults</h2>
-                                    <template x-for="f in faultReports" :key="f.id">
-                                        <div class="list-item row">
-                                            <span x-text="f.title"></span>
-                                            <span class="badge" x-text="f.status"></span>
-                                            {{-- BUILD 3 — §17.3.5: the linked work order's plain stage. --}}
-                                            <span class="muted" x-show="f.work_order_stage" x-text="f.work_order_stage ? 'Repair: ' + f.work_order_stage.stage_label + (f.work_order_stage.who_label ? ' · ' + f.work_order_stage.who_label + (f.work_order_stage.contractor_name ? ' (' + f.work_order_stage.contractor_name + ')' : '') : '') + (f.work_order_stage.appointment_at ? ' · appointment ' + new Date(f.work_order_stage.appointment_at).toLocaleString([], {dateStyle:'medium', timeStyle:'short'}) : '') : ''"></span>
-                                        </div>
-                                    </template>
-                                    <p class="muted" x-show="!faultReports.length">No faults reported yet.</p>
-                                </div>
+                                {{-- Johan, 8 Oct 2026: the tenant sees where EACH fault is, step by step, fault and work order in one line. --}}
+                                <template x-for="f in faultReports" :key="f.id">
+                                    <div class="card" data-tenant-fault>
+                                        <div class="row"><h2 x-text="f.title" style="margin:0;"></h2></div>
+                                        <template x-if="f.progress"><div>@include('rentals.portal._progress', ['p' => 'f.progress'])</div></template>
+                                        <button class="btn btn-outline" x-show="f.rental_work_order_id" @click="tenantTab='jobs'; loadWorkOrders()">See the work order</button>
+                                    </div>
+                                </template>
+                                <div class="card" x-show="!faultReports.length"><p class="muted">No faults reported yet.</p></div>
                             </div>
                         </template>
 
                         {{-- BUILD 3 BEGIN — §17.3.5 / §17.10.4: the tenant's Jobs are WORK ORDERS (job cards are internal and have no portal endpoints): the plain stage, who is doing it, the completion rounds, the photos the agency allows — never a price — and the "Is this finished?" question. --}}
                         <template x-if="tenantTab === 'jobs'">
                             <div>
-                                <div class="card" x-show="!workOrders.length"><p class="muted">No maintenance jobs yet.</p></div>
+                                <div class="card" x-show="!workOrders.length"><p class="muted">No work orders yet.</p></div>
                                 <template x-for="w in workOrders" :key="w.id">
                                     <div class="card" data-work-order>
                                         <div class="row"><h2 x-text="w.title"></h2><span class="badge" x-text="w.stage_label"></span></div>
@@ -317,10 +324,9 @@
                     <div>
                         <div class="tabs">
                             <button :class="{active: landlordTab==='home'}" @click="landlordTab='home'; loadOverview()">Home</button>
-                            <button :class="{active: landlordTab==='decisions'}" @click="landlordTab='decisions'; loadDecisions()">Decisions</button>
                             <button :class="{active: landlordTab==='properties'}" @click="landlordTab='properties'; loadLandlordProperties()">Properties</button>
-                            <button :class="{active: landlordTab==='faults'}" @click="landlordTab='faults'; loadLandlordFaults()">Faults</button>
-                            <button :class="{active: landlordTab==='jobs'}" @click="landlordTab='jobs'; loadWorkOrders()">Jobs</button>
+                            <button :class="{active: landlordTab==='faults'}" @click="landlordTab='faults'; loadLandlordFaults()">Faults<span class="count" data-faults-count x-show="faultsNeedingOwner() > 0" x-text="faultsNeedingOwner()"></span></button>
+                            <button :class="{active: landlordTab==='jobs'}" @click="landlordTab='jobs'; loadWorkOrders(); loadDecisions()">Work orders<span class="count" data-workorders-count x-show="workOrdersNeedingOwner() > 0" x-text="workOrdersNeedingOwner()"></span></button>
                             <button :class="{active: landlordTab==='documents'}" @click="landlordTab='documents'; loadDocuments()">Documents</button>
                         </div>
 
@@ -330,129 +336,6 @@
 
                         <template x-if="landlordTab === 'documents'">
                             @include('rentals.portal._documents')
-                        </template>
-
-                        <template x-if="landlordTab === 'decisions'">
-                            <div>
-                                <div class="card" x-show="!decisions.fault_reports.length && !decisions.work_orders.length && !(decisions.variations || []).length">
-                                    <p class="muted">Nothing needs your decision right now.</p>
-                                </div>
-                                {{-- Fault flow F3/F4: the agent's version of the fault, then Approve or Decline (reason required) and,
-                                     if approving, who handles the repair. The decision, once made, shows read-only. --}}
-                                <template x-for="f in decisions.fault_reports" :key="'f'+f.id">
-                                    <div class="card">
-                                        <h2 x-text="f.title"></h2>
-                                        <p class="muted">Your agent needs your decision on this repair.</p>
-                                        <button class="btn btn-primary" @click="openFault(f.id)">Review and decide</button>
-                                    </div>
-                                </template>
-                                <template x-if="faultDetail">
-                                    <div class="card" data-fault-detail>
-                                        <h2 x-text="faultDetail.title"></h2>
-                                        <p class="muted" x-text="(faultDetail.property || '') + ' · ' + faultDetail.status_label"></p>
-                                        <p x-show="faultDetail.description" x-text="faultDetail.description"></p>
-                                        <div class="photo-grid" x-show="faultDetail.photos.length">
-                                            <template x-for="ph in faultDetail.photos" :key="ph.id">
-                                                <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.url" alt="Photo of the fault" loading="lazy"></a>
-                                            </template>
-                                        </div>
-                                        <p x-show="faultDetail.agent_note"><strong>Your agent says:</strong> <span x-text="faultDetail.agent_note"></span></p>
-
-                                        <template x-if="faultDetail.decision">
-                                            <div>
-                                                <p><strong x-text="faultDetail.decision.decision === 'approved' ? 'You approved this repair.' : 'This repair was declined.'"></strong></p>
-                                                <p class="muted" x-show="faultDetail.decision.reason" x-text="'Reason: ' + faultDetail.decision.reason"></p>
-                                                <p class="muted" x-show="faultDetail.decision.contractor" x-text="faultDetail.decision.contractor"></p>
-                                                <p class="muted" x-text="faultDetail.decision.how + ' · ' + new Date(faultDetail.decision.at).toLocaleString()"></p>
-                                            </div>
-                                        </template>
-
-                                        <template x-if="faultDetail.awaiting_decision">
-                                            <div>
-                                                <label>Your decision</label>
-                                                <select x-model="faultForm.decision">
-                                                    <option value="">Choose…</option>
-                                                    <option value="approve">Approve</option>
-                                                    <option value="decline">Decline</option>
-                                                </select>
-                                                <template x-if="faultForm.decision === 'decline'">
-                                                    <div>
-                                                        <label>Why are you declining? (required)</label>
-                                                        <textarea rows="3" x-model="faultForm.note"></textarea>
-                                                    </div>
-                                                </template>
-                                                <template x-if="faultForm.decision === 'approve'">
-                                                    <div>
-                                                        <label>Who should handle the repair?</label>
-                                                        <select x-model="faultForm.handled_by">
-                                                            <option value="">Choose…</option>
-                                                            <option value="own">My own contractor</option>
-                                                            <option value="list" :hidden="!faultDetail.contractors.length" :disabled="!faultDetail.contractors.length">A contractor from my agent's list</option>
-                                                            <option value="agency">My agent arranges it</option>
-                                                        </select>
-                                                        <p class="muted" x-show="!faultDetail.contractors.length">Your agent has no contractor on file for this type of work yet. You can use your own, or ask your agent to arrange it.</p>
-                                                        <template x-if="faultForm.handled_by === 'own'">
-                                                            <div>
-                                                                <label>Contractor's name (optional)</label>
-                                                                <input type="text" x-model="faultForm.contractor_name" maxlength="191">
-                                                                <label>Contractor's phone number (optional)</label>
-                                                                <input type="text" x-model="faultForm.contractor_phone" maxlength="40">
-                                                                <p class="muted">Your agent may need to speak to them about access and the work.</p>
-                                                            </div>
-                                                        </template>
-                                                        <template x-if="faultForm.handled_by === 'list'">
-                                                            <div>
-                                                                <label>Choose a contractor</label>
-                                                                <select x-model="faultForm.agency_service_provider_id">
-                                                                    <option value="">Choose…</option>
-                                                                    <template x-for="c in faultDetail.contractors" :key="c.id"><option :value="c.id" x-text="c.name"></option></template>
-                                                                </select>
-                                                            </div>
-                                                        </template>
-                                                    </div>
-                                                </template>
-                                                <p class="error" x-show="faultForm.error" x-text="faultForm.error"></p>
-                                                <button class="btn btn-ok" :disabled="faultForm.busy || !faultForm.decision" @click="submitFaultDecision()">Send my decision</button>
-                                            </div>
-                                        </template>
-                                        <button class="btn btn-outline" @click="faultDetail = null">Close</button>
-                                    </div>
-                                </template>
-                                <template x-for="w in decisions.work_orders" :key="'w'+w.id">
-                                    <div class="card">
-                                        <h2 x-text="w.title"></h2>
-                                        <p class="muted">Quote: <strong x-text="'R ' + (w.selected_quote_amount ?? 0)"></strong></p>
-                                        <button class="btn btn-ok" :disabled="busy['wo' + w.id]" @click="decideWorkOrder(w.id, 'approve')" x-text="busy['wo' + w.id] ? 'Sending…' : 'Approve'"></button>
-                                        <button class="btn btn-danger" :disabled="busy['wo' + w.id]" @click="decideWorkOrder(w.id, 'decline')">Decline</button>
-                                    </div>
-                                </template>
-                                {{-- BUILD 2 BEGIN — extra work beyond the owner's agreed terms (.ai/specs/rental-work-orders.md §17.7.4): what was approved, the extra work (selling only), the crew's photos and note, the new total, Approve / Decline. --}}
-                                <template x-for="v in (decisions.variations || [])" :key="'v'+v.id">
-                                    <div class="card" data-variation-card>
-                                        <h2 x-text="'Extra work needs your approval: ' + (v.title || '')"></h2>
-                                        <p class="muted">Approved so far: <strong x-text="'R ' + Number(v.baseline_amount).toFixed(2)"></strong></p>
-                                        <template x-for="(l, li) in v.lines" :key="li">
-                                            <div class="list-item">
-                                                <div class="row">
-                                                    <span x-text="l.description + (l.quantity ? ' x ' + l.quantity : '')"></span>
-                                                    <span x-text="l.total != null ? 'R ' + Number(l.total).toFixed(2) : ''"></span>
-                                                </div>
-                                                <p class="muted" x-show="l.note" x-text="l.note"></p>
-                                            </div>
-                                        </template>
-                                        <div class="photo-grid" x-show="v.photos.length">
-                                            <template x-for="ph in v.photos" :key="ph.id">
-                                                <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.url" alt="Photo of the extra work" loading="lazy"></a>
-                                            </template>
-                                        </div>
-                                        <p style="margin-top:10px;">Extra work: <strong x-text="'R ' + Number(v.extra_amount).toFixed(2)"></strong> &middot; New total: <strong x-text="'R ' + Number(v.new_total).toFixed(2)"></strong></p>
-                                        <p class="muted" x-show="v.term_text" x-text="v.term_text"></p>
-                                        <button class="btn btn-ok" :disabled="busy['var' + v.id]" @click="decideVariation(v, 'approve')" x-text="busy['var' + v.id] ? 'Sending…' : 'Approve'"></button>
-                                        <button class="btn btn-danger" :disabled="busy['var' + v.id]" @click="decideVariation(v, 'decline')">Decline</button>
-                                    </div>
-                                </template>
-                                {{-- BUILD 2 END --}}
-                            </div>
                         </template>
 
                         <template x-if="landlordTab === 'properties'">
@@ -483,7 +366,7 @@
                         {{-- BUILD 3 BEGIN — §17.3.5: the landlord's Jobs are WORK ORDERS too: the plain stage, who is doing it, the owner-facing amount only (never cost or margin), the completion rounds and the permitted photos. --}}
                         <template x-if="landlordTab === 'jobs'">
                             <div>
-                                <div class="card" x-show="!workOrders.length"><p class="muted">No maintenance jobs yet.</p></div>
+                                <div class="card" x-show="!workOrders.length"><p class="muted">No work orders yet.</p></div>
                                 <template x-for="w in workOrders" :key="w.id">
                                     <div class="card" data-work-order>
                                         <div class="row"><h2 x-text="w.title"></h2><span class="badge" x-text="w.stage_label"></span></div>
@@ -491,6 +374,7 @@
                                         <p class="muted" x-text="w.who_label + (w.contractor_name ? ' — ' + w.contractor_name : '')"></p>
                                         <p class="muted" x-show="w.completed_at" x-text="w.completed_at ? 'Completed ' + w.completed_at.substring(0,10) : ''"></p>
                                         <p x-show="!w.completed_at && w.appointment_at"><strong x-text="w.appointment_at ? 'Appointment: ' + new Date(w.appointment_at).toLocaleString([], {dateStyle:'full', timeStyle:'short'}) : ''"></strong><span class="muted" x-show="w.appointment_note" x-text="w.appointment_note ? ' — ' + w.appointment_note : ''"></span></p>
+                                        <a class="link" href="#" x-show="w.rental_fault_report_id" @click.prevent="landlordTab='faults'; loadLandlordFaults(); openFault(w.rental_fault_report_id)">See the fault →</a>
                                         <p class="muted" x-show="w.contractor_phone" x-text="w.contractor_phone ? 'Contractor phone: ' + w.contractor_phone : ''"></p>
                                         <p class="muted" x-show="w.owner_facing_amount !== null && w.owner_facing_amount !== undefined" x-text="'Amount: R ' + w.owner_facing_amount"></p>
                                         {{-- W6 (8 Oct 2026): the owner may also set the appointment and report progress; the tenant is told. The agency's own team reports through its job card. --}}
@@ -513,6 +397,41 @@
                                                 <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.url" :alt="ph.photo_type + ' photo'" loading="lazy"></a>
                                             </template>
                                         </div>
+                                        {{-- A quote waiting on the owner lives on ITS work order (was the Decisions tab). --}}
+                                        <template x-if="w.owner_approval_status === 'pending'">
+                                            <div data-wo-decision style="margin-top:10px; padding-top:10px; border-top:1px solid #eef1f6;">
+                                                <p class="badge" style="background:#fdecea; color:#b3261e;">Needs your decision</p>
+                                                <p class="muted">Quote: <strong x-text="'R ' + (w.owner_facing_amount ?? 0)"></strong></p>
+                                                <button class="btn btn-ok" :disabled="busy['wo' + w.id]" @click="decideWorkOrder(w.id, 'approve')" x-text="busy['wo' + w.id] ? 'Sending…' : 'Approve'"></button>
+                                                <button class="btn btn-danger" :disabled="busy['wo' + w.id]" @click="decideWorkOrder(w.id, 'decline')">Decline</button>
+                                            </div>
+                                        </template>
+                        {{-- BUILD 2 BEGIN — extra work beyond the owner's agreed terms (.ai/specs/rental-work-orders.md §17.7.4): what was approved, the extra work (selling only), the crew's photos and note, the new total, Approve / Decline. --}}
+                        <template x-for="v in variationsFor(w.id)" :key="'v'+v.id">
+                            <div class="card" data-variation-card>
+                                <h2 x-text="'Extra work needs your approval'"></h2>
+                                <p class="muted">Approved so far: <strong x-text="'R ' + Number(v.baseline_amount).toFixed(2)"></strong></p>
+                                <template x-for="(l, li) in v.lines" :key="li">
+                                    <div class="list-item">
+                                        <div class="row">
+                                            <span x-text="l.description + (l.quantity ? ' x ' + l.quantity : '')"></span>
+                                            <span x-text="l.total != null ? 'R ' + Number(l.total).toFixed(2) : ''"></span>
+                                        </div>
+                                        <p class="muted" x-show="l.note" x-text="l.note"></p>
+                                    </div>
+                                </template>
+                                <div class="photo-grid" x-show="v.photos.length">
+                                    <template x-for="ph in v.photos" :key="ph.id">
+                                        <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.url" alt="Photo of the extra work" loading="lazy"></a>
+                                    </template>
+                                </div>
+                                <p style="margin-top:10px;">Extra work: <strong x-text="'R ' + Number(v.extra_amount).toFixed(2)"></strong> &middot; New total: <strong x-text="'R ' + Number(v.new_total).toFixed(2)"></strong></p>
+                                <p class="muted" x-show="v.term_text" x-text="v.term_text"></p>
+                                <button class="btn btn-ok" :disabled="busy['var' + v.id]" @click="decideVariation(v, 'approve')" x-text="busy['var' + v.id] ? 'Sending…' : 'Approve'"></button>
+                                <button class="btn btn-danger" :disabled="busy['var' + v.id]" @click="decideVariation(v, 'decline')">Decline</button>
+                            </div>
+                        </template>
+                        {{-- BUILD 2 END --}}
                                         <template x-for="r in w.rounds" :key="r.id">
                                             <div style="margin-top:10px; padding-top:10px; border-top:1px solid #eef1f6;">
                                                 <div class="row"><span class="muted" x-text="'Tenant check ' + r.round_no + ' — reported done ' + (r.reported_at ? r.reported_at.substring(0,10) : '')"></span><span class="badge" x-text="r.outcome_label"></span></div>
@@ -536,6 +455,21 @@
                              reached from either a property card's own button or here. --}}
                         <template x-if="landlordTab === 'faults'">
                             <div>
+                                {{-- The fault itself is the primary route (Johan, 8 Oct 2026): open it here, read the agent's version, decide. --}}
+                                @include('rentals.portal._fault-detail')
+
+                                <template x-if="!faultDetail && landlordFaults.filter(f => f.needs_decision).length">
+                                    <div class="card" data-needs-decision style="border-color:#f1b7b2;">
+                                        <h2 x-text="landlordFaults.filter(f => f.needs_decision).length === 1 ? 'A repair needs your decision' : landlordFaults.filter(f => f.needs_decision).length + ' repairs need your decision'"></h2>
+                                        <template x-for="f in landlordFaults.filter(f => f.needs_decision)" :key="'nd'+f.id">
+                                            <div class="list-item">
+                                                <div class="row"><strong x-text="f.title"></strong><span class="badge" style="background:#fdecea; color:#b3261e;">Needs your decision</span></div>
+                                                <button class="btn btn-primary" @click="openFault(f.id)">Review and decide</button>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+
                                 <template x-if="landlordFaultWizard.open">
                                     <div class="card" data-landlord-fault-wizard>
                                         <template x-if="landlordFaultWizard.step === 'done'">
@@ -594,14 +528,14 @@
                                 </div>
 
                                 <div class="card">
-                                    <h2>My requests</h2>
+                                    <h2>Repairs and requests</h2>
                                     <template x-for="f in landlordFaults" :key="f.id">
-                                        <div class="list-item row" style="cursor:pointer" @click="landlordTab='decisions'; openFault(f.id)">
+                                        <div class="list-item row" style="cursor:pointer" @click="openFault(f.id)">
                                             <span x-text="f.title"></span>
-                                            <span class="badge" x-text="f.status_label || f.status"></span>
+                                            <span class="badge" :style="f.needs_decision ? 'background:#fdecea; color:#b3261e;' : ''" x-text="f.needs_decision ? 'Needs your decision' : (f.status_label || f.status)"></span>
                                         </div>
                                     </template>
-                                    <p class="muted" x-show="!landlordFaults.length">No requests yet.</p>
+                                    <p class="muted" x-show="!landlordFaults.length">No repairs or requests yet.</p>
                                 </div>
                             </div>
                         </template>
@@ -738,14 +672,26 @@ function rentalsPortal() {
             if (props.ok && props.data.properties && props.data.properties.length) roles.push('landlord');
             this.roles = roles;
             this.activeRole = roles[0] || null;
-            if (this.activeRole === 'tenant') { this.tenantLeases = leases.data.leases; this.loadOverview(); }
-            if (this.activeRole === 'landlord') { this.landlordProperties = props.data.properties; this.loadOverview(); }
+            if (this.activeRole === 'tenant') { this.tenantLeases = leases.data.leases; this.loadOverview(); this.loadWorkOrders(); this.loadFaultReports(); }
+            if (this.activeRole === 'landlord') { this.landlordProperties = props.data.properties; this.loadOverview(); this.loadDecisions(); this.loadLandlordFaults(); this.loadWorkOrders(); }
+
+            // The owner's email links to /portal?fault=<id>: whoever follows it is the OWNER for this visit (one login can be both a
+            // tenant and an owner), and lands on that exact fault with the decision controls.
+            const linkedFault = parseInt(new URLSearchParams(window.location.search).get('fault') || '', 10);
+            if (linkedFault > 0 && roles.includes('landlord')) {
+                this.activeRole = 'landlord';
+                this.landlordProperties = props.data.properties;
+                this.landlordTab = 'faults';
+                this.loadOverview();
+                this.loadLandlordFaults();
+                this.openFault(linkedFault);
+            }
         },
 
         setRole(role) {
             this.activeRole = role;
-            if (role === 'tenant') { this.tenantTab = 'home'; this.tenantLeases.length || this.loadTenantLeases(); }
-            if (role === 'landlord') this.landlordTab = 'home';
+            if (role === 'tenant') { this.tenantTab = 'home'; this.tenantLeases.length || this.loadTenantLeases(); this.loadWorkOrders(); this.loadFaultReports(); }
+            if (role === 'landlord') { this.landlordTab = 'home'; this.loadDecisions(); this.loadLandlordFaults(); this.loadWorkOrders(); }
             this.loadOverview();
         },
 
@@ -1040,6 +986,12 @@ function rentalsPortal() {
             const r = await portalFetch('/api/v1/client/rentals/landlord/decisions');
             if (r.ok) this.decisions = r.data;
         },
+        // What needs the owner, counted for the tab badges (the decisions themselves live on the fault / work order they belong to).
+        faultsNeedingOwner() { return (this.landlordFaults || []).filter(f => f.needs_decision).length || (this.decisions.fault_reports || []).length; },
+        workOrdersNeedingOwner() { return (this.decisions.work_orders || []).length + (this.decisions.variations || []).length; },
+        variationsFor(workOrderId) { return (this.decisions.variations || []).filter(v => v.work_order_id === workOrderId); },
+        tenantChecksWaiting() { return (this.workOrders || []).filter(w => w.awaiting_answer).length; },
+        fmtDay(iso) { return iso ? new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }) : ''; },
         async loadLandlordProperties() {
             const r = await portalFetch('/api/v1/client/rentals/landlord/properties');
             if (r.ok) this.landlordProperties = r.data.properties;
@@ -1066,8 +1018,10 @@ function rentalsPortal() {
         async openFault(id) {
             this.faultForm = { decision: '', handled_by: '', contractor_name: '', contractor_phone: '', agency_service_provider_id: '', note: '', error: null, busy: false };
             const r = await portalFetch('/api/v1/client/rentals/landlord/fault-reports/' + id);
-            if (r.ok) this.faultDetail = r.data.fault_report;
-            else alert(r.data?.message || 'Could not open this.');
+            if (r.ok) {
+                this.faultDetail = r.data.fault_report;
+                this.$nextTick(() => { const el = document.querySelector('[data-fault-detail]'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+            } else alert(r.data?.message || 'Could not open this.');
         },
         async submitFaultDecision() {
             const f = this.faultForm;
@@ -1084,7 +1038,7 @@ function rentalsPortal() {
             }
             const r = await portalFetch('/api/v1/client/rentals/landlord/fault-reports/' + this.faultDetail.id + '/decision', { method: 'POST', body: JSON.stringify(body) });
             f.busy = false;
-            if (r.ok) { const id = this.faultDetail.id; await this.openFault(id); this.loadDecisions(); this.loadLandlordFaults(); }
+            if (r.ok) { const id = this.faultDetail.id; await this.openFault(id); this.loadDecisions(); this.loadLandlordFaults(); this.loadWorkOrders(); }
             else f.error = r.data?.message || 'Could not record your decision.';
         },
         async decideWorkOrder(id, decision) {
@@ -1093,7 +1047,7 @@ function rentalsPortal() {
             this.busy[bk] = true;
             try {
                 const r = await portalFetch('/api/v1/client/rentals/landlord/work-orders/' + id + '/decision', { method: 'POST', body: JSON.stringify({ decision }), key: 'decide-wo-' + id + '-' + decision });
-                if (r.ok) this.loadDecisions();
+                if (r.ok) { await this.loadDecisions(); await this.loadWorkOrders(); }
                 else alert(r.data?.message || 'Could not record decision.');
             } finally { this.busy[bk] = false; }
         },
@@ -1105,7 +1059,7 @@ function rentalsPortal() {
             this.busy[bk] = true;
             try {
                 const r = await portalFetch('/api/v1/client/rentals/landlord/variations/' + v.id + '/decision', { method: 'POST', body: JSON.stringify({ decision, revision: v.revision, note }), key: 'decide-var-' + v.id + '-' + decision + '-' + v.revision });
-                if (r.ok) { this.loadDecisions(); return; }
+                if (r.ok) { await this.loadDecisions(); await this.loadWorkOrders(); return; }
                 alert(r.data?.message || 'Could not record decision.');
                 if (r.status === 409 || r.status === 422) this.loadDecisions();
             } finally { this.busy[bk] = false; }

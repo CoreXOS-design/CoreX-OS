@@ -93,19 +93,57 @@
 
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
-                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Tenant notice period</h3>
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Notice and early cancellation (defaults for new leases)</h3>
             </div>
             <div class="p-5 space-y-3">
                 <div>
-                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Days' notice a tenant is expected to give</label>
-                    <input type="number" name="tenant_notice_period_days" value="{{ old('tenant_notice_period_days', $tenantNoticePeriodDays) }}"
-                           min="1" max="365" required
-                           class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Notice a tenant is expected to give</label>
+                    <div class="flex gap-2">
+                        <input type="number" name="tenant_notice_period_days" value="{{ old('tenant_notice_period_days', $tenantNoticePeriodDays) }}"
+                               min="1" max="365" required
+                               class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                        <select name="tenant_notice_period_unit" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                            @foreach(['days', 'weeks', 'months'] as $u)
+                                <option value="{{ $u }}" @selected(old('tenant_notice_period_unit', $tenantNoticePeriodUnit) === $u)>{{ $u }}</option>
+                            @endforeach
+                        </select>
+                    </div>
                     <p class="text-xs mt-2" style="color: var(--text-muted);">
-                        Default is {{ $tenantNoticePeriodDaysDefault }} days. A sensible South African
-                        convention, not a legal minimum CoreX enforces — change it to match your own
-                        lease wording at any time.
+                        Default is {{ $tenantNoticePeriodDaysDefault }} days. Every new lease starts with this notice period and you can change it
+                        on each lease; old leases are filled from it by the back-fill. Not a legal minimum CoreX enforces.
                     </p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Notice may not be given before (months into the lease)</label>
+                    <input type="number" name="default_earliest_notice_months" value="{{ old('default_earliest_notice_months', $earliestNoticeMonths) }}"
+                           min="0" max="60" placeholder="No rule"
+                           class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">Blank = notice may be given from the start. Sets each new lease's "earliest date notice may be given" to its start date plus this many months.</p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Early cancellation of a fixed term is</label>
+                    <select name="default_early_cancellation_allowed" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                        <option value="yes" @selected(old('default_early_cancellation_allowed', $earlyCancellationAllowed) === 'yes')>Allowed</option>
+                        <option value="no" @selected(old('default_early_cancellation_allowed', $earlyCancellationAllowed) === 'no')>Not allowed</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Notice needed to cancel early</label>
+                    <div class="flex gap-2">
+                        <input type="number" name="default_early_cancellation_notice" value="{{ old('default_early_cancellation_notice', $earlyCancellationNotice) }}"
+                               min="1" max="999" placeholder="Same as above"
+                               class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                        <select name="default_early_cancellation_notice_unit" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                            @foreach(['days', 'weeks', 'months'] as $u)
+                                <option value="{{ $u }}" @selected(old('default_early_cancellation_notice_unit', $earlyCancellationNoticeUnit ?? $tenantNoticePeriodUnit) === $u)>{{ $u }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Early-cancellation penalty (wording)</label>
+                    <textarea name="default_early_cancellation_penalty" rows="2" maxlength="2000" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">{{ old('default_early_cancellation_penalty', $earlyCancellationPenalty) }}</textarea>
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">Blank = no penalty wording. These are only starting values: each lease keeps its own, shown to the tenant and owner in the portal FAQ.</p>
                 </div>
             </div>
         </div>

@@ -127,6 +127,7 @@ class RentalPortalAccessService
                     'password_must_change' => ! empty($tempPassword),
                     'password_set_at' => $tempPassword ? now() : null,
                     'created_by_agency_id' => $contact->agency_id,
+                    'current_agency_id' => $contact->agency_id,   // a new login starts IN its agency (without it every portal call answered "Select an agency first")
                 ]);
                 $created = true;
             }

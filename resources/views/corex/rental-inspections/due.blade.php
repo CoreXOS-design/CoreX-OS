@@ -94,9 +94,9 @@
         :per-page-options="$perPageOptions"
         :archivable="true"
         :archived="$archived"
-        :print-url="route('corex.rental-inspections.due.print', request()->query())"
-        :export-xlsx-url="route('corex.rental-inspections.due.export', array_merge(request()->query(), ['format' => 'xlsx']))"
-        :export-csv-url="route('corex.rental-inspections.due.export', array_merge(request()->query(), ['format' => 'csv']))"
+        :print-url="auth()->user()->hasPermission('rental_inspections.export') ? route('corex.rental-inspections.due.print', request()->query()) : null"
+        :export-xlsx-url="auth()->user()->hasPermission('rental_inspections.export') ? route('corex.rental-inspections.due.export', array_merge(request()->query(), ['format' => 'xlsx'])) : null"
+        :export-csv-url="auth()->user()->hasPermission('rental_inspections.export') ? route('corex.rental-inspections.due.export', array_merge(request()->query(), ['format' => 'csv'])) : null"
     />
 
     @if($canManage && $leaseOptions->isNotEmpty() && !$archived)

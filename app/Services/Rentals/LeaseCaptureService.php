@@ -9,6 +9,7 @@ use App\Models\Document;
 use App\Models\DocumentType;
 use App\Models\Lease;
 use App\Models\LeaseAgreementTerms;
+use App\Models\LeaseSetting;
 use App\Models\LeaseEvent;
 use App\Models\LeaseTenant;
 use App\Models\Property;
@@ -264,6 +265,10 @@ class LeaseCaptureService
                 throw new NoLeaseAgreementLinkedException();
             }
             $missing = $this->missingForSigning($agreement, $agreementValues);
+            // leases.md §18 — notice terms the agency's own lease marks "required for signing" (blank after the agency defaults are applied).
+            foreach ($this->missingNoticeForSigning($agreement, $input, $agencyId, $previous) as $gap) {
+                $missing[] = $gap;
+            }
             if ($missing !== []) {
                 throw LeaseCaptureIncompleteException::forMissing($missing);
             }
@@ -282,7 +287,7 @@ class LeaseCaptureService
         $storedPath = null;
 
         try {
-            $captured = DB::transaction(function () use ($input, $intent, $user, $previous, $property, $agreement, $agreementValues, $captureKey, $file, &$storedPath) {
+            $captured = DB::transaction(function () use ($input, $intent, $user, $previous, $property, $agreement, $agreementValues, $captureKey, $file, $agencyId, &$storedPath) {
                 // leases.md §17 — the lease's two agents: what the screen posted, else the default rules (new lease) or the
                 // term being renewed (renewal). Decided once, here, so the lease and its history say the same thing.
                 $agents = $this->resolveAgents($input, $property, $previous, $user);
@@ -304,6 +309,10 @@ class LeaseCaptureService
                     $this->writeTerms($lease, $agreement, $agreementValues);
                 }
 
+                // leases.md §18 — the notice / early-cancellation terms: what the screen posted, the rest from the term being
+                // renewed or the agency's defaults. Saved BEFORE the launcher reads the terms, so the document carries them.
+                $noticeMeta = $this->applyNoticeTerms($lease, $input, $previous, $agencyId, $agreementValues, $user);
+
                 $this->logEvent($lease, LeaseEvent::TYPE_LEASE_CREATED, $this->createdDescription($intent, $previous), $user, [
                     'intent' => $intent,
                     'previous_lease_id' => $previous?->id,
@@ -312,6 +321,7 @@ class LeaseCaptureService
                     'owner_agent_rule' => $agents['owner']['rule'],
                     'tenant_agent_user_id' => $agents['tenant']['id'],
                     'tenant_agent_rule' => $agents['tenant']['rule'],
+                    'notice_terms' => $noticeMeta,
                 ]);
 
                 $this->logRentAboveApproved($lease, $input, $user, $previous);
@@ -509,6 +519,98 @@ class LeaseCaptureService
         $terms->extra = $extra === [] ? null : $extra;
         $terms->source = LeaseAgreementTerms::SOURCE_CAPTURED;
         $terms->save();
+    }
+
+    /**
+     * leases.md §18 — the notice terms a captured lease starts with: every term the agent typed, and for a blank one the
+     * term being renewed (dates moved with the start) or the AGENCY's default. Returned, not saved.
+     *
+     * @return array{0: array<string,mixed>, 1: string, 2: array<string,mixed>} [values, source, posted]
+     */
+    private function mergedNotice(array $input, ?Lease $previous, int $agencyId, ?Carbon $start): array
+    {
+        $svc = app(LeaseNoticeTermsService::class);
+        $posted = is_array($input['notice'] ?? null) ? $svc->normalise($input['notice'], $agencyId) : [];
+        $start ??= now()->startOfDay();
+
+        [$base, $baseSource] = $previous
+            ? $svc->forRenewal($previous, $start)
+            : [$svc->defaultsFor($agencyId, $start), LeaseNoticeTermsService::SOURCE_AGENCY_DEFAULT];
+
+        $values = [];
+        foreach (LeaseNoticeTermsService::EDIT_KEYS as $key) {
+            $typed = array_key_exists($key, $posted) ? $posted[$key] : null;
+            $values[$key] = $typed ?? ($base[$key] ?? null);
+        }
+        // "No early cancellation" carries no notice or penalty, whatever the defaults say.
+        if ($values['early_cancellation_allowed'] === 'no') {
+            foreach (['early_cancellation_notice', 'early_cancellation_notice_unit', 'early_cancellation_penalty'] as $k) {
+                $values[$k] = null;
+            }
+        }
+        // A length always travels with its unit.
+        foreach ([['notice_period', 'notice_period_unit'], ['early_cancellation_notice', 'early_cancellation_notice_unit']] as [$len, $unit]) {
+            if ($values[$len] !== null && $values[$unit] === null) {
+                $values[$unit] = LeaseSetting::tenantNoticePeriodUnitFor($agencyId);
+            }
+        }
+
+        $typedAnything = false;
+        foreach (LeaseNoticeTermsService::KEYS as $key) {
+            if (array_key_exists($key, $posted) && $posted[$key] !== null && ($posted[$key] !== ($base[$key] ?? null))) {
+                $typedAnything = true;
+            }
+        }
+        $source = $typedAnything ? LeaseNoticeTermsService::SOURCE_CAPTURED : $baseSource;
+
+        return [$values, $source, $posted];
+    }
+
+    /** @return array<int, array{key: string, label: string}> */
+    private function missingNoticeForSigning(RentalLeaseTemplate $agreement, array $input, int $agencyId, ?Lease $previous): array
+    {
+        $mapped = $this->reader->normaliseMap((array) ($agreement->field_map ?? []));
+        $required = [];
+        foreach (LeaseNoticeTermsService::EDIT_KEYS as $key) {
+            if (($mapped[$key]['required'] ?? false) && $key !== 'earliest_termination_date') {
+                $required[] = $key;
+            }
+        }
+        if ($required === []) {
+            return [];
+        }
+
+        $start = ! empty($input['start_date']) && strtotime((string) $input['start_date']) !== false ? Carbon::parse((string) $input['start_date']) : null;
+        [$values] = $this->mergedNotice($input, $previous, $agencyId, $start);
+
+        $missing = [];
+        foreach ($required as $key) {
+            if ($values[$key] === null) {
+                $missing[] = ['key' => $key, 'label' => (string) ($mapped[$key]['label'] ?: (LeaseNoticeTermsService::LABELS[$key] ?? $key))];
+            }
+        }
+
+        return $missing;
+    }
+
+    /**
+     * Saves the merged notice terms on the new lease (source recorded, no separate history row — the lease_created row carries them).
+     * `earliest_termination_date` typed in the agreement section was already written by writeTerms(); it is only set here when
+     * the agreement section did not carry it.
+     *
+     * @return array<string,mixed> what the lease_created history row records
+     */
+    private function applyNoticeTerms(Lease $lease, array $input, ?Lease $previous, int $agencyId, array $agreementValues, User $user): array
+    {
+        [$values, $source] = $this->mergedNotice($input, $previous, $agencyId, $lease->start_date ? Carbon::instance($lease->start_date) : null);
+
+        if (array_key_exists('earliest_termination_date', $agreementValues)) {
+            unset($values['earliest_termination_date']); // the agreement section owns it for this agency's lease
+        }
+
+        app(LeaseNoticeTermsService::class)->save($lease, $values, $user, $source, false);
+
+        return ['source' => $source] + array_filter($values, fn ($v) => $v !== null);
     }
 
     /** The value a terms row holds for a field (a typed column, or `extra`). */

@@ -414,6 +414,9 @@ class RentalInspectionRecordingController extends Controller
     public function reorderItems(Request $request, Property $property): JsonResponse
     {
         $this->authorizePropertyForInspections($property);
+        if ($refused = $this->refuseIfTailSigned($property)) {
+            return $refused;
+        }
         $validated = $request->validate([
             'property_room_id' => ['required', 'integer'],
             'item_ids' => ['required', 'array', 'min:1'],
@@ -450,6 +453,9 @@ class RentalInspectionRecordingController extends Controller
     public function applyDefaultRoomOrder(Request $request, Property $property): JsonResponse
     {
         $this->authorizePropertyForInspections($property);
+        if ($refused = $this->refuseIfTailSigned($property)) {
+            return $refused;
+        }
         $rooms = PropertyRoom::where('property_id', $property->id)->get();
 
         foreach ($rooms as $room) {
@@ -485,6 +491,9 @@ class RentalInspectionRecordingController extends Controller
     public function reorderRooms(Request $request, Property $property): JsonResponse
     {
         $this->authorizePropertyForInspections($property);
+        if ($refused = $this->refuseIfTailSigned($property)) {
+            return $refused;
+        }
         $validated = $request->validate([
             'room_ids' => ['required', 'array', 'min:1'],
             'room_ids.*' => ['integer', 'distinct'],
@@ -561,9 +570,9 @@ class RentalInspectionRecordingController extends Controller
             'water_meter_reading' => ['nullable', 'string', 'max:100'],
             'furnished_status' => ['nullable', 'string', 'max:60'],
             'property_type' => ['nullable', 'string', 'max:60'],
-            'keys_count' => ['nullable', 'integer', 'min:0'],
+            'keys_count' => ['nullable', 'integer', 'min:0', 'max:1000'],
             'keys_description' => ['nullable', 'string', 'max:191'],
-            'remotes_count' => ['nullable', 'integer', 'min:0'],
+            'remotes_count' => ['nullable', 'integer', 'min:0', 'max:1000'],
             'remotes_description' => ['nullable', 'string', 'max:191'],
             'move_in_date_recorded' => ['nullable', 'date'],
         ]);
@@ -600,7 +609,7 @@ class RentalInspectionRecordingController extends Controller
                 ->where('property_id', $rentalInspection->property_id)
                 ->where('agency_id', $rentalInspection->agency_id)],
             'condition' => ['required', 'string', Rule::in(array_column($conditionStates, 'key'))],
-            'notes' => ['nullable', 'string'],
+            'notes' => ['nullable', 'string', 'max:4000'],
             'source' => ['required', 'string', 'in:' . implode(',', [
                 RentalInspectionObservation::SOURCE_IN_INSPECTION,
                 RentalInspectionObservation::SOURCE_TENANT_FAULT_REPORT,
@@ -1401,6 +1410,11 @@ class RentalInspectionRecordingController extends Controller
         abort_if($discrepancy->rental_inspection_id !== $rentalInspection->id, 404);
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
+        // Ruling 4: the record appends, never overwrites — a decision already taken is not silently replaced.
+        if ($discrepancy->isResolved()) {
+            return response()->json(['message' => 'This difference has already been resolved' . ($discrepancy->resolvedBy ? ' by ' . $discrepancy->resolvedBy->name : '') . ' on ' . $discrepancy->resolved_at->format('j M Y H:i') . '.'], 409);
+        }
+
         $validated = $request->validate([
             'accepted_observation_id' => ['required', 'integer', 'exists:rental_inspection_observations,id'],
             'resolution_note' => ['nullable', 'string', 'max:2000'],
@@ -1781,8 +1795,15 @@ class RentalInspectionRecordingController extends Controller
             return response()->json(['message' => 'This inspection is not yet completed.'], 409);
         }
 
-        $all = app(\App\Services\Rentals\RentalInspectionCopiesService::class)
-            ->fileAndSend($rentalInspection, autoOnly: false, triggeredBy: $request->user());
+        $copies = app(\App\Services\Rentals\RentalInspectionCopiesService::class);
+        try {
+            $all = $copies->fileAndSend($rentalInspection, autoOnly: false, triggeredBy: $request->user());
+        } catch (\Throwable $e) {
+            // Same failure path as complete(): the inspector is told, the agent sees a plain sentence, not a 500.
+            $copies->alertSendFailed($rentalInspection, $e);
+
+            return response()->json(['message' => 'The report could not be prepared or sent. The inspector has been told; nothing was sent.'], 502);
+        }
 
         // The Inspections tab's Resend popover lists one line per ADDRESS; a party with no address (a `skipped` row)
         // has none, so it is returned separately and shown in the inspection page's "Copies sent" panel instead.

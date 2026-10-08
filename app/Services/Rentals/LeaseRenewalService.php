@@ -76,6 +76,12 @@ class LeaseRenewalService
                 ]);
             }
 
+            // leases.md §18 — the notice / early-cancellation terms carry forward from the term being renewed (dates move with the new
+            // start), or start from the agency's defaults when that term held none. The capture screen may then change them.
+            $notice = app(LeaseNoticeTermsService::class);
+            [$noticeValues, $noticeSource] = $notice->forRenewal($current, \Illuminate\Support\Carbon::parse($newTerm->start_date));
+            $notice->save($newTerm, $noticeValues, $user, $noticeSource, false);
+
             $this->logEvent($current, LeaseEvent::TYPE_RENEWAL_DRAFT_CREATED, "Renewal draft created (new term #{$newTerm->id})", $user);
 
             return $newTerm->fresh(['tenants']);

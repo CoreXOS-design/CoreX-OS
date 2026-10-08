@@ -903,7 +903,7 @@ class RentalReportService
 
         $groupLabel = match ($params['group_by'] ?? null) {
             'property' => fn (RentalInspection $i) => $i->property?->buildDisplayAddress() ?? 'Unknown property',
-            'type' => fn (RentalInspection $i) => ucfirst(str_replace('_', ' ', $i->type)),
+            'type' => fn (RentalInspection $i) => RentalInspection::typeLabel($i->type),
             'agent' => fn (RentalInspection $i) => $i->createdBy?->name ?? 'Unassigned',
             default => null,
         };
@@ -1009,7 +1009,7 @@ class RentalReportService
         }
         if ($leaseId !== null) {
             foreach ($inspections->where('lease_id', $leaseId) as $i) {
-                $events->push(['date' => $i->scheduled_for ?? $i->completed_at, 'type' => 'Inspection', 'description' => ucfirst(str_replace('_', ' ', $i->type)) . ' — ' . $this->humanize($i->status)]);
+                $events->push(['date' => $i->scheduled_for ?? $i->completed_at, 'type' => 'Inspection', 'description' => RentalInspection::typeLabel($i->type) . ' — ' . $this->humanize($i->status)]);
             }
         }
 

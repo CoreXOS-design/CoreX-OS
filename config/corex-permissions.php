@@ -162,6 +162,8 @@ return [
         ['key' => 'leases.renew',  'label' => 'Record Escalations / Renewals', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 3],
         ['key' => 'leases.cancel', 'label' => 'Cancel Leases',           'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 5],
         ['key' => 'leases.manage_settings', 'label' => 'Manage Lease Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 6],
+        // leases.md §18 — change a lease's notice period / early-cancellation terms (they feed the lease agreement and the tenant / owner portal).
+        ['key' => 'lease_notice_terms.edit', 'label' => 'Edit Lease Notice Terms', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 8],
 
         // .ai/specs/rental-renewals.md §5(b), GATE 1 (approved 2026-10-04) —
         // which imported DocuPerfect templates an agency treats as its
@@ -184,7 +186,7 @@ return [
         // call heavier than recording a routine observation.
         ['key' => 'rental_inspections.resolve_discrepancy', 'label' => 'Resolve Inspection Discrepancies',       'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 3],
         // Separately gated per §6 — overrides a party's own consent to sign.
-        ['key' => 'rental_inspections.sign_on_behalf',      'label' => 'Sign Out-Inspection on Tenant\'s Behalf', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 4],
+        ['key' => 'rental_inspections.sign_on_behalf',      'label' => 'Sign an Inspection on Tenant\'s Behalf', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 4],
         // §45.5 (Build I-3) — record who attended an inspection and the invitations given off the system.
         // Granted wherever rental_inspections.create is; correcting someone else's record also needs
         // rental_inspections.resolve_discrepancy.
@@ -1095,7 +1097,7 @@ return [
                 // full working set incl. cancel/approval/resolve powers; the
                 // manage_settings keys stay admin-only, like every sibling module.
                 // properties.syndication.manage_approvers is deliberately NOT here.
-                'leases.view', 'leases.create', 'leases.renew', 'leases.cancel',
+                'leases.view', 'leases.create', 'leases.renew', 'leases.cancel', 'lease_notice_terms.edit',
                 'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.record_attendance', 'rental_inspections.manage_planned_dates', 'rental_inspections.resolve_discrepancy',
                 'rental_inspections.edit_details', 'rental_inspections.archive', 'rental_inspections.restore', 'rental_inspections.cancel', 'rental_inspections.reschedule', 'rental_inspections.public_link', 'rental_inspections.export', 'rental_inspections.archive_completed',
                 // sign_on_behalf deliberately NOT granted (owner's ruling 2026-09-30: admin only).
@@ -1259,7 +1261,7 @@ return [
                 // resolution, sign-on-behalf and every manage_settings stay with
                 // branch managers/admin. properties.syndication.manage_approvers
                 // stays admin-only.
-                'leases.view', 'leases.create', 'leases.renew',
+                'leases.view', 'leases.create', 'leases.renew', 'lease_notice_terms.edit',
                 'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.record_attendance', 'rental_inspections.manage_planned_dates',
                 'rental_inspections.edit_details', 'rental_inspections.archive', 'rental_inspections.restore', 'rental_inspections.cancel', 'rental_inspections.reschedule', 'rental_inspections.public_link', 'rental_inspections.export',
                 'rental_fault_reports.view', 'rental_fault_reports.create', 'rental_fault_reports.send_to_owner', 'rental_fault_reports.raise_work_order',

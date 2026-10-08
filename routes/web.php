@@ -3585,6 +3585,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // leases.md §17 — change the lease's owner's agent / tenant's agent (same permission as editing the lease; logged).
         Route::put('/{lease}/agents', [\App\Http\Controllers\CoreX\LeaseController::class, 'updateAgents'])
             ->middleware('permission:leases.create')->name('corex.leases.agents.update');
+        // leases.md §18 — the lease's notice / early-cancellation terms (own Role Manager permission; logged).
+        Route::put('/{lease}/notice-terms', [\App\Http\Controllers\CoreX\LeaseController::class, 'updateNoticeTerms'])
+            ->middleware('permission:lease_notice_terms.edit')->name('corex.leases.notice-terms.update');
         Route::post('/{lease}/activate', [\App\Http\Controllers\CoreX\LeaseController::class, 'activate'])
             ->middleware('permission:leases.create')->name('corex.leases.activate');
         // LEASE-CAPTURE BEGIN (leases.md §15.13 — Build L3a): "Prepare again" after a declined / voided / expired agreement.
@@ -3740,8 +3743,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // INSPECTIONS I-5 BEGIN — §45.7 the "Due" tab (In/Out due + the interim dates the agency loads) and CRUD on the loaded dates.
         // Static paths, so they sit ahead of the /{rentalInspection} wildcard below.
         Route::get('/due', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'index'])->name('corex.rental-inspections.due');
-        Route::get('/due/print', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'printList'])->name('corex.rental-inspections.due.print');
-        Route::get('/due/export', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'export'])->name('corex.rental-inspections.due.export');
+        Route::get('/due/print', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'printList'])->middleware('permission:rental_inspections.export')->name('corex.rental-inspections.due.print');
+        Route::get('/due/export', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'export'])->middleware('permission:rental_inspections.export')->name('corex.rental-inspections.due.export');
         Route::middleware('permission:rental_inspections.manage_planned_dates')->prefix('planned-dates')->name('corex.rental-inspections.planned-dates.')->group(function () {
             Route::post('/', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'store'])->name('store');
             Route::post('/{plannedDate}', [\App\Http\Controllers\CoreX\RentalInspectionDueController::class, 'update'])->name('update');

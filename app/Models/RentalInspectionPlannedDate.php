@@ -112,7 +112,8 @@ class RentalInspectionPlannedDate extends Model
 
             return $query->where(fn (Builder $q) => $q
                 ->whereIn('rental_inspection_planned_dates.created_by_user_id', $ids)
-                ->orWhereHas('property', fn (Builder $p) => $p->whereIn('properties.agent_id', $ids)));
+                ->orWhereHas('property', fn (Builder $p) => $p->whereIn('properties.agent_id', $ids))
+                ->orWhereHas('lease', fn (Builder $l) => $l->agentedBy($ids)));
         }
 
         return $query->whereRaw('1 = 0');

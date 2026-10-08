@@ -32,6 +32,13 @@ class LeaseSettingsController extends Controller
             // .ai/specs/rental-renewals.md §2 — tenant notice period.
             'tenantNoticePeriodDays' => LeaseSetting::tenantNoticePeriodDaysFor($agencyId),
             'tenantNoticePeriodDaysDefault' => LeaseSetting::DEFAULT_TENANT_NOTICE_PERIOD_DAYS,
+            // leases.md §18.2 — the agency's default notice / early-cancellation terms.
+            'tenantNoticePeriodUnit' => LeaseSetting::tenantNoticePeriodUnitFor($agencyId),
+            'earliestNoticeMonths' => LeaseSetting::earliestNoticeMonthsFor($agencyId),
+            'earlyCancellationAllowed' => LeaseSetting::earlyCancellationAllowedFor($agencyId),
+            'earlyCancellationNotice' => LeaseSetting::earlyCancellationNoticeFor($agencyId),
+            'earlyCancellationNoticeUnit' => LeaseSetting::earlyCancellationNoticeUnitFor($agencyId),
+            'earlyCancellationPenalty' => LeaseSetting::earlyCancellationPenaltyFor($agencyId),
             // Johan, 7 Oct 2026 — automatic month-to-month (leases.md §5.3).
             'monthToMonthAfterEndDays' => LeaseSetting::monthToMonthAfterEndDaysFor($agencyId),
             'monthToMonthAfterEndDaysDefault' => LeaseSetting::DEFAULT_MONTH_TO_MONTH_AFTER_END_DAYS,
@@ -70,6 +77,13 @@ class LeaseSettingsController extends Controller
             // an onboarding-wizard saver for the 'leases' step, which posts
             // only the fields that step renders.
             'tenant_notice_period_days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            // leases.md §18.2 — the same §6.1 has()-guard reasoning for every notice default below.
+            'tenant_notice_period_unit' => ['nullable', 'string', 'in:' . implode(',', LeaseSetting::NOTICE_UNITS)],
+            'default_earliest_notice_months' => ['nullable', 'integer', 'min:0', 'max:60'],
+            'default_early_cancellation_allowed' => ['nullable', 'string', 'in:yes,no'],
+            'default_early_cancellation_notice' => ['nullable', 'integer', 'min:1', 'max:999'],
+            'default_early_cancellation_notice_unit' => ['nullable', 'string', 'in:' . implode(',', LeaseSetting::NOTICE_UNITS)],
+            'default_early_cancellation_penalty' => ['nullable', 'string', 'max:2000'],
             // Johan, 7 Oct 2026 (leases.md §5.3) — same §6.1 nullable/has()-guard reasoning: this method is also the
             // onboarding wizard's saver for the leases step, so an absent key means "not shown", never "0".
             'month_to_month_after_end_days' => ['nullable', 'integer', 'min:0', 'max:365'],
@@ -96,6 +110,21 @@ class LeaseSettingsController extends Controller
         }
         if ($request->has('tenant_notice_period_days')) {
             $data['tenant_notice_period_days'] = $validated['tenant_notice_period_days'];
+        }
+        foreach (['tenant_notice_period_unit', 'default_early_cancellation_allowed', 'default_early_cancellation_notice_unit'] as $field) {
+            if ($request->has($field)) {
+                $data[$field] = $validated[$field] ?? null ?: null; // blank = back to the default
+            }
+        }
+        foreach (['default_earliest_notice_months', 'default_early_cancellation_notice'] as $field) {
+            if ($request->has($field)) {
+                $v = $validated[$field] ?? null;
+                $data[$field] = $v === null || $v === '' || ($field === 'default_earliest_notice_months' && (int) $v === 0) ? null : (int) $v; // blank / 0 = none
+            }
+        }
+        if ($request->has('default_early_cancellation_penalty')) {
+            $p = trim((string) ($validated['default_early_cancellation_penalty'] ?? ''));
+            $data['default_early_cancellation_penalty'] = $p === '' ? null : $p;
         }
         if ($request->has('month_to_month_after_end_days')) {
             $data['month_to_month_after_end_days'] = $validated['month_to_month_after_end_days'];

@@ -933,6 +933,11 @@ class RentalWorkOrder extends Model
             'note' => $viaNote,
         ]);
 
+        // Johan, 8 Oct 2026: the tenant is told "work completed" (once - the fault outcome that may follow is the same step).
+        if ($this->reported_fault_report_id && ($fault = RentalFaultReport::withoutGlobalScopes()->find($this->reported_fault_report_id))) {
+            app(\App\Services\Rentals\RentalPortalNotificationService::class)->notifyTenantStatusChanged($fault);
+        }
+
         // §17.16 — whichever route closed it (office Complete form, job-card close, contractor link), the
         // final-statement listener (Build 2) hears about it here. No listener is registered by the foundation.
         \App\Events\Rentals\RentalWorkOrderClosed::dispatch($this, $by?->id);

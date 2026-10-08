@@ -389,7 +389,7 @@ class RentalInspectionDueController extends Controller
                 if ($scope === 'own') {
                     $ids = $user->dataIdentityIds();
                     $q->where(fn ($w) => $w->whereHas('property', fn ($p) => $p->withoutGlobalScopes()->whereIn('properties.agent_id', $ids))
-                        ->orWhereIn('leases.created_by_user_id', $ids));
+                        ->orWhere(fn ($mine) => $mine->involvingUsers($ids)));
 
                     return;
                 }

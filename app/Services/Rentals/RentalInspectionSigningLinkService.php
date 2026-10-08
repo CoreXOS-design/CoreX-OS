@@ -35,7 +35,7 @@ class RentalInspectionSigningLinkService
 
     /**
      * Every party of this inspection who can hold a signing link: each tenant on the lease, the landlord who signs
-     * (Property::sellerOwnerContact(), exactly who capture() accepts), and the agent (the inspector, else the creator).
+     * (Property::landlordContact(), exactly who capture() accepts), and the agent (the inspector, else the creator).
      *
      * @return Collection<int, array{key:string, role:string, contact_id:?int, user_id:?int, name:string, email:?string, phone:?string, whatsapp:?string}>
      */
@@ -48,7 +48,7 @@ class RentalInspectionSigningLinkService
             $parties->push($this->contactParty(RentalInspectionSigningLink::ROLE_TENANT, $contact));
         }
 
-        $landlord = $inspection->property?->sellerOwnerContact();
+        $landlord = $inspection->property?->landlordContact();
         if ($landlord) {
             $parties->push($this->contactParty(RentalInspectionSigningLink::ROLE_LANDLORD, $landlord));
         }
@@ -283,7 +283,8 @@ class RentalInspectionSigningLinkService
             'id' => $l->id,
             'status' => $status,
             'status_label' => self::statusLabel($status),
-            'url' => $l->url(),
+            // No 'url' here on purpose: this array feeds the read-only panel poll, which a view-only user can call. The
+            // link itself is only ever returned by issue/qr (both need rental_inspections.public_link).
             'live' => $l->isLive(),
             'expires_at' => $l->expires_at?->toIso8601String(),
             'last_sent_at' => $l->last_sent_at?->toIso8601String(),
@@ -509,7 +510,11 @@ class RentalInspectionSigningLinkService
             return ['can_sign' => false, 'reason' => LinkException::NOT_READY, 'message' => 'You can read the report now. Signing opens when the agent finishes the inspection and marks it ready to sign — open this link again then.'];
         }
         $party = $this->findParty($inspection, $link->party_role, $link->party_contact_id);
-        if ($party && $this->liveSignatureFor($inspection, $party)) {
+        if (! $party) {
+            // The link names a person who is no longer a party to this inspection (left the lease, property sold).
+            return ['can_sign' => false, 'reason' => LinkException::UNAVAILABLE, 'message' => 'You are no longer listed as a party to this inspection. Please contact your agent.'];
+        }
+        if ($this->liveSignatureFor($inspection, $party)) {
             return ['can_sign' => false, 'reason' => LinkException::ALREADY_RECORDED, 'message' => 'A signing outcome has already been recorded for you on this inspection.'];
         }
 
@@ -527,12 +532,14 @@ class RentalInspectionSigningLinkService
     public function submit(RentalInspectionSigningLink $link, array $input, array $evidence): RentalInspectionSignature
     {
         return DB::transaction(function () use ($link, $input, $evidence) {
+            // Lock the inspection FIRST, then the link — the same order "Edit report" takes — so a signature cannot
+            // slip in between a reopen reading the live signatures and voiding them.
+            $inspection = RentalInspection::withoutGlobalScopes()->lockForUpdate()->findOrFail($link->rental_inspection_id);
             // Lock the row: two taps of the button (or two phones) must produce exactly one signature.
             $locked = RentalInspectionSigningLink::withoutGlobalScopes()->lockForUpdate()->find($link->id);
             if (! $locked || ! $locked->isLive()) {
                 throw new LinkException(LinkException::UNAVAILABLE, 'This link is no longer available.');
             }
-            $inspection = RentalInspection::withoutGlobalScopes()->findOrFail($locked->rental_inspection_id);
             $locked->setRelation('inspection', $inspection);
 
             $check = $this->signability($locked);

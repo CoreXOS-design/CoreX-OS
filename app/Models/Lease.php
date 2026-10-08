@@ -626,15 +626,44 @@ class Lease extends Model
         }
         if ($scope === 'own') {
             // leases.md §17.5 — "my" leases are the ones I created AND the ones I am the owner's or the tenant's agent on.
-            $ids = $user->dataIdentityIds();
-
-            return $query->where(fn ($own) => $own
-                ->whereIn('leases.created_by_user_id', $ids)
-                ->orWhereIn('leases.owner_agent_user_id', $ids)
-                ->orWhereIn('leases.tenant_agent_user_id', $ids));
+            return $query->involvingUsers($user->dataIdentityIds());
         }
 
         return $query->whereRaw('1 = 0');
+    }
+
+    /**
+     * "This lease's own AGENTS" (scopeAgentedBy below) are what the inspection surfaces add to creator/inspector — an agent
+     * who merely created the lease does not thereby see a colleague's inspection on it (that stayed refused on purpose).
+     *
+     * The ONE definition of "this lease is mine": I created it, or I am its owner's agent, or its tenant's agent
+     * (leases.md §17.5). Everything that asks "whose inspection / due item / reminder is this" goes through it (directly
+     * or through isOwnedBy()), so the answer cannot differ between the list, the due board, the planned dates and the guard.
+     *
+     * @param  array<int,int>  $userIds  the viewer's data identity ids (User::dataIdentityIds())
+     */
+    public function scopeAgentedBy($query, array $userIds)
+    {
+        return $query->where(fn ($own) => $own
+            ->whereIn('leases.owner_agent_user_id', $userIds)
+            ->orWhereIn('leases.tenant_agent_user_id', $userIds));
+    }
+
+    /** Per-record twin of scopeAgentedBy(): am I this lease's owner's agent or tenant's agent? (NOT merely its creator.) */
+    public function isAgentedBy(User $user): bool
+    {
+        $ids = $user->dataIdentityIds();
+
+        return ($this->owner_agent_user_id !== null && in_array((int) $this->owner_agent_user_id, $ids, true))
+            || ($this->tenant_agent_user_id !== null && in_array((int) $this->tenant_agent_user_id, $ids, true));
+    }
+
+    public function scopeInvolvingUsers($query, array $userIds)
+    {
+        return $query->where(fn ($own) => $own
+            ->whereIn('leases.created_by_user_id', $userIds)
+            ->orWhereIn('leases.owner_agent_user_id', $userIds)
+            ->orWhereIn('leases.tenant_agent_user_id', $userIds));
     }
 
     /**

@@ -231,6 +231,9 @@ class ClientLandlordRentalsController extends Controller
                 'status' => $f->status,
                 'status_label' => $f->ownerStatusLabel(),
                 'owner_approval_status' => $f->owner_approval_status,
+                // Waiting on THIS owner: the Faults tab marks it and counts it.
+                'needs_decision' => $f->owner_approval_status === RentalFaultReport::APPROVAL_PENDING,
+                'work_order_id' => $f->rental_work_order_id,
                 'reported_at' => $f->reported_at?->toIso8601String(),
             ])->values(),
         ]);
@@ -386,6 +389,8 @@ class ClientLandlordRentalsController extends Controller
             'status_label' => $fault->ownerStatusLabel(),
             // W2: once approved, the work order for this fault - stage, who is doing it, the appointment.
             'work_order' => $this->workOrderSummaryFor($fault),
+            // The same progress line the tenant sees, in the owner's words.
+            'progress' => app(\App\Services\Rentals\RentalFaultProgressService::class)->forFault($fault, \App\Services\Rentals\RentalFaultProgressService::AUDIENCE_OWNER),
             'reported_at' => $fault->reported_at?->toIso8601String(),
             'sent_to_owner_at' => $fault->sent_to_owner_at?->toIso8601String(),
             'awaiting_decision' => $awaiting,

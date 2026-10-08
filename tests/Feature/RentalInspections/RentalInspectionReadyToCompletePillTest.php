@@ -48,10 +48,21 @@ final class RentalInspectionReadyToCompletePillTest extends TestCase
         $this->assertStringContainsString('Ready to complete', $html);
         $this->assertStringContainsString('readyToComplete(', $html);
         // The rule: everything the parties owe, nothing the server alone decides (items, notes).
-        $rule = substr($html, (int) strpos($html, 'readyToComplete(section) {'), 900);
+        $rule = substr($html, (int) strpos($html, 'readyToComplete(section) {'), 1500);
         foreach (["'awaiting_signature'", "'awaiting_wet_ink'", "party_role === 'agent'", 'tenantDisposition', 'landlordDisposition', 'board.complete'] as $fact) {
             $this->assertStringContainsString($fact, $rule, "the readiness rule must still check: {$fact}");
         }
         $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $inspection->fresh()->status);
+        // …and it follows the per-type rules the server's Complete uses: the payload says whether signatures and
+        // attendance are needed for THIS inspection (a Routine one needs no attendance; signatures follow the agency setting).
+        $this->assertStringContainsString('insp.signatures_required !== false', $rule);
+        $this->assertStringContainsString('insp.attendance_required === false', $rule);
+        $tail = \App\Models\RentalInspection::tabPayloadFor($property)['chain_tail'];
+        $this->assertTrue($tail->signatures_required);
+        $this->assertTrue($tail->attendance_required);
+        $inspection->forceFill(['type' => RentalInspection::TYPE_AD_HOC])->save();
+        $routine = \App\Models\RentalInspection::tabPayloadFor($property->fresh())['chain_tail'];
+        $this->assertFalse($routine->attendance_required);
+        $this->assertFalse($routine->signatures_required, 'Routine: signatures optional by default');
     }
 }

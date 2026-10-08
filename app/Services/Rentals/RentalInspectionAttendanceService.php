@@ -38,7 +38,7 @@ class RentalInspectionAttendanceService
      * Every party expected at this inspection: each tenant on its lease, each landlord invited to it,
      * and the inspector (falling back to whoever created the inspection). Landlords use the SAME
      * resolver the scheduling invitations use (RentalInspectionNotificationService::landlordContacts()),
-     * plus the landlord who signs (Property::sellerOwnerContact()) so the person who signs is never
+     * plus the landlord who signs (Property::landlordContact()) so the person who signs is never
      * missing from the list.
      *
      * @return Collection<int, array{key: string, party_role: string, contact_id: ?int, user_id: ?int, name: string}>
@@ -53,7 +53,7 @@ class RentalInspectionAttendanceService
         }
 
         $landlords = $notifier->landlordContacts($inspection);
-        $signing = $inspection->property?->sellerOwnerContact();
+        $signing = $inspection->property?->landlordContact();
         if ($signing && ! $landlords->contains('id', $signing->id)) {
             $landlords->push($signing);
         }

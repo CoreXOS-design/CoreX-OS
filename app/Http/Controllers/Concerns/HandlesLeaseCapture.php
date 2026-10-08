@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Models\Docuperfect\Flow;
 use App\Services\Rentals\LeaseAgentService;
 use App\Services\Rentals\LeaseCaptureService;
+use App\Services\Rentals\LeaseNoticeTermsService;
 use App\Services\Rentals\LeaseSigningLauncher;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Str;
@@ -78,7 +79,25 @@ trait HandlesLeaseCapture
             $agentDefaults = ['owner' => $defaults['owner']['id'], 'tenant' => $defaults['tenant']['id']];
         }
 
+        // leases.md §18 — the notice / early-cancellation block: the term being renewed (dates moved with the new start) or the
+        // agency's defaults, overlaid with whatever the agent just typed. Shown on every capture, linked agreement or not.
+        $notice = app(LeaseNoticeTermsService::class);
+        $noticeStart = $previous && ! empty($base['start_date']) ? \Illuminate\Support\Carbon::parse($base['start_date']) : null;
+        [$noticeBase, $noticeSource] = $previous
+            ? $notice->forRenewal($previous, $noticeStart ?? now()->startOfDay())
+            : [$notice->defaultsFor($agencyId, null), LeaseNoticeTermsService::SOURCE_AGENCY_DEFAULT];
+        $noticeValues = [];
+        foreach (LeaseNoticeTermsService::EDIT_KEYS as $key) {
+            $noticeValues[$key] = old('notice.' . $key, $noticeBase[$key] ?? null);
+        }
+        $agreementKeys = collect($agreements)->flatMap(fn ($a) => collect($a['fields'])->pluck('key'))->unique()->values()->all();
+
         return [
+            'noticeValues' => $noticeValues,
+            'noticeSource' => $noticeSource,
+            'noticeDefaultsNote' => $previous ? 'From the term being renewed' : 'From your agency defaults',
+            'noticeAgreementKeys' => $agreementKeys,
+            'earliestNoticeMonths' => LeaseSetting::earliestNoticeMonthsFor($agencyId),
             'agentOptions' => $leaseAgents->selectableAgents($agencyId, $previous?->branch_id ?? $property?->branch_id ?? $user->effectiveBranchId())->all(),
             'agentDefaults' => $agentDefaults,
             'agreementState' => $state['state'],

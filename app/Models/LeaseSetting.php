@@ -46,6 +46,19 @@ class LeaseSetting extends Model
     // legal minimum CoreX enforces; an agency-configurable sensible default.
     public const DEFAULT_TENANT_NOTICE_PERIOD_DAYS = 30;
 
+    // .ai/specs/leases.md §18.2 — the agency's DEFAULT notice / early-cancellation terms, written onto a new lease (editable
+    // per lease) and onto old leases by `leases:backfill-notice-terms`. Neutral, configurable, nothing hardcoded elsewhere.
+    public const NOTICE_UNITS = ['days', 'weeks', 'months'];
+    public const DEFAULT_TENANT_NOTICE_PERIOD_UNIT = 'days';
+    /** null = no "not before" rule: notice may be given from the start of the lease. */
+    public const DEFAULT_EARLIEST_NOTICE_MONTHS = null;
+    /** 'yes' | 'no'. Early cancellation (cancelling a fixed term before it ends, with notice) is allowed unless the agency says otherwise. */
+    public const DEFAULT_EARLY_CANCELLATION_ALLOWED = 'yes';
+    /** null = the same notice as the ordinary notice period. */
+    public const DEFAULT_EARLY_CANCELLATION_NOTICE = null;
+    /** null = no penalty wording. */
+    public const DEFAULT_EARLY_CANCELLATION_PENALTY = null;
+
     /** Johan, 7 Oct 2026 — a lease goes month-to-month this many days after its end date (1 = the day after). */
     public const DEFAULT_MONTH_TO_MONTH_AFTER_END_DAYS = 1;
 
@@ -69,6 +82,12 @@ class LeaseSetting extends Model
         'show_lease_type_field',
         'default_deposit_months',
         'tenant_notice_period_days',
+        'tenant_notice_period_unit',
+        'default_earliest_notice_months',
+        'default_early_cancellation_allowed',
+        'default_early_cancellation_notice',
+        'default_early_cancellation_notice_unit',
+        'default_early_cancellation_penalty',
         'month_to_month_after_end_days',
         'auto_readvertise_on_notice',
         'auto_restore_status_on_lease_ended',
@@ -82,6 +101,8 @@ class LeaseSetting extends Model
         'show_lease_type_field' => 'boolean',
         'default_deposit_months' => 'decimal:2',
         'tenant_notice_period_days' => 'integer',
+        'default_earliest_notice_months' => 'integer',
+        'default_early_cancellation_notice' => 'integer',
         'month_to_month_after_end_days' => 'integer',
         'auto_readvertise_on_notice' => 'boolean',
         'auto_restore_status_on_lease_ended' => 'boolean',
@@ -218,5 +239,56 @@ class LeaseSetting extends Model
         }
 
         return self::defaultActiveRentalStatuses();
+    }
+
+    // ── leases.md §18.2 — notice / early-cancellation defaults ──────────────────────────────
+
+    private static function noticeRow(?int $agencyId): ?self
+    {
+        return $agencyId && $agencyId > 0 ? self::withoutGlobalScopes()->where('agency_id', $agencyId)->first() : null;
+    }
+
+    public static function tenantNoticePeriodUnitFor(?int $agencyId): string
+    {
+        $v = self::noticeRow($agencyId)?->tenant_notice_period_unit;
+
+        return in_array($v, self::NOTICE_UNITS, true) ? $v : self::DEFAULT_TENANT_NOTICE_PERIOD_UNIT;
+    }
+
+    /** Months into a lease before notice may be given; null = no such rule. */
+    public static function earliestNoticeMonthsFor(?int $agencyId): ?int
+    {
+        $v = self::noticeRow($agencyId)?->default_earliest_notice_months;
+
+        return $v !== null ? (int) $v : self::DEFAULT_EARLIEST_NOTICE_MONTHS;
+    }
+
+    public static function earlyCancellationAllowedFor(?int $agencyId): string
+    {
+        $v = self::noticeRow($agencyId)?->default_early_cancellation_allowed;
+
+        return in_array($v, ['yes', 'no'], true) ? $v : self::DEFAULT_EARLY_CANCELLATION_ALLOWED;
+    }
+
+    /** Notice needed to cancel early, length; null = the same as the ordinary notice period. */
+    public static function earlyCancellationNoticeFor(?int $agencyId): ?int
+    {
+        $v = self::noticeRow($agencyId)?->default_early_cancellation_notice;
+
+        return $v !== null ? (int) $v : self::DEFAULT_EARLY_CANCELLATION_NOTICE;
+    }
+
+    public static function earlyCancellationNoticeUnitFor(?int $agencyId): ?string
+    {
+        $v = self::noticeRow($agencyId)?->default_early_cancellation_notice_unit;
+
+        return in_array($v, self::NOTICE_UNITS, true) ? $v : null;
+    }
+
+    public static function earlyCancellationPenaltyFor(?int $agencyId): ?string
+    {
+        $v = self::noticeRow($agencyId)?->default_early_cancellation_penalty;
+
+        return is_string($v) && trim($v) !== '' ? trim($v) : self::DEFAULT_EARLY_CANCELLATION_PENALTY;
     }
 }

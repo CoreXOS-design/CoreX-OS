@@ -162,10 +162,17 @@ class RentalInspectionDueService
         return array_filter($days, fn (CarbonInterface $d) => $d->lte($today));
     }
 
-    /** The agent a reminder goes to: the property's agent, else whoever created the lease. May be null. */
+    /**
+     * The agent the due board names and the reminder goes to: the lease's own owner's agent, else its tenant's agent,
+     * else the property's agent, else whoever created the lease. May be null. (One person per item, so the reminder
+     * ledger stays one row per milestone; the other lease agent still SEES the row — Lease::scopeInvolvingUsers.)
+     */
     public function responsibleAgentId(Lease $lease): ?int
     {
-        return $lease->property?->agent_id ?: $lease->created_by_user_id;
+        return $lease->owner_agent_user_id
+            ?: $lease->tenant_agent_user_id
+            ?: $lease->property?->agent_id
+            ?: $lease->created_by_user_id;
     }
 
     /**

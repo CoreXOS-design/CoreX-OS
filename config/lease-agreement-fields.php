@@ -20,7 +20,7 @@
 | Entry shape
 |   label        plain-English default label (a map entry may override it)
 |   type         money | date | integer | percent | month | text | longtext
-|   group        which section of the capture screen: lease | parties | term | agreement | schedule | calculated
+|   group        which section of the capture screen: lease | parties | term | agreement | notice | schedule | calculated
 |   side         where the CoreX-side value lives:
 |                  lease      → a column of `leases`            (column)
 |                  contact    → the tenant/landlord contact     (contact)
@@ -123,6 +123,39 @@ return [
             'side' => 'terms', 'column' => 'other_conditions', 'comparison' => 'text', 'accept' => true,
         ],
 
+        // ── Notice and early-cancellation terms (leases.md §18) ────────────────────────────────
+        // Always captured on the capture / renewal / lease screens (their own block, not the map-driven agreement section);
+        // they reach the lease agreement DOCUMENT only when the agency's own map carries them, and when it does, the document,
+        // the lease record and the portal FAQ read the SAME columns — so they cannot disagree.
+        'notice_period' => [
+            'label' => 'Notice period', 'type' => 'integer', 'group' => 'notice',
+            'side' => 'terms', 'column' => 'notice_period', 'comparison' => 'number', 'accept' => true,
+        ],
+        'notice_period_unit' => [
+            'label' => 'Notice period unit (days, weeks or months)', 'type' => 'text', 'group' => 'notice',
+            'side' => 'terms', 'column' => 'notice_period_unit', 'comparison' => 'text', 'accept' => true,
+        ],
+        'earliest_notice_date' => [
+            'label' => 'Earliest date notice may be given', 'type' => 'date', 'group' => 'notice',
+            'side' => 'terms', 'column' => 'earliest_notice_date', 'comparison' => 'date', 'accept' => true,
+        ],
+        'early_cancellation_allowed' => [
+            'label' => 'Early cancellation allowed (yes or no)', 'type' => 'text', 'group' => 'notice',
+            'side' => 'terms', 'column' => 'early_cancellation_allowed', 'comparison' => 'text', 'accept' => true,
+        ],
+        'early_cancellation_notice' => [
+            'label' => 'Notice needed to cancel early', 'type' => 'integer', 'group' => 'notice',
+            'side' => 'terms', 'column' => 'early_cancellation_notice', 'comparison' => 'number', 'accept' => true,
+        ],
+        'early_cancellation_notice_unit' => [
+            'label' => 'Early-cancellation notice unit (days, weeks or months)', 'type' => 'text', 'group' => 'notice',
+            'side' => 'terms', 'column' => 'early_cancellation_notice_unit', 'comparison' => 'text', 'accept' => true,
+        ],
+        'early_cancellation_penalty' => [
+            'label' => 'Early-cancellation penalty (wording)', 'type' => 'longtext', 'group' => 'notice',
+            'side' => 'terms', 'column' => 'early_cancellation_penalty', 'comparison' => 'text', 'accept' => true,
+        ],
+
         // ── Schedule values — exist only for an agency whose own map carries them (§15.12.5) ──
         // Kept in lease_agreement_terms.extra; neutral keys, the label comes from the agency's own map.
         'other_deduction' => [
@@ -173,5 +206,5 @@ return [
     | the lease record or the contacts are always needed for the document; only the agreement-term and
     | schedule keys are the agency's call (§15.12.3).
     */
-    'requirable_groups' => ['agreement', 'schedule'],
+    'requirable_groups' => ['agreement', 'schedule', 'notice'],
 ];

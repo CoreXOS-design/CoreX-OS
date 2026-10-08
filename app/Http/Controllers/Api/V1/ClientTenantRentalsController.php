@@ -199,7 +199,8 @@ class ClientTenantRentalsController extends Controller
         return response()->json(['fault_report' => array_merge($this->faultReportSummary($fault), [
             'description' => $fault->description,
             'outcome' => $fault->outcome,
-            'outcome_note' => $fault->outcome_note,
+            // An agent's note on a declined fault can carry the owner's reason or internal remarks: the tenant gets the neutral progress line instead.
+            'outcome_note' => ($fault->outcome === RentalFaultReport::OUTCOME_OWNER_DECLINED || $fault->status === RentalFaultReport::STATUS_DECLINED) ? null : $fault->outcome_note,
             // Tenant never sees quote amounts — not their spend to approve.
             // §14.29 — photos of the WORK done for this fault (crew / contractor),
             // filtered by the agency's crew_photos_visible_to_clients rule.
@@ -390,6 +391,9 @@ class ClientTenantRentalsController extends Controller
             'rental_work_order_id' => $fault->rental_work_order_id,
             // BUILD 3 — §17.3.5: the linked work order's plain stage ("Being arranged", "In progress", …), never a price.
             'work_order_stage' => $this->workOrderStageFor($fault),
+            // Johan, 8 Oct 2026: where this fault is, step by step, fault AND work order in one line (derived from the real records;
+            // the words are data: config/rental-fault-progress.php). Never the owner's reason or the agent's notes.
+            'progress' => app(\App\Services\Rentals\RentalFaultProgressService::class)->forFault($fault, \App\Services\Rentals\RentalFaultProgressService::AUDIENCE_TENANT),
         ];
     }
 }

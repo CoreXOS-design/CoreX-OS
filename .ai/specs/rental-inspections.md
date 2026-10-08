@@ -7789,3 +7789,53 @@ Tests (one file at a time through `scripts/lane-test.sh`): `RentalInspectionRuli
 3. A Routine inspection is still exempt from "every item recorded", required notes and attendance (only the signatures became a setting). Should those follow the per-type setting too?
 
 Reported, not changed: the Inspections tab's read-only panels show the live checklist wording and a post-sent fault report as the In's latest condition (a working comparison surface); room names are not part of the wording snapshot; `…/form` (blank capture form) carries no stamp.
+
+
+---
+
+## 50. The Rentals inspections walk, 8 Oct 2026 (cc4; QA1 only) — what was found, what was fixed, what waits for Johan
+
+A walk of the whole inspection life as an agent does it (In, Interim, Routine, Out: schedule → due board → record → photos → attendance → ready to sign → sign on the device / by link / by QR → locked → edit report → distributed → final → portal → PDF) against §0–§49 and the code at QA1 `3cd6adb73`, read line by line and driven with real requests on QA1 data inside rolled-back transactions. Step table and click-by-click test script: `/tmp/qa1-cc4-inspections-walk-2026-10-08.md`. No browser harness was available; button behaviour on the recording screen was checked by route/URL existence and server-side guards only.
+
+### 50.1 Fixed (each has a test in `RentalInspectionWalkFixesTest`; all 21 fail on the QA1 tip and pass now)
+
+| # | Defect | Class | Fix |
+|---|---|---|---|
+| 1 | "Whose inspection is it" had five answers (list, planned dates, due board rows, the "Agent" column + reminders, the per-record guard) and none included the lease's **owner's agent / tenant's agent** | one rule per surface, none shared | Two small, named lease rules (`Lease::scopeAgentedBy()` / `isAgentedBy()` = owner's agent OR tenant's agent; `scopeInvolvingUsers()` = those two OR the lease creator, which `scopeVisibleTo` 'own' now uses). `RentalInspection::scopeVisibleTo` 'own', the per-record guard (`AuthorizesRentalRecordScope`) and `RentalInspectionPlannedDate::scopeVisibleTo` add the lease's AGENTS to creator/inspector (merely having created the lease still does not show a colleague's inspection — that refusal is tested and kept); the Due board's lease constraint uses the creator-inclusive rule it already had plus both agents. `RentalInspectionDueService::responsibleAgentId()` = the lease's owner's agent, else tenant's agent, else the property's agent, else the lease creator |
+| 2 | A second In-inspection could be started or scheduled on a tenancy that already had one (only `startNext` refused it); also made unlinked chain roots | several entry points, no single rule | `RentalInspection::assertTypeStartable()` — one rule used by `start()` and `schedule()` (and carried by `startNext()`) |
+| 3 | Archiving a scheduled inspection left its calendar event "pending"; restoring never revived it | side effect hooked on the caller, not the model | model `deleted`/`restored` events call the calendar sync |
+| 4 | Signing-links panel feed returned each party's live link to anyone who can merely view the inspection (a view-only user could sign as the tenant) | secret exposed by a read weaker than the write that mints it | `url` removed from `describeLink()` (the JS never used it) |
+| 5 | A link for someone no longer on the lease showed a sign form that could never work, then a raw internal sentence | link validated against the link row, not the party it names | `signability()` checks the party is still on the inspection |
+| 6 | A refused signature (double tap, party left) left its PNG on the private disk | file stored before the invariants are checked | `RentalInspectionSignature::capture()` removes the files it was handed when it refuses |
+| 7 | A link signature could land just after "Edit report" read the live signatures | lock order | `submit()` locks the inspection first, then the link (the order reopen takes) |
+| 8 | Due board print / export had no `rental_inspections.export` gate (the list's own have) | permission on one of two sibling endpoints | middleware on both routes; buttons hidden without it |
+| 9 | List search "Jane Smith" found nothing | single-column LIKE | also matches first + last name together |
+| 10 | Reminder commands could only walk every agency (no scheduler on QA1, so a hand run touched all) | | `--agency=` and `--dry-run` on `rentals:send-planned-inspection-reminders` / `rentals:send-due-inspection-reminders` |
+| 11 | Checklist reorder (items, rooms, apply default order) worked on a signed report | one guard missing from three siblings | same `refuseIfTailSigned()` as the other checklist writes |
+| 12 | "Build from advertising" burned its one shot when it built nothing | flag set unconditionally | refuses (409) and keeps the flag when no room or item was made |
+| 13 | A 70 000-character note and a key count of 99999999999 were HTTP 500s | unbounded input | `max:4000` on the note, `max:1000` on keys/remotes |
+| 14 | A discrepancy resolved twice overwrote the first decision (ruling 4: append, never overwrite) | | 409 "already resolved by … on …" |
+| 15 | The signed PDF dropped the header block (meters, keys, remotes, furnished, type, original move-in date) — the deposit evidence | two renderers of one report | "Details" block on the PDF cover, nothing when nothing recorded |
+| 16 | A tenant could appear on the signing roster as the landlord (property with only a tenant linked) | lenient "sole contact" resolver used for signing | every inspection roster/attendance/signing/PDF-form lookup uses `Property::landlordContact()` (strict); no landlord linked → the existing "Not required — no landlord linked" row |
+| 17 | The property tab's "Resend report" popover rebuilt its recipient list in the browser (wrong people) | two sources of truth | tab payload carries the server's own `distributionRecipients()` as `report_recipients` |
+| 18 | "Ready to complete" pill ignored the per-type rules (Routine, signatures setting) | display disagreed with the server | tab payload carries `signatures_required` / `attendance_required`; the pill uses them |
+| 19 | "Ad hoc" / `ad_hoc` / "Routine-inspection" stragglers: rental reports (group-by-type, lease timeline), PDF file names, the tab's JS, one permission label | label sweep missed | `typeLabel()` / `typeName()` everywhere; file name `inspection-report-routine-…` |
+| 20 | `resend-report` answered 500 when the PDF or filing failed | missing failure path | same alert as Complete, 502 with a plain message |
+| 21 | `rental-inspections:backfill-report-filing` also filed archived inspections | | live inspections only |
+| 22 | stray `"` in the create form's date input | | removed |
+
+### 50.2 Found and NOT changed (Johan's call, or outside this slice)
+
+1. **QA1 sends no inspection mail** (signing-link emails, "Email everyone", scheduling mails, completion copies): `MAIL_NON_PRODUCTION_REDIRECT` is not set in `/corex-qa1/.env`, so the guard (`SignedDocumentDistributionService`, correctly) suppresses every send. Environment, not code. See the decision list.
+2. **Deposit deductions / settlement** — PARKED by Johan on 6 Oct for the finance build. The Move-out comparison page exists and says honestly that no amount is calculated.
+3. **The 7-day signing window and the 7-day tenant fault window are only dates on screen** (`signing_deadline_at` is printed and never enforced; a tenant fault report outside the window is refused instead of "accepted and flagged"; `reported_outside_window` is never set).
+4. **Property tab access for a lease agent who is not the property's agent**: the inspection now appears in their list and they can open and record on it by id, but the Inspections TAB lives on the property page, whose own visibility is property-scoped (agent_id) and not lease-aware. Out of this slice (property visibility is a system-wide rule).
+5. **Calendar event goes on the inspector's calendar only** (default inspector = the booking user). Putting it on the other lease agent's calendar is a business choice (decision list).
+6. The due board still says "Move-in / Move-out" where every other screen says "In / Out" (the §47.2 sweep did not name it). Left as is — decision list.
+7. The mobile app's rental-images endpoints still write the old flat gallery, not inspections (§14 contract not yet consumed) — for Andre.
+8. A cancelled Out-inspection still accepts move-out classifications (low). The due/create pickers cap at 500 properties/leases (low, matters for an agency with more than 500 active tenancies). The portal copy is frozen at completion, so "added after sent" never appears there (by design; asked).
+9. The `cc4-inspections-i7-2026-10-07` worktree holds ~980 uncommitted lines of an earlier, parallel build of the move-out comparison that QA1 already has in a larger, tested form. No defect in QA1's version was found that the WIP fixes. It was not merged; diff kept in the scratchpad of this session.
+
+### 50.3 Files
+
+`app/Models/Lease.php`, `RentalInspection.php`, `RentalInspectionPlannedDate.php`, `RentalInspectionSignature.php`; `app/Http/Controllers/Concerns/AuthorizesRentalRecordScope.php`; `CoreX/RentalInspectionController.php`, `RentalInspectionDueController.php`, `RentalInspectionRecordingController.php`; `app/Services/Rentals/RentalInspectionDueService.php`, `RentalInspectionDueReminderService.php`, `RentalInspectionSigningLinkService.php`, `RentalInspectionAttendanceService.php`, `RentalInspectionFormSeeder.php`, `RentalInspectionFormPdfService.php`, `RentalInspectionReportPdfService.php`, `RentalReportService.php`; the two reminder commands and the backfill command; `routes/web.php` (two middleware); `config/corex-permissions.php` (one label); `report-pdf.blade.php`, `due.blade.php`, `create.blade.php`, `properties/show.blade.php`, `properties/partials/rental-inspection-recording.blade.php`. No migration. No new setting (so nothing new for the Setup Wizard, CLAUDE.md #10a). Tests: `RentalInspectionWalkFixesTest` (21, new); `RentalInspectionReadyToCompletePillTest` extended.
