@@ -3,12 +3,14 @@
 namespace App\Models\DealV2;
 
 use App\Models\Branch;
+use App\Models\Deal;
 use App\Models\CommandCenter\CalendarEvent;
 use App\Models\CommandCenter\CalendarEventLink;
 use App\Models\Contact;
 use App\Models\PerformanceSetting;
 use App\Models\Property;
 use App\Models\User;
+use App\Services\Finance\DealMoney;
 use App\Services\PermissionService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -239,43 +241,87 @@ class DealV2 extends Model
         return $this->belongsTo(User::class, 'created_by_id');
     }
 
-    // ── Commission Methods (ported from V1 Deal model) ──
+    // ── Commission / money ──
+    //
+    // ONE SOURCE (2026-10-08). A v2 row that is linked to a real deal
+    // (legacy_deal_id) NEVER works its own money out from its own columns: every
+    // figure below is read from the real deal's inputs through DealMoney, so the
+    // v2 copy of the splits / "other agency handled this side" marker / commission
+    // can no longer disagree with the deal (it had, on 10 deals — deal 1818 would
+    // have shown HFC's share doubled). The twin's own money columns are a dormant
+    // by-product on a linked row and nothing reads them for display. Only a native
+    // v2 deal (no legacy_deal_id) is its own source.
+
+    /** True when this row is linked to a real deal and so takes its money from it. */
+    public function hasLegacyMoneySource(): bool
+    {
+        return (int) $this->legacy_deal_id > 0;
+    }
+
+    /** The real deal this row's money comes from (null for a native v2 deal). */
+    public function legacyMoneySource(): ?Deal
+    {
+        if (! $this->hasLegacyMoneySource()) {
+            return null;
+        }
+
+        // withoutGlobalScopes: the money must resolve for whoever may see this row,
+        // whatever branch lens they hold on the real deal; the twin itself is already
+        // agency-scoped and carries the same agency as its deal.
+        $deal = Deal::withoutGlobalScopes()->find($this->legacy_deal_id);
+        if (! $deal) {
+            // A broken link must be loud: quietly falling back to this row's own
+            // columns is exactly how a second, wrong copy of the money came to exist.
+            throw new \RuntimeException("DealV2 {$this->id}: linked deal {$this->legacy_deal_id} not found — refusing to read money from the twin's own copy.");
+        }
+
+        return $deal;
+    }
+
+    /** This deal's money, exact to the cent: from the real deal when linked, else from its own columns. */
+    public function money(): DealMoney
+    {
+        $deal = $this->legacyMoneySource();
+
+        return $deal ? DealMoney::fromDeal($deal) : $this->ownColumnsMoney();
+    }
+
+    /**
+     * What this row's OWN stored columns say. For a native v2 deal this is the
+     * truth; for a linked row it is only the dormant copy — used by the integrity
+     * check to report when that copy has drifted from the real deal.
+     */
+    public function ownColumnsMoney(): DealMoney
+    {
+        $incCents = DealMoney::scaled($this->getAttributes()['commission_amount'] ?? 0, 2)
+            + DealMoney::scaled($this->getAttributes()['commission_vat'] ?? 0, 2);
+
+        return DealMoney::fromInputs(
+            DealMoney::cents($incCents),
+            PerformanceSetting::get('vat_rate', 15, $this->agency_id ? (int) $this->agency_id : null),
+            ['split' => $this->getAttributes()['listing_split_percent'] ?? null, 'external' => $this->getAttributes()['listing_external'] ?? false],
+            ['split' => $this->getAttributes()['selling_split_percent'] ?? null, 'external' => $this->getAttributes()['selling_external'] ?? false],
+        );
+    }
 
     public function commissionExVat(): float
     {
-        $vatRate = (float) PerformanceSetting::get('vat_rate', 15) / 100.0;
-        $inc = (float) ($this->commission_amount + $this->commission_vat);
-        if ($inc <= 0 || $vatRate <= 0) {
-            return (float) $this->commission_amount;
-        }
-        return $inc / (1.0 + $vatRate);
-    }
-
-    private function calculateInternalPool(string $side): float
-    {
-        $externalFlag = (bool) $this->{$side . '_external'};
-        $sidePct = (float) ($this->{$side . '_split_percent'} ?? 50);
-
-        return \App\Services\Finance\CommissionPoolCalculator::internalPool(
-            $this->commissionExVat(),
-            $externalFlag,
-            $sidePct
-        );
+        return DealMoney::toFloat($this->money()->exVatCents());
     }
 
     public function listingPool(): float
     {
-        return $this->calculateInternalPool('listing');
+        return DealMoney::toFloat($this->money()->sidePoolCents('listing'));
     }
 
     public function sellingPool(): float
     {
-        return $this->calculateInternalPool('selling');
+        return DealMoney::toFloat($this->money()->sidePoolCents('selling'));
     }
 
     public function totalOurCommission(): float
     {
-        return $this->listingPool() + $this->sellingPool();
+        return DealMoney::toFloat($this->money()->ourTotalCents());
     }
 
     public function isFinanciallyLocked(): bool
