@@ -59,7 +59,7 @@ final class PropertyListedDateCorrectionTest extends TestCase
         return User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => $role]);
     }
 
-    private function put(User $u, array $body)
+    private function correct(User $u, array $body)
     {
         return $this->actingAs($u)->put(route('corex.properties.listed-date.update', $this->property), $body);
     }
@@ -79,7 +79,7 @@ final class PropertyListedDateCorrectionTest extends TestCase
     {
         $agent = User::find($this->property->agent_id);
 
-        $this->put($agent, ['listed_date' => now()->subDays(5)->toDateString(), 'reason' => 'Portal shows a later date'])->assertForbidden();
+        $this->correct($agent, ['listed_date' => now()->subDays(5)->toDateString(), 'reason' => 'Portal shows a later date'])->assertForbidden();
 
         $this->assertSame(now()->subDays(30)->toDateString(), $this->property->fresh()->listed_date->toDateString());
         $this->assertSame(0, $this->property->notes()->count());
@@ -89,7 +89,7 @@ final class PropertyListedDateCorrectionTest extends TestCase
     {
         foreach (['branch_manager' => 5, 'admin' => 7] as $role => $daysAgo) {
             $u = $this->user($role);
-            $this->put($u, ['listed_date' => now()->subDays($daysAgo)->toDateString(), 'reason' => "Corrected by $role"])
+            $this->correct($u, ['listed_date' => now()->subDays($daysAgo)->toDateString(), 'reason' => "Corrected by $role"])
                 ->assertSessionHasNoErrors();
 
             $this->assertSame(now()->subDays($daysAgo)->toDateString(), $this->property->fresh()->listed_date->toDateString());
@@ -101,8 +101,8 @@ final class PropertyListedDateCorrectionTest extends TestCase
     {
         $bm = $this->user('branch_manager');
 
-        $this->put($bm, ['listed_date' => now()->subDays(5)->toDateString(), 'reason' => ''])->assertSessionHasErrors('reason');
-        $this->put($bm, ['listed_date' => now()->addDays(3)->toDateString(), 'reason' => 'Future date'])->assertSessionHasErrors('listed_date');
+        $this->correct($bm, ['listed_date' => now()->subDays(5)->toDateString(), 'reason' => ''])->assertSessionHasErrors('reason');
+        $this->correct($bm, ['listed_date' => now()->addDays(3)->toDateString(), 'reason' => 'Future date'])->assertSessionHasErrors('listed_date');
 
         $this->assertSame(now()->subDays(30)->toDateString(), $this->property->fresh()->listed_date->toDateString());
     }
