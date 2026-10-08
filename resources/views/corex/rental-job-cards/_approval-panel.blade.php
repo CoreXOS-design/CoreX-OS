@@ -26,6 +26,9 @@
                 <span class="ds-badge ds-badge-danger">Owner declined</span>
             @elseif($jaWorkOrder->approvalBasisLabel())
                 <span class="ds-badge ds-badge-success">{{ $jaWorkOrder->approvalBasisLabel() }}</span>
+            @elseif(isset($stage) && $stage['quote']['within'] && $jobCard->acceptedLines()->exists())
+                {{-- J2 (Johan, 9 Oct 2026): within the owner's limit nothing needs asking - say so instead of "not approved". --}}
+                <span class="ds-badge ds-badge-info" data-auto-approval>Approved automatically once the price is confirmed (within the owner's limit)</span>
             @else
                 <span class="ds-badge ds-badge-muted">Not approved yet</span>
             @endif

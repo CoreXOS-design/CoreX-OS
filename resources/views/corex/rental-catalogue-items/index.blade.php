@@ -103,7 +103,7 @@
                                     </form>
                                 @else
                                     <a href="{{ route('corex.rental-catalogue-items.edit', $item) }}" class="text-xs" style="color: var(--brand-icon, #0ea5e9);">Edit</a>
-                                    <form method="POST" action="{{ route('corex.rental-catalogue-items.archive', $item) }}" class="inline" onsubmit="return confirm('Archive this item?');">
+                                    <form method="POST" action="{{ route('corex.rental-catalogue-items.archive', $item) }}" class="inline" data-confirm="Archive this item?" data-confirm-danger data-confirm-label="Archive">
                                         @csrf
                                         <button type="submit" class="text-xs" style="color: #991b1b;">Archive</button>
                                     </form>

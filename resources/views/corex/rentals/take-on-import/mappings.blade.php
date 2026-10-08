@@ -64,7 +64,7 @@
                                         <button type="submit" class="corex-btn-secondary text-xs">Restore</button>
                                     </form>
                                 @else
-                                    <form method="POST" action="{{ route('corex.rentals.take-on-import.mappings.archive', $mapping) }}" class="inline" onsubmit="return confirm('Archive this mapping?');">
+                                    <form method="POST" action="{{ route('corex.rentals.take-on-import.mappings.archive', $mapping) }}" class="inline" data-confirm="Archive this mapping?" data-confirm-danger data-confirm-label="Archive">
                                         @csrf
                                         <button type="submit" class="corex-btn-danger-outline text-xs">Archive</button>
                                     </form>

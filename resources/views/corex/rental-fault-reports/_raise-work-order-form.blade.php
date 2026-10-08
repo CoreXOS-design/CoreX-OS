@@ -8,7 +8,7 @@
 @endphp
 <form id="raise-work-order-form" data-raise-work-order method="POST" action="{{ route('corex.rental-fault-reports.raise-work-order', $faultReport) }}"
       class="{{ ($secondary ?? false) ? 'hidden' : '' }} space-y-3 pt-2"
-      x-data="{ q: '', who: '{{ $defaultWho }}', picked: '{{ $prefillSupplier?->id }}', busy: false }" x-on:submit="busy = true">
+      x-data="{ q: '', who: '{{ $defaultWho }}', picked: '{{ $prefillSupplier?->id }}', busy: false, crewQ: '', crew: '{{ ($crewPicker ?? collect())->count() === 1 ? $crewPicker->first()->id : '' }}' }" x-on:submit="busy = true">
     @csrf
     <p class="text-xs" style="color: var(--text-muted);">The work order is made from this fault - the title, description and photos the owner saw, the property and the tenant. You only choose who does the work.</p>
 
@@ -23,12 +23,35 @@
     @else
         <input type="hidden" name="assignment_type" x-bind:value="who">
         <input type="hidden" name="agency_service_provider_id" value="{{ $prefillSupplier?->id }}" x-bind:value="who === 'outside_supplier' ? picked : ''">
+        <input type="hidden" name="rental_crew_id" x-bind:value="who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL }}' ? crew : ''">
         <div class="space-y-2">
             <label class="flex items-center gap-2 text-sm"><input type="radio" value="{{ \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL }}" x-model="who" data-who-internal> Our own maintenance crew <span class="text-xs" style="color: var(--text-muted);">(also makes the job card)</span></label>
             @if(! $decisionSummary)
                 <label class="flex items-center gap-2 text-sm"><input type="radio" value="{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR }}" x-model="who"> The owner's own contractor <span class="text-xs" style="color: var(--text-muted);">(no owner decision recorded yet)</span></label>
             @endif
             <label class="flex items-center gap-2 text-sm"><input type="radio" value="{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER }}" x-model="who" data-who-contractor> One of the agency's contractors</label>
+        </div>
+
+        {{-- Johan, 9 Oct 2026: on the internal-crew route the agent can pick the crew right here (optional), so the job card opens with the crew assigned. --}}
+        <div x-show="who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL }}'" x-cloak class="space-y-2" data-crew-picker>
+            <p class="text-xs font-medium">Which crew? <span class="font-normal" style="color: var(--text-muted);">(optional - you can choose later on the job card)</span></p>
+            @if(($crewPicker ?? collect())->count() > 1)
+                <input type="search" x-model="crewQ" placeholder="Search crews by name or member" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+            @endif
+            @forelse(($crewPicker ?? collect()) as $c)
+                <label class="flex items-center gap-2 text-sm rounded-md px-2 py-1" style="border: 1px solid var(--border);" data-crew-row="{{ $c->id }}"
+                       data-search="{{ mb_strtolower($c->name . ' ' . $c->members->pluck('name')->implode(' ')) }}"
+                       x-show="crewQ === '' || $el.dataset.search.indexOf(crewQ.toLowerCase()) !== -1">
+                    <input type="radio" name="crew_pick" value="{{ $c->id }}" x-model="crew">
+                    <span class="font-medium">{{ $c->name }}</span>
+                    @if($c->members->isNotEmpty())<span class="text-xs" style="color: var(--text-muted);">{{ $c->members->pluck('name')->implode(', ') }}</span>@endif
+                </label>
+            @empty
+                <p class="text-xs" style="color: var(--text-muted);">No crews are set up yet - the job card will open without one.</p>
+            @endforelse
+            @if(($crewPicker ?? collect())->count() > 1 || ($crewPicker ?? collect())->count() === 1)
+                <label class="flex items-center gap-2 text-sm px-2"><input type="radio" name="crew_pick" value="" x-model="crew"> No crew yet</label>
+            @endif
         </div>
 
         <div x-show="who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER }}'" x-cloak class="space-y-2" data-contractor-picker>

@@ -666,7 +666,7 @@
                     @endif
                     <div class="text-[11px] mt-1" style="color: var(--text-muted);">
                         {{ $customField->key }} &middot; {{ $customField->creator ? 'Added by ' . $customField->creator->name : 'Creator not recorded' }}
-                        <form method="POST" action="{{ route('corex.settings.rental-applications.custom-fields.archive', $customField) }}" style="display:inline;" onsubmit="return confirm('Retire this custom field? Applications that already answered it keep that answer; it just won\'t be on new ones.');">
+                        <form method="POST" action="{{ route('corex.settings.rental-applications.custom-fields.archive', $customField) }}" style="display:inline;" data-confirm="Retire this custom field? Applications that already answered it keep that answer; it just won&#x27;t be on new ones.">
                             @csrf
                             <button type="submit" style="color: var(--text-muted); margin-left: 6px;">Retire</button>
                         </form>
@@ -1149,7 +1149,7 @@
                 <div class="text-[11px] mb-1" style="color: var(--text-muted); margin-left: 2px;" @if(!$highlighter->creator) title="This highlighter was created before this was tracked." @endif>
                     {{ $highlighter->creator ? 'Added by ' . $highlighter->creator->name : 'Creator not recorded' }}
                 </div>
-                <form method="POST" action="{{ route('corex.settings.rental-applications.highlighters.archive', $highlighter) }}" style="display:inline;" onsubmit="return confirm('Archive this highlighter? Existing marks made with it keep their colour — it just won\'t be choosable for new marks.');">
+                <form method="POST" action="{{ route('corex.settings.rental-applications.highlighters.archive', $highlighter) }}" style="display:inline;" data-confirm="Archive this highlighter? Existing marks made with it keep their colour — it just won&#x27;t be choosable for new marks." data-confirm-danger data-confirm-label="Archive">
                     @csrf
                     <button type="submit" class="text-xs" style="color: var(--text-muted); margin-left: 0;">Archive</button>
                 </form>

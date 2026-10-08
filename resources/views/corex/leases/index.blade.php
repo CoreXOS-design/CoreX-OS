@@ -221,7 +221,7 @@
                         @if($showArchived)
                             {{-- Bringing a draft/active tenancy back needs the cancel permission (leases.md §3.8). --}}
                             @if(auth()->user()->hasPermission('leases.create') && (!in_array($lease->archived_from_status ?: $lease->status, ['draft', 'active'], true) || auth()->user()->hasPermission('leases.cancel')))
-                            <form method="POST" action="{{ route('corex.leases.restore', $lease->id) }}" class="inline" onsubmit="return confirm('Restore this lease?');">
+                            <form method="POST" action="{{ route('corex.leases.restore', $lease->id) }}" class="inline" data-confirm="Restore this lease?">
                                 @csrf
                                 <button type="submit" class="corex-btn-outline text-xs" data-test="lease-restore-button">Restore</button>
                             </form>

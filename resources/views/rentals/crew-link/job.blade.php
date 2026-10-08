@@ -36,5 +36,6 @@
 
         @include('rentals.crew-link._job-body', ['job' => $job, 'actions' => $actions])
     </div>
+@include('partials.corex-confirm')
 </body>
 </html>

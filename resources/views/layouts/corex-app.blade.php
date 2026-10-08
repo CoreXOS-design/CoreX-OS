@@ -193,6 +193,9 @@
         @include('layouts._scroll-restore')
 
         {{-- Partial-pushed scripts (e.g. P24 location pickers via push('scripts')) --}}
+        {{-- The app's own confirm / notice dialog (no browser confirm()). --}}
+        @include('partials.corex-confirm')
+
         @stack('scripts')
     </body>
 </html>

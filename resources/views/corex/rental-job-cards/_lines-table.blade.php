@@ -109,7 +109,7 @@
                             @permission('rental_job_cards.create')
                             @if($canEditLines)
                                 <button type="button" @click="editing = true" title="Edit line" aria-label="Edit line" style="{{ \App\Support\RentalJobCardLineGrid::iconButtonStyle('var(--brand-icon, #0ea5e9)') }}">&#9998;</button>
-                            <form method="POST" action="{{ route('corex.rental-job-cards.lines.destroy', [$jobCard, $line]) }}" onsubmit="return confirm('Archive this line?');" class="inline" style="display:inline-flex;" data-keep-scroll>
+                            <form method="POST" action="{{ route('corex.rental-job-cards.lines.destroy', [$jobCard, $line]) }}" data-confirm="Archive this line?" data-confirm-danger data-confirm-label="Archive" class="inline" style="display:inline-flex;" data-keep-scroll>
                                 @csrf
                                 @method('DELETE')
                                 <button type="submit" title="Archive" aria-label="Archive" style="{{ \App\Support\RentalJobCardLineGrid::iconButtonStyle('var(--ds-red, #dc2626)') }}">&times;</button>

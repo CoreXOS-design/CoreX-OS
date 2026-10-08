@@ -63,7 +63,7 @@
         @if(! $pricingAgencyHasCrew)
             <p class="text-xs" style="color: var(--text-muted);" data-ask-disabled>Ask crew to price this job — <em>assign a crew to this job card first</em>; there is nobody to ask yet.</p>
         @elseif($openPriceRequest)
-            <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.price-requests.close', [$jobCard, $openPriceRequest->id]) }}" onsubmit="return confirm('Close this request without waiting for the crew?');">
+            <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.price-requests.close', [$jobCard, $openPriceRequest->id]) }}" data-confirm="Close this request without waiting for the crew?">
                 @csrf
                 <button type="submit" class="corex-btn-outline text-xs w-full">Close request</button>
             </form>
@@ -90,7 +90,7 @@
     <div class="flex items-center justify-between gap-2">
         <h2 class="text-sm font-semibold">Added by crew — awaiting office <span class="ds-badge ds-badge-muted">{{ $awaitingLines->count() }}</span></h2>
         @if($canPrice && $isOpen)
-            <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.crew-lines.accept-all', $jobCard) }}" onsubmit="return confirm('Accept every line the crew sent and price them by the rules?');">
+            <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.crew-lines.accept-all', $jobCard) }}" data-confirm="Accept every line the crew sent and price them by the rules?">
                 @csrf
                 <button type="submit" class="corex-btn-outline text-xs">Accept all</button>
             </form>

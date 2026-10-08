@@ -812,7 +812,7 @@
                                 $propertyWithdrawn = strtolower(trim((string) ($lease->property?->status ?? ''))) === 'withdrawn';
                             @endphp
                             <button type="submit" form="lease-activate-form"
-                                @if($propertyWithdrawn) onclick="return confirm('This property is withdrawn. Are you sure you want to use it for this lease?');" @endif
+                                @if($propertyWithdrawn) data-confirm="This property is withdrawn. Are you sure you want to use it for this lease?" @endif
                                 class="corex-btn-primary text-xs">Activate</button>
                         @endif
                     </div>

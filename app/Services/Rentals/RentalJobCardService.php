@@ -791,13 +791,13 @@ class RentalJobCardService
         // BUILD 2 (§17.16) — the owner gets ONE mail through the agency mailbox path: the quote PDF attached, the
         // owner-facing amount, the estimate term and — when the amount needs the owner — the "approval needed" wording and
         // a pointer to the portal. (Replaces the plain RentalWorkOrderOwnerMail and the plain "decision needed" mail.)
+        //
+        // Johan, 9 Oct 2026 (J2): a price WITHIN the owner's no-approval limit is confirmed and approved automatically - nothing goes to the
+        // owner, so no mail is sent (the button says exactly that). Only a quote that needs the owner's decision is mailed.
         $workOrder = $jobCard->workOrder()->first();
-        app(RentalWorkOrderService::class)->sendOwnerQuote(
-            $workOrder,
-            $quote->fresh(),
-            $by,
-            needsDecision: $workOrder->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING,
-        );
+        if ($workOrder->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING) {
+            app(RentalWorkOrderService::class)->sendOwnerQuote($workOrder, $quote->fresh(), $by, needsDecision: true);
+        }
 
         $jobCard->syncStatusFromWorkOrder();
 

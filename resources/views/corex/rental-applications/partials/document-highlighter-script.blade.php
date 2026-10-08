@@ -560,7 +560,7 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
         },
         async deleteCaptureChip() {
             if (!this.captureChip || this.captureChip.mode !== 'edit' || this.captureChip.saving) return;
-            if (!confirm('Remove this captured line? This also removes its mark from the document.')) return;
+            if (!(await window.corexConfirm({ title: 'Remove this line', message: 'Remove this captured line? This also removes its mark from the document.', confirmLabel: 'Remove', danger: true }))) return;
             const markUid = this.captureChip.markId;
             this.captureChip.saving = true;
             try {
@@ -744,7 +744,7 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             // lose the marks either way — declining just keeps the viewer on
             // the current document with their marks intact.
             if (this.activeDocId !== null && this.activeDocId !== detail.documentId && this.dirty) {
-                if (! confirm('You have unsaved highlights or notes on this document. Save them before switching?')) {
+                if (! (await window.corexConfirm({ title: 'Unsaved highlights', message: 'You have unsaved highlights or notes on this document. Save them before switching?', confirmLabel: 'Save and switch', cancelLabel: 'Stay here' }))) {
                     return;
                 }
                 await this.applyHighlights();
@@ -1023,7 +1023,7 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
             // must never silently save-or-discard without the viewer knowing
             // which happened.
             if (this.dirty) {
-                if (! confirm('You have unsaved highlights or notes on this document. Save them before closing?')) {
+                if (! (await window.corexConfirm({ title: 'Unsaved highlights', message: 'You have unsaved highlights or notes on this document. Save them before closing?', confirmLabel: 'Save and close', cancelLabel: 'Stay here' }))) {
                     return;
                 }
                 await this.applyHighlights();

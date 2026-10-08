@@ -154,7 +154,7 @@
                     <button type="submit" class="corex-btn-outline text-xs">{{ $inspection->publicLinkIsValid() ? 'Regenerate' : 'Generate' }} link</button>
                 </form>
                 @if($inspection->publicLinkIsValid())
-                    <form method="POST" action="{{ route('corex.rental-inspections.public-link.revoke', $inspection) }}" onsubmit="return confirm('Revoke this link? Anyone with the current link or PDF will lose access immediately.');">
+                    <form method="POST" action="{{ route('corex.rental-inspections.public-link.revoke', $inspection) }}" data-confirm="Revoke this link? Anyone with the current link or PDF will lose access immediately." data-confirm-danger data-confirm-label="Revoke">
                         @csrf
                         @method('DELETE')
                         <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);">Revoke</button>
@@ -225,7 +225,7 @@
                      permission (`archive_completed`, managers). The server re-checks; this only hides a dead button. --}}
                 @if(!$inspection->trashed())
                     @if(auth()->user()->hasPermission('rental_inspections.archive') && (! $inspection->isEvidenceRecord() || auth()->user()->hasPermission('rental_inspections.archive_completed')))
-                    <form method="POST" action="{{ route('corex.rental-inspections.destroy', $inspection) }}" onsubmit="return confirm('Archive this inspection?');">
+                    <form method="POST" action="{{ route('corex.rental-inspections.destroy', $inspection) }}" data-confirm="Archive this inspection?" data-confirm-danger data-confirm-label="Archive">
                         @csrf
                         @method('DELETE')
                         <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);">Archive</button>
@@ -677,7 +677,7 @@
                     @endif
                     <a href="{{ route('corex.rental-inspections.scans.download', [$inspection, $scan]) }}" class="underline" style="color: var(--brand-icon, #0ea5e9);">Download original</a>
                     @permission('rental_inspections.create')
-                        <form method="POST" action="{{ route('corex.rental-inspections.scans.destroy', [$inspection, $scan]) }}" onsubmit="return confirm('Archive this scan?');">
+                        <form method="POST" action="{{ route('corex.rental-inspections.scans.destroy', [$inspection, $scan]) }}" data-confirm="Archive this scan?" data-confirm-danger data-confirm-label="Archive">
                             @csrf
                             @method('DELETE')
                             <button type="submit" class="underline" style="color: var(--ds-crimson); background: none; border: 0;">Archive</button>

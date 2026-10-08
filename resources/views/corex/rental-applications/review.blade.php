@@ -2512,7 +2512,8 @@
                             <p class="text-xs mb-2" style="color: var(--text-muted);">Sends this back to the agent, not the applicant.</p>
                             <textarea x-model="moreInfoReason" rows="3" class="corex-input text-xs w-full mb-3" placeholder="What's missing? (required)"></textarea>
                             <form method="POST" action="{{ route('corex.rental-applications.authorisation.request-more-info', $rentalApplication) }}"
-                                  @submit="if (!confirm('Send this back to the agent for more information?')) { $event.preventDefault(); return; } window.__raSuppressUnloadGuard = true; $refs.moreInfoReasonField.value = moreInfoReason">
+                                  data-confirm="Send this back to the agent for more information?" data-confirm-label="Send back"
+                                  @submit="window.__raSuppressUnloadGuard = true; $refs.moreInfoReasonField.value = moreInfoReason">
                                 @csrf
                                 <input type="hidden" name="reason" x-ref="moreInfoReasonField">
                                 <div class="flex justify-end gap-2">
@@ -4213,8 +4214,8 @@ function rentalReviewPropertyLink({ searchUrl, linkUrl, currentLabel }) {
             this.$refs.propertyIdInput.value = p.id;
             this.$refs.linkForm.submit();
         },
-        clear() {
-            if (!confirm('Clear the linked property? The affordability check will show "cannot be calculated" until a property is linked again.')) return;
+        async clear() {
+            if (!(await window.corexConfirm({ title: 'Clear the linked property', message: 'Clear the linked property? The affordability check will show "cannot be calculated" until a property is linked again.', confirmLabel: 'Clear it', danger: true }))) return;
             this.$refs.propertyIdInput.value = '';
             this.$refs.linkForm.submit();
         },

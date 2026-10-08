@@ -43,7 +43,7 @@
                             <button type="submit" class="corex-btn-outline text-xs">{{ $invoice->share_with_owner ? 'Stop sharing with owner' : 'Share with owner' }}</button>
                         </form>
                         <button type="button" onclick="document.getElementById('edit-invoice-form-{{ $invoice->id }}').classList.toggle('hidden')" class="corex-btn-outline text-xs">Edit / replace file</button>
-                        <form method="POST" action="{{ route('corex.rental-work-orders.invoices.destroy', [$workOrder, $invoice]) }}" onsubmit="return confirm('Archive this invoice?');">
+                        <form method="POST" action="{{ route('corex.rental-work-orders.invoices.destroy', [$workOrder, $invoice]) }}" data-confirm="Archive this invoice?" data-confirm-danger data-confirm-label="Archive">
                             @csrf
                             @method('DELETE')
                             <button type="submit" class="corex-btn-outline text-xs">Archive</button>

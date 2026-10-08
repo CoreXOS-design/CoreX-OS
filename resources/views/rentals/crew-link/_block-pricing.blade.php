@@ -89,7 +89,7 @@
                         <button type="submit" class="cj-btn primary small">Save changes</button>
                     </form>
                 </details>
-                <form method="POST" action="{{ $lineUrl('line_archive', $l['id']) }}" onsubmit="return confirm('Remove this line?');">
+                <form method="POST" action="{{ $lineUrl('line_archive', $l['id']) }}" data-confirm="Remove this line?" data-confirm-danger data-confirm-label="Remove">
                     @csrf
                     <button type="submit" class="cj-btn ghost small">Remove this line</button>
                 </form>

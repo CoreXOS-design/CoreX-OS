@@ -111,7 +111,7 @@
                             </form>
                         @else
                             <button type="button" class="text-xs" style="color: var(--ds-blue, #2563eb);" @click="editOpenId = (editOpenId === {{ $template->id }} ? null : {{ $template->id }})">Edit</button>
-                            <form method="POST" action="{{ route('corex.settings.rental-applications.decline-reason-templates.archive', $template) }}" class="inline" onsubmit="return confirm('Archive this decline reason template?');">
+                            <form method="POST" action="{{ route('corex.settings.rental-applications.decline-reason-templates.archive', $template) }}" class="inline" data-confirm="Archive this decline reason template?" data-confirm-danger data-confirm-label="Archive">
                                 @csrf
                                 <button type="submit" class="text-xs ml-2" style="color: var(--ds-red, #dc2626);">Archive</button>
                             </form>

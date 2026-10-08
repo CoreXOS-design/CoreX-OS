@@ -958,15 +958,15 @@ function rentalsPortal() {
         // W6 (8 Oct 2026) - the owner books the repair appointment / reports progress on their work order.
         async setAppointment(w) {
             const at = this.apptDraft[w.id + '_at'];
-            if (!at) { alert('Please choose a date and time.'); return; }
+            if (!at) { this.say('Please choose a date and time.'); return; }
             const r = await portalFetch('/api/v1/client/rentals/landlord/work-orders/' + w.id + '/appointment', { method: 'POST', body: JSON.stringify({ appointment_at: at, note: this.apptDraft[w.id + '_note'] || '' }) });
             if (r.ok) { this.apptDraft[w.id + '_at'] = ''; await this.loadWorkOrders(); }
-            else alert(r.data?.message || 'Could not set the appointment.');
+            else this.say(r.data?.message || 'Could not set the appointment.');
         },
         async reportProgress(w, action) {
             const r = await portalFetch('/api/v1/client/rentals/landlord/work-orders/' + w.id + '/progress', { method: 'POST', body: JSON.stringify({ action }) });
             if (r.ok) await this.loadWorkOrders();
-            else alert(r.data?.message || 'Could not record that.');
+            else this.say(r.data?.message || 'Could not record that.');
         },
         // BUILD 3 BEGIN — §17.3.5: one list, two endpoints: the tenant's work orders, or the landlord's (each carries its own `client` view).
         async loadWorkOrders() {
@@ -1178,19 +1178,23 @@ function rentalsPortal() {
             const r = await portalFetch('/api/v1/client/rentals/landlord/properties/' + id);
             if (r.ok) this.propertyDetail = r.data.property;
         },
-        promptNote() {
-            return window.prompt("Add a note (required for 'I'll handle it myself'):") || '';
+        // The app's own dialogs (partials/corex-confirm) - never the browser's alert() / prompt().
+        say(message) { return window.corexNotice ? window.corexNotice(message) : Promise.resolve(); },
+        async promptNote() {
+            if (!window.corexConfirm) return '';
+            const note = await window.corexConfirm({ title: 'Handle it yourself', message: "Please tell us who will arrange the repair.", confirmLabel: 'Send', input: { label: "A note (required for 'I'll handle it myself')", required: true } });
+            return note === false ? '' : note;
         },
         // §22 — each decision is one press: the button is off while it is sent, and the server answers a repeat with the first answer.
         async decideFault(id, decision, note) {
             const bk = 'fault' + id;
             if (this.busy[bk]) return;
-            if (decision === 'approve_owner_handles' && !note) { note = this.promptNote(); if (!note) return; }
+            if (decision === 'approve_owner_handles' && !note) { note = await this.promptNote(); if (!note) return; }
             this.busy[bk] = true;
             try {
                 const r = await portalFetch('/api/v1/client/rentals/landlord/fault-reports/' + id + '/decision', { method: 'POST', body: JSON.stringify({ decision, note }), key: 'decide-fault-' + id + '-' + decision });
                 if (r.ok) this.loadDecisions();
-                else alert(r.data?.message || 'Could not record decision.');
+                else this.say(r.data?.message || 'Could not record decision.');
             } finally { this.busy[bk] = false; }
         },
         async openFault(id) {
@@ -1199,7 +1203,7 @@ function rentalsPortal() {
             if (r.ok) {
                 this.faultDetail = r.data.fault_report;
                 this.$nextTick(() => { const el = document.querySelector('[data-fault-detail]'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
-            } else alert(r.data?.message || 'Could not open this.');
+            } else this.say(r.data?.message || 'Could not open this.');
         },
         async submitFaultDecision() {
             const f = this.faultForm;
@@ -1233,19 +1237,23 @@ function rentalsPortal() {
             try {
                 const r = await portalFetch('/api/v1/client/rentals/landlord/work-orders/' + id + '/decision', { method: 'POST', body: JSON.stringify({ decision, note: note ? String(note).trim() : '' }), key: 'decide-wo-' + id + '-' + decision });
                 if (r.ok) { await this.loadDecisions(); await this.loadWorkOrders(); }
-                else alert(r.data?.message || 'Could not record decision.');
+                else this.say(r.data?.message || 'Could not record decision.');
             } finally { this.busy[bk] = false; }
         },
         // BUILD 2 BEGIN (§17.7.4) - the decision carries the revision the owner saw; a stale one answers 409 and the list is refreshed.
         async decideVariation(v, decision) {
             const bk = 'var' + v.id;
             if (this.busy[bk]) return;
-            const note = decision === 'decline' ? (window.prompt('Add a note (optional):') || '') : '';
+            let note = '';
+            if (decision === 'decline' && window.corexConfirm) {
+                note = await window.corexConfirm({ title: 'Decline the extra work', message: 'Decline this extra work?', confirmLabel: 'Decline', danger: true, input: { label: 'A note for your agent (optional)', required: false } });
+                if (note === false) return;
+            }
             this.busy[bk] = true;
             try {
                 const r = await portalFetch('/api/v1/client/rentals/landlord/variations/' + v.id + '/decision', { method: 'POST', body: JSON.stringify({ decision, revision: v.revision, note }), key: 'decide-var-' + v.id + '-' + decision + '-' + v.revision });
                 if (r.ok) { await this.loadDecisions(); await this.loadWorkOrders(); return; }
-                alert(r.data?.message || 'Could not record decision.');
+                this.say(r.data?.message || 'Could not record decision.');
                 if (r.status === 409 || r.status === 422) this.loadDecisions();
             } finally { this.busy[bk] = false; }
         },
@@ -1315,5 +1323,6 @@ function rentalsPortal() {
     };
 }
 </script>
+@include('partials.corex-confirm')
 </body>
 </html>

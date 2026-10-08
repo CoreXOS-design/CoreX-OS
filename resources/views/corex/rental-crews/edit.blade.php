@@ -63,7 +63,7 @@
                     @if($member->role)<span style="color: var(--text-muted);"> — {{ $member->role }}</span>@endif
                     @if($member->phone)<span style="color: var(--text-muted);"> · {{ $member->phone }}</span>@endif
                 </div>
-                <form method="POST" action="{{ route('corex.rental-crews.members.archive', [$crew, $member]) }}" onsubmit="return confirm('Archive this member?');">
+                <form method="POST" action="{{ route('corex.rental-crews.members.archive', [$crew, $member]) }}" data-confirm="Archive this member?" data-confirm-danger data-confirm-label="Archive">
                     @csrf
                     @method('DELETE')
                     <button type="submit" class="text-xs" style="color: var(--ds-red, #dc2626);">Archive</button>

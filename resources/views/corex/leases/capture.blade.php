@@ -392,6 +392,7 @@ function leaseCaptureForm(searchUrl, seed, propertyCfg, cfg) {
         approvedRent: cfg.approvedRent === null || cfg.approvedRent === undefined ? null : Number(cfg.approvedRent),
         rentMode: cfg.rentMode || 'warn',
         rentNow: cfg.rentNow === null || cfg.rentNow === undefined ? null : Number(cfg.rentNow),
+        withdrawnAccepted: false,
         get rentOver() {
             return (this.approvedRent !== null && this.rentNow !== null && !isNaN(this.rentNow) && Math.round(this.rentNow * 100) > Math.round(this.approvedRent * 100))
                 ? Math.round((this.rentNow - this.approvedRent) * 100) / 100 : null;
@@ -554,9 +555,14 @@ function leaseCaptureForm(searchUrl, seed, propertyCfg, cfg) {
             // before the lease goes live (never for "prepare for signing", which does not activate).
             const intent = e.submitter && e.submitter.value ? e.submitter.value : 'lease_only';
             const activating = intent === 'paper_copy' || (intent === 'lease_only' && this.activate);
-            if (activating && String(this.propertyStatus).toLowerCase() === 'withdrawn'
-                && !window.confirm('This property is withdrawn. Are you sure you want to use it for this lease?')) {
+            if (activating && String(this.propertyStatus).toLowerCase() === 'withdrawn' && !this.withdrawnAccepted) {
                 e.preventDefault();
+                const form = e.target, submitter = e.submitter;
+                window.corexConfirm({ title: 'Withdrawn property', message: 'This property is withdrawn. Are you sure you want to use it for this lease?', confirmLabel: 'Yes, use it' }).then((yes) => {
+                    if (!yes) { return; }
+                    this.withdrawnAccepted = true;
+                    if (form.requestSubmit) { form.requestSubmit(submitter || undefined); } else { form.submit(); }
+                });
             }
         },
         async search() {

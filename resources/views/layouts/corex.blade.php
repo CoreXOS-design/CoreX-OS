@@ -266,6 +266,9 @@
         {{-- Global container-scroll preserve/restore across full-page reloads. --}}
         @include('layouts._scroll-restore')
 
+        {{-- The app's own confirm / notice dialog (no browser confirm()). --}}
+        @include('partials.corex-confirm')
+
         @stack('scripts')
     </body>
 </html>

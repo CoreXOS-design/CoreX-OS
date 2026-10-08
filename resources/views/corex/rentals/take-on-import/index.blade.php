@@ -140,12 +140,12 @@
                                     @endif
                                     @permission('rentals_take_on_import.manage')
                                     @if ($run->status === 'completed')
-                                        <form method="POST" action="{{ route('corex.rentals.take-on-import.archive', $run) }}" class="inline" onsubmit="return confirm('Archive this batch? Anything it created that has not been edited since will be archived.');">
+                                        <form method="POST" action="{{ route('corex.rentals.take-on-import.archive', $run) }}" class="inline" data-confirm="Archive this batch? Anything it created that has not been edited since will be archived." data-confirm-danger data-confirm-label="Archive">
                                             @csrf
                                             <button type="submit" class="corex-btn-danger-outline text-xs">Archive</button>
                                         </form>
                                     @elseif (!in_array($run->status, ['completed', 'cancelled']))
-                                        <form method="POST" action="{{ route('corex.rentals.take-on-import.cancel', $run) }}" class="inline" onsubmit="return confirm('Cancel this import batch? Nothing confirmed so far will be undone.');">
+                                        <form method="POST" action="{{ route('corex.rentals.take-on-import.cancel', $run) }}" class="inline" data-confirm="Cancel this import batch? Nothing confirmed so far will be undone." data-confirm-danger data-confirm-label="Cancel">
                                             @csrf
                                             <button type="submit" class="corex-btn-danger-outline text-xs">Cancel</button>
                                         </form>

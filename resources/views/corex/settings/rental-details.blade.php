@@ -110,7 +110,7 @@
                     @endif
                     <div class="text-[11px] mt-1" style="color: var(--text-muted);">
                         {{ $customField->key }} &middot; {{ $customField->creator ? 'Added by ' . $customField->creator->name : 'Creator not recorded' }}
-                        <form method="POST" action="{{ route('corex.settings.rental-details.custom-fields.archive', $customField) }}" style="display:inline;" onsubmit="return confirm('Retire this field? Properties that already have a value keep it; it just won\'t be on new ones.');">
+                        <form method="POST" action="{{ route('corex.settings.rental-details.custom-fields.archive', $customField) }}" style="display:inline;" data-confirm="Retire this field? Properties that already have a value keep it; it just won&#x27;t be on new ones.">
                             @csrf
                             <button type="submit" style="color: var(--text-muted); margin-left: 6px;">Retire</button>
                         </form>

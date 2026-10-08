@@ -94,7 +94,7 @@
                                     @if($t->category === 'residential')
                                         <a href="{{ route('corex.rental-lease-templates.edit', $t) }}#field-map" class="text-xs">Map fields</a>
                                     @endif
-                                    <form method="POST" action="{{ route('corex.rental-lease-templates.destroy', $t) }}" class="inline" onsubmit="return confirm('Archive this template?');">
+                                    <form method="POST" action="{{ route('corex.rental-lease-templates.destroy', $t) }}" class="inline" data-confirm="Archive this template?" data-confirm-danger data-confirm-label="Archive">
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="text-xs" style="color: var(--ds-crimson);">Archive</button>

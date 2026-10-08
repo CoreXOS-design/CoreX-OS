@@ -61,7 +61,7 @@
         </div>
     </div>
     <div class="flex justify-end gap-2">
-        <button type="submit" name="restore_default" value="1" class="corex-btn-outline text-sm" onclick="return confirm('Restore the standard estimate wording?');">Restore default</button>
+        <button type="submit" name="restore_default" value="1" class="corex-btn-outline text-sm" data-confirm="Restore the standard estimate wording?">Restore default</button>
         <button type="submit" class="corex-btn-primary text-sm">Save</button>
     </div>
 </form>

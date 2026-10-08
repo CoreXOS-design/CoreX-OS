@@ -94,7 +94,7 @@
                         <form method="POST" action="{{ route('corex.settings.rental-applications.checklist.sections.move', [$section, 'down']) }}">@csrf<button type="submit" style="color: var(--text-secondary);" title="Move down">&darr;</button></form>
                         <button type="button" style="color: var(--ds-blue, #2563eb);" @click="editSectionId = (editSectionId === {{ $section->id }} ? null : {{ $section->id }})">Rename</button>
                         <button type="button" style="color: var(--ds-blue, #2563eb);" @click="addItemForSectionId = (addItemForSectionId === {{ $section->id }} ? null : {{ $section->id }})">+ Add item</button>
-                        <form method="POST" action="{{ route('corex.settings.rental-applications.checklist.sections.archive', $section) }}" onsubmit="return confirm('Archive this section and every item inside it?');">
+                        <form method="POST" action="{{ route('corex.settings.rental-applications.checklist.sections.archive', $section) }}" data-confirm="Archive this section and every item inside it?" data-confirm-danger data-confirm-label="Archive">
                             @csrf
                             <button type="submit" style="color: var(--ds-red, #dc2626);">Archive</button>
                         </form>
@@ -170,7 +170,7 @@
                                 @unless($item->is_derived)
                                     <button type="button" style="color: var(--ds-blue, #2563eb);" @click="editItemId = (editItemId === {{ $item->id }} ? null : {{ $item->id }})">Edit</button>
                                 @endunless
-                                <form method="POST" action="{{ route('corex.settings.rental-applications.checklist.items.archive', $item) }}" onsubmit="return confirm('Archive this checklist item?');">
+                                <form method="POST" action="{{ route('corex.settings.rental-applications.checklist.items.archive', $item) }}" data-confirm="Archive this checklist item?" data-confirm-danger data-confirm-label="Archive">
                                     @csrf
                                     <button type="submit" style="color: var(--ds-red, #dc2626);">Archive</button>
                                 </form>

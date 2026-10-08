@@ -70,7 +70,7 @@
                                     </form>
                                 @else
                                     <a href="{{ route('corex.rental-notice-templates.edit', $template) }}" class="text-xs" style="color: var(--brand-icon, #0ea5e9);">Edit</a>
-                                    <form method="POST" action="{{ route('corex.rental-notice-templates.archive', $template) }}" class="inline" onsubmit="return confirm('Archive this template?');">
+                                    <form method="POST" action="{{ route('corex.rental-notice-templates.archive', $template) }}" class="inline" data-confirm="Archive this template?" data-confirm-danger data-confirm-label="Archive">
                                         @csrf
                                         <button type="submit" class="text-xs" style="color: #991b1b;">Archive</button>
                                     </form>

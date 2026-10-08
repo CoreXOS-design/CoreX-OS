@@ -1033,7 +1033,7 @@ function rentalApplicationForm() {
         },
 
         async removeDoc(doc) {
-            if (!confirm('Remove ' + doc.name + '?')) return;
+            if (!(await window.corexConfirm({ message: 'Remove ' + doc.name + '?', confirmLabel: 'Remove', danger: true }))) return;
             try {
                 const res = await fetch(`{{ url('/rental-application/' . $application->token . '/documents') }}/${doc.id}/remove`, {
                     method: 'POST',
@@ -1166,5 +1166,6 @@ function rentalApplicationForm() {
         });
     </script>
 @endif
+@include('partials.corex-confirm')
 </body>
 </html>

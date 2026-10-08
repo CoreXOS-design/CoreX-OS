@@ -182,5 +182,6 @@
 
         <p class="note">Refresh this page to see the latest. A job drops off this list once the office closes it.</p>
     </div>
+@include('partials.corex-confirm')
 </body>
 </html>

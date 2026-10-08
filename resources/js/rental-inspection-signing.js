@@ -101,7 +101,7 @@ window.inspectionSigningLinks = function (cfg) {
             return this.act(row, async () => {
                 const data = await this.ensure(row, 'copied');
                 try { await navigator.clipboard.writeText(data.url); this.notice = 'Link copied.'; }
-                catch (e) { window.prompt('Copy this link:', data.url); }
+                catch (e) { window.corexNotice('Copy this link:\n' + data.url, 'Copy this link'); }
             });
         },
 
@@ -121,8 +121,8 @@ window.inspectionSigningLinks = function (cfg) {
             });
         },
 
-        revoke(row) {
-            if (!row.link || !window.confirm('Revoke ' + row.name + "'s link? It stops working straight away.")) return;
+        async revoke(row) {
+            if (!row.link || !(await window.corexConfirm({ title: 'Revoke link', message: 'Revoke ' + row.name + "'s link? It stops working straight away.", confirmLabel: 'Revoke', danger: true }))) return;
             return this.act(row, async () => {
                 const data = await this.request('POST', `${this.root}/${row.link.id}/revoke`);
                 this.apply(data.panel);

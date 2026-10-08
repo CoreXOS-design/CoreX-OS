@@ -76,7 +76,7 @@
 
     @permission('rentals_take_on_import.manage')
     @if ($run->status === 'completed')
-        <form method="POST" action="{{ route('corex.rentals.take-on-import.archive', $run) }}" onsubmit="return confirm('Archive this batch? Anything it created that has not been edited since will be archived.');">
+        <form method="POST" action="{{ route('corex.rentals.take-on-import.archive', $run) }}" data-confirm="Archive this batch? Anything it created that has not been edited since will be archived." data-confirm-danger data-confirm-label="Archive">
             @csrf
             <button type="submit" class="corex-btn-danger-outline text-xs">Archive this batch</button>
         </form>

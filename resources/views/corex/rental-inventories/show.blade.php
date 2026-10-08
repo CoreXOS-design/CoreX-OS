@@ -166,7 +166,7 @@
                         <div><span class="font-semibold">{{ $line->quantity }}x</span> {{ $line->description }}</div>
                         @permission('rental_inventories.create')
                         @if(!in_array($inventory->status, ['completed', 'cancelled']))
-                        <form method="POST" action="{{ route('corex.rental-inventories.lines.retire', [$inventory, $line]) }}" onsubmit="return confirm('Remove this line? It stays in the record, marked removed.');" class="shrink-0">
+                        <form method="POST" action="{{ route('corex.rental-inventories.lines.retire', [$inventory, $line]) }}" data-confirm="Remove this line? It stays in the record, marked removed." data-confirm-danger data-confirm-label="Remove" class="shrink-0">
                             @csrf
                             <button type="submit" class="text-xs" style="color: var(--ds-crimson,#c41e3a); background:none; border:none; cursor:pointer;">Remove</button>
                         </form>
@@ -198,7 +198,7 @@
                         <div><span class="font-semibold">{{ $line->quantity }}x</span> {{ $line->description }}</div>
                         @permission('rental_inventories.create')
                         @if(!in_array($inventory->status, ['completed', 'cancelled']))
-                        <form method="POST" action="{{ route('corex.rental-inventories.lines.retire', [$inventory, $line]) }}" onsubmit="return confirm('Remove this line? It stays in the record, marked removed.');" class="shrink-0">
+                        <form method="POST" action="{{ route('corex.rental-inventories.lines.retire', [$inventory, $line]) }}" data-confirm="Remove this line? It stays in the record, marked removed." data-confirm-danger data-confirm-label="Remove" class="shrink-0">
                             @csrf
                             <button type="submit" class="text-xs" style="color: var(--ds-crimson,#c41e3a); background:none; border:none; cursor:pointer;">Remove</button>
                         </form>
@@ -498,7 +498,7 @@
 
     @permission('rental_inventories.create')
     @if(!in_array($inventory->status, ['completed', 'cancelled']))
-    <form method="POST" action="{{ route('corex.rental-inventories.cancel', $inventory) }}" onsubmit="return confirm('Cancel this inventory?');" class="pt-2">
+    <form method="POST" action="{{ route('corex.rental-inventories.cancel', $inventory) }}" data-confirm="Cancel this inventory?" data-confirm-danger data-confirm-label="Cancel" class="pt-2">
         @csrf
         <input type="hidden" name="cancel_reason" value="Cancelled by agent">
         <button type="submit" class="text-xs" style="color: var(--ds-crimson,#c41e3a); background:none; border:none; cursor:pointer;">Cancel this inventory</button>

@@ -87,7 +87,7 @@
                     if (clicked === 'not_fixed' && note.length < 5) {
                         e.preventDefault();
                         document.getElementById('note').focus();
-                        alert('Please tell us what is still wrong (at least 5 characters).');
+                        window.corexNotice('Please tell us what is still wrong (at least 5 characters).');
                         return;
                     }
                     form.querySelectorAll('button[type=submit]').forEach(function (b) { b.disabled = true; });
@@ -98,5 +98,6 @@
             })();
         </script>
     </div>
+@include('partials.corex-confirm')
 </body>
 </html>

@@ -430,6 +430,8 @@ class RentalFaultReportController extends Controller
             'decisionSummary' => $rentalFaultReport->decisionSummary(),
             // Create work order: every active contractor of the agency, those that suit this type of work first (searchable on the screen).
             'contractorPicker' => app(\App\Services\Rentals\RentalFaultContractorService::class)->pickerFor($rentalFaultReport),
+            // the agency's active crews, for the optional "which crew" pick on the internal-crew route
+            'crewPicker' => \App\Models\RentalCrew::query()->active()->with('members')->orderBy('name')->get(),
         ]);
     }
 
@@ -669,6 +671,8 @@ class RentalFaultReportController extends Controller
             // the owner's own contractor, only when the fault carries no decision to take them from
             'contractor_name' => ['nullable', 'string', 'max:191'],
             'contractor_phone' => ['nullable', 'string', 'max:40'],
+            // the internal crew to put on the job card (optional; checked against the agency's active crews by the service)
+            'rental_crew_id' => ['nullable', 'integer'],
         ]);
         // A chosen contractor with no explicit "who" means the agency's contractor; nothing at all keeps the old default (internal crew).
         $validated['assignment_type'] = $validated['assignment_type']

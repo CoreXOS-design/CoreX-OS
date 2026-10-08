@@ -172,7 +172,18 @@ class RentalWorkOrderService
 
             $jobCard = null;
             if ($type === RentalWorkOrder::ASSIGNMENT_INTERNAL) {
+                // Johan, 9 Oct 2026: the agent may pick the crew right here (optional), so the job card opens with the crew assigned.
+                $crew = null;
+                if (! empty($choice['rental_crew_id'])) {
+                    $crew = \App\Models\RentalCrew::withoutGlobalScopes()->where('agency_id', $locked->agency_id)->where('is_active', true)->whereNull('deleted_at')->find((int) $choice['rental_crew_id']);
+                    if (! $crew) {
+                        throw new \LogicException('That crew is not available - pick another one, or leave the crew for later.');
+                    }
+                }
                 $jobCard = app(RentalJobCardService::class)->createFromFaultReport($locked, $attributes, $by);
+                if ($crew) {
+                    $jobCard->assignCrew($crew, $by);
+                }
                 $workOrder = $jobCard->workOrder()->withoutGlobalScopes()->firstOrFail();
             } else {
                 $workOrder = $this->fromFaultReport($locked, $by, $attributes);

@@ -64,7 +64,7 @@
                         @elseif($doc->external_url)
                             <a href="{{ $doc->external_url }}" target="_blank" rel="noopener" class="text-xs" style="color: var(--brand-icon, #0ea5e9);">Open link</a>
                         @endif
-                        <form method="POST" action="{{ route('corex.rental-fault-types.documents.destroy', [$faultType, $doc]) }}" onsubmit="return confirm('Remove this document?');">
+                        <form method="POST" action="{{ route('corex.rental-fault-types.documents.destroy', [$faultType, $doc]) }}" data-confirm="Remove this document?" data-confirm-danger data-confirm-label="Remove">
                             @csrf
                             @method('DELETE')
                             <button type="submit" class="text-xs" style="color: #991b1b;">Remove</button>

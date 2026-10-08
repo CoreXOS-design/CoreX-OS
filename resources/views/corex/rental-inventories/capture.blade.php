@@ -604,7 +604,7 @@
                                             <div class="relative rounded-md overflow-hidden" style="aspect-ratio:1/1; background:var(--surface-3);">
                                                 <img :src="photo.storage_path" class="w-full h-full object-cover cursor-pointer" @click="openTaggerForPhoto(room, photo)" alt="Room photo">
                                                 <span x-show="photo.lines && photo.lines.length" class="absolute top-0.5 left-0.5 text-[10px] font-bold text-white rounded-full flex items-center justify-center" style="width:16px; height:16px; background:var(--brand-button,#0ea5e9);" x-text="photo.lines.length"></span>
-                                                <button type="button" tabindex="-1" @click.stop="if (confirm('Archive this photo?')) photoUploader().archivePhoto(photo.id)"
+                                                <button type="button" tabindex="-1" @click.stop="window.corexConfirm({ message: 'Archive this photo?', confirmLabel: 'Archive', danger: true }).then((yes) => { if (yes) photoUploader().archivePhoto(photo.id) })"
                                                         class="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
                                                         style="background:var(--ds-crimson,#c41e3a); color:#fff; line-height:1;" title="Archive">&times;</button>
                                             </div>
@@ -1131,7 +1131,7 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl, seedSpac
         // advertising Spaces yet) surfaced via the same spaceError slot
         // addSpace() already uses.
         async seedSpacesFromListing() {
-            if (!confirm('Create spaces from this property\'s advertising Spaces (bedrooms, bathrooms, etc.)? You can edit or add more afterwards.')) return;
+            if (!(await window.corexConfirm({ message: 'Create spaces from this property\'s advertising Spaces (bedrooms, bathrooms, etc.)? You can edit or add more afterwards.', confirmLabel: 'Create spaces' }))) return;
             this.seedBusy = true;
             this.spaceError = '';
             try {
@@ -1163,7 +1163,7 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl, seedSpac
         // supposed to be doing for them." Additive only: appends the
         // copied lines to whatever already exists, never overwrites.
         async copyFromLastInventory() {
-            if (!confirm('Copy every item from the last inventory into this one?')) return;
+            if (!(await window.corexConfirm({ message: 'Copy every item from the last inventory into this one?', confirmLabel: 'Copy items' }))) return;
             this.copyBusy = true;
             this.copyError = '';
             try {
@@ -1482,7 +1482,7 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl, seedSpac
             }
         },
         async retireLine(line) {
-            if (!confirm('Remove this item? It stays in the record, marked removed.')) return;
+            if (!(await window.corexConfirm({ message: 'Remove this item? It stays in the record, marked removed.', confirmLabel: 'Remove', danger: true }))) return;
             const res = await fetch(`${this.baseUrl}/lines/${line.id}/retire`, {
                 method: 'POST',
                 headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' },

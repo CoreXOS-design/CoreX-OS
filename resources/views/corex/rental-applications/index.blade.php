@@ -470,7 +470,7 @@
                              matching every other module's {module}.archive convention. --}}
                         @permission('rental_applications.archive')
                             <form method="POST" action="{{ route('corex.rental-applications.destroy', $application) }}"
-                                  onsubmit="return confirm('Archive this rental application? It can be restored later.');" class="inline">
+                                  data-confirm="Archive this rental application? It can be restored later." data-confirm-danger data-confirm-label="Archive" class="inline">
                                 @csrf
                                 @method('DELETE')
                                 <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);">Archive</button>

@@ -88,7 +88,7 @@
                                     </form>
                                 @else
                                     <a href="{{ route('corex.rental-crews.edit', $crew) }}" class="text-xs" style="color: var(--brand-icon, #0ea5e9);">Edit</a>
-                                    <form method="POST" action="{{ route('corex.rental-crews.archive', $crew) }}" class="inline" onsubmit="return confirm('Archive this crew? It stays visible on job cards it is already assigned to, but can no longer be newly picked.');">
+                                    <form method="POST" action="{{ route('corex.rental-crews.archive', $crew) }}" class="inline" data-confirm="Archive this crew? It stays visible on job cards it is already assigned to, but can no longer be newly picked." data-confirm-danger data-confirm-label="Archive">
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="text-xs" style="color: #991b1b;">Archive</button>

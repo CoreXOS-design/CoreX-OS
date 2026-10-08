@@ -77,7 +77,7 @@
 
     @if($crew->is_active && $crewLinksOn)
         <form method="POST" action="{{ route('corex.rental-crews.link.issue', $crew) }}" class="flex flex-wrap items-end gap-2"
-              @if($panel['state'] === 'live') onsubmit="return confirm('Regenerate the link? The current link stops working straight away, so the crew must be given the new one.');" @endif>
+              @if($panel['state'] === 'live') data-confirm="Regenerate the link? The current link stops working straight away, so the crew must be given the new one." data-confirm-danger data-confirm-label="Regenerate" @endif>
             @csrf
             @if($crew->email)
                 {{-- Never pre-filled into a text box: pressing Create / Regenerate must not quietly email anyone. --}}
@@ -92,7 +92,7 @@
     @endif
 
     @if($panel['state'] === 'live')
-        <form method="POST" action="{{ route('corex.rental-crews.link.revoke', $crew) }}" onsubmit="return confirm('Revoke the link? It stops working straight away.');">
+        <form method="POST" action="{{ route('corex.rental-crews.link.revoke', $crew) }}" data-confirm="Revoke the link? It stops working straight away." data-confirm-danger data-confirm-label="Revoke">
             @csrf
             @method('DELETE')
             <button type="submit" class="text-xs" style="color:#991b1b;" data-crew-link-revoke>Revoke link</button>

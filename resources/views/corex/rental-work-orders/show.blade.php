@@ -191,7 +191,7 @@
             @endpermission
             @permission('rental_work_orders.create')
                 @if($workOrder->isDeletable() && $workOrder->status === \App\Models\RentalWorkOrder::STATUS_REPORTED)
-                    <form method="POST" action="{{ route('corex.rental-work-orders.destroy', $workOrder) }}" onsubmit="return confirm('Archive this work order?');">
+                    <form method="POST" action="{{ route('corex.rental-work-orders.destroy', $workOrder) }}" data-confirm="Archive this work order?" data-confirm-danger data-confirm-label="Archive">
                         @csrf
                         @method('DELETE')
                         <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);">Archive</button>
@@ -271,7 +271,7 @@
                                 </form>
                             @endunless
                             <button type="button" onclick="document.getElementById('edit-quote-form-{{ $quote->id }}').classList.toggle('hidden')" class="corex-btn-outline text-xs">Edit</button>
-                            <form method="POST" action="{{ route('corex.rental-work-orders.quotes.destroy', [$workOrder, $quote]) }}" onsubmit="return confirm('Archive this quote?');">
+                            <form method="POST" action="{{ route('corex.rental-work-orders.quotes.destroy', [$workOrder, $quote]) }}" data-confirm="Archive this quote?" data-confirm-danger data-confirm-label="Archive">
                                 @csrf
                                 @method('DELETE')
                                 <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);">Archive</button>

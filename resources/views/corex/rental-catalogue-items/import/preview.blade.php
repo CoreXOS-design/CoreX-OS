@@ -81,7 +81,7 @@
         </div>
     </div>
 
-    <form method="POST" action="{{ route('corex.rental-catalogue-items.import.confirm', $token) }}" onsubmit="return confirm('Import {{ $counts['create'] }} new item(s) and update {{ $counts['update'] }} existing item(s)?');">
+    <form method="POST" action="{{ route('corex.rental-catalogue-items.import.confirm', $token) }}" data-confirm="Import {{ $counts['create'] }} new item(s) and update {{ $counts['update'] }} existing item(s)?" data-confirm-label="Import">
         @csrf
         <button type="submit" class="corex-btn-primary text-sm" @disabled($counts['create'] === 0 && $counts['update'] === 0)>
             Confirm import ({{ $counts['create'] + $counts['update'] }} row(s))

@@ -47,19 +47,19 @@
             @if($freshToken)<input type="hidden" name="link_token" value="{{ $freshToken }}">@endif
             <input type="email" name="email" required maxlength="191" value="{{ old('email', $crew?->email) }}" placeholder="Email address" aria-label="Email the link to" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
             <button type="submit" class="corex-btn-outline text-xs w-full"
-                @if(! $freshToken && $crewLink) onclick="return confirm('This creates a new link and emails it. The old link stops working.');" @endif>
+                @if(! $freshToken && $crewLink) data-confirm="This creates a new link and emails it. The old link stops working." data-confirm-danger data-confirm-label="This" @endif>
                 {{ $freshToken ? 'Email this link' : 'Email a link' }}
             </button>
         </form>
 
         <div class="flex gap-2">
             <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.crew-link.issue', $jobCard) }}" class="flex-1"
-                  @if($crewLink) onsubmit="return confirm('Create a new link? The old link stops working.');" @endif>
+                  @if($crewLink) data-confirm="Create a new link? The old link stops working." data-confirm-danger data-confirm-label="Create" @endif>
                 @csrf
                 <button type="submit" class="corex-btn-primary text-xs w-full">{{ $crewLink ? 'Re-issue link' : 'Generate link' }}</button>
             </form>
             @if($crewLink)
-                <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.crew-link.revoke', $jobCard) }}" onsubmit="return confirm('Revoke the link? It stops opening immediately.');">
+                <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.crew-link.revoke', $jobCard) }}" data-confirm="Revoke the link? It stops opening immediately." data-confirm-danger data-confirm-label="Revoke">
                     @csrf
                     @method('DELETE')
                     <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-crimson);">Revoke</button>
