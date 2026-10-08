@@ -260,7 +260,7 @@ The script prints a numbered step list as it runs. **Watch for
 | Step | What it does | If it fails |
 |---|---|---|
 | 1. Pre-flight | Confirms you're on the right server, on the right git branch, with a clean working tree, all tools installed, `.env` matching the target environment, and ≥ 2 GB free disk space. | Nothing has been touched. Investigate + fix; re-run. |
-| 2. Backup | Dumps the entire database to `/var/backups/hfc/<db>-pre-deploy-<timestamp>.sql.gz` and uploads it to the Hetzner Storage Box via rsync over SSH. | Nothing has been touched. Common cause: SSH key not registered with Storage Box (§2c) or `mysqldump` not installed (§2a). |
+| 2. Backup | Dumps the entire database to `$BACKUP_DIR/<db>-pre-deploy-<timestamp>.sql.gz` (default `/mnt/HC_Volume_103099143/corex-backups/pre-deploy/<staging\|production>/` when that volume is mounted, else `/var/backups/hfc/`; set `BACKUP_DIR` to override), checks it with `gzip -t`, keeps only the newest `BACKUP_KEEP_LATEST` (default 5) dumps of that database, and uploads it to the Hetzner Storage Box via rsync over SSH. | Nothing has been touched. Common cause: SSH key not registered with Storage Box (§2c) or `mysqldump` not installed (§2a). |
 | 3. Maintenance ON | Tells Laravel to serve a 503 page to everyone. The script prints a bypass token so YOU can preview the new code at `https://<host>/<token>`. | Rare — same fix as a normal "site is broken" — `php artisan up` to lift. |
 | 4. Pull | `git fetch origin <branch>` then `git pull --ff-only origin <branch>`. Fails if the local branch has diverged. | Nothing destructive has happened yet — the database is unchanged. Investigate the divergence; re-run. |
 | 5. Composer + migrate | Installs PHP dependencies and runs any new Laravel migrations. | DB has been touched. Go to §6 Rollback. |
@@ -384,7 +384,7 @@ php artisan down --render="errors::503" --secret="rollback-$(date +%s | sha256su
 
 # 2. Restore the database from the pre-deploy backup. The
 #    deploy script prints the file path on failure; also available at:
-LATEST=/var/backups/hfc/<db>-pre-deploy-LATEST.sql.gz
+LATEST=<BACKUP_DIR>/<db>-pre-deploy-LATEST.sql.gz   # BACKUP_DIR as printed by the deploy; dumps taken before 2026-10-08 are still in /var/backups/hfc/ or /mnt/HC_Volume_103099143/backups-moved/var-backups-hfc/
 #    where <db> is `hfc_prod` (live) or `hfc_staging`. Substitute the
 #    real filename — the script symlinks the most recent pre-deploy
 #    backup as ${DB}-pre-deploy-LATEST.sql.gz.
