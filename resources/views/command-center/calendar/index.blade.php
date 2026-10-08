@@ -1501,7 +1501,7 @@
                      "blank". Surface the actual root cause to whoever's
                      using the form instead of staring at an empty
                      dropdown. --}}
-                <template x-if="(feedbackData.feedback_mode === 'per_property'
+                <template x-if="(feedbackData.feedback_mode === 'per_property' && feedbackData.feedback_kind !== 'viewing'
                                  ? (feedbackData.lp_outcomes.length === 0)
                                  : (feedbackData.outcomes.length === 0))">
                     <div class="rounded-md p-4 text-xs"
