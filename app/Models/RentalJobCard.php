@@ -604,6 +604,13 @@ class RentalJobCard extends Model
         $fromStatus = $this->status;
         $this->update(['status' => self::STATUS_IN_PROGRESS]);
         $this->logUpdate('status_change', $by, null, $fromStatus, self::STATUS_IN_PROGRESS);
+
+        // §17.12 — an internal job is "in progress" on its work order the moment the card starts (the work order is the record the
+        // lists, the overdue queue, the owner and the tenant read; left at "reported" it never looked started to anyone but the crew).
+        $workOrder = $this->workOrder;
+        if ($workOrder && in_array($workOrder->status, [RentalWorkOrder::STATUS_REPORTED, RentalWorkOrder::STATUS_ORDERED], true)) {
+            $workOrder->markStartedByJobCard($by);
+        }
     }
 
     /**
@@ -785,6 +792,13 @@ class RentalJobCard extends Model
         // §17.7.2 — cancelling the card withdraws any request still waiting on the owner.
         if ($this->workOrder) {
             app(\App\Services\Rentals\RentalApprovalGateService::class)->withdrawOpenVariations($this->workOrder, 'The job card was cancelled.', $by);
+        }
+
+        // The card and its work order are one job (§17.10.9): cancelling the card cancels the work order too, unless it is already
+        // closed. (RentalWorkOrder::cancel() sees this card already cancelled and stops, so the two never loop.)
+        $workOrder = $this->workOrder;
+        if ($workOrder && ! in_array($workOrder->status, [RentalWorkOrder::STATUS_CANCELLED, RentalWorkOrder::STATUS_COMPLETED], true)) {
+            $workOrder->cancel($by, $reason);
         }
     }
 

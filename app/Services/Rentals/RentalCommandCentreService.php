@@ -723,6 +723,32 @@ class RentalCommandCentreService
             ]);
         });
 
+        // C3 - a tenant said the finished work is NOT complete (work order status "disputed", spec 17.10.6). The agent gets an in-app
+        // note when it happens, but the tenant is waiting and nothing else puts it in front of anyone: it stays here until the work is
+        // reported done again (status leaves "disputed"). Same own / branch / agency scoping as every rule here.
+        $this->applyPropertyIdScope(
+            $applyQueueFilters(
+                RentalWorkOrder::query()->where('status', RentalWorkOrder::STATUS_DISPUTED),
+                'updated_at'
+            )->with('property'),
+            $user,
+            $scope,
+            'property_id'
+        )->get()->each(function (RentalWorkOrder $workOrder) use (&$items, $today) {
+            $items->push([
+                'type' => 'work_order_disputed',
+                'urgency' => 1,
+                'age_days' => $workOrder->updated_at ? (int) abs($today->diffInDays($workOrder->updated_at)) : 0,
+                'item_date' => $workOrder->updated_at,
+                'property' => $workOrder->property,
+                'lease' => null,
+                'label' => 'Resolve dispute',
+                'detail' => $workOrder->title . ' - the tenant says it is not complete',
+                'route' => 'corex.rental-work-orders.show',
+                'route_params' => ['rentalWorkOrder' => $workOrder->id],
+            ]);
+        });
+
         // D — work order overdue. Reuses RentalWorkOrder::scopeOverdue()
         // directly — the SAME scope RentalWorkOrderController::index()'s own
         // "Overdue" tile and ?overdue=1 filter use (status IN
