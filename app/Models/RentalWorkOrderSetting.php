@@ -51,6 +51,9 @@ class RentalWorkOrderSetting extends Model
     /** §17.10.6 — on a dispute, tell the crew straight away instead of waiting for the office's "Send back" (Decision 3). */
     public const DEFAULT_DISPUTE_NOTIFY_CREW_IMMEDIATELY = false;
 
+    /** §17.32 - what tenants and owners read instead of a crew member's name when the agency's own team does the job. */
+    public const DEFAULT_INTERNAL_TEAM_LABEL = 'Our maintenance team';
+
     // ---- .ai/specs/rental-work-orders.md §17.31 — supplier invoice upload limits. Neutral for any agency. ----
     /** Largest invoice file the office may upload, in megabytes. */
     public const DEFAULT_INVOICE_MAX_FILE_MB = 10;
@@ -86,6 +89,7 @@ class RentalWorkOrderSetting extends Model
         'dispute_notify_crew_immediately',
         'invoice_max_file_mb',
         'invoice_allowed_file_types',
+        'internal_team_label',
     ];
 
     protected $casts = [
@@ -274,6 +278,14 @@ class RentalWorkOrderSetting extends Model
     public static function disputeNotifyCrewImmediatelyFor(?int $agencyId): bool
     {
         return self::boolFor($agencyId, 'dispute_notify_crew_immediately', self::DEFAULT_DISPUTE_NOTIFY_CREW_IMMEDIATELY);
+    }
+
+    /** §17.32 - the agency's own words for its in-house team, as clients read them (never a crew member's name). */
+    public static function internalTeamLabelFor(?int $agencyId): string
+    {
+        $value = trim((string) self::rawFor($agencyId, 'internal_team_label'));
+
+        return $value !== '' ? $value : self::DEFAULT_INTERNAL_TEAM_LABEL;
     }
 
     /** §17.31 — the largest supplier-invoice file, in MB (1–50). */

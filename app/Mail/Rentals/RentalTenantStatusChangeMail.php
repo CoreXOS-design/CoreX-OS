@@ -24,7 +24,7 @@ class RentalTenantStatusChangeMail extends Mailable implements ShouldQueue
     public ?string $stepDate = null;
     public string $portalUrl;
 
-    public function __construct(public RentalFaultReport $faultReport, string $recipientName)
+    public function __construct(public RentalFaultReport $faultReport, string $recipientName, ?\App\Models\Contact $recipient = null)
     {
         $this->onQueue('mail');
         $this->recipientName = $recipientName ?: 'there';
@@ -35,7 +35,10 @@ class RentalTenantStatusChangeMail extends Mailable implements ShouldQueue
         $current = collect($progress['steps'])->firstWhere('current', true);
         $this->stepLabel = $progress['current_label'];
         $this->stepDate = ($current['at'] ?? null) ? \Illuminate\Support\Carbon::parse($current['at'])->format('j M Y') : null;
-        $this->portalUrl = url('/portal');
+        // the TENANT view of THIS fault, for THIS tenant (PortalLink: signed recipient + view + target)
+        $this->portalUrl = $recipient
+            ? \App\Support\PortalLink::forContact($recipient, \App\Support\PortalLink::VIEW_TENANT, ['fault' => $faultReport->id])
+            : \App\Support\PortalLink::unaddressed(\App\Support\PortalLink::VIEW_TENANT, ['fault' => $faultReport->id]);
     }
 
     public function envelope(): Envelope

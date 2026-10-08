@@ -64,7 +64,7 @@ class SendTenantCompletionCheckMailJob implements ShouldQueue
         foreach ($contacts as $contact) {
             try {
                 $dispatcher->send($completion->usableEmail($contact), new RentalTenantCompletionCheckMail(
-                    $round, $workOrder, (string) $contact->first_name, $url, $agent,
+                    $round, $workOrder, (string) $contact->first_name, $url, $agent, $contact,
                 ));
                 $sent++;
             } catch (\Throwable $e) {

@@ -291,7 +291,7 @@ class RentalWorkOrderService
 
         foreach ($workOrder->lease?->tenantContacts() ?? [] as $tenant) {
             if ($tenant->email) {
-                Mail::to($tenant->email)->send(new \App\Mail\Rentals\RentalWorkOrderAppointmentMail($workOrder, $tenant->first_name ?? '', $changed));
+                Mail::to($tenant->email)->send(new \App\Mail\Rentals\RentalWorkOrderAppointmentMail($workOrder, $tenant->first_name ?? '', $changed, $tenant));
             }
         }
     }
@@ -435,7 +435,7 @@ class RentalWorkOrderService
         $agent = $this->senderFor($workOrder, $by);
 
         foreach ($this->ownerRecipients($workOrder) as $owner) {
-            $mail = new RentalOwnerQuoteMail($workOrder, $quote, (string) ($owner->first_name ?? ''), $needsDecision, $contents, $filename, $term, $agent);
+            $mail = new RentalOwnerQuoteMail($workOrder, $quote, (string) ($owner->first_name ?? ''), $needsDecision, $contents, $filename, $term, $agent, $owner);
             if ($this->dispatchMail($owner->email, $mail)) {
                 $sent++;
             }
@@ -467,7 +467,7 @@ class RentalWorkOrderService
 
         $sent = 0;
         foreach ($this->ownerRecipients($workOrder) as $owner) {
-            $mail = new RentalOwnerVariationMail($variation, $workOrder, (string) ($owner->first_name ?? ''), $contents, $filename, (int) $variation->revision > 1, $agent);
+            $mail = new RentalOwnerVariationMail($variation, $workOrder, (string) ($owner->first_name ?? ''), $contents, $filename, (int) $variation->revision > 1, $agent, $owner);
             if ($quoteDoc) {
                 $mail->withAttachment($quoteDoc[0], $quoteDoc[1]);
             }

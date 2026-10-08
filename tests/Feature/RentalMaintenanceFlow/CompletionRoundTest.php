@@ -68,7 +68,9 @@ final class CompletionRoundTest extends TestCase
         $this->assertSame($this->tenant->email, $sent[0][0]);
         $this->assertSame($this->admin->id, $sent[0][1]->sendingAgentId(), 'sent AS the property\'s responsible agent');
         $html = $sent[0][1]->render();
-        $this->assertStringContainsString('Sipho Dlamini', $html);
+        // the office keeps the crew member's name on the round (asserted above); the TENANT reads the agency's team label, never the name (8 Oct 2026)
+        $this->assertStringContainsString('Our maintenance team', $html);
+        $this->assertStringNotContainsString('Sipho Dlamini', $html);
         $this->assertStringContainsString('14 Ocean View Drive', $html);
         $this->assertMatchesRegularExpression('#/secure/completion/[A-Za-z0-9]{64}#', $html);
         $this->assertStringNotContainsString('R ', strip_tags(preg_replace('#<style.*?</style>#s', '', $html)), 'the tenant is never shown a price');

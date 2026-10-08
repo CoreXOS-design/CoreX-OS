@@ -27,14 +27,34 @@ class RentalPortalShellController extends Controller
 {
     public function show(Request $request): View
     {
-        return view('rentals.portal.shell', ['branding' => $this->brandingFromLink($request)]);
+        $email = $this->linkedEmail($request);
+
+        return view('rentals.portal.shell', ['branding' => $this->brandingFor($email), 'linkedEmail' => $email]);
+    }
+
+    /**
+     * WHO the link is for. A mail link carries a SIGNED recipient reference (`r`, App\Support\PortalLink); the lease screen's copy
+     * link carries `?email=`. Either way this is the address the sign-in is pre-filled with and the "this link is for somebody
+     * else" card names. A tampered or unreadable `r` is ignored (null), never trusted.
+     */
+    private function linkedEmail(Request $request): ?string
+    {
+        $recipient = \App\Support\PortalLink::parse($request->query('r'));
+        if ($recipient) {
+            return $recipient['email'];
+        }
+        $email = $request->query('email');
+        if (is_string($email) && strlen($email) <= 255 && preg_match('/^[^\s@]+@[^\s@]+$/', trim($email))) {
+            return strtolower(trim($email));
+        }
+
+        return null;
     }
 
     /** @return array{name:string,logo_url:?string}|null */
-    private function brandingFromLink(Request $request): ?array
+    private function brandingFor(?string $email): ?array
     {
-        $email = $request->query('email');
-        if (!is_string($email) || strlen($email) > 255 || !preg_match('/^[^\s@]+@[^\s@]+$/', trim($email))) {
+        if (! $email) {
             return null;
         }
 
@@ -50,6 +70,7 @@ class RentalPortalShellController extends Controller
 
         $b = Agency::publicBrandingFor((int) $agencies->first());
 
-        return ['name' => $b['name'], 'logo_url' => $b['logoUrl']];
+        // The header shows the logo at 200 x 38 CSS px: hand it the small copy, never a multi-megapixel original (App\Support\PortalLogo).
+        return ['name' => $b['name'], 'logo_url' => $b['logoUrl'] ? (\App\Support\PortalLogo::urlFor((int) $agencies->first()) ?? $b['logoUrl']) : null];
     }
 }

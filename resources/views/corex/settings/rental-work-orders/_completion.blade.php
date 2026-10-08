@@ -10,6 +10,7 @@
     $cWindow = \App\Models\RentalWorkOrderSetting::completionResponseWindowDaysFor($cAgencyId);
     $cLandlord = \App\Models\RentalWorkOrderSetting::notifyLandlordOnDisputeFor($cAgencyId);
     $cCrew = \App\Models\RentalWorkOrderSetting::disputeNotifyCrewImmediatelyFor($cAgencyId);
+    $cTeam = \App\Models\RentalWorkOrderSetting::internalTeamLabelFor($cAgencyId);
 @endphp
 <form method="POST" action="{{ route('corex.settings.rental-work-orders.completion-check') }}" class="space-y-3" id="completion-check-settings">
     @csrf
@@ -57,6 +58,15 @@
                 <p class="text-xs mt-1" style="color: var(--text-muted);">
                     Off by default: the office looks at the tenant's complaint first and presses “Send back to crew”. Switched on, the crew is emailed a fresh link
                     with the tenant's note and photos the moment the tenant disputes the work. (A contractor is always sent back by the office.)
+                </p>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="internal_team_label">What tenants and owners read for your own maintenance team</label>
+                <input type="text" id="internal_team_label" name="internal_team_label" maxlength="60" value="{{ old('internal_team_label', $cTeam) }}"
+                       class="w-full max-w-[320px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                @error('internal_team_label')<p class="text-xs mt-1" style="color:#b3261e;">{{ $message }}</p>@enderror
+                <p class="text-xs mt-2" style="color: var(--text-muted);">
+                    When your own crew does a job, tenants and owners see this wording - never a crew member's name. Default: “{{ \App\Models\RentalWorkOrderSetting::DEFAULT_INTERNAL_TEAM_LABEL }}”. Leave it blank to use the default.
                 </p>
             </div>
         </div>

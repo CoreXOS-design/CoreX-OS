@@ -2,6 +2,7 @@
 
 namespace App\Services\Rentals;
 
+use App\Support\PortalLink;
 use App\Exceptions\Rentals\PortalAccessException;
 use App\Mail\Rentals\RentalPortalInviteMail;
 use App\Models\Agency;
@@ -191,7 +192,7 @@ class RentalPortalAccessService
                 return ['state' => 'no_email', 'label' => 'No email on the contact'] + $base;
             }
 
-            return ['can_set_up' => true, 'url' => $this->portalUrl($contactEmail)] + $base;
+            return ['can_set_up' => true, 'url' => $this->portalUrl($contactEmail, PortalLink::viewForRole($role))] + $base;
         }
 
         $managedBy = null;
@@ -206,7 +207,7 @@ class RentalPortalAccessService
             return [
                 'state' => 'email_changed',
                 'label' => $placeholderLogin ? 'Login is a placeholder address' : 'Contact email changed',
-                'tone' => 'warning', 'can_switch' => true, 'url' => $this->portalUrl($login->email),
+                'tone' => 'warning', 'can_switch' => true, 'url' => $this->portalUrl($login->email, PortalLink::viewForRole($role)),
             ] + $base;
         }
 
@@ -218,14 +219,14 @@ class RentalPortalAccessService
 
         return [
             'state' => $state, 'label' => $label, 'tone' => $tone, 'managed_by' => $managedBy,
-            'can_share' => true, 'url' => $this->portalUrl($login->email),
+            'can_share' => true, 'url' => $this->portalUrl($login->email, PortalLink::viewForRole($role)),
         ] + $base;
     }
 
-    /** The personal link: the portal, with the person's email already filled in (the code is still what proves it is them). */
-    public function portalUrl(string $email): string
+    /** The personal link: the portal, with the person's email already filled in and the side it is for (the code is still what proves it is them). Built by PortalLink. */
+    public function portalUrl(string $email, string $view = PortalLink::VIEW_TENANT, array $target = []): string
     {
-        return url('/portal') . '?email=' . rawurlencode(strtolower(trim($email)));
+        return PortalLink::personal($email, $view, $target);
     }
 
     /**
@@ -248,7 +249,7 @@ class RentalPortalAccessService
         $roles = $lease ? $this->rolesOnLease($lease, $contact) : [$role];
         app(RentalMailDispatcher::class)->send(
             $contact->email,
-            (new RentalPortalInviteMail($contact, $roles ?: [$role], $this->portalUrl($login->email), $agent))->fromAgent($agent)
+            (new RentalPortalInviteMail($contact, $roles ?: [$role], $this->portalUrl($login->email, PortalLink::viewForRole($role)), $agent))->fromAgent($agent)
         );
 
         $this->auth->log($login, (int) $contact->agency_id, $contact->id, 'portal_invite_sent', $request ?? request(), [
@@ -337,7 +338,8 @@ class RentalPortalAccessService
         }
 
         return [
-            'url' => $this->portalUrl($email),
+            // a MAIL: the person, the side it is for, opening on this lease
+            'url' => $this->portalUrl($email, PortalLink::viewForRole($roles[0]), ['lease' => $lease->id]),
             'roles' => $roles,
             'offers' => array_map(fn (string $r) => self::OFFERS[$r], $roles),
         ];

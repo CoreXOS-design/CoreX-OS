@@ -64,6 +64,15 @@ trait AuthorizesRentalRecordScope
             return;
         }
 
+        // Fault reports and work orders (8 Oct 2026): the lease's owner-side / tenant-side agent and the property's agent are the record's
+        // people too - the per-record twin of the 'own' branch of their scopeVisibleTo(), so a notified agent never gets a 403 on opening it.
+        if ($scope === 'own'
+            && ($record instanceof \App\Models\RentalFaultReport || $record instanceof \App\Models\RentalWorkOrder)
+            && (($record->lease && $record->lease->isAgentedBy($user))
+                || ($record->property && in_array((int) $record->property->agent_id, $user->dataIdentityIds(), true)))) {
+            return;
+        }
+
         // Rental inspections only (rental-inspections.md §45.8 H4): the inspector booked to do an
         // inspection someone else created sees it on their own board — RentalInspection::
         // scopeVisibleTo() 'own' is creator OR inspector — so this per-record guard accepts the

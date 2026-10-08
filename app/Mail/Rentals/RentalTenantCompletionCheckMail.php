@@ -22,6 +22,7 @@ class RentalTenantCompletionCheckMail extends BaseSignatureMail
         public string $tenantName,
         public string $url,
         ?User $agent = null,
+        public ?\App\Models\Contact $recipient = null,
     ) {
         if ($agent) {
             $this->fromAgent($agent);
@@ -53,11 +54,14 @@ class RentalTenantCompletionCheckMail extends BaseSignatureMail
             'tenantName' => $this->tenantName,
             'title' => $this->workOrder->title,
             'address' => $this->workOrder->property?->buildDisplayAddress(),
-            'reportedBy' => $this->round->reported_by_label ?: 'the maintenance crew',
+            // never a crew member's name: the team label on the agency's own crew (RentalWorkOrderClientViewService::reportedBy)
+            'reportedBy' => app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->reportedBy($this->round, $this->workOrder) ?: 'the maintenance crew',
             'reportedOn' => $this->round->opened_at?->copy()->setTimezone($tz)->format('j M Y'),
             'answerBy' => $this->round->window_ends_at?->copy()->setTimezone($tz)->format('j M Y'),
             'url' => $this->url,
-            'portalUrl' => url('/portal'),
+            'portalUrl' => $this->recipient
+                ? \App\Support\PortalLink::forContact($this->recipient, \App\Support\PortalLink::VIEW_TENANT, ['wo' => $this->workOrder->id])
+                : \App\Support\PortalLink::unaddressed(\App\Support\PortalLink::VIEW_TENANT, ['wo' => $this->workOrder->id]),
             'footer' => $this->getAgentFooter(),
         ]);
     }

@@ -127,7 +127,9 @@ class OwnerFaultScreenTest extends TestCase
             return $m->hasTo($this->landlord->email)
                 && str_contains($m->portalUrl, '/portal?')
                 && str_contains($m->portalUrl, 'fault=' . $fault->id)
-                && str_contains($m->portalUrl, 'email=' . rawurlencode($this->landlord->email));
+                // who it is for: the signed recipient reference (App\Support\PortalLink), and the side it opens in
+                && \App\Support\PortalLink::parse(self::queryOf($m->portalUrl)['r'] ?? null)['email'] === strtolower($this->landlord->email)
+                && (self::queryOf($m->portalUrl)['as'] ?? null) === 'owner';
         });
         $html = (new RentalLandlordDecisionNeededMail($fault->fresh(), 'Lenny', $this->landlord->email))->render();
         $this->assertStringContainsString('Review and decide', $html);
@@ -180,6 +182,14 @@ class OwnerFaultScreenTest extends TestCase
         $row = collect($this->getJson('/api/v1/client/rentals/landlord/fault-reports')->json('fault_reports'))->firstWhere('id', $fault->id);
         $this->assertSame($wo->id, $row['work_order_id']);
         $this->assertSame('appointment_set', $detail['progress']['current']);
+    }
+
+    /** @return array<string, string> */
+    private static function queryOf(string $url): array
+    {
+        parse_str((string) parse_url($url, PHP_URL_QUERY), $q);
+
+        return $q;
     }
 
     // ── The portal page: no Decisions tab; Faults and Work orders ───────────────────────────

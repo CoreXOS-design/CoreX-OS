@@ -122,7 +122,8 @@ class CompletionResponseController extends Controller
             'agency' => ['name' => $branding['name'], 'logo_url' => $branding['logoUrl'], 'color' => $branding['colors']['default']],
             'title' => $workOrder->title,
             'address' => $property?->buildDisplayAddress() ?: '',
-            'reportedBy' => $round->reported_by_label ?: 'the maintenance crew',
+            // never a crew member's name on the agency's own crew (RentalWorkOrderClientViewService::reportedBy)
+            'reportedBy' => app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->reportedBy($round, $workOrder) ?: 'the maintenance crew',
             'reportedOn' => $round->opened_at?->copy()->setTimezone($tz)->format('j M Y'),
             'answerBy' => $round->window_ends_at?->copy()->setTimezone($tz)->format('j M Y'),
             'photos' => $view->photosForWorkOrder($workOrder)->map(fn (RentalWorkOrderPhoto $p) => ['url' => $p->storage_path])->all(),

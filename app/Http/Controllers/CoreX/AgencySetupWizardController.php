@@ -709,6 +709,7 @@ class AgencySetupWizardController extends Controller
                     'tenant_completion_check_enabled' => \App\Models\RentalWorkOrderSetting::tenantCompletionCheckEnabledFor($agency->id),
                     'completion_response_window_days' => \App\Models\RentalWorkOrderSetting::completionResponseWindowDaysFor($agency->id),
                     'notify_landlord_on_dispute' => \App\Models\RentalWorkOrderSetting::notifyLandlordOnDisputeFor($agency->id),
+                    'internal_team_label' => \App\Models\RentalWorkOrderSetting::internalTeamLabelFor($agency->id),
                     'dispute_notify_crew_immediately' => \App\Models\RentalWorkOrderSetting::disputeNotifyCrewImmediatelyFor($agency->id),
                     // BUILD 3 END
                     // §17.31 — supplier invoice limits

@@ -24,6 +24,7 @@ class RentalOwnerQuoteMail extends RentalMaintenanceMail
         ?string $documentFilename = null,
         public string $termText = '',
         ?User $agent = null,
+        public ?\App\Models\Contact $recipient = null,
     ) {
         $this->pdfContents = $documentContents;
         $this->pdfFilename = $documentFilename;
@@ -60,7 +61,10 @@ class RentalOwnerQuoteMail extends RentalMaintenanceMail
             'needsDecision' => $this->needsDecision,
             'hasDocument' => $this->pdfContents !== null,
             'termText' => $this->termText,
-            'portalUrl' => url('/portal'),
+            // the OWNER view of THIS work order, for THIS owner (PortalLink: signed recipient + view + target)
+            'portalUrl' => $this->recipient
+                ? \App\Support\PortalLink::forContact($this->recipient, \App\Support\PortalLink::VIEW_OWNER, ['wo' => $this->workOrder->id])
+                : \App\Support\PortalLink::unaddressed(\App\Support\PortalLink::VIEW_OWNER, ['wo' => $this->workOrder->id]),
         ];
     }
 }

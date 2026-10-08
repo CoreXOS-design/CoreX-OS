@@ -77,7 +77,8 @@ final class TenantCompletionResponseTest extends TestCase
 
         $this->assertStringContainsString('Fix the geyser', $html);
         $this->assertStringContainsString('14 Ocean View Drive', $html);
-        $this->assertStringContainsString('Sipho Dlamini', $html);
+        $this->assertStringContainsString('Our maintenance team', $html, 'who reported it: the agency\'s team label');
+        $this->assertStringNotContainsString('Sipho Dlamini', $html, 'never the crew member\'s name (8 Oct 2026)');
         $this->assertStringContainsString('All done, thanks', $html);
         $this->assertStringContainsString('Not complete / still wrong', $html);
         $this->assertStringContainsString($this->round->fresh()->window_ends_at->format('j M Y'), $html);

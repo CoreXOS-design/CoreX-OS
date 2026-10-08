@@ -97,7 +97,7 @@ class CrewJobService
         $branding = Agency::publicBrandingFor($ctx->agencyId);
 
         return [
-            'agency' => ['name' => $branding['name'], 'logo_url' => $branding['logoUrl'], 'color' => $branding['colors']['default']],
+            'agency' => ['name' => $branding['name'], 'logo_url' => $branding['logoUrl'] ? (\App\Support\PortalLogo::urlFor($ctx->agencyId) ?? $branding['logoUrl']) : null, 'color' => $branding['colors']['default']],
             'title' => $card->title,
             'status' => $card->status,
             'status_label' => ucfirst(str_replace('_', ' ', $card->status)),

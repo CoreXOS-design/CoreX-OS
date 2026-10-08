@@ -28,7 +28,7 @@ class RentalWorkOrderAppointmentMail extends Mailable implements ShouldQueue
     public string $title;
     public string $portalUrl;
 
-    public function __construct(public RentalWorkOrder $workOrder, string $tenantName, public bool $changed = false)
+    public function __construct(public RentalWorkOrder $workOrder, string $tenantName, public bool $changed = false, ?\App\Models\Contact $recipient = null)
     {
         $this->onQueue('mail');
         $this->tenantName = $tenantName ?: 'there';
@@ -37,7 +37,10 @@ class RentalWorkOrderAppointmentMail extends Mailable implements ShouldQueue
         $this->when = $workOrder->appointment_at?->format('l j F Y \a\t H:i') ?? '';
         $this->note = $workOrder->appointment_note;
         $this->title = $workOrder->title;
-        $this->portalUrl = url('/portal');
+        // the TENANT view of THIS repair, for THIS tenant (PortalLink: signed recipient + view + target)
+        $this->portalUrl = $recipient
+            ? \App\Support\PortalLink::forContact($recipient, \App\Support\PortalLink::VIEW_TENANT, ['wo' => $workOrder->id])
+            : \App\Support\PortalLink::unaddressed(\App\Support\PortalLink::VIEW_TENANT, ['wo' => $workOrder->id]);
 
         $name = $workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL ? null
             : ($workOrder->isOwnerContractor() ? $workOrder->contractor_name : $workOrder->supplier?->name);

@@ -68,7 +68,7 @@ class RentalPortalNotificationService
 
         foreach ($lease->tenantContacts() as $tenant) {
             if ($tenant->email) {
-                Mail::to($tenant->email)->send(new RentalTenantStatusChangeMail($fresh, $tenant->first_name ?? ''));
+                Mail::to($tenant->email)->send(new RentalTenantStatusChangeMail($fresh, $tenant->first_name ?? '', $tenant));
             }
         }
         RentalFaultReport::withoutGlobalScopes()->whereKey($fresh->id)->update(['tenant_progress_notified' => $key]);

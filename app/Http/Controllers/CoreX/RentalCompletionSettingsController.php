@@ -19,6 +19,8 @@ use Illuminate\Http\Request;
  *   completion_response_window_days  1–30     default 5
  *   notify_landlord_on_dispute       toggle   default on
  *   dispute_notify_crew_immediately  toggle   default off
+ *   internal_team_label              text, 60 characters, default "Our maintenance team" (§17.32): what clients read instead of a
+ *                                    crew member's name when the agency's own team does the job; blank = the default
  *
  * Guarded by `rental_work_orders.manage_settings` here as well as on the route, because the wizard calls this method directly.
  */
@@ -32,6 +34,7 @@ class RentalCompletionSettingsController extends Controller
 
         $request->validate([
             'completion_response_window_days' => ['nullable', 'integer', 'min:1', 'max:30'],
+            'internal_team_label' => ['nullable', 'string', 'max:60'],
         ], [
             'completion_response_window_days.integer' => 'The number of days the tenant has to answer must be a whole number.',
             'completion_response_window_days.min' => 'The tenant needs at least 1 day to answer.',
@@ -43,6 +46,10 @@ class RentalCompletionSettingsController extends Controller
             if ($request->has($toggle)) {
                 $data[$toggle] = $request->boolean($toggle);
             }
+        }
+        if ($request->has('internal_team_label')) {
+            $label = trim(strip_tags((string) $request->input('internal_team_label')));
+            $data['internal_team_label'] = $label === '' ? null : $label;   // blank puts the neutral default back
         }
         if ($request->filled('completion_response_window_days')) {
             $data['completion_response_window_days'] = (int) $request->input('completion_response_window_days');

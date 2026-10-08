@@ -32,13 +32,12 @@ class RentalLandlordDecisionNeededMail extends Mailable implements ShouldQueue
         $this->propertyAddress = $decisionSubject->property?->buildDisplayAddress() ?: ('Property #' . $decisionSubject->property_id);
         // Fault flow F2: the owner is only ever told the agent's sanitised wording, never the tenant's original.
         $this->title = $decisionSubject instanceof RentalFaultReport ? $decisionSubject->ownerVersion()['title'] : $decisionSubject->title;
-        // The button opens THAT fault with its decision controls (after sign-in): /portal?fault=<id>, with the owner's own address
-        // pre-filled on the sign-in. (A work-order decision lands on the portal home, where it is on the work order.)
-        $query = $decisionSubject instanceof RentalFaultReport ? ['fault' => $decisionSubject->id] : [];
-        if ($recipientEmail) {
-            $query['email'] = $recipientEmail;
-        }
-        $this->portalUrl = url('/portal') . ($query ? '?' . http_build_query($query) : '');
+        // The button opens THAT fault (or work order) in the OWNER view with its decision controls, for THIS owner: built by PortalLink
+        // (signed recipient reference + view + target), never by hand.
+        $target = $decisionSubject instanceof RentalFaultReport ? ['fault' => $decisionSubject->id] : ['wo' => $decisionSubject->id];
+        $this->portalUrl = $recipientEmail
+            ? \App\Support\PortalLink::forEmail($recipientEmail, \App\Support\PortalLink::VIEW_OWNER, $target)
+            : \App\Support\PortalLink::unaddressed(\App\Support\PortalLink::VIEW_OWNER, $target);
     }
 
     public function envelope(): Envelope

@@ -21,6 +21,7 @@ class RentalOwnerVariationMail extends RentalMaintenanceMail
         ?string $pdfFilename = null,
         public bool $isUpdate = false,
         ?User $agent = null,
+        public ?\App\Models\Contact $recipient = null,
     ) {
         $this->pdfContents = $pdfContents;
         $this->pdfFilename = $pdfFilename;
@@ -54,7 +55,9 @@ class RentalOwnerVariationMail extends RentalMaintenanceMail
             'newTotal' => number_format((float) $this->variation->new_total, 2),
             'isUpdate' => $this->isUpdate,
             'termText' => (string) $this->variation->term_text,
-            'portalUrl' => url('/portal'),
+            'portalUrl' => $this->recipient
+                ? \App\Support\PortalLink::forContact($this->recipient, \App\Support\PortalLink::VIEW_OWNER, ['wo' => $this->workOrder->id])
+                : \App\Support\PortalLink::unaddressed(\App\Support\PortalLink::VIEW_OWNER, ['wo' => $this->workOrder->id]),
         ];
     }
 }

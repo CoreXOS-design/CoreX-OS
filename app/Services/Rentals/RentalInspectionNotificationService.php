@@ -196,12 +196,25 @@ class RentalInspectionNotificationService
         ];
     }
 
+    /**
+     * Where the button in the mail goes. The inspector is staff: the office screen. A tenant or owner: the portal, for THIS person,
+     * in the side the mail is written for, opening on this inspection (App\Support\PortalLink).
+     *
+     * @param array{role:string, name:string, email:?string} $recipient
+     */
+    public function linkFor(array $recipient, RentalInspection $inspection): string
+    {
+        if ($recipient['role'] === RentalInspectionNotification::PARTY_INSPECTOR) {
+            return route('corex.rental-inspections.show', $inspection);
+        }
+
+        return \App\Support\PortalLink::forEmail((string) $recipient['email'], \App\Support\PortalLink::viewForRole((string) $recipient['role']), ['insp' => $inspection->id]);
+    }
+
     private function sendMail(RentalInspection $inspection, array $recipient, string $eventLabel, ?string $reason): void
     {
         $agent = $inspection->createdBy;
-        $inspectionUrl = $recipient['role'] === RentalInspectionNotification::PARTY_INSPECTOR
-            ? route('corex.rental-inspections.show', $inspection)
-            : url('/portal');
+        $inspectionUrl = $this->linkFor($recipient, $inspection);
 
         $mail = new RentalInspectionNotificationMail(
             recipientName: $recipient['name'],

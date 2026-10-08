@@ -169,7 +169,8 @@ class ClientTenantRentalsController extends Controller
 
         $b = \App\Models\Agency::publicBrandingFor((int) $contact->agency_id);
 
-        return response()->json(['branding' => ['name' => $b['name'], 'logo_url' => $b['logoUrl']]]);
+        // Small copy for the header (App\Support\PortalLogo): the original can be tens of megapixels and froze real browsers.
+        return response()->json(['branding' => ['name' => $b['name'], 'logo_url' => $b['logoUrl'] ? (\App\Support\PortalLogo::urlFor((int) $contact->agency_id) ?? $b['logoUrl']) : null]]);
     }
 
     public function faultReports(Request $request): JsonResponse
@@ -198,7 +199,8 @@ class ClientTenantRentalsController extends Controller
 
         return response()->json(['fault_report' => array_merge($this->faultReportSummary($fault), [
             'description' => $fault->description,
-            'outcome' => $fault->outcome,
+            // The agent's outcome 'owner_declined' carries the owner's decision word: the tenant reads the same neutral 'not_approved'.
+            'outcome' => $fault->outcome === RentalFaultReport::OUTCOME_OWNER_DECLINED ? 'not_approved' : $fault->outcome,
             // An agent's note on a declined fault can carry the owner's reason or internal remarks: the tenant gets the neutral progress line instead.
             'outcome_note' => ($fault->outcome === RentalFaultReport::OUTCOME_OWNER_DECLINED || $fault->status === RentalFaultReport::STATUS_DECLINED) ? null : $fault->outcome_note,
             // Tenant never sees quote amounts — not their spend to approve.
@@ -381,12 +383,24 @@ class ClientTenantRentalsController extends Controller
         ];
     }
 
+    /** The fault's status as a TENANT may read it: the owner's decision is reduced to what the tenant is told (approved / not approved). */
+    private function tenantFaultStatus(RentalFaultReport $fault): string
+    {
+        return match ($fault->status) {
+            RentalFaultReport::STATUS_DECLINED => 'not_approved',
+            RentalFaultReport::STATUS_OWNER_HANDLING => RentalFaultReport::STATUS_APPROVED,
+            default => (string) $fault->status,
+        };
+    }
+
     private function faultReportSummary(RentalFaultReport $fault): array
     {
         return [
             'id' => $fault->id,
             'title' => $fault->title,
-            'status' => $fault->status,
+            // NEVER the owner's decision word: a declined fault reads as the neutral 'not_approved' (the progress line's own key), an owner
+            // who handles the repair themselves as plain 'approved'. The reason and the word 'declined' stay with the owner and the office.
+            'status' => $this->tenantFaultStatus($fault),
             'reported_at' => $fault->reported_at?->toIso8601String(),
             'rental_work_order_id' => $fault->rental_work_order_id,
             // BUILD 3 — §17.3.5: the linked work order's plain stage ("Being arranged", "In progress", …), never a price.

@@ -824,7 +824,15 @@ class RentalFaultReport extends Model
             return $query->whereHas('property', fn (Builder $p) => $p->where('properties.branch_id', $user->effectiveBranchId()));
         }
         if ($scope === 'own') {
-            return $query->whereIn('rental_fault_reports.created_by_user_id', $user->dataIdentityIds());
+            // The agents on the record are its people too (same rule as the lease and the inspections, 8 Oct 2026): the lease's tenant-side
+            // and owner-side agent, and the property's agent - not only whoever happened to create it. Otherwise an own-scoped agent is
+            // notified about a fault and then gets a 403 opening it.
+            $ids = $user->dataIdentityIds();
+
+            return $query->where(fn (Builder $q) => $q
+                ->whereIn('rental_fault_reports.created_by_user_id', $ids)
+                ->orWhereHas('lease', fn (Builder $l) => $l->agentedBy($ids))
+                ->orWhereHas('property', fn (Builder $p) => $p->whereIn('properties.agent_id', $ids)));
         }
 
         return $query->whereRaw('1 = 0');

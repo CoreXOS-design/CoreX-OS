@@ -158,6 +158,7 @@
                 <p>You are signed in as <strong x-text="whoName()"></strong>.</p>
                 <p x-show="linkIssue.kind === 'email'">This link is for <strong x-text="linkIssue.masked"></strong>.</p>
                 <p x-show="linkIssue.kind === 'fault'">This link is for a repair on a property you have no part in.</p>
+                <p x-show="linkIssue.kind === 'view'" data-link-view-issue x-text="'This link is for the ' + (linkIssue.wanted === 'landlord' ? 'owner' : 'tenant') + ' side of the portal, and this login does not have it.'"></p>
                 <button class="btn btn-primary" @click="logout()" x-text="linkIssue.masked ? 'Sign out and sign in as ' + linkIssue.masked : 'Sign out and sign in again'"></button>
             </div>
         </template>
@@ -693,7 +694,9 @@ function rentalsPortal() {
             this.initStarted = true;
             // rental-portal-access.md §16 — a personal link (?email=…) arrives with the email already filled in.
             // Only pre-fills the field: nothing is looked up or sent until the person presses Continue.
-            const linked = (new URLSearchParams(window.location.search).get('email') || '').trim();
+            // WHO the link is for: the server read a mail link's SIGNED recipient reference (?r=...) and hands the address over; the
+            // lease screen's copy link carries ?email= instead (App\Support\PortalLink).
+            const linked = String(@json($linkedEmail ?? null) || new URLSearchParams(window.location.search).get('email') || '').trim();
             if (linked && linked.length <= 255 && /^[^\s@]+@[^\s@]+$/.test(linked)) this.login.email = linked;
             const me = await portalFetch('/api/v1/client/me');
             if (me.ok) {
@@ -741,22 +744,44 @@ function rentalsPortal() {
             const remembered = this.rememberedRole();
             this.activeRole = (remembered && roles.includes(remembered)) ? remembered : (roles[0] || null);
 
-            // The owner's email links to /portal?fault=<id>: whoever follows it is the OWNER for this visit, whichever side was last
-            // used, and lands on that exact fault with the decision controls. A person with no part in that repair is told so.
-            const linkedFault = parseInt(new URLSearchParams(window.location.search).get('fault') || '', 10);
-            if (linkedFault > 0) {
-                const opened = roles.includes('landlord') ? await portalFetch('/api/v1/client/rentals/landlord/fault-reports/' + linkedFault) : { ok: false };
-                if (!opened.ok) { this.linkIssue = { kind: 'fault', masked: null }; return; }
-                this.activeRole = 'landlord';
-                this.rememberRole('landlord');
-                this.landlordTab = 'faults';
-                this.loadOverview(); this.loadDecisions(); this.loadLandlordFaults(); this.loadWorkOrders();
-                this.faultDetail = opened.data.fault_report;
-                this.$nextTick(() => { const el = document.querySelector('[data-fault-detail]'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+            // WHERE a mail link lands, and in WHICH view (App\Support\PortalLink: ?as=owner|tenant and one target). The side the mail was
+            // written for always wins over the side last used: a person who is both tenant and owner opens the right one.
+            const qs = new URLSearchParams(window.location.search);
+            const num = (k) => parseInt(qs.get(k) || '', 10) || 0;
+            const linkedFault = parseInt(qs.get('fault') || '', 10) || 0, linkedWo = num('wo'), linkedInsp = num('insp'), linkedLease = num('lease'), linkedDocs = qs.get('docs') === '1';
+            const wanted = { owner: 'landlord', tenant: 'tenant' }[qs.get('as')] || (linkedFault > 0 && !qs.get('as') ? 'landlord' : null);   // old owner fault links had no side: they were always the owner's
+            if (wanted) {
+                if (!roles.includes(wanted)) { this.linkIssue = { kind: (!qs.get('as') ? 'fault' : 'view'), masked: null, wanted }; return; }
+                this.activeRole = wanted;
+                this.rememberRole(wanted);
+            }
+
+            if (this.activeRole === 'landlord') {
+                this.landlordTab = linkedFault > 0 ? 'faults' : (linkedWo > 0 ? 'jobs' : (linkedDocs ? 'documents' : 'home'));
+                if (linkedFault > 0) {
+                    // lands on that exact fault with the decision controls; a person with no part in that repair is told so
+                    const opened = await portalFetch('/api/v1/client/rentals/landlord/fault-reports/' + linkedFault);
+                    if (!opened.ok) { this.linkIssue = { kind: 'fault', masked: null }; return; }
+                    this.faultDetail = opened.data.fault_report;
+                    this.$nextTick(() => { const el = document.querySelector('[data-fault-detail]'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+                }
+                this.loadOverview(); this.loadDecisions(); this.loadLandlordFaults();
+                if (linkedDocs) this.loadDocuments();
+                if (linkedWo > 0 || !(linkedFault > 0)) {
+                    await this.loadWorkOrders();
+                    if (linkedWo > 0 && !this.workOrders.some((w) => w.id === linkedWo)) { this.linkIssue = { kind: 'fault', masked: null }; return; }
+                } else { this.loadWorkOrders(); }
                 return;
             }
-            if (this.activeRole === 'tenant') { this.loadOverview(); this.loadWorkOrders(); this.loadFaultReports(); }
-            if (this.activeRole === 'landlord') { this.loadOverview(); this.loadDecisions(); this.loadLandlordFaults(); this.loadWorkOrders(); }
+            if (this.activeRole === 'tenant') {
+                this.tenantTab = linkedFault > 0 ? 'faults' : (linkedWo > 0 ? 'jobs' : (linkedDocs ? 'documents' : (linkedLease > 0 ? 'lease' : 'home')));
+                this.loadOverview();
+                if (linkedLease > 0) this.loadTenantLeases();
+                if (linkedDocs) this.loadDocuments();
+                await Promise.all([this.loadWorkOrders(), this.loadFaultReports()]);
+                const missing = (linkedFault > 0 && !this.faultReports.some((f) => f.id === linkedFault)) || (linkedWo > 0 && !this.workOrders.some((w) => w.id === linkedWo));
+                if (missing) this.linkIssue = { kind: 'fault', masked: null };   // not this tenant's repair: told so, never shown somebody else's
+            }
         },
 
         setRole(role) {

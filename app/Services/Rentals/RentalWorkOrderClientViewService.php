@@ -7,6 +7,7 @@ use App\Models\RentalWorkCompletionRound;
 use App\Models\RentalWorkOrder;
 use App\Models\RentalWorkOrderPhoto;
 use App\Models\RentalWorkOrderQuote;
+use App\Models\RentalWorkOrderSetting;
 
 /**
  * .ai/specs/rental-work-orders.md §17.3.5 / §17.12 — what a TENANT or a LANDLORD may see of a WORK ORDER (the portal's
@@ -105,7 +106,7 @@ class RentalWorkOrderClientViewService
             'id' => $workOrder->id,
             'stage' => $this->stageKey($workOrder, $audience),
             'stage_label' => $this->stageLabel($workOrder, $audience),
-            'who_label' => $internal ? 'Our maintenance team' : ($ownerContractor ? ($audience === self::AUDIENCE_LANDLORD ? 'Your contractor' : "Owner's contractor") : 'Contractor arranged by the agency'),
+            'who_label' => $internal ? RentalWorkOrderSetting::internalTeamLabelFor($workOrder->agency_id) : ($ownerContractor ? ($audience === self::AUDIENCE_LANDLORD ? 'Your contractor' : "Owner's contractor") : 'Contractor arranged by the agency'),
             'contractor_name' => $internal ? null : ($ownerContractor ? ($workOrder->contractor_name ?: null) : $workOrder->supplier()->withoutGlobalScopes()->withTrashed()->first()?->name),
             'appointment_at' => $this->appointmentAt($workOrder)?->toIso8601String(),
             'appointment_note' => $workOrder->appointment_note,
@@ -117,6 +118,20 @@ class RentalWorkOrderClientViewService
     public function appointmentAt(RentalWorkOrder $workOrder): ?\Illuminate\Support\Carbon
     {
         return $workOrder->appointment_at ?? $this->card($workOrder)?->scheduled_at;
+    }
+
+    /**
+     * WHO reported the work done, as a tenant or owner may read it. On the agency's own crew that is the agency's team label
+     * ("Our maintenance team" unless the agency words it otherwise) - NEVER the crew member's sign-off name, which stays with the office.
+     * A contractor's reporting label (the business) is shown as captured.
+     */
+    public function reportedBy(RentalWorkCompletionRound $round, RentalWorkOrder $workOrder): string
+    {
+        if ($workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL) {
+            return RentalWorkOrderSetting::internalTeamLabelFor($workOrder->agency_id);
+        }
+
+        return (string) $round->reported_by_label;
     }
 
     /**
@@ -148,7 +163,7 @@ class RentalWorkOrderClientViewService
             'stage_label' => $this->stageLabel($workOrder, $audience),
             // W2/W3: who is doing the repair. Never contact details for a tenant; the owner also sees their own contractor's phone.
             'who' => $internal ? 'our_team' : ($ownerContractor ? 'owner_contractor' : 'external_contractor'),
-            'who_label' => $internal ? 'Our maintenance team' : ($ownerContractor ? ($audience === self::AUDIENCE_LANDLORD ? 'Your contractor' : "Owner's contractor") : 'Contractor arranged by the agency'),
+            'who_label' => $internal ? RentalWorkOrderSetting::internalTeamLabelFor($workOrder->agency_id) : ($ownerContractor ? ($audience === self::AUDIENCE_LANDLORD ? 'Your contractor' : "Owner's contractor") : 'Contractor arranged by the agency'),
             'contractor_name' => $internal ? null : ($ownerContractor ? ($workOrder->contractor_name ?: null) : $workOrder->supplier()->withoutGlobalScopes()->withTrashed()->first()?->name),
             'contractor_phone' => ($ownerContractor && $audience === self::AUDIENCE_LANDLORD) ? ($workOrder->contractor_phone ?: null) : null,
             // W2: the appointment for the repair. `scheduled_at` is kept for older consumers of this endpoint.
@@ -164,7 +179,7 @@ class RentalWorkOrderClientViewService
                 ? [
                     'round_id' => $latest->id,
                     'round_no' => $latest->round_no,
-                    'reported_by' => $latest->reported_by_label,
+                    'reported_by' => $this->reportedBy($latest, $workOrder),
                     'reported_at' => $latest->opened_at?->toIso8601String(),
                     'answer_due' => $latest->window_ends_at?->toIso8601String(),
                 ]
@@ -206,7 +221,7 @@ class RentalWorkOrderClientViewService
             'id' => $round->id,
             'round_no' => $round->round_no,
             'reported_at' => $round->opened_at?->toIso8601String(),
-            'reported_by' => $round->reported_by_label,
+            'reported_by' => $this->reportedBy($round, $workOrder),
             'outcome' => $round->outcome,
             'outcome_label' => match ($round->outcome) {
                 RentalWorkCompletionRound::OUTCOME_CONFIRMED => 'Confirmed done',

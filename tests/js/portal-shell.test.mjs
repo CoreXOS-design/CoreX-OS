@@ -11,10 +11,11 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const blade = fs.readFileSync(path.join(here, '../../resources/views/rentals/portal/shell.blade.php'), 'utf8');
-const script = blade.slice(blade.lastIndexOf('<script>') + 8, blade.lastIndexOf('</script>')).replace('@json($branding ?? null)', 'null');
+const scriptRaw = blade.slice(blade.lastIndexOf('<script>') + 8, blade.lastIndexOf('</script>')).replace('@json($branding ?? null)', 'null');
 
 /** A stub browser; `calls` records every network request. */
-function boot({ fetchImpl, search = '', storage = {} } = {}) {
+function boot({ fetchImpl, search = '', storage = {}, linkedEmail = null } = {}) {
+  const script = scriptRaw.replace('@json($linkedEmail ?? null)', JSON.stringify(linkedEmail));   // the address the SERVER read from a mail link's signed reference
   const calls = { xhr: [], fetch: [], reloaded: false };
   const urls = new Set();
   class FakeXHR {
@@ -517,4 +518,168 @@ test('after Log out, and after "Sign out and sign in as...", the reloaded page i
   const after = boot({ fetchImpl: authApi() });
   await after.p.init(); await settle();
   assert.equal(alpineSetsDisabled(continueExpr(), after.p), false);
+});
+
+// ── 8 Oct 2026, 20:3x - mail links: who the link is for, which side, and where it lands (App\Support\PortalLink) ──
+const BOTH_ME = { client: { id: 31, email: 'ayanda@example.com' }, contact: { id: 7, full_name: 'Ayanda Mtolo' } };
+function linkApi({ me, leases = [], properties = [], tenantFaults = [], workOrders = [], landlordWos = [], calls = [] } = {}) {
+  const base = authApi({ me, leases, properties, calls });
+  return async (url, opts) => {
+    const reply = (data) => ({ ok: true, status: 200, json: async () => data });
+    if (url.includes('/documents?')) { calls.push(url); return reply({ documents: [], meta: { page: 1, pages: 1, all_total: 0, total: 0 } }); }
+    if (url.endsWith('/rentals/fault-reports')) { calls.push(url); return reply({ fault_reports: tenantFaults }); }
+    if (url.endsWith('/rentals/work-orders')) { calls.push(url); return reply({ work_orders: workOrders }); }
+    if (url.endsWith('/rentals/landlord/work-orders')) { calls.push(url); return reply({ work_orders: landlordWos }); }
+    return base(url, opts);
+  };
+}
+
+test('a person who is BOTH tenant and owner lands in the side the mail was written for, whichever side they used last', async () => {
+  for (const [as, expected] of [['tenant', 'tenant'], ['owner', 'landlord']]) {
+    const { p } = boot({ search: '?as=' + as, linkedEmail: 'ayanda@example.com', storage: { 'portal.role.31': as === 'tenant' ? 'landlord' : 'tenant' }, fetchImpl: linkApi({ me: BOTH_ME, leases: [{ id: 21 }], properties: [{ id: 6 }] }) });
+    await p.init(); await settle();
+    assert.equal(p.roles.join(','), 'tenant,landlord');
+    assert.equal(p.activeRole, expected, 'as=' + as);
+    assert.equal(p.linkIssue, null);
+  }
+  // no ?as= (an old link): the side last used
+  const old = boot({ storage: { 'portal.role.31': 'landlord' }, fetchImpl: linkApi({ me: BOTH_ME, leases: [{ id: 21 }], properties: [{ id: 6 }] }) });
+  await old.p.init(); await settle();
+  assert.equal(old.p.activeRole, 'landlord');
+});
+
+test('the target decides the tab: tenant fault -> Faults, tenant work order -> Work orders, owner work order -> Work orders, documents -> Documents', async () => {
+  const mk = async (search, over) => {
+    const b = boot({ search, linkedEmail: 'ayanda@example.com', fetchImpl: linkApi({ me: BOTH_ME, leases: [{ id: 21 }], properties: [{ id: 6 }], ...over }) });
+    await b.p.init(); await settle();
+    return b.p;
+  };
+  let p = await mk('?as=tenant&fault=9', { tenantFaults: [{ id: 9 }] });
+  assert.equal(p.tenantTab, 'faults'); assert.equal(p.linkIssue, null);
+  p = await mk('?as=tenant&wo=4', { workOrders: [{ id: 4 }] });
+  assert.equal(p.tenantTab, 'jobs'); assert.equal(p.linkIssue, null);
+  p = await mk('?as=owner&wo=4', { landlordWos: [{ id: 4 }] });
+  assert.equal(p.landlordTab, 'jobs'); assert.equal(p.linkIssue, null);
+  p = await mk('?as=tenant&docs=1');
+  assert.equal(p.tenantTab, 'documents');
+  p = await mk('?as=tenant&lease=21');
+  assert.equal(p.tenantTab, 'lease');
+  p = await mk('?as=owner&insp=3');
+  assert.equal(p.landlordTab, 'home', 'an inspection shows on the Home panel');
+});
+
+test('a record the person has no part in is told so - never somebody else\'s portal', async () => {
+  const mk = async (search, over) => { const b = boot({ search, linkedEmail: 'ayanda@example.com', fetchImpl: linkApi({ me: BOTH_ME, leases: [{ id: 21 }], properties: [{ id: 6 }], ...over }) }); await b.p.init(); await settle(); return b.p; };
+  assert.equal((await mk('?as=tenant&fault=9', { tenantFaults: [{ id: 1 }] })).linkIssue.kind, 'fault');
+  assert.equal((await mk('?as=tenant&wo=4', { workOrders: [{ id: 1 }] })).linkIssue.kind, 'fault');
+  assert.equal((await mk('?as=owner&wo=4', { landlordWos: [{ id: 1 }] })).linkIssue.kind, 'fault');
+  // a link for the OWNER side opened by a login that is only a tenant
+  const tenantOnly = boot({ search: '?as=owner&wo=4', linkedEmail: 'tina@example.com', fetchImpl: linkApi({ me: TENANT_ME, leases: [{ id: 94 }] }) });
+  await tenantOnly.p.init(); await settle();
+  assert.equal(tenantOnly.p.linkIssue.kind, 'view');
+  assert.equal(tenantOnly.p.linkIssue.wanted, 'landlord');
+});
+
+test('somebody ELSE is signed in on the device: the card names whose link it is (read from the mail\'s signed reference), and nothing of theirs is loaded', async () => {
+  const calls = [];
+  const { p } = boot({ search: '?as=tenant&wo=4', linkedEmail: 'ayanda@example.com', fetchImpl: linkApi({ me: OWNER_ME, properties: [{ id: 6 }], calls }) });
+  await p.init(); await settle();
+  assert.equal(p.linkIssue.kind, 'email');
+  assert.equal(p.linkIssue.masked, 'a****a@example.com');
+  assert.equal(p.whoName(), 'Siyabonga Simamane');
+  assert.ok(!calls.some((u) => /landlord|work-orders|fault-reports|leases/.test(u)), 'no portal data was loaded for the wrong person: ' + calls.join(','));
+  assert.equal(p.roleLabel(), '');
+});
+
+test('nobody signed in: sign-in is pre-filled for the mail\'s recipient, and after signing in the person lands on the target in the right side', async () => {
+  const calls = [];
+  const api = linkApi({ me: null, requiresPassword: true, leases: [{ id: 21 }], properties: [{ id: 6 }], workOrders: [{ id: 4 }], calls });
+  const { p } = boot({ search: '?as=tenant&wo=4', linkedEmail: 'ayanda@example.com', fetchImpl: api });
+  await p.init(); await settle();
+  assert.equal(p.session.authenticated, false);
+  assert.equal(p.login.email, 'ayanda@example.com', 'pre-filled from the signed reference, no ?email= needed');
+  await p.lookup();
+  assert.equal(p.login.step, 'password');
+  p.login.password = 'secret-pass';
+  await p.passwordLogin(); await settle();
+  assert.equal(p.session.authenticated, true);
+  assert.equal(p.activeRole, 'tenant');
+  assert.equal(p.tenantTab, 'jobs', 'landed on the work order list the mail was about');
+});
+
+// ── 8 Oct 2026, 20:3x - "the Faults tab froze the renderer". No render loop exists in this script (proved here and with real Alpine
+// in a DOM emulator on the owner's real data: one fetch per click, nothing after); the freeze was the 37-megapixel header logo
+// (App\Support\PortalLogo). These pin the script's side so a real loop can never be introduced unnoticed: every method that a
+// template CALLS while drawing is pure, and the owner's Faults tab with DECIDED faults costs exactly the fetches it should.
+const OWNER_FAULTS = [
+  { id: 50, title: 'Power tripping / no power', status: 'approved', status_label: 'You decided', needs_decision: false, work_order_id: null },
+  { id: 46, title: 'Fault reported', status: 'approved', status_label: 'You decided', needs_decision: false, work_order_id: null },
+];
+const DECIDED_DETAIL = (id) => ({ id, title: 'x', description: 'x', agent_note: 'x', photos: [{ id: 3, url: '/storage/a.jpg' }], property: 'Unit 33', status: 'approved', status_label: 'You decided', work_order: null,
+  progress: { steps: ['sent_to_agent', 'agent_reviewing', 'sent_to_owner', 'owner_decided', 'sent_to_contractor', 'appointment_set', 'in_progress', 'completed'].map((key, i) => ({ key, label: key, state: i < 4 ? 'done' : 'todo', current: i === 3, at: i < 4 ? '2026-10-08T12:54:18+02:00' : null, detail: null, work_order_id: null, action: null })) },
+  awaiting_decision: false, contractors: [], decision: { decision: 'approved', by: 'Siyabonga', how: 'Decided by the owner on the portal', at: '2026-10-08T20:12:30+02:00', reason: null, contractor: null } });
+function ownerFaultsApi(calls) {
+  const base = authApi({ me: OWNER_ME, properties: [{ id: 6 }], calls });
+  return async (url, opts) => {
+    const reply = (data) => ({ ok: true, status: 200, json: async () => data });
+    if (url.endsWith('/landlord/fault-reports')) { calls.push(url); return reply({ fault_reports: OWNER_FAULTS }); }
+    const m = url.match(/\/landlord\/fault-reports\/(\d+)$/);
+    if (m) { calls.push(url); return reply({ fault_report: DECIDED_DETAIL(Number(m[1])) }); }
+    return base(url, opts);
+  };
+}
+
+test('owner Faults tab with decided faults: one fetch per click, one per fault opened, and NOTHING more however often the page re-draws', async () => {
+  const calls = [];
+  const { p } = boot({ fetchImpl: ownerFaultsApi(calls) });
+  await p.init(); await settle();
+  assert.equal(p.activeRole, 'landlord');
+  const afterLoad = calls.length;
+  assert.ok(afterLoad <= 9, 'a page load is a handful of requests, not a storm: ' + afterLoad);
+
+  calls.length = 0;
+  p.landlordTab = 'faults'; await p.loadLandlordFaults(); await settle();
+  assert.equal(calls.length, 1, 'clicking Faults: exactly one request');
+  assert.equal(p.landlordFaults.length, 2);
+  assert.equal(p.faultsNeedingOwner(), 0, 'decided faults need nothing');
+
+  calls.length = 0;
+  await p.openFault(50); await settle();
+  assert.equal(calls.length, 1, 'opening a decided fault: exactly one request');
+  assert.equal(p.faultDetail.progress.steps.length, 8);
+
+  // the page re-draws constantly (every state change): call everything the templates call, many times - no fetch, no state change
+  const snapshot = JSON.stringify([p.landlordFaults, p.faultDetail, p.decisions, p.workOrders, p.roles, p.activeRole, p.landlordTab, p.busy]);
+  calls.length = 0;
+  for (let i = 0; i < 2000; i++) {
+    p.faultsNeedingOwner(); p.workOrdersNeedingOwner(); p.variationsFor(1); p.tenantChecksWaiting(); p.fmtDay('2026-10-08T12:54:18+02:00');
+    p.whoName(); p.whoEmail(); p.roleLabel(); p.isFaqOpen(5, 'notice'); p.photoCountLabel(p.landlordFaultWizard);
+  }
+  assert.equal(calls.length, 0, 'drawing never fetches');
+  assert.equal(JSON.stringify([p.landlordFaults, p.faultDetail, p.decisions, p.workOrders, p.roles, p.activeRole, p.landlordTab, p.busy]), snapshot, 'drawing never changes state');
+  await settle();
+  assert.equal(calls.length, 0, 'and nothing fires by itself afterwards');
+});
+
+test('every method a template calls while DRAWING is pure: no state written, no request made, nothing awaited', () => {
+  const dir = path.join(here, '../../resources/views/rentals/portal');
+  const files = ['shell', '_home', '_documents', '_fault-aid', '_fault-detail', '_photo-picker', '_progress'].map((f) => fs.readFileSync(path.join(dir, f + '.blade.php'), 'utf8'));
+  const exprs = [...files.join('\n').matchAll(/\s(?:x-text|x-show|x-if|x-for|x-effect|:[a-z-]+|x-bind:[a-z-]+)="([^"]*)"/g)].map((m) => m[1]);
+  assert.ok(!files.join('\n').includes('x-effect'), 'no x-effect on the portal pages (an effect that writes what it reads is how a render loop starts)');
+  const called = new Set();
+  for (const e of exprs) for (const m of e.matchAll(/([A-Za-z_]\w*)\(/g)) called.add(m[1]);
+  const builtin = new Set(['Number', 'Date', 'String', 'parseInt', 'Math', 'filter', 'includes', 'map', 'toLocaleString', 'toFixed', 'substring', 'trim', 'toLowerCase', 'find', 'some', 'every', 'slice', 'join', 'toLocaleDateString', 'replace', 'split', 'startsWith', 'isNaN', 'reduce', 'indexOf', 'toUpperCase', 'f']);
+  const own = scriptRaw;
+  const checked = [];
+  for (const name of [...called].filter((n) => !builtin.has(n)).sort()) {
+    const m = own.match(new RegExp('\\n\\s+(?:async\\s+)?' + name + '\\s*\\([^)]*\\)\\s*\\{'));
+    if (!m) continue;
+    let i = m.index + m[0].length, depth = 1;
+    while (depth && i < own.length) { const c = own[i++]; if (c === '{') depth++; else if (c === '}') depth--; }
+    const body = own.slice(m.index, i);
+    const impure = [...body.matchAll(/this\.[A-Za-z_.\[\]'"]+\s*(?:=(?!=)|\+=|-=|\+\+|--)|\bawait\b|portalFetch|fetch\(|\$nextTick/g)].map((x) => x[0].trim());
+    assert.deepEqual(impure, [], `${name}() is called while the page draws, so it must be pure`);
+    checked.push(name);
+  }
+  assert.ok(checked.length >= 8, 'the scan found the render-time methods: ' + checked.join(','));
 });
