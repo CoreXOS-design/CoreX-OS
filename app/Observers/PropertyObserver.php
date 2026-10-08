@@ -92,6 +92,9 @@ class PropertyObserver
     /** AT-68 — renewal re-syndication reminders captured in saving(), fired in saved() (keyed by property ID). */
     private static array $renewalResyndicateReminders = [];
 
+    /** AT-448 — a USER moved the status to expired (captured in saving(), MandateExpired fired in saved()); value = acting user id. */
+    private static array $manualExpiries = [];
+
     /**
      * Johan 2026-10-06 — properties whose status moved from an OFF-market value
      * (let_out, withdrawn, sold…) to an ON-market one, captured in saving() where
@@ -126,6 +129,8 @@ class PropertyObserver
         // Structured address layer — derived by the parser (spec structured-address-matching.md §3), not an edit.
         'street_core', 'street_type', 'scheme_number', 'township', 'lpi_code',
         'address_raw', 'address_parse_status', 'address_parse_note',
+        // AT-448 — derived stamp of the expiry_date change itself (which IS audited).
+        'expiry_date_changed_at',
     ];
 
     /**
@@ -248,6 +253,55 @@ class PropertyObserver
                 self::$returningToMarket[$property->id] = true;
             } else {
                 unset(self::$returningToMarket[$property->id]);
+            }
+        }
+
+        // AT-448 — stamp WHEN the expiry date changed. The expiry lock unlocks on
+        // an Extension document uploaded AFTER this stamp and re-locks the moment
+        // a new date is saved (spec §2.3, D7). Any writer counts — the lock is
+        // enforced only on the user's web edit, but the stamp must be true for
+        // every path (import, takeover, API) or the next unlock test would lie.
+        if ($property->isDirty('expiry_date') && ($property->exists || $property->expiry_date !== null)) {
+            $property->expiry_date_changed_at = now();
+        }
+
+        // AT-448 (D10) — a USER choosing "Expired" must behave exactly like the
+        // midnight sweep, which fires Mandate\MandateExpired (→ de-listing from
+        // every portal + one audit line). Decided here where getOriginal() still
+        // holds the pre-save status; fired in saved() after the write. Gated on
+        // an acting user so the console sweep — which fires the event itself —
+        // never double-fires it through this observer.
+        if ($property->exists
+            && $property->isDirty('status')
+            && strtolower(trim((string) $property->status)) === 'expired'
+            && strtolower(trim((string) $property->getOriginal('status'))) !== 'expired'
+            && auth()->check()
+        ) {
+            self::$manualExpiries[$property->id] = (int) auth()->id();
+        }
+
+        // AT-448 (audit fix) — the expiry lock's Imported-Stock exemption is keyed on "still
+        // genuinely untouched" (Property::isUntouchedImportedStock(): expiry_lock_engaged_at
+        // IS NULL), NOT on the current status. A P24-origin listing that was ON the market and
+        // that a USER now moves off it (Withdrawn, Expired, Sold…) has lived in CoreX, so its
+        // date is real: stamp expiry_lock_engaged_at so the lock applies (spec D4: expired
+        // stays locked). Imported Stock MEMBERSHIP (imported_released_at, the scopes, the
+        // Imported Stock page) is deliberately NOT touched - such listings stay listed there.
+        // Only a signed-in user triggers this; the P24 importer runs on the queue (no auth) and
+        // genuinely-imported, already-off-market stock is never on-market here, so it stays
+        // exactly as it was. The midnight sweep stamps explicitly (ExpireMandates).
+        if ($property->exists
+            && $property->isDirty('status')
+            && $property->p24_imported_at !== null
+            && $property->imported_released_at === null
+            && $property->expiry_lock_engaged_at === null
+            && auth()->check()
+        ) {
+            $norm = static fn ($v): string => strtolower(str_replace(' ', '_', trim((string) $v)));
+            $wasOnMarket  = ! in_array($norm($property->getOriginal('status')), Property::OFF_MARKET_STATUSES, true);
+            $nowImported  = in_array($norm($property->status), Property::importedStockStatuses(), true);
+            if ($wasOnMarket && $nowImported) {
+                $property->expiry_lock_engaged_at = now();
             }
         }
 
@@ -488,6 +542,24 @@ class PropertyObserver
                 }
             } catch (\Throwable $e) {
                 Log::warning("AT-68 renewal re-syndication reminder failed for property #{$property->id}: {$e->getMessage()}");
+            }
+        }
+
+        // AT-448 (D10) — manual "Expired" fires the same domain event as the
+        // midnight sweep. The DesyndicateExpiredMandate listener's job is
+        // idempotent (guards key off current portal status), so the overlap with
+        // the off-market dispatch further down is harmless — documented there.
+        if (isset(self::$manualExpiries[$property->id])) {
+            $actorId = self::$manualExpiries[$property->id];
+            unset(self::$manualExpiries[$property->id]);
+            try {
+                event(new \App\Events\Mandate\MandateExpired(
+                    mandate: $property,
+                    agencyIdHint: $property->agency_id,
+                    actorUserId: $actorId,
+                ));
+            } catch (\Throwable $e) {
+                Log::warning("AT-448 manual-expiry MandateExpired dispatch failed for property #{$property->id}: {$e->getMessage()}");
             }
         }
 

@@ -227,6 +227,10 @@
                                 ? ($eligibilityMap[$t->id] ? 'yes' : 'no')
                                 : 'inherit';
                             $hay = \Illuminate\Support\Str::lower($t->label . ' ' . $t->slug);
+                            // AT-448 — the Extension folder is one GLOBAL row every agency's expiry lock
+                            // depends on: its name, order, active state, listing types and delete are
+                            // system-owned. Per-agency options below still save per agency.
+                            $sysLocked = \App\Services\Properties\MandateExpiryPolicy::isProtectedDocumentTypeSlug($t->slug);
                             // Collapsed-summary listing-type badge
                             if (empty($assigned) || count($assigned) === 2) { $ltBadge = ['All listings', 'ds-badge-default']; }
                             elseif (in_array('sale', $assigned)) { $ltBadge = ['For Sale', 'ds-badge-success']; }
@@ -245,13 +249,13 @@
                             <div class="dt-row-head" @click="open = !open">
                                 {{-- order --}}
                                 <div @click.stop title="Display order">
-                                    <input type="number" name="types[{{ $i }}][sort_order]" value="{{ $t->sort_order }}" min="0"
+                                    <input type="number" name="types[{{ $i }}][sort_order]" value="{{ $t->sort_order }}" min="0" @readonly($sysLocked)
                                            class="w-14 rounded-md px-2 py-1 text-sm text-center"
                                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                 </div>
                                 {{-- label (full, editable) + slug --}}
                                 <div class="flex-1 min-w-0" @click.stop>
-                                    <input type="text" name="types[{{ $i }}][label]" value="{{ $t->label }}"
+                                    <input type="text" name="types[{{ $i }}][label]" value="{{ $t->label }}" @readonly($sysLocked)
                                            class="w-full rounded-md px-2 py-1 text-sm font-medium"
                                            style="background: transparent; border: 1px solid transparent; color: var(--text-primary);"
                                            onfocus="this.style.background='var(--surface-2)';this.style.borderColor='var(--border)';"
@@ -263,19 +267,28 @@
                                     <span class="ds-badge {{ $ltBadge[1] }}">{{ $ltBadge[0] }}</span>
                                     @if($dest['property'])<span class="ds-badge ds-badge-default">Property</span>@endif
                                     @if($dest['contact'])<span class="ds-badge ds-badge-default">Contact</span>@endif
+                                    @if($sysLocked)<span class="ds-badge ds-badge-default" title="Used by every agency's expiry lock — its name, active state and listing types are fixed.">System folder</span>@endif
                                     @if(!$t->is_active)<span class="ds-badge ds-badge-default" style="opacity:.7;">Inactive</span>@endif
                                 </div>
                                 {{-- active toggle (Yes/No) --}}
                                 <div @click.stop title="Active">
+                                    @if($sysLocked)
+                                        {{-- system folder: always active; value still posted so the row validates --}}
+                                        <input type="hidden" name="types[{{ $i }}][is_active]" value="1">
+                                        <span class="text-sm px-2 py-1" style="color: var(--text-muted);">Active</span>
+                                    @else
                                     <select name="types[{{ $i }}][is_active]" class="rounded-md px-2 py-1 text-sm"
                                             style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                         <option value="1" {{ $t->is_active ? 'selected' : '' }}>Active</option>
                                         <option value="0" {{ !$t->is_active ? 'selected' : '' }}>Inactive</option>
                                     </select>
+                                    @endif
                                 </div>
                                 {{-- delete --}}
+                                @unless($sysLocked)
                                 <button type="button" @click.stop="" onclick="deleteDocType('{{ route('admin.splitter.doc-types.destroy', $t) }}', '{{ addslashes($t->label) }}')"
                                         class="text-xs font-semibold flex-shrink-0" style="color: var(--ds-crimson);" title="Delete">Delete</button>
+                                @endunless
                                 {{-- chevron --}}
                                 <svg class="dt-chevron w-4 h-4 flex-shrink-0" :data-open="open" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color: var(--text-muted);"><path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
                             </div>
@@ -290,10 +303,10 @@
                                         <div class="dt-field-label">Listing type <span class="normal-case font-normal" style="color:var(--text-muted);">— which Drive folders show</span></div>
                                         <div class="flex flex-wrap gap-2">
                                             <label class="dt-pill" x-data="{ on: {{ in_array('sale', $assigned) ? 'true':'false' }} }" :data-on="on">
-                                                <input type="checkbox" name="types[{{ $i }}][listing_types][]" value="sale" x-model="on">For Sale
+                                                <input type="checkbox" name="types[{{ $i }}][listing_types][]" value="sale" x-model="on" @disabled($sysLocked)>For Sale
                                             </label>
                                             <label class="dt-pill" x-data="{ on: {{ in_array('rental', $assigned) ? 'true':'false' }} }" :data-on="on">
-                                                <input type="checkbox" name="types[{{ $i }}][listing_types][]" value="rental" x-model="on">For Rent
+                                                <input type="checkbox" name="types[{{ $i }}][listing_types][]" value="rental" x-model="on" @disabled($sysLocked)>For Rent
                                             </label>
                                         </div>
                                     </div>

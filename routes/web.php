@@ -546,6 +546,16 @@ Route::middleware('auth')->group(function () {
         // Spec: .ai/specs/system-updates.md §11.2
         Route::post('/system-updates/dismiss', \App\Http\Controllers\Api\V1\SystemUpdateDismissController::class)
             ->name('system-updates.dismiss');
+
+        // AT-448 — "Mandates expiring soon" pop-up: per-user "shown" record.
+        // Same shape as system-updates/dismiss (self-scoped, idempotent, no GET
+        // — the popup is server-rendered by the Properties page).
+        // Spec: .ai/specs/at448-property-expiry.md §7 flow A.
+        // Gated like the Properties page that renders the popup (spec §6): access_properties +
+        // an agency context (a JSON caller without one gets a 422, never a NULL-agency row).
+        Route::post('/properties/expiry-popup/dismiss', \App\Http\Controllers\Api\V1\PropertyExpiryPopupDismissController::class)
+            ->middleware(['permission:access_properties', 'agency.required'])
+            ->name('properties.expiry-popup.dismiss');
     });
 
     // Evaluation reports (Property / Suburb / Town / Street / Transfer) — HIDDEN
@@ -3402,6 +3412,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/my-portal', [CoreXSettingsController::class, 'updatePortalPreferences'])->middleware('permission:access_settings')->name('corex.settings.my-portal.update');
     Route::post('/settings/marketing-enabled', [CoreXSettingsController::class, 'updateMarketingEnabled'])->middleware('permission:access_settings')->name('corex.settings.marketing-enabled');
     Route::post('/settings/syndication-portals', [CoreXSettingsController::class, 'updateSyndicationPortals'])->middleware('permission:access_settings')->name('corex.settings.syndication-portals');
+    // AT-448 — Mandate Expiry (warn-days + expiry lock). Spec: at448-property-expiry.md §5.1.
+    Route::post('/settings/mandate-expiry', [CoreXSettingsController::class, 'updateMandateExpiry'])->middleware('permission:access_settings')->name('corex.settings.mandate-expiry');
     // Feature Registry — Settings → Features (module on/off). Spec: corex-feature-registry.md §6.4.
     Route::post('/settings/features', [\App\Http\Controllers\CoreX\FeatureSettingsController::class, 'update'])->middleware('permission:agency_features.manage')->name('corex.settings.features.update');
     // AT-392 authoriser flow, 2026-09-08 — RO/CO decision actions. A
@@ -4841,6 +4853,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{grant}',           [\App\Http\Controllers\Admin\DemoAccessController::class, 'show'])->whereNumber('grant')->name('show');
         Route::get('/{grant}/edit',      [\App\Http\Controllers\Admin\DemoAccessController::class, 'edit'])->whereNumber('grant')->name('edit');
         Route::put('/{grant}',           [\App\Http\Controllers\Admin\DemoAccessController::class, 'update'])->whereNumber('grant')->name('update');
+        // Add time to a grant — additive and audited; no new code or terms needed. Spec: demo-access-control.md §9.1
+        Route::post('/{grant}/extend',   [\App\Http\Controllers\Admin\DemoAccessController::class, 'extend'])->whereNumber('grant')->name('extend');
         Route::post('/{grant}/revoke',   [\App\Http\Controllers\Admin\DemoAccessController::class, 'revoke'])->whereNumber('grant')->name('revoke');
         Route::post('/{grant}/restore',  [\App\Http\Controllers\Admin\DemoAccessController::class, 'restore'])->whereNumber('grant')->name('restore');
         // "Delete" archives. The row is never removed (non-negotiable #1).

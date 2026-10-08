@@ -2730,6 +2730,58 @@
                     </form>
                 </div>
 
+                {{-- AT-448 — Mandate Expiry: warn-days before a mandate expires + the expiry lock.
+                     Spec: .ai/specs/at448-property-expiry.md §5.1. Both controls post on one
+                     Save; the saver guards each with $request->has() so the Setup Wizard
+                     (which may post a subset) never wipes the other. --}}
+                <div class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);" data-tour="settings-mandate-expiry">
+                    <div class="mb-3">
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Mandate Expiry</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">When a listing's mandate expiry date passes, CoreX marks it Expired at midnight and takes it off any portal or website it was being advertised on. Here you choose how far ahead your agents are warned, and whether a live listing's expiry date is locked until the signed extension is on file in Drive.</div>
+                    </div>
+
+                    <form method="POST" action="{{ route('corex.settings.mandate-expiry') }}" class="space-y-2"
+                          x-data="{ lockOn: {{ ($mandateExpiryLockEnabled ?? false) ? 'true' : 'false' }} }">
+                        @csrf
+                        <input type="hidden" name="mandate_expiry_lock_enabled" :value="lockOn ? 1 : 0">
+
+                        <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md" style="background:var(--surface); border:1px solid var(--border);">
+                            <div>
+                                <div class="text-sm font-medium" style="color:var(--text-primary);">Warn agents before a mandate expires</div>
+                                <div class="text-xs" style="color:var(--text-muted);">What this changes: this many days before the expiry date, the agent sees a "Mandates expiring soon" pop-up on the Properties page — once per listing — and the "Expiring soon" filter shows the same stock.</div>
+                            </div>
+                            <label class="flex items-center gap-2 flex-shrink-0 text-sm" style="color:var(--text-secondary);">
+                                <input type="number" name="mandate_expiry_warn_days" min="{{ \App\Services\Properties\MandateExpiryPolicy::MIN_WARN_DAYS }}" max="{{ \App\Services\Properties\MandateExpiryPolicy::MAX_WARN_DAYS }}" required
+                                       value="{{ old('mandate_expiry_warn_days', $mandateExpiryWarnDays ?? \App\Services\Properties\MandateExpiryPolicy::DEFAULT_WARN_DAYS) }}"
+                                       class="w-20 text-sm rounded-md border px-2 py-1.5 text-right"
+                                       style="border-color:var(--border); background:var(--surface-1); color:var(--text-primary);">
+                                days
+                            </label>
+                        </div>
+                        @error('mandate_expiry_warn_days')
+                        <div class="text-xs px-3" style="color:var(--ds-crimson, #dc2626);">{{ $message }}</div>
+                        @enderror
+
+                        <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md" style="background:var(--surface); border:1px solid var(--border);">
+                            <div>
+                                <div class="text-sm font-medium" style="color:var(--text-primary);">Expiry lock</div>
+                                <div class="text-xs" style="color:var(--text-muted);">What this changes: once a listing has gone live, its expiry date can only be changed after the signed extension is uploaded to the {{ \App\Services\Properties\MandateExpiryPolicy::extensionFolderLabel() }} folder in the property's Drive. Each upload unlocks one change; saving the new date locks it again. Drafts that never went live are not affected.</div>
+                            </div>
+                            <label class="relative cursor-pointer flex-shrink-0" style="width:44px; height:24px; display:block;">
+                                <input type="checkbox" class="sr-only" x-model="lockOn">
+                                <span class="block w-full h-full rounded-full transition-colors duration-200"
+                                      :style="lockOn ? 'background:var(--brand-button, #0ea5e9)' : 'background:var(--border-hover)'"></span>
+                                <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-200"
+                                      :style="lockOn ? 'transform:translateX(20px)' : 'transform:translateX(0)'"></span>
+                            </label>
+                        </div>
+
+                        <div class="flex justify-end pt-1">
+                            <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save</button>
+                        </div>
+                    </form>
+                </div>
+
                 @foreach($propGroups as $pg)
                 @php
                     $defaultItems    = $pg['items']->where('is_default', true)->values();

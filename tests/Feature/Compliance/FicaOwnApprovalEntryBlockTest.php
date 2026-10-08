@@ -9,9 +9,13 @@ use App\Models\Compliance\FicaOfficerAppointment;
 use App\Models\Contact;
 use App\Models\FicaStatusHistory;
 use App\Models\FicaSubmission;
+use App\Models\Role;
 use App\Models\User;
+use App\Services\PermissionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
@@ -29,6 +33,8 @@ final class FicaOwnApprovalEntryBlockTest extends TestCase
     use RefreshDatabase;
 
     private const REASON = 'You cannot approve your own FICA - another Responsible Officer or the Compliance Officer must review it';
+    // A referred pack is decided only at the referral station, so it must not promise "another RO may review it".
+    private const REFERRED_REASON = 'this pack was referred, so only the Compliance Officer it was referred to';
 
     private int $agencyId;
     private User $primaryCo;
@@ -85,11 +91,11 @@ final class FicaOwnApprovalEntryBlockTest extends TestCase
         ]));
     }
 
-    private function assertBlockedAtEntry($response, FicaSubmission $sub, string $statusBefore): void
+    private function assertBlockedAtEntry($response, FicaSubmission $sub, string $statusBefore, ?string $reason = null): void
     {
         $response->assertRedirect(route('compliance.fica.show', $sub));
         $response->assertSessionHasErrors('own_fica');
-        $this->assertStringContainsString(self::REASON, session('errors')->first('own_fica'));
+        $this->assertStringContainsString($reason ?? self::REASON, session('errors')->first('own_fica'));
         $this->assertSame($statusBefore, $sub->fresh()->status, 'nothing was saved');
     }
 
@@ -152,7 +158,7 @@ final class FicaOwnApprovalEntryBlockTest extends TestCase
         // Empty payload: the refusal must come BEFORE validation, i.e. at the very start.
         $resp = $this->actingAs($this->ro)->post(route($route, $sub), []);
 
-        $this->assertBlockedAtEntry($resp, $sub, $status);
+        $this->assertBlockedAtEntry($resp, $sub, $status, $status === 'referred_to_co' ? self::REFERRED_REASON : null);
         $this->assertDatabaseHas('fica_status_history', [
             'fica_submission_id' => $sub->id,
             'action'             => 'self_approval_blocked',
@@ -314,5 +320,307 @@ final class FicaOwnApprovalEntryBlockTest extends TestCase
 
         $this->assertFalse($sub->hasOtherEligibleReviewer($this->ro));
         $this->assertStringContainsString('no other Responsible Officer', $sub->ownReviewBlockFor($this->ro));
+    }
+
+    // ══ Audit-fix round (7 Oct 2026): resubmit, status-aware screens, N+1, wording, ledger de-dup ══
+
+    /** A realistic stage-1 fixture: nobody has done the stage-1 check yet, so agent_verified_by is NULL. */
+    private function freshSubmission(int $requestedBy, string $status): FicaSubmission
+    {
+        $sub = $this->submission($requestedBy, $status);
+        DB::table('fica_submissions')->where('id', $sub->id)->update(['agent_verified_by' => null, 'agent_verified_at' => null]);
+
+        return $sub->fresh();
+    }
+
+    /** Real role rows + default grants (not the suite's allow-all shortcut), so authorizeAgency's scope path is exercised. */
+    private function useRealRoles(): void
+    {
+        $now = now();
+        foreach ([['super_admin', 'System Owner', 1, 1], ['admin', 'Administrator', 0, 2], ['branch_manager', 'Branch Manager', 0, 3], ['agent', 'Agent', 0, 4]] as [$name, $label, $owner, $sort]) {
+            DB::table('roles')->updateOrInsert(['name' => $name, 'agency_id' => null],
+                ['label' => $label, 'is_owner' => $owner, 'can_be_deleted' => 0, 'sort_order' => $sort, 'created_at' => $now, 'updated_at' => $now]);
+        }
+        Artisan::call('corex:sync-permissions', ['--seed-defaults' => true]);
+        Role::clearCache();
+        PermissionService::clearCache();
+        PermissionService::forceProductionPosture();
+    }
+
+    private function userWithRole(string $role): User
+    {
+        return User::factory()->create(['agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'role' => $role]);
+    }
+
+    // ── F2: resubmit-corrections is no back door around the blocked stage-1 step ──
+
+    public function test_requesting_officer_cannot_resubmit_their_own_fica_and_the_block_is_audited(): void
+    {
+        $sub = $this->freshSubmission($this->ro->id, 'corrections_requested');
+
+        $resp = $this->actingAs($this->ro)->post(route('compliance.fica.resubmit-corrections', $sub));
+
+        $this->assertBlockedAtEntry($resp, $sub, 'corrections_requested');
+        $row = FicaStatusHistory::where('fica_submission_id', $sub->id)->where('action', 'self_approval_blocked')->sole();
+        $this->assertSame('resubmit_corrections', $row->meta['attempt'] ?? null);
+        $this->assertSame($this->ro->id, $row->actor_user_id);
+    }
+
+    public function test_resubmit_still_works_for_a_non_officer_requester_and_for_a_different_officer(): void
+    {
+        $byAgent = $this->freshSubmission($this->agent->id, 'corrections_requested');
+        $resp = $this->actingAs($this->agent)->post(route('compliance.fica.resubmit-corrections', $byAgent));
+        $resp->assertRedirect(route('compliance.fica.show', $byAgent));
+        $resp->assertSessionDoesntHaveErrors('own_fica');
+        $this->assertSame('agent_approved', $byAgent->fresh()->status);
+
+        $roOwn = $this->freshSubmission($this->ro->id, 'corrections_requested');
+        $resp = $this->actingAs($this->otherRo)->post(route('compliance.fica.resubmit-corrections', $roOwn));
+        $resp->assertSessionDoesntHaveErrors('own_fica');
+        $this->assertSame('agent_approved', $roOwn->fresh()->status, 'a different officer may resubmit it');
+
+        $this->assertDatabaseMissing('fica_status_history', ['action' => 'self_approval_blocked']);
+    }
+
+    public function test_resubmit_with_real_roles_blocks_the_requesting_branch_manager_officer_but_not_others(): void
+    {
+        $this->useRealRoles();
+        $bmOfficer = $this->userWithRole('branch_manager');
+        $this->appoint($bmOfficer, FicaOfficerAppointment::ROLE_MLRO);
+        $bmPlain   = $this->userWithRole('branch_manager');   // not an officer
+        $adminRo   = $this->userWithRole('admin');
+        $this->appoint($adminRo, FicaOfficerAppointment::ROLE_MLRO);
+
+        $own = $this->freshSubmission($bmOfficer->id, 'corrections_requested');
+        $resp = $this->actingAs($bmOfficer)->post(route('compliance.fica.resubmit-corrections', $own));
+        $this->assertBlockedAtEntry($resp, $own, 'corrections_requested');
+        $this->assertDatabaseHas('fica_status_history', ['fica_submission_id' => $own->id, 'action' => 'self_approval_blocked', 'actor_user_id' => $bmOfficer->id]);
+
+        $plainOwn = $this->freshSubmission($bmPlain->id, 'corrections_requested');
+        $this->actingAs($bmPlain)->post(route('compliance.fica.resubmit-corrections', $plainOwn))->assertSessionDoesntHaveErrors('own_fica');
+        $this->assertSame('agent_approved', $plainOwn->fresh()->status);
+
+        // A different officer (an admin RO, company scope) resubmits the branch manager's FICA.
+        $again = $this->freshSubmission($bmOfficer->id, 'corrections_requested');
+        $this->actingAs($adminRo)->post(route('compliance.fica.resubmit-corrections', $again))->assertSessionDoesntHaveErrors('own_fica');
+        $this->assertSame('agent_approved', $again->fresh()->status);
+    }
+
+    public function test_record_page_with_real_roles_shows_the_notice_only_to_the_blocked_officer(): void
+    {
+        $this->useRealRoles();
+        $bmOfficer = $this->userWithRole('branch_manager');
+        $this->appoint($bmOfficer, FicaOfficerAppointment::ROLE_MLRO);
+        $adminRo = $this->userWithRole('admin');
+        $this->appoint($adminRo, FicaOfficerAppointment::ROLE_MLRO);
+
+        $sub = $this->freshSubmission($bmOfficer->id, 'corrections_requested');
+        DB::table('fica_submissions')->where('id', $sub->id)->update(['co_notes' => 'Please attach a clearer proof of address.']); // the banner (and its Resubmit button) shows with CO notes
+
+        $own = $this->actingAs($bmOfficer)->get(route('compliance.fica.show', $sub))->assertOk()->getContent();
+        $this->assertStringContainsString('data-own-fica-blocked', $own);
+        $this->assertStringNotContainsString(route('compliance.fica.resubmit-corrections', $sub), $own, 'no resubmit button the server would refuse');
+
+        $other = $this->actingAs($adminRo)->get(route('compliance.fica.show', $sub))->assertOk()->getContent();
+        $this->assertStringNotContainsString('data-own-fica-blocked', $other);
+        $this->assertStringContainsString(route('compliance.fica.resubmit-corrections', $sub), $other);
+    }
+
+    // ── F4: the notice and the Reopen button exist only where the block can apply ──
+
+    /** @return array<string, array{0: string}> */
+    public static function finishedStatuses(): array
+    {
+        return ['approved' => ['approved'], 'cancelled' => ['cancelled'], 'draft' => ['draft']];
+    }
+
+    /**
+     * @dataProvider finishedStatuses
+     */
+    public function test_no_own_fica_notice_on_a_finished_or_unsent_record(string $status): void
+    {
+        $sub = $this->freshSubmission($this->ro->id, $status);
+
+        $html = $this->actingAs($this->ro)->get(route('compliance.fica.show', $sub))->assertOk()->getContent();
+
+        $this->assertStringNotContainsString('data-own-fica-blocked', $html);
+        $this->assertStringNotContainsString('This is your own FICA', $html);
+        $this->assertStringNotContainsString('data-own-fica-review-disabled', $html);
+    }
+
+    public function test_rejected_own_fica_has_no_banner_and_no_dead_reopen_button_but_others_keep_the_button(): void
+    {
+        $sub = $this->freshSubmission($this->ro->id, 'rejected');
+
+        $html = $this->actingAs($this->ro)->get(route('compliance.fica.show', $sub))->assertOk()->getContent();
+        $this->assertStringNotContainsString('data-own-fica-blocked', $html, 'no banner');
+        $this->assertStringNotContainsString(route('compliance.fica.reopen', $sub), $html, 'no Reopen form the server would refuse');
+        $this->assertStringNotContainsString('Reopen for Corrections', $html);
+        $this->assertStringContainsString('data-own-fica-reopen-blocked', $html, 'a plain reason takes the button\'s place');
+
+        $other = $this->actingAs($this->otherRo)->get(route('compliance.fica.show', $sub))->assertOk()->getContent();
+        $this->assertStringContainsString(route('compliance.fica.reopen', $sub), $other);
+        $this->assertStringNotContainsString('data-own-fica-reopen-blocked', $other);
+    }
+
+    public function test_notice_is_present_in_every_review_state(): void
+    {
+        foreach (['submitted', 'under_review', 'corrections_requested', 'agent_approved', 'referred_to_co'] as $status) {
+            $sub = $this->freshSubmission($this->ro->id, $status);
+            $html = $this->actingAs($this->ro)->get(route('compliance.fica.show', $sub))->assertOk()->getContent();
+            $this->assertStringContainsString('data-own-fica-blocked', $html, $status);
+        }
+    }
+
+    public function test_blocked_attempts_on_a_record_with_nothing_to_review_are_refused_but_not_audited(): void
+    {
+        foreach (['approved', 'cancelled', 'draft'] as $status) {
+            $sub = $this->freshSubmission($this->ro->id, $status);
+            $resp = $this->actingAs($this->ro)->post(route('compliance.fica.agent-approve', $sub), []);
+            $resp->assertSessionHasErrors('own_fica');
+            $this->assertSame($status, $sub->fresh()->status);
+        }
+        $this->assertDatabaseMissing('fica_status_history', ['action' => 'self_approval_blocked']);
+
+        // A genuine blocked attempt (reopen on a rejected own FICA) is still audited.
+        $rejected = $this->freshSubmission($this->ro->id, 'rejected');
+        $this->actingAs($this->ro)->post(route('compliance.fica.reopen', $rejected), [])->assertSessionHasErrors('own_fica');
+        $this->assertDatabaseHas('fica_status_history', ['fica_submission_id' => $rejected->id, 'action' => 'self_approval_blocked']);
+    }
+
+    // ── F5: the list asks the officer questions once per agency, not once per row ──
+
+    private function appointmentQueriesFor(callable $render): int
+    {
+        $count = 0;
+        DB::listen(function ($q) use (&$count) {
+            if (str_contains($q->sql, 'fica_officer_appointments')) {
+                $count++;
+            }
+        });
+        $render();
+
+        return $count;
+    }
+
+    public function test_officer_lookups_on_the_list_do_not_grow_with_the_number_of_rows(): void
+    {
+        $this->actingAs($this->ro);
+        $url = route('compliance.fica.index', ['tab' => 'all', 'agent_id' => 'all']);
+
+        // Baseline already holds one row of each review state, so the per-agency lookups are all paid once.
+        $this->submission($this->ro->id, 'agent_approved');
+        $this->submission($this->ro->id, 'referred_to_co');
+        $this->get($url)->assertOk(); // warm: first request pays one-off boot queries
+        $small = $this->appointmentQueriesFor(fn () => $this->get($url)->assertOk());
+
+        foreach (range(1, 18) as $i) { $this->submission($this->ro->id, $i % 2 ? 'agent_approved' : 'referred_to_co'); }
+        $big = $this->appointmentQueriesFor(fn () => $this->get($url)->assertOk());
+
+        $this->assertSame($small, $big, "appointment queries: 2 rows => {$small}, 20 rows => {$big}");
+        $this->assertLessThanOrEqual(12, $big);
+    }
+
+    public function test_officer_lookups_on_the_contact_tab_do_not_grow_with_the_number_of_submissions(): void
+    {
+        $this->actingAs($this->ro);
+        $mk = function (int $n): array {
+            $contact = Contact::withoutEvents(fn () => Contact::create([
+                'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId,
+                'first_name' => 'Multi', 'last_name' => 'Sub' . $n, 'created_by_user_id' => $this->ro->id,
+            ]));
+            foreach (range(1, $n) as $_) {
+                FicaSubmission::withoutEvents(fn () => FicaSubmission::create([
+                    'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'contact_id' => $contact->id,
+                    'requested_by' => $this->ro->id, 'agent_verified_by' => $this->ro->id, 'status' => 'submitted',
+                ]));
+            }
+
+            return [$contact];
+        };
+        [$few] = $mk(1);
+        [$many] = $mk(15);
+        $render = fn ($c) => fn () => view('corex.contacts._fica-tab-body', ['contact' => $c, 'ficaStatus' => 'pending'])->render();
+
+        $one = $this->appointmentQueriesFor($render($few));
+        $fifteen = $this->appointmentQueriesFor($render($many));
+
+        $this->assertSame($one, $fifteen, "appointment queries: 1 submission => {$one}, 15 => {$fifteen}");
+    }
+
+    // ── F6/F7: the wording tells the truth ──
+
+    public function test_stage_one_never_claims_nobody_else_can_do_the_check(): void
+    {
+        // No other officer at all - but stage 1 is open to any user with compliance access.
+        FicaOfficerAppointment::where('agency_id', $this->agencyId)
+            ->whereIn('user_id', [$this->primaryCo->id, $this->otherRo->id])
+            ->update(['ended_on' => now()->subDay()->toDateString()]);
+
+        $sub = $this->freshSubmission($this->ro->id, 'submitted');
+        $reason = $sub->ownReviewBlockFor($this->ro);
+
+        $this->assertNotNull($reason);
+        $this->assertStringNotContainsString('no other', $reason);
+        $this->assertStringNotContainsString('appoint one', $reason);
+        $this->assertStringContainsString('any other user with compliance access', $reason);
+    }
+
+    public function test_referred_pack_wording_names_the_referral_station_not_another_ro(): void
+    {
+        // Primary CO exists: the station is open to them.
+        $sub = $this->freshSubmission($this->ro->id, 'referred_to_co');
+        $reason = $sub->ownReviewBlockFor($this->ro);
+        $this->assertStringContainsString(self::REFERRED_REASON, $reason);
+        $this->assertStringNotContainsString('another Responsible Officer', $reason);
+
+        // No primary CO and the other RO is NOT the referral recipient: nobody can decide it.
+        FicaOfficerAppointment::where('agency_id', $this->agencyId)->where('user_id', $this->primaryCo->id)
+            ->update(['ended_on' => now()->subDay()->toDateString()]);
+        $none = $sub->fresh()->ownReviewBlockFor($this->ro);
+        $this->assertStringContainsString('no other Compliance Officer able to decide this referred pack', $none);
+        $this->assertFalse($sub->fresh()->hasOtherEligibleReviewer($this->ro));
+
+        // ...unless the agency has configured that other RO as the referral recipient.
+        DB::table('agencies')->where('id', $this->agencyId)->update(['fica_referral_recipient_user_id' => $this->otherRo->id]);
+        $this->assertTrue($sub->fresh()->hasOtherEligibleReviewer($this->ro));
+        $this->assertStringContainsString(self::REFERRED_REASON, $sub->fresh()->ownReviewBlockFor($this->ro));
+    }
+
+    // ── F8: a refresh-happy officer does not flood the ledger ──
+
+    public function test_identical_blocked_posts_collapse_into_one_ledger_row(): void
+    {
+        $sub = $this->freshSubmission($this->ro->id, 'submitted');
+
+        foreach (range(1, 4) as $_) {
+            $this->actingAs($this->ro)->post(route('compliance.fica.agent-approve', $sub), [])->assertSessionHasErrors('own_fica');
+        }
+        $this->assertSame(1, FicaStatusHistory::where('fica_submission_id', $sub->id)->where('action', 'self_approval_blocked')->count());
+
+        // A different action is a different event: it gets its own row.
+        $this->actingAs($this->ro)->post(route('compliance.fica.reject', $sub), []);
+        $this->assertSame(2, FicaStatusHistory::where('fica_submission_id', $sub->id)->where('action', 'self_approval_blocked')->count());
+
+        // Outside the window the same action is recorded again.
+        Carbon::setTestNow(now()->addSeconds(61));
+        try {
+            $this->actingAs($this->ro)->post(route('compliance.fica.agent-approve', $sub), []);
+        } finally {
+            Carbon::setTestNow();
+        }
+        $this->assertSame(3, FicaStatusHistory::where('fica_submission_id', $sub->id)->where('action', 'self_approval_blocked')->count());
+    }
+
+    public function test_the_ledger_dedup_is_per_submission_and_per_user(): void
+    {
+        $a = $this->freshSubmission($this->ro->id, 'submitted');
+        $b = $this->freshSubmission($this->ro->id, 'submitted');
+
+        $this->actingAs($this->ro)->post(route('compliance.fica.agent-approve', $a), []);
+        $this->actingAs($this->ro)->post(route('compliance.fica.agent-approve', $b), []);
+
+        $this->assertSame(1, FicaStatusHistory::where('fica_submission_id', $a->id)->where('action', 'self_approval_blocked')->count());
+        $this->assertSame(1, FicaStatusHistory::where('fica_submission_id', $b->id)->where('action', 'self_approval_blocked')->count());
     }
 }

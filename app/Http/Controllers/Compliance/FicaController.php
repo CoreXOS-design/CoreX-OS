@@ -341,9 +341,12 @@ class FicaController extends Controller
         $referralEnabled = $referrals->referralEnabled((int) $submission->agency_id);
         $viewerIsPrimaryCo = Auth::user()->isPrimaryComplianceOfficer((int) $submission->agency_id);
         $tfsScreening = $submission->latestTfsScreening();
-        $ownReviewBlock = $submission->ownReviewBlockFor(Auth::user());
+        // Only while there is something to review (or, on a rejected record, to reopen): a finished
+        // or unsent record gets no "your own FICA" notice and no dead button.
+        $ownReviewBlock = $submission->ownReviewNoticeFor(Auth::user());
+        $ownReopenBlock = $submission->ownReopenBlockFor(Auth::user());
 
-        return view('compliance.fica.show', compact('submission', 'referralEnabled', 'viewerIsPrimaryCo', 'tfsScreening', 'ownReviewBlock'));
+        return view('compliance.fica.show', compact('submission', 'referralEnabled', 'viewerIsPrimaryCo', 'tfsScreening', 'ownReviewBlock', 'ownReopenBlock'));
     }
 
     /**
@@ -1007,6 +1010,13 @@ class FicaController extends Controller
     public function resubmitCorrections(Request $request, FicaSubmission $submission)
     {
         $this->authorizeAgency($submission);
+
+        // Resubmitting moves the pack straight to agent_approved (the RO queue) with no stage-1
+        // check, so for an officer's own FICA it would sidestep the blocked stage-1 step.
+        if ($block = $this->refuseOwnReview($submission, 'resubmit_corrections', true)) {
+            return $block;
+        }
+
         abort_unless($submission->status === 'corrections_requested', 400, 'Submission is not in corrections requested state.');
 
         $user = Auth::user();
@@ -1493,10 +1503,13 @@ class FicaController extends Controller
     /**
      * Own-FICA separation, enforced at the START of every review / mark-up action —
      * not only at final approval. An appointed officer (RO/MLRO, not the primary CO)
-     * who requested, stage-1-approved or is the portal user of this FICA is turned
-     * back to the record page with the reason; nothing is saved. Attempts on a POST
-     * are written to the audit ledger; a plain page view (GET) is refused silently
-     * so a refresh cannot flood it. See FicaSubmission::ownReviewBlockFor().
+     * who requested or stage-1-approved this FICA is turned back to the record page
+     * with the reason; nothing is saved. Attempts on a POST are written to the audit
+     * ledger; a plain page view (GET) is refused silently so a refresh cannot flood it.
+     * The ledger is also not written for a record with nothing to review (approved /
+     * cancelled / draft; rejected only counts for the Reopen action), and the same user
+     * repeating the same blocked action on the same FICA within a minute is one row, not
+     * one per click. See FicaSubmission::ownReviewBlockFor().
      */
     private function refuseOwnReview(FicaSubmission $submission, string $attempt, bool $audit = true)
     {
@@ -1506,7 +1519,10 @@ class FicaController extends Controller
             return null;
         }
 
-        if ($audit) {
+        $reviewable = $submission->isInOwnReviewState()
+            || ($attempt === 'reopen_rejected' && $submission->status === 'rejected');
+
+        if ($audit && $reviewable && ! $this->recentlyBlocked($submission, $actor, $attempt)) {
             FicaStatusHistory::record(
                 $submission,
                 'self_approval_blocked',
@@ -1519,6 +1535,18 @@ class FicaController extends Controller
         }
 
         return redirect()->route('compliance.fica.show', $submission)->withErrors(['own_fica' => $reason]);
+    }
+
+    /** Has this user already been blocked on this FICA for this same action in the last minute? (ledger de-dup) */
+    private function recentlyBlocked(FicaSubmission $submission, User $actor, string $attempt): bool
+    {
+        return FicaStatusHistory::withoutGlobalScopes()
+            ->where('fica_submission_id', $submission->id)
+            ->where('action', 'self_approval_blocked')
+            ->where('actor_user_id', $actor->id)
+            ->where('created_at', '>=', now()->subSeconds(60))
+            ->get(['meta'])
+            ->contains(fn ($row) => ($row->meta['attempt'] ?? null) === $attempt);
     }
 
     /**

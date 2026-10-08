@@ -398,6 +398,24 @@ class Property extends Model
     }
 
     /**
+     * AT-448 — on-market listings whose mandate expiry date falls inside a date
+     * window (inclusive). "On market" is the same NULL-safe test the midnight
+     * mandates:expire sweep and the notification scanner use, so the popup, the
+     * "Expiring soon" filter and the sweep can never disagree about which stock
+     * is live. Spec: .ai/specs/at448-property-expiry.md §5.2.
+     */
+    public function scopeExpiringSoon($query, \Illuminate\Support\Carbon $from, \Illuminate\Support\Carbon $to)
+    {
+        return $query
+            ->whereNotNull('expiry_date')
+            ->whereDate('expiry_date', '>=', $from->toDateString())
+            ->whereDate('expiry_date', '<=', $to->toDateString())
+            ->where(function ($q) {
+                $q->whereNull('status')->orWhereNotIn('status', self::OFF_MARKET_STATUSES);
+            });
+    }
+
+    /**
      * AT-419 — the Imported Stock page: P24-imported properties whose status
      * is one of importedStockStatuses() (withdrawn, sold, expired, cancelled,
      * …). See scopeExcludingImportedOffMarket() above for the casing note and
@@ -444,6 +462,19 @@ class Property extends Model
         return $this->p24_imported_at !== null
             && $this->imported_released_at === null
             && in_array(strtolower((string) $this->status), self::importedStockStatuses(), true);
+    }
+
+    /**
+     * AT-448 (audit fix) - Imported Stock that is still genuinely untouched: nothing has
+     * put it on the market inside CoreX (expiry_lock_engaged_at IS NULL). ONLY this is
+     * exempt from the expiry lock and open to the AT-422 date takeover. A P24-origin
+     * listing that was live and then withdrawn / sold / expired stays on the Imported
+     * Stock page (isImportedStock() is unchanged) but is NOT untouched: its expiry date
+     * is real, so the lock applies and a status save never resets it.
+     */
+    public function isUntouchedImportedStock(): bool
+    {
+        return $this->isImportedStock() && $this->expiry_lock_engaged_at === null;
     }
 
     /**
@@ -746,6 +777,19 @@ class Property extends Model
     }
 
     /**
+     * AT-448 — has this listing "gone live"? Go Live was pressed on it
+     * (compliance_snapshot_at) OR it has ever been on a portal / the website
+     * (wasEverAdvertised). Both stamps are sticky, so an expired or withdrawn
+     * listing stays "gone live" — the expiry lock must not fall away just
+     * because the mandate lapsed. A draft that never went live answers false.
+     * Spec: .ai/specs/at448-property-expiry.md §2.3 (D4).
+     */
+    public function hasGoneLive(): bool
+    {
+        return $this->compliance_snapshot_at !== null || $this->wasEverAdvertised();
+    }
+
+    /**
      * Whether this property type is a habitable dwelling that is normally
      * listed with bedroom/bathroom counts. Land, farms, commercial and
      * industrial stock are not — so readiness/completeness gates must not
@@ -897,6 +941,8 @@ class Property extends Model
         'published_at',
         'listed_date',
         'expiry_date',
+        'expiry_date_changed_at',
+        'expiry_lock_engaged_at',
         'lease_start_date',
         'lease_end_date',
         // .ai/specs/rental-renewals.md §19 — whether lease_start_date (reused
@@ -1048,6 +1094,8 @@ class Property extends Model
         'special_levy'        => 'integer',
         'listed_date'         => 'date',
         'expiry_date'         => 'date',
+        'expiry_date_changed_at' => 'datetime',
+        'expiry_lock_engaged_at' => 'datetime',
         'occupation_date'     => 'date',
         'lease_start_date'    => 'date',
         'lease_end_date'      => 'date',
@@ -2177,6 +2225,52 @@ class Property extends Model
     public function scopeRentalVisibleTo($query, \App\Models\User $user)
     {
         return $query->where('listing_type', 'rental')->visibleTo($user);
+    }
+
+    /**
+     * AT-448 — the plain-agent "my listings" / "my branch" restriction the
+     * Properties list applies (moved here from PropertyController so the
+     * expiring-soon popup and its dismiss endpoint use the SAME rule, never a
+     * re-implementation). Own = the user's data identities (an assistant maps
+     * to their agent's book, AT-267) as listing agent OR second agent.
+     */
+    public function scopeOwnListingsFor($query, \App\Models\User $user, string $viewScope = 'my')
+    {
+        if ($viewScope === 'branch' && $user->branch_id) {
+            return $query->where('branch_id', $user->branch_id);
+        }
+
+        $ids = $user->dataIdentityIds();
+
+        return $query->where(function ($q) use ($ids) {
+            $q->whereIn('agent_id', $ids)
+              ->orWhereIn('pp_second_agent_id', $ids);
+        });
+    }
+
+    /**
+     * AT-448 — the DEFAULT (no explicit agent pick) breadth of the Properties
+     * list for this user: admin/BM by their role scope (all / branch), everyone
+     * else by scopeOwnListingsFor(). PropertyController::applyRoleScope()
+     * delegates here — one truth for "what does this user see on Properties".
+     */
+    public function scopeVisibleInListFor($query, \App\Models\User $user, string $viewScope = 'my')
+    {
+        $dataScope    = \App\Services\PermissionService::getDataScope($user, 'properties');
+        $canPickAgent = in_array($dataScope, ['all', 'branch'], true);
+
+        if ($canPickAgent) {
+            if ($dataScope === 'branch') {
+                $branchId = $user->effectiveBranchId();
+                if ($branchId) {
+                    $query->where('branch_id', $branchId);
+                }
+            }
+
+            return $query; // 'all' ⇒ no restriction
+        }
+
+        return $query->ownListingsFor($user, $viewScope);
     }
 
     /**
