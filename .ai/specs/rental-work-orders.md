@@ -3459,10 +3459,11 @@ cancelled / archived cards drop off on the next refresh.
   `POST corex/rental-crews/{crew}/link` (issue / regenerate) → `corex.rental-crews.link.issue`; `DELETE …/link` →
   `…link.revoke`; `POST …/link/email` → `…link.email`; `GET …/link/events` → `…link.events`.
 - API (named, in the Admin → API catalog — non-negotiable #7), added to the existing client groups in `routes/api.php`
-  (tenant block :215-226, landlord block :230-242): tenant `GET rentals/job-cards` → `job-cards.index`,
-  `GET rentals/job-cards/{jobCard}` → `job-cards.show`; landlord `GET rentals/landlord/job-cards`,
-  `GET rentals/landlord/job-cards/{jobCard}`. The existing tenant `work-orders.show`, `fault-reports.show` and landlord
-  `work-orders.index` responses gain a `photos` array (same visibility rule).
+  (tenant block :215-226, landlord block :230-242). **SUPERSEDED 8 Oct 2026 (Johan W4, `rentals-faults-work-orders.md` §16):** the
+  portal job-card endpoints that were added here (tenant and owner `GET rentals/job-cards`, `GET rentals/job-cards/{jobCard}`,
+  `GET rentals/landlord/job-cards`, `GET rentals/landlord/job-cards/{jobCard}`) were REMOVED — the job card is internal; tenants and
+  owners read the WORK ORDER (tenant `GET rentals/work-orders`, `work-orders/{id}`, `fault-reports/{id}`; owner `GET rentals/landlord/work-orders`,
+  `work-orders/{id}`), which carry the plain stage, who is doing it, the appointment and the same `photos` array (same visibility rule).
 
 **Controllers / services**
 - New: `App\Http\Controllers\CrewPageController` (public), `App\Http\Controllers\CoreX\RentalCrewLinkController` (office),
@@ -3524,7 +3525,7 @@ and a different tenant / landlord gets a 404.
 - **One decision, one place:** `RentalJobCardClientViewService` decides what a client sees (photo rule, completion block, payload); `RentalPortalScopeService::tenantJobCards()/tenantJobCard()/landlordJobCards()/landlordJobCard()` decide which cards a party may open (own lease / own property; `withoutGlobalScopes()` **also strips SoftDeletes**, so `deleted_at IS NULL` is explicit; `agency_id` pinned manually).
 - **Draft cards are never shown to a tenant or landlord** (`RentalJobCardClientViewService::CLIENT_HIDDEN_STATUSES = [draft]`) — a draft is the office's unfinished prep. Every other status (quoted, approved, scheduled, in progress, completed, cancelled) is shown truthfully. *(Spec §14.29 was silent; flagged to the conductor — one-constant change either way.)*
 - **Photos:** card photos + the linked work order's, filtered by the agency rule; `reported` never; each photo is `{id, url, photo_type, caption, uploaded_at}` (`caption` is null until Build 1's column exists — read via `getAttribute`, no code change needed then). The existing `work-orders.show` / `fault-reports.show` (tenant) and `work-orders.index` (landlord) responses gained `photos`; for a fault report it is the photos of the **work done** (linked job cards / work order), never the reporter's own attachments.
-- **API** (named, in the Admin → API catalog): tenant `client.rentals.job-cards.index|show`, landlord `client.rentals.landlord.job-cards.index|show`. Tenant payload never carries a price or a quote; landlord payload carries `selected_quote_amount` only (the amount the existing work-order endpoint already shows).
+- **API** (named, in the Admin → API catalog): ~~tenant `client.rentals.job-cards.index|show`, landlord `client.rentals.landlord.job-cards.index|show`~~ — **removed 8 Oct 2026 (§16 / `rentals-faults-work-orders.md` §16, W4)**; the work-order endpoints (`client.rentals.work-orders.*`, `client.rentals.landlord.work-orders.*`) are the portal's read path. Tenant payload never carries a price or a quote; landlord payload carries the owner-facing amount only.
 - **Web portal** (`rentals/portal/shell.blade.php`): a **Jobs** tab for tenants and for landlords — status, dates, who signed the crew completion, the photo thumbnails.
 - **Tenancy log:** `job_card` added to `LeaseTimelineService::TYPES` (the "Job card" filter box appears automatically); entries *Job card opened*, *Crew photos added (n)* / *Photos added (n)* (grouped per card per day; crew = no CoreX user behind the upload), *Work completed — signed by {name} [via link / crew page / signed copy]* (the `via` suffix appears as soon as Build 1's `worker_sign_off_via` column does; absent = no suffix), *Job card completed*. Scoped by `lease_id`. Like the fault / work-order entries beside it, the log is lease-scoped, not filtered by the viewer's own job-card scope.
 - **Lease hub:** a **Job cards** panel above the tenancy log (status chip, schedule / completion, crew, photo thumbnails — the office sees every photo type), listing only the cards the viewer's own job-card scope allows; absent when the tenancy has none or the viewer lacks `rental_job_cards.view`.
@@ -3947,7 +3948,7 @@ Every other line is the conductor's paraphrase, not a quote.
 3. **§14.4 / §14.14 / §14.27.3 price settings are restated in cost terms** (§17.4.7): `crew_link_show_prices` → `crew_link_show_costs`;
    `show_prices_on_printed_job_card` → `show_costs_on_printed_job_card`. `capture_prices_on_job_cards` keeps its name and meaning (master switch for
    pricing at all).
-4. **§14.29 tenant/landlord "Jobs" keyed on job cards** is re-keyed on the work order (§17.3.5); the job-card API endpoints stay for compatibility
+4. **§14.29 tenant/landlord "Jobs" keyed on job cards** is re-keyed on the work order (§17.3.5); the job-card API endpoints were first kept for compatibility and were REMOVED on 8 Oct 2026 (§16)
    but the portal shell stops using them.
 5. **§14.27 "crew completed never closes the card"** stays; it now also OPENS a completion round (§17.10).
 6. **`rentals-faults-work-orders.md` §6.5 / §13 (routing profiles, emergency spend limits that could bypass owner approval)** — that routing
