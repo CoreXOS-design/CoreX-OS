@@ -10547,9 +10547,17 @@
                         </div>
                         <div>
                             <span style="color: var(--text-muted);">Unique viewings with feedback:</span>
-                            <span class="font-semibold ml-1" style="color: var(--text-primary);">{{ $feedbackRollup['total_viewings'] }}</span>
+                            <span class="font-semibold ml-1" style="color: var(--text-primary);">{{ $feedbackRollup['viewings_with_feedback'] }}</span>
                         </div>
                     </div>
+                    @if(!empty($feedbackRollup['top_concern_labels']))
+                        <div class="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
+                            <span style="color: var(--text-muted);">Concerns raised:</span>
+                            @foreach($feedbackRollup['top_concern_labels'] as $concernLabel => $concernCount)
+                                <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold" style="background:rgba(245,158,11,.15); color:#b45309;">{{ $concernLabel }} ({{ $concernCount }})</span>
+                            @endforeach
+                        </div>
+                    @endif
                 </div>
 
                 {{-- Section: Recent Viewings & Feedback Detail --}}
@@ -10589,6 +10597,9 @@
                                                 @if($fb['outcome_label'] ?? null)
                                                     <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:rgba(16,185,129,.15); color:#059669;">{{ $fb['outcome_label'] }}</span>
                                                 @endif
+                                                @foreach(($fb['concerns'] ?? []) as $concernLabel)
+                                                    <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded" style="background:rgba(245,158,11,.15); color:#b45309;">{{ $concernLabel }}</span>
+                                                @endforeach
                                                 @if($fb['seller_notes'] ?? null)
                                                     <p class="text-xs mt-1" style="color: var(--text-secondary);">{{ $fb['seller_notes'] }}</p>
                                                 @endif
