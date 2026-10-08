@@ -384,3 +384,137 @@ test('a link for another email, with the page\'s double init and a slow session 
   assert.equal(p.linkIssue.kind, 'email');
   assert.equal(p.whoName(), 'Tina Tenant');
 });
+
+// ── 8 Oct 2026, 20:05 — Johan could not sign in: the Continue button was DISABLED on every signed-out page ──
+// Cause: `:disabled="busy.login"`. Alpine turns an UNDEFINED result of an expression that contains a dot into "" (alpinejs
+// module.cjs.js, x-bind handler: `result === void 0 && expression.match(/\./) → ""`), and "" on a boolean attribute means SET.
+// `busy` starts as {} (only the first press creates `busy.login`), so every button bound like that was disabled until pressed - and
+// a disabled button can never be pressed. These tests apply Alpine's own rule to the page's bindings.
+const bladeSrc = fs.readFileSync(path.join(here, '../../resources/views/rentals/portal/shell.blade.php'), 'utf8');
+const detail = fs.readFileSync(path.join(here, '../../resources/views/rentals/portal/_fault-detail.blade.php'), 'utf8');
+
+/** Does Alpine leave a `disabled` attribute on a button bound with this expression, given this page state? */
+function alpineSetsDisabled(expr, state, extras = {}) {
+  let result;
+  try { result = new Function('state', 'extras', 'with (extras) { with (state) { return (' + expr + '); } }')(state, extras); } catch (e) { return null; }
+  if (result === undefined && /\./.test(expr)) result = '';          // Alpine's own coercion
+  return ![null, undefined, false].includes(result);
+}
+
+function authApi({ me = null, requiresPassword = true, exists = true, leases = [], properties = [], calls = [] } = {}) {
+  const base = portalApi({ me, leases, properties, calls });
+  return async (url, opts) => {
+    const reply = (ok, data, status = ok ? 200 : 422) => ({ ok, status, json: async () => data });
+    const body = opts && opts.body ? JSON.parse(opts.body) : {};
+    if (url.endsWith('/client-auth/lookup')) { calls.push(url); return exists ? reply(true, { exists: true, requires_password: requiresPassword }) : reply(false, { message: 'We could not find that email.' }, 404); }
+    if (url.endsWith('/client-auth/otp/send')) { calls.push(url); return reply(true, { sent: true }); }
+    if (url.endsWith('/client-auth/otp/verify')) { calls.push(url); return body.code === '123456' ? reply(true, { activation_token: 'tok' }) : reply(false, { message: 'Invalid code.' }); }
+    if (url.endsWith('/client-auth/password/set') || url.endsWith('/client-auth/login') || url.endsWith('/client-auth/logout')) { calls.push(url); return reply(true, {}); }
+    return base(url, opts);
+  };
+}
+
+const continueExpr = () => bladeSrc.match(/<button[^>]*:disabled="([^"]+)"[^>]*@click="lookup\(\)"/)[1];
+
+test('EVERY :disabled binding on the portal pages is a real boolean (never an undefined property Alpine would turn into "disabled")', () => {
+  const all = [...bladeSrc.matchAll(/:disabled="([^"]*)"/g), ...detail.matchAll(/:disabled="([^"]*)"/g)].map((m) => m[1]);
+  assert.ok(all.length >= 20, 'the scan found the bindings');
+  for (const expr of all) assert.match(expr, /^!!\(.*\)$/s, `:disabled="${expr}" must be wrapped in !!( ) - an undefined result is treated as ON`);
+});
+
+test('first load, signed out: no button on the page starts disabled - Continue is pressable (fresh browser, typed email)', async () => {
+  const { p } = boot({ fetchImpl: authApi() });
+  await p.init(); await settle();
+  assert.equal(p.session.authenticated, false);
+  assert.equal(p.loading, false);
+  assert.equal(p.login.step, 'email');
+  assert.equal(alpineSetsDisabled(continueExpr(), p), false, 'Continue is enabled');
+  for (const expr of [...bladeSrc.matchAll(/:disabled="([^"]*)"/g)].map((m) => m[1])) {
+    const on = alpineSetsDisabled(expr, p, { w: { id: 1 }, v: { id: 1 }, f: { id: 1 } });
+    assert.notEqual(on, true, `:disabled="${expr}" is ON at first load`);
+  }
+});
+
+test('the link\'s email is pre-filled and Continue is pressable (both of Johan\'s links), with stale stored state from earlier deploys', async () => {
+  const storage = { 'portal.role.29': 'landlord', 'portal.role.': 'tenant', 'portal.role.undefined': 'owner', 'portal.role.30': 'nonsense', unrelated: 'x' };
+  for (const email of ['ndlovu5308%40gmail.com', 'mtoloayanda93%40gmail.com']) {
+    const { p } = boot({ search: '?email=' + email, storage, fetchImpl: authApi() });
+    await p.init(); await settle();
+    assert.equal(p.login.email, decodeURIComponent(email));
+    assert.equal(p.login.step, 'email');
+    assert.equal(p.linkIssue, null);
+    assert.equal(alpineSetsDisabled(continueExpr(), p), false);
+  }
+});
+
+test('a password account (tenant): Continue asks for the password, Sign in works, the portal opens', async () => {
+  const calls = [];
+  const { p } = boot({ search: '?email=mtoloayanda93%40gmail.com', fetchImpl: authApi({ requiresPassword: true, leases: [{ id: 94 }], calls }) });
+  await p.init(); await settle();
+  await p.lookup();
+  assert.equal(p.login.step, 'password');
+  assert.equal(p.login.error, null);
+  assert.equal(!!p.busy.login, false, 'the busy flag is released');
+  p.login.password = 'secret-pass';
+  await p.passwordLogin(); await settle();
+  assert.equal(p.session.authenticated, true);
+  assert.equal(p.roles.join(','), 'tenant');
+});
+
+test('a never-activated account (owner): Continue sends the code, the code is checked, a password is created, the portal opens', async () => {
+  const calls = [];
+  const { p } = boot({ search: '?email=ndlovu5308%40gmail.com', fetchImpl: authApi({ requiresPassword: false, properties: [{ id: 6 }], calls }) });
+  await p.init(); await settle();
+  await p.lookup();
+  assert.equal(p.login.step, 'otp-sent');
+  assert.ok(calls.some((u) => u.endsWith('/otp/send')));
+  p.login.code = '000000';
+  await p.verifyOtp();
+  assert.equal(p.login.step, 'otp-sent', 'a wrong code keeps the step');
+  assert.equal(p.login.error, 'Invalid code.');
+  assert.equal(alpineSetsDisabled(bladeSrc.match(/:disabled="([^"]+)"[^>]*@click="verifyOtp\(\)"/)[1], p), false, 'Verify can be pressed again');
+  p.login.code = '123456';
+  await p.verifyOtp();
+  assert.equal(p.login.step, 'set-password');
+  p.login.newPassword = 'a-long-password'; p.login.newPasswordConfirm = 'a-long-password';
+  await p.setPassword(); await settle();
+  assert.equal(p.session.authenticated, true);
+  assert.equal(p.roles.join(','), 'landlord');
+});
+
+test('an unknown email or a failed lookup shows a message and leaves Continue pressable', async () => {
+  const { p } = boot({ fetchImpl: authApi({ exists: false }) });
+  await p.init(); await settle();
+  p.login.email = 'nobody@example.com';
+  await p.lookup();
+  assert.equal(p.login.error, 'We could not find that email.');
+  assert.equal(alpineSetsDisabled(continueExpr(), p), false);
+  const broken = boot({ fetchImpl: async (url) => { if (url.includes('client-auth/lookup')) throw new Error('network'); return authApi()(url); } });
+  await broken.p.init(); await settle();
+  await assert.rejects(broken.p.lookup());
+  assert.equal(!!broken.p.busy.login, false, 'a thrown error still releases the busy flag');
+  assert.equal(alpineSetsDisabled(continueExpr(), broken.p), false);
+});
+
+test('after Log out, and after "Sign out and sign in as...", the reloaded page is a fresh sign-in with Continue pressable', async () => {
+  const calls = [];
+  const signed = boot({ search: '?email=ndlovu5308%40gmail.com', fetchImpl: authApi({ me: TENANT_ME, leases: [{ id: 94 }], calls }) });
+  await signed.p.init(); await settle();
+  assert.equal(signed.p.linkIssue.kind, 'email');
+  await signed.p.logout();
+  assert.equal(signed.calls.reloaded, true);
+  assert.ok(calls.some((u) => u.endsWith('/client-auth/logout')));
+  // the reload: same link, no session any more
+  const reloaded = boot({ search: '?email=ndlovu5308%40gmail.com', storage: { 'portal.role.29': 'tenant' }, fetchImpl: authApi() });
+  await reloaded.p.init(); await settle();
+  assert.equal(reloaded.p.session.authenticated, false);
+  assert.equal(reloaded.p.login.email, 'ndlovu5308@gmail.com');
+  assert.equal(alpineSetsDisabled(continueExpr(), reloaded.p), false);
+  // plain Log out from a normal portal
+  const normal = boot({ fetchImpl: authApi({ me: TENANT_ME, leases: [{ id: 94 }] }) });
+  await normal.p.init(); await settle();
+  await normal.p.logout();
+  const after = boot({ fetchImpl: authApi() });
+  await after.p.init(); await settle();
+  assert.equal(alpineSetsDisabled(continueExpr(), after.p), false);
+});
