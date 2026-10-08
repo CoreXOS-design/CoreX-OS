@@ -10,9 +10,12 @@
     $emTz = $workOrder->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
     $emViaLabel = fn (?string $via) => $via ? ucfirst(str_replace('_', ' ', $via)) : '—';
 @endphp
-@if($emActive || $emVoided->isNotEmpty() || $isOpen)
+{{-- Johan, 8 Oct 2026: shown only while an emergency agreement can still matter - not once the owner has approved or the work has started - and collapsed
+     until opened (an emergency is the exception, not a step). An agreement already on record always shows. --}}
+@if($emActive || $emVoided->isNotEmpty() || ($isOpen && $workOrder->owner_approval_status !== \App\Models\RentalWorkOrder::APPROVAL_APPROVED && ! in_array($workOrder->status, [\App\Models\RentalWorkOrder::STATUS_IN_PROGRESS, \App\Models\RentalWorkOrder::STATUS_DISPUTED], true)))
 <div id="emergency-panel" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
-    <h2 class="text-sm font-semibold">Emergency approval</h2>
+    <details @if($emActive || $errors->has('emergency')) open @endif data-emergency-collapse>
+    <summary class="text-sm font-semibold cursor-pointer">Emergency approval <span class="font-normal text-xs" style="color: var(--text-muted);">&mdash; only if the work cannot wait for the owner</span></summary>
 
     @if($emActive)
         <div class="text-sm space-y-1">
@@ -116,5 +119,6 @@
             @endforeach
         </ul>
     @endif
+    </details>
 </div>
 @endif

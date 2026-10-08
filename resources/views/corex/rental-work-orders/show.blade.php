@@ -32,7 +32,7 @@
     <div class="flex items-center justify-between">
         <div>
             <h1 class="text-lg font-semibold">{{ $workOrder->title }}</h1>
-            <span class="ds-badge {{ $statusBadgeClass }}" title="{{ ucfirst(str_replace('_', ' ', $workOrder->status)) }}">{{ $workOrder->stageLabel('agent') }}</span>
+            <span class="ds-badge {{ $statusBadgeClass }}" title="{{ \App\Models\RentalWorkOrder::statusWord($workOrder->status) }}">{{ $workOrder->stageLabel('agent') }}</span>
             <span class="text-xs" style="color: var(--text-muted);">{{ $workOrder->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $workOrder->property?->trashed() ? ' (archived)' : '' }}</span>
         </div>
         <div class="flex items-center gap-2">
@@ -45,6 +45,25 @@
          this screen by the AT-440 build that created it (its own docblock
          names this exact include). --}}
     <x-rental-context-bar :property="$workOrder->property" :lease="$workOrder->lease" current="work_orders" />
+
+    {{-- Johan, 8 Oct 2026: after the contractor is picked, say plainly what happens next. This describes the rule AS IT WORKS (RentalApprovalGateService::
+         evaluateQuote): the selected quote - the amount the owner would see - is tested against the PROPERTY's no-approval limit (its own override,
+         else the agency default). At or under: approved on the spot. Over: the owner is asked, and the work order cannot be sent until they approve. --}}
+    @if($isOpen && $workOrder->assignment_type === \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER && $workOrder->status === \App\Models\RentalWorkOrder::STATUS_REPORTED)
+        @php $nextContractor = $workOrder->contractorLabel() ?? 'the contractor'; @endphp
+        <div class="rounded-md p-3 text-sm space-y-1" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, transparent); border: 1px solid var(--border);" data-next-step>
+            <div class="font-semibold">What happens next</div>
+            @if(! $selectedQuote)
+                <div>Capture {{ $nextContractor }}'s quote below and select it. If the quote is <strong>R{{ number_format($noApprovalThreshold, 2) }} or less</strong> (this property's no-approval limit) it is approved automatically and you can send the work order. If it is <strong>more</strong>, it goes to the owner for approval first, and the work order cannot be sent until they approve.</div>
+            @elseif($workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_PENDING)
+                <div>The quote of <strong>R{{ number_format($selectedQuote->ownerFacingAmount(), 2) }}</strong> is over this property's no-approval limit of R{{ number_format($noApprovalThreshold, 2) }}, so the owner has been asked to approve it. You can send the work order to {{ $nextContractor }} once they do.</div>
+            @elseif($proceed->authorised)
+                <div>The quote of <strong>R{{ number_format($selectedQuote->ownerFacingAmount(), 2) }}</strong> is approved{{ $workOrder->approvalBasisLabel() ? ' (' . strtolower($workOrder->approvalBasisLabel()) . ')' : '' }}. Next: send the work order to {{ $nextContractor }}.</div>
+            @else
+                <div>{{ $proceed->note }}</div>
+            @endif
+        </div>
+    @endif
 
     {{-- W2/W6 (Johan, 8 Oct 2026) - the appointment for the repair. The agent normally coordinates it with the tenant; the tenant is
          emailed when it is set or changed, and sees it (with who is doing the work and the progress) on their portal. --}}
@@ -100,7 +119,7 @@
             <div><span style="color: var(--text-muted);">Owner's contractor:</span> {{ $workOrder->contractor_name ?: 'name not given' }}{{ $workOrder->contractor_phone ? ' - ' . $workOrder->contractor_phone : '' }}</div>
             @endif
             @if($workOrder->assignment_type === \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER)
-            <div><span style="color: var(--text-muted);">Supplier:</span> {{ $workOrder->supplier?->name ?? '—' }}</div>
+            <div><span style="color: var(--text-muted);">Supplier:</span> {{ $workOrder->contractorLabel() ?? '—' }}@if(! $workOrder->supplier && $workOrder->contractorLabel()) <span class="text-xs" style="color: var(--text-muted);">(from the selected quote - assigned when the work order is sent)</span>@endif</div>
             @endif
             <div><span style="color: var(--text-muted);">Appointment:</span> {{ $workOrder->appointment_at ? $workOrder->appointment_at->copy()->setTimezone($workOrder->agency?->outreachTimezone() ?: config('app.timezone'))->format('D j M Y H:i') . ($workOrder->appointment_note ? ' - ' . $workOrder->appointment_note : '') : 'Not booked yet' }}</div>
             <div><span style="color: var(--text-muted);">Reported by:</span> {{ ucfirst(str_replace('_', ' ', $workOrder->reported_by_type)) }}</div>
@@ -116,7 +135,7 @@
                 <div><span style="color: var(--text-muted);">Owner approval:</span> {{ ucfirst($workOrder->owner_approval_status) }}</div>
             @endif
             @if($workOrder->ordered_at)
-                <div><span style="color: var(--text-muted);">Ordered:</span> {{ $workOrder->ordered_at->format('Y-m-d') }}</div>
+                <div><span style="color: var(--text-muted);">{{ \App\Models\RentalWorkOrder::statusWord('ordered') }}:</span> {{ $workOrder->ordered_at->format('Y-m-d') }}</div>
             @endif
             @if($workOrder->completed_at)
                 <div><span style="color: var(--text-muted);">Completed:</span> {{ $workOrder->completed_at->format('Y-m-d') }}</div>
@@ -260,7 +279,7 @@
                                 <div>
                                     <label class="text-xs">Supplier</label><br>
                                     <select name="agency_service_provider_id" required class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
-                                        @foreach(\App\Models\DealV2\AgencyServiceProvider::active()->pickerOrder()->get() as $provider)
+                                        @foreach(\App\Models\DealV2\AgencyServiceProvider::active()->maintenanceContractors()->pickerOrder()->get() as $provider)
                                             <option value="{{ $provider->id }}" @selected($quote->agency_service_provider_id === $provider->id)>{{ $provider->name }}</option>
                                         @endforeach
                                     </select>
@@ -314,8 +333,8 @@
                     <label class="text-xs">Supplier</label><br>
                     <select name="agency_service_provider_id" required class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
                         <option value="">Select…</option>
-                        @foreach(\App\Models\DealV2\AgencyServiceProvider::active()->pickerOrder()->get() as $provider)
-                            <option value="{{ $provider->id }}">{{ $provider->name }}</option>
+                        @foreach(\App\Models\DealV2\AgencyServiceProvider::active()->maintenanceContractors()->pickerOrder()->get() as $provider)
+                            <option value="{{ $provider->id }}" @selected((int) old('agency_service_provider_id', $workOrder->agency_service_provider_id) === (int) $provider->id)>{{ $provider->name }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -346,7 +365,8 @@
         {{-- BUILD 2 (§17.9.1a) — per-work-order override of the agency's fee on this contractor's quote; blank = the agency default.
              Locked once the owner has approved an amount (a change would be a variation). --}}
         @permission('rental_job_cards.price')
-        @if($canSeeFee && !$workOrder->hasApprovedBaseline())
+        @if($canSeeFee && !$workOrder->hasApprovedBaseline() && $workOrder->quotes->isNotEmpty())
+        <details class="pt-2" data-fee-collapse><summary class="text-xs cursor-pointer" style="color: var(--text-muted);">Change the agency fee on this quote</summary>
         <form method="POST" action="{{ route('corex.rental-work-orders.external-fee.update', $workOrder) }}" class="flex flex-wrap items-end gap-2 pt-2">
             @csrf
             @method('PUT')
@@ -361,6 +381,7 @@
             <button type="submit" class="corex-btn-outline text-xs">Save fee</button>
             <span class="text-xs" style="color: var(--text-muted);">Blank uses the agency default. The owner sees the total only.</span>
         </form>
+        </details>
         @endif
         @endpermission
     </div>
@@ -370,7 +391,9 @@
          emergency approval, variation; Build 3 → _completion-panel: contractor reports done, tenant check, dispute).
          A build may move its include; it edits only its own partial. --}}
     {{-- §17.31 — the supplier's invoice documents (office only; share-with-owner decides what the owner sees). --}}
-    @include('corex.rental-work-orders._invoices-panel')
+    @if($workOrder->status !== \App\Models\RentalWorkOrder::STATUS_REPORTED || $workOrder->invoices()->withTrashed()->exists())
+        @include('corex.rental-work-orders._invoices-panel')
+    @endif
 
     @include('corex.rental-work-orders._approval-panel')
     @include('corex.rental-work-orders._completion-panel')
@@ -378,7 +401,7 @@
     {{-- §3.4a — only for a work order raised directly (no upstream fault
          report already satisfied this). Applies to both assignment paths —
          an internal job card's quote still rides this same gate. --}}
-    @if($isOpen)
+    @if($isOpen && ($workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_PENDING || $workOrder->approvals->isNotEmpty()))
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Owner approval</h2>
         @if($workOrder->approvals->isNotEmpty())
@@ -405,7 +428,8 @@
             </ul>
         @endif
         @permission('rental_work_orders.record_approval')
-        <button type="button" onclick="document.getElementById('wo-approval-form').classList.toggle('hidden')" class="corex-btn-outline text-xs">Record decision</button>
+        @if($workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_PENDING)
+        <button type="button" onclick="document.getElementById('wo-approval-form').classList.toggle('hidden')" class="corex-btn-outline text-xs">Record decision on the owner's behalf</button>
         <form id="wo-approval-form" method="POST" action="{{ route('corex.rental-work-orders.approval.store', $workOrder) }}" class="hidden space-y-3 pt-2">
             @csrf
             <div>
@@ -429,6 +453,7 @@
             </div>
             <button type="submit" class="corex-btn-primary text-xs">Save decision</button>
         </form>
+        @endif
         @endpermission
     </div>
     @endif
@@ -469,7 +494,11 @@
                 @endif
             @endpermission
             @permission('rental_work_orders.complete')
-                <button type="button" onclick="document.getElementById('complete-work-order-form').classList.toggle('hidden')" class="corex-btn-primary text-xs">Complete</button>
+                @if($workOrder->status === \App\Models\RentalWorkOrder::STATUS_IN_PROGRESS)
+                    <button type="button" onclick="document.getElementById('complete-work-order-form').classList.toggle('hidden')" class="corex-btn-primary text-xs" data-complete-work-order>Complete</button>
+                @else
+                    <span class="text-xs" style="color: var(--text-muted);" data-complete-later>Complete becomes available once the work is in progress.</span>
+                @endif
             @endpermission
         </div>
 

@@ -132,6 +132,36 @@ class AgencyServiceProvider extends Model
         });
     }
 
+    /**
+     * Suppliers that do MAINTENANCE WORK - what a repair's quote, work order or invoice picker may offer (Johan, 8 Oct 2026: the lists were
+     * offering conveyancing attorneys and bond originators). How supplier types are stored: `agency_service_providers.specialty` is a fixed set
+     * (electrician, entomologist, plumber, gas, electric_fence, transfer_attorney, bond_attorney, conveyancer, bond_originator, external_agency,
+     * other); a firm may ALSO carry the two attorney flags (`is_transfer_attorney`, `is_bond_attorney` - both at once allowed); and each agency
+     * has its own configurable service types (`agency_service_types` via `agency_service_provider_service_types`: Electrical COC, Plumbing...).
+     * Maintenance contractors = everyone who is NOT one of the property-transaction roles: no attorney flag, and a specialty that is not
+     * transfer_attorney / bond_attorney / conveyancer / bond_originator / external_agency. "other" stays in (an unclassified contractor).
+     */
+    public const NON_MAINTENANCE_SPECIALTIES = ['transfer_attorney', 'bond_attorney', 'conveyancer', 'bond_originator', 'external_agency'];
+
+    public function scopeMaintenanceContractors(Builder $q): Builder
+    {
+        return $q->where('is_transfer_attorney', false)->where('is_bond_attorney', false)
+            ->whereNotIn('specialty', self::NON_MAINTENANCE_SPECIALTIES);
+    }
+
+    /** Validation twin of {@see self::scopeMaintenanceContractors()}: an id that exists, in this agency, and is a maintenance contractor (or $alsoAllowId, an existing choice left as it was). */
+    public static function maintenanceExistsRule(int $agencyId, ?int $alsoAllowId = null): \Illuminate\Validation\Rules\Exists
+    {
+        return \Illuminate\Validation\Rule::exists('agency_service_providers', 'id')->where(function ($q) use ($agencyId, $alsoAllowId) {
+            $q->where('agency_id', $agencyId)->whereNull('deleted_at')->where(function ($w) use ($alsoAllowId) {
+                $w->where(fn ($m) => $m->where('is_transfer_attorney', 0)->where('is_bond_attorney', 0)->whereNotIn('specialty', self::NON_MAINTENANCE_SPECIALTIES));
+                if ($alsoAllowId) {
+                    $w->orWhere('id', $alsoAllowId);
+                }
+            });
+        });
+    }
+
     /** Preferred first, then alphabetical — the picker order. */
     public function scopePickerOrder(Builder $q): Builder
     {

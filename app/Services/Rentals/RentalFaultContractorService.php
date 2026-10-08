@@ -22,12 +22,17 @@ use Illuminate\Support\Facades\DB;
  */
 class RentalFaultContractorService
 {
-    /** @return Collection<int, array{id:int, name:string, phone:?string}> */
+    /**
+     * @return Collection<int, array{id:int, name:string, phone:?string}>
+     *
+     * A fault with NO type (so no category to match) offers ALL the agency's maintenance contractors - never none (Johan, 8 Oct 2026): nothing
+     * is known about the trade, so the agent / owner picks. A fault WITH a category keeps the matching rule below.
+     */
     public function optionsFor(RentalFaultReport $fault): Collection
     {
         $category = $fault->faultType?->category;
         if (! $category) {
-            return collect();
+            return $this->allContractors((int) $fault->agency_id);
         }
 
         return $this->optionsForCategory((int) $fault->agency_id, (string) $category);
@@ -56,11 +61,59 @@ class RentalFaultContractorService
             ->where('agency_id', $agencyId)
             ->where('is_active', true)
             ->whereNull('deleted_at')
+            ->maintenanceContractors()
             ->whereIn('id', $providerIds)
             ->pickerOrder()
             ->get(['id', 'name', 'phone'])
             ->map(fn ($p) => ['id' => (int) $p->id, 'name' => (string) $p->name, 'phone' => $p->phone ?: null])
             ->values();
+    }
+
+    /** @return Collection<int, array{id:int, name:string, phone:?string}> every active maintenance contractor of the agency, preferred first */
+    public function allContractors(int $agencyId): Collection
+    {
+        return AgencyServiceProvider::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)->where('is_active', true)->whereNull('deleted_at')
+            ->maintenanceContractors()->pickerOrder()
+            ->get(['id', 'name', 'phone'])
+            ->map(fn ($p) => ['id' => (int) $p->id, 'name' => (string) $p->name, 'phone' => $p->phone ?: null])
+            ->values();
+    }
+
+    /** The agency's service-type code for this fault's trade (first match), or null - used to label a work order's trade without asking. */
+    public function tradeCodeFor(RentalFaultReport $fault): ?string
+    {
+        $category = $fault->faultType?->category;
+        if (! $category) {
+            return null;
+        }
+
+        return $this->matchingServiceTypeCodes((int) $fault->agency_id, (string) $category)[0] ?? null;
+    }
+
+    /**
+     * Every active contractor of the fault's agency for the agent's picker, those that suit this type of work first (flagged `suits`).
+     *
+     * @return Collection<int, array{id:int, name:string, phone:?string, trades:string, suits:bool}>
+     */
+    public function pickerFor(RentalFaultReport $fault): Collection
+    {
+        // "suits this fault" only means something when the fault has a type to match; with none, every contractor is simply listed
+        $suits = $fault->faultType?->category ? $this->optionsFor($fault)->pluck('id')->all() : [];
+        $rows = AgencyServiceProvider::withoutGlobalScopes()
+            ->where('agency_id', $fault->agency_id)->where('is_active', true)->whereNull('deleted_at')
+            ->maintenanceContractors()->pickerOrder()->get(['id', 'name', 'phone']);
+        $trades = DB::table('agency_service_provider_service_types')
+            ->where('agency_id', $fault->agency_id)->whereNull('deleted_at')
+            ->whereIn('service_provider_id', $rows->pluck('id'))
+            ->get(['service_provider_id', 'service_type'])->groupBy('service_provider_id');
+        $labels = AgencyServiceType::withoutGlobalScopes()->where('agency_id', $fault->agency_id)->pluck('label', 'code');
+
+        return $rows->map(fn ($p) => [
+            'id' => (int) $p->id, 'name' => (string) $p->name, 'phone' => $p->phone ?: null,
+            'trades' => ($trades[$p->id] ?? collect())->map(fn ($t) => $labels[$t->service_type] ?? $t->service_type)->unique()->implode(', '),
+            'suits' => in_array((int) $p->id, $suits, true),
+        ])->sortBy(fn ($r) => [$r['suits'] ? 0 : 1, mb_strtolower($r['name'])])->values();
     }
 
     /** Is this supplier one of the options for this fault? (server-side guard for both decision routes) */

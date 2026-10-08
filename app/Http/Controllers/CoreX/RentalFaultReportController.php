@@ -317,7 +317,32 @@ class RentalFaultReportController extends Controller
         $lease = $request->get('lease_id') ? Lease::findOrFail($request->get('lease_id')) : null;
         $lease?->load('tenants.contact');
 
+        // Opened from the list with nothing chosen (Johan, 8 Oct 2026): not a 500-line dropdown of properties with duplicates and no search, but a
+        // searchable pick of TENANCIES - only properties that have a lease, each shown with its tenant - the same entry as "report a fault" from a lease.
+        $leaseChoices = collect();
+        $leaseSearch = trim((string) $request->get('q', ''));
+        if (! $property && ! $lease) {
+            $leaseChoices = Lease::query()
+                ->visibleTo($request->user())
+                ->where('status', Lease::STATUS_ACTIVE)
+                ->whereNull('deleted_at')
+                ->whereHas('property')
+                ->when($leaseSearch !== '', function ($q) use ($leaseSearch) {
+                    $q->where(function ($w) use ($leaseSearch) {
+                        $w->whereHas('property', fn ($p) => $p->searchAddress($leaseSearch))
+                          ->orWhereHas('tenants.contact', fn ($c) => $c->where(fn ($cc) => $cc
+                              ->where('first_name', 'like', "%{$leaseSearch}%")->orWhere('last_name', 'like', "%{$leaseSearch}%")));
+                    });
+                })
+                ->with(['property', 'tenants.contact'])
+                ->orderByDesc('start_date')
+                ->limit(40)
+                ->get();
+        }
+
         return view('corex.rental-fault-reports.create', [
+            'leaseChoices' => $leaseChoices,
+            'leaseSearch' => $leaseSearch,
             'property' => $property,
             'lease' => $lease,
             'leaseTenants' => $lease ? $lease->tenants->pluck('contact')->filter()->values() : collect(),
@@ -403,6 +428,8 @@ class RentalFaultReportController extends Controller
             // Fault flow F3/F5 - the supplier list for this fault's type of work (empty = say so, offer the other routes).
             'contractors' => $contractors,
             'decisionSummary' => $rentalFaultReport->decisionSummary(),
+            // Create work order: every active contractor of the agency, those that suit this type of work first (searchable on the screen).
+            'contractorPicker' => app(\App\Services\Rentals\RentalFaultContractorService::class)->pickerFor($rentalFaultReport),
         ]);
     }
 
@@ -618,69 +645,55 @@ class RentalFaultReportController extends Controller
     }
 
     /**
-     * §17.3 (R0) — ONE "Create work order" action. Who does the work: Internal crew (the default) creates the work
-     * order AND its draft job card in one go and lands on the job card; External contractor creates the work order only
-     * (no job card) and lands on the work order. Either way the gate is {@see RentalFaultReport::workOrderBlockReason()}:
-     * allowed from a fault that is reported, awaiting approval, or approved (agency appoints) — not once the owner has
-     * declined it or is handling it themselves. Permission stays `rental_fault_reports.raise_work_order`.
+     * Johan, 8 Oct 2026: "no title, no description. choose a contractor. that should create the work order." ONE "Create work order"
+     * action on the fault. The agent only says WHO does the work - one of the agency's contractors (searchable list), the internal crew
+     * (which also makes the job card, as before), or confirms the owner's own contractor when that is what the owner decided. The title,
+     * description, photos, property, lease and the owner's decision all come from the fault ({@see RentalWorkOrderService::createFromFaultDecision()}).
+     * Allowed whenever {@see RentalFaultReport::workOrderBlockReason()} says so; permission stays `rental_fault_reports.raise_work_order`; own /
+     * branch / agency scope is the same record guard as the rest of this controller.
      *
-     * AT-442 req #4 — one click, pre-filled with property/lease/fault/description; both paths go through
-     * RentalWorkOrderService::fromFaultReport(), never a second implementation of the rules.
+     * Double-submit safe: a second press (or a second agent) finds the work order already made and is simply taken to it.
      */
     public function raiseWorkOrder(Request $request, \App\Services\Rentals\RentalWorkOrderService $service, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
         $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
 
+        // Title and description are deliberately NOT inputs any more: whatever an older form posts for them is ignored.
         $validated = $request->validate([
-            'trade_type' => ['nullable', 'string', 'max:60'],
-            'title' => ['required', 'string', 'max:191'],
-            'description' => ['required', 'string'],
             'assignment_type' => ['nullable', 'in:' . implode(',', [
                 \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER,
                 \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL,
                 \App\Models\RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR,
             ])],
-            // Fault flow F6 - the contractor chosen on the owner's decision, pre-selected on the external work order.
             'agency_service_provider_id' => ['nullable', 'integer'],
-            // W3 - the owner's own contractor (both optional).
+            // the owner's own contractor, only when the fault carries no decision to take them from
             'contractor_name' => ['nullable', 'string', 'max:191'],
             'contractor_phone' => ['nullable', 'string', 'max:40'],
         ]);
-        if (! empty($validated['agency_service_provider_id'])) {
-            $ok = \App\Models\DealV2\AgencyServiceProvider::active()->whereKey($validated['agency_service_provider_id'])->exists();
-            if (! $ok) {
-                return back()->withErrors(['rental_fault_report' => 'That contractor is not on the supplier list.'])->withInput();
-            }
-        }
-        // §17.3.1 — Internal crew is the default when the choice is not posted.
-        $validated['assignment_type'] = $validated['assignment_type'] ?? \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL;
+        // A chosen contractor with no explicit "who" means the agency's contractor; nothing at all keeps the old default (internal crew).
+        $validated['assignment_type'] = $validated['assignment_type']
+            ?? (! empty($validated['agency_service_provider_id']) ? \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER : \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL);
 
         try {
-            if ($validated['assignment_type'] === \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL) {
-                $jobCard = app(\App\Services\Rentals\RentalJobCardService::class)
-                    ->createFromFaultReport($rentalFaultReport, $validated, $request->user());
-
-                return redirect()->route('corex.rental-job-cards.show', $jobCard)->with('success', 'Work order created — job card ready for the crew.');
-            }
-
-            // The owner's own contractor and the agency's supplier are different routes - never both on one work order.
-            if ($validated['assignment_type'] === \App\Models\RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR) {
-                unset($validated['agency_service_provider_id']);
-            } else {
-                unset($validated['contractor_name'], $validated['contractor_phone']);
-            }
-            $workOrder = $service->fromFaultReport($rentalFaultReport, $request->user(), $validated);
-            if (! empty($validated['agency_service_provider_id'])) {
-                $workOrder->updates()->create([
-                    'agency_id' => $workOrder->agency_id, 'update_type' => 'supplier_assigned', 'created_by_user_id' => $request->user()->id,
-                    'note' => 'Pre-selected from the decision on the fault report. Ordering still follows the usual quote and authorisation steps.',
-                ]);
-            }
+            $made = $service->createFromFaultDecision($rentalFaultReport, $request->user(), $validated);
         } catch (\LogicException $e) {
-            return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
+            // Already created by an earlier press or another agent: take them to it instead of showing an error.
+            $existing = \App\Models\RentalFaultReport::withoutGlobalScopes()->find($rentalFaultReport->id);
+            if ($existing && $existing->hasLiveWorkOrder() && $existing->rental_work_order_id) {
+                $wo = \App\Models\RentalWorkOrder::withoutGlobalScopes()->find($existing->rental_work_order_id);
+                if ($wo) {
+                    return redirect()->route('corex.rental-work-orders.show', $wo)->withErrors(['rental_fault_report' => 'This fault already has a work order - here it is.']);
+                }
+            }
+
+            return back()->withErrors(['rental_fault_report' => $e->getMessage()])->withInput();
         }
 
-        return redirect()->route('corex.rental-work-orders.show', $workOrder)->with('success', 'Work order created.');
+        if ($made['job_card']) {
+            return redirect()->route('corex.rental-job-cards.show', $made['job_card'])->with('success', 'Work order created - job card ready for the crew.');
+        }
+
+        return redirect()->route('corex.rental-work-orders.show', $made['work_order'])->with('success', 'Work order created.');
     }
 
     public function cancel(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse

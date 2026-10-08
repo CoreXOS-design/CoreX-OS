@@ -284,7 +284,7 @@ final class BackHalfWalkTest extends TestCase
     {
         $fault = $this->approvedFault('agency');
         $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.raise-work-order', $fault), [
-            'assignment_type' => 'internal', 'title' => 'Replace geyser element', 'description' => 'No hot water',
+            'assignment_type' => 'internal',   // 8 Oct 2026: the title comes from the fault ('Geyser not heating')
         ])->assertSessionHasNoErrors();
         $wo = $fault->fresh()->workOrder;
         $card = $wo->jobCard;
@@ -316,7 +316,7 @@ final class BackHalfWalkTest extends TestCase
         // The crew link: the crew opens the page, ticks the task, adds a photo.
         $issued = app(\App\Services\Rentals\RentalSecureAccessTokenService::class)->issueForJobCard($card->fresh(), $this->admin);
         $base = '/secure/job-cards/' . $issued['raw_token'];
-        $this->get($base)->assertOk()->assertSee('Replace geyser element');
+        $this->get($base)->assertOk()->assertSee('Geyser not heating');
         $task = $card->fresh()->tasks()->first();
         $this->postJson("{$base}/tasks/{$task->id}/tick")->assertOk();
         $this->post("{$base}/photos", ['photo_type' => 'completed', 'photos' => [\Illuminate\Http\UploadedFile::fake()->image('done.jpg')]])->assertSessionHasNoErrors();

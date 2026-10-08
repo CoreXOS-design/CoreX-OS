@@ -107,6 +107,7 @@ class RentalFaultReport extends Model
         'approval_route',
         'outcome',
         'outcome_note',
+        'outcome_set_automatically',
         'repaired_at',
         'reported_at',
         'resolved_at',
@@ -118,6 +119,7 @@ class RentalFaultReport extends Model
 
     protected $casts = [
         'repaired_at' => 'date',
+        'outcome_set_automatically' => 'boolean',
         'owner_photo_ids' => 'array',
         'owner_version_saved_at' => 'datetime',
         'sent_to_owner_at' => 'datetime',
@@ -494,6 +496,30 @@ class RentalFaultReport extends Model
     }
 
     /**
+     * What a work order made from this fault starts with - NEVER typed by the agent (Johan, 8 Oct 2026: "no title, no description. choose a
+     * contractor."). The title and description are the agent-reviewed version the owner saw; the photos are the ones the owner saw. A fault
+     * whose owner version was never saved (the agent captured it, or it is still unsent) uses its own title, description and photos - the
+     * office's record. All of it stays editable on the work order afterwards.
+     *
+     * @return array{title:string, description:string, photos:\Illuminate\Support\Collection}
+     */
+    public function workOrderDraft(): array
+    {
+        if ($this->owner_version_saved_at === null) {
+            $title = trim((string) $this->title) ?: 'Fault report #' . $this->id;
+            $description = trim((string) $this->description) ?: $title;
+
+            return ['title' => mb_substr($title, 0, 191), 'description' => $description, 'photos' => $this->photos()->get()];
+        }
+
+        $version = $this->ownerVersion();
+        $title = trim((string) $version['title']) ?: (trim((string) $this->title) ?: 'Fault report #' . $this->id);
+        $description = trim((string) $version['description']) ?: $title;
+
+        return ['title' => mb_substr($title, 0, 191), 'description' => $description, 'photos' => $version['photos']];
+    }
+
+    /**
      * Fault flow F2/F7 - the ONE visibility rule for the owner (portal list, detail, counts, API): a fault is the
      * owner's to see once the agent SENT it, once a decision exists (so the owner can read it back, whoever took
      * it), or when the owner reported it themselves. An unsent fault is invisible to them.
@@ -573,7 +599,7 @@ class RentalFaultReport extends Model
     {
         // Fault flow F7 - ONE decision, ever: the owner on the link and the agent on the screen race each other, so the
         // check runs on a locked fresh row. Whoever is second is told who decided and how.
-        return \Illuminate\Support\Facades\DB::transaction(function () use ($recordedBy, $attributes) {
+        $approval = \Illuminate\Support\Facades\DB::transaction(function () use ($recordedBy, $attributes) {
             $fresh = static::withoutGlobalScopes()->lockForUpdate()->find($this->id);
             if ($fresh) {
                 $this->setRawAttributes($fresh->getAttributes(), true);
@@ -660,6 +686,42 @@ class RentalFaultReport extends Model
 
             return $approval;
         });
+
+        // The responsible agent is told the moment the owner has decided (after the decision is safely committed).
+        $this->notifyAgentOfDecision($approval);
+
+        return $approval;
+    }
+
+    /**
+     * Johan, 8 Oct 2026: after the owner's decision the agent's note and the command-centre row read "Owner approved - appoint contractor"
+     * and open the Create work order action directly. (Until now nothing told the agent: only the tenant was mailed.) In-app and email per
+     * the user's own notification settings, to the owner-side agent of the lease, else the property's agent.
+     */
+    private function notifyAgentOfDecision(RentalApproval $approval): void
+    {
+        try {
+            $property = $this->property()->withoutGlobalScopes()->first();
+            $agent = $property ? app(\App\Services\Rentals\LeaseAgentService::class)->responsibleUser(
+                $this->lease, $property, (int) $this->agency_id, \App\Services\Rentals\LeaseAgentService::SIDE_OWNER
+            ) : null;
+            if (! $agent) {
+                return;
+            }
+            $address = $property->buildDisplayAddress();
+            $approved = $approval->decision === RentalApproval::DECISION_APPROVED;
+            app(\App\Services\CommandCenter\NotificationDispatcher::class)->fire($agent, 'rental_fault_report.owner_decided', $this, [
+                'title' => ($approved ? 'Owner approved - appoint contractor' : 'Owner declined the repair') . ' - ' . $address,
+                'body' => $this->title . ($approved
+                    ? ($this->approval_route === self::ROUTE_OWNER_HANDLES ? ' - the owner has their own contractor: confirm them and the work order is created.' : ' - choose the contractor and the work order is created.')
+                    : ' - no work order will be created.'),
+                'action_url' => $approved ? route('corex.rental-fault-reports.show', ['rentalFaultReport' => $this->id, 'create_work_order' => 1]) : route('corex.rental-fault-reports.show', $this->id),
+                'severity' => 'info',
+                'threshold_hit_at' => $approval->decided_at ?? now(),
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Fault decision: could not notify the agent', ['fault_report_id' => $this->id, 'error' => $e->getMessage()]);
+        }
     }
 
     /**
@@ -677,9 +739,11 @@ class RentalFaultReport extends Model
      * tolerates a null actor). reported_by_contact_id on the report itself
      * is the attribution that matters for that case.
      */
-    public function setOutcome(array $attributes, ?User $by = null): void
+    public function setOutcome(array $attributes, ?User $by = null, bool $automatic = false): void
     {
-        if (in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
+        // A fault that closed itself when its work order was completed (outcome_set_automatically) stays editable - once; a hand-recorded outcome is final.
+        $editingAutomatic = $this->status === self::STATUS_RESOLVED && $this->outcome_set_automatically && ! $automatic;
+        if (! $editingAutomatic && in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
             throw new \LogicException('This fault report is already closed.');
         }
 
@@ -713,7 +777,8 @@ class RentalFaultReport extends Model
             'outcome' => $outcome,
             'outcome_note' => $note,
             'repaired_at' => $repairedAt,
-            'resolved_at' => now(),
+            'resolved_at' => $editingAutomatic ? ($this->resolved_at ?? now()) : now(),
+            'outcome_set_automatically' => $automatic,
         ])->save();
 
         // §4/Johan 2026-09-22 — "outcome set" is the spine of this record
@@ -728,6 +793,53 @@ class RentalFaultReport extends Model
         if ($outcome !== self::OUTCOME_RESOLVED_BY_FIRST_AID) {
             app(\App\Services\Rentals\RentalPortalNotificationService::class)->notifyTenantStatusChanged($this);
         }
+    }
+
+    /**
+     * Johan, 8 Oct 2026: completing the work order resolves its fault by itself - outcome Repaired, dated the day the work order was completed,
+     * marked automatic so the agent can still change it ("repaired partially", "not repaired"...). Called by RentalWorkOrder::complete() and,
+     * when the tenant answers after the agent already completed, by the tenant check. Never forces it: while the tenant has the work disputed or
+     * has not yet answered, the repaired outcome is refused by setOutcome()'s own guard and the fault simply waits - this is called again when
+     * the tenant settles it. Returns whether the fault was resolved now.
+     */
+    public function resolveFromCompletedWorkOrder(RentalWorkOrder $workOrder, ?User $by = null): bool
+    {
+        if ((int) $this->rental_work_order_id !== (int) $workOrder->id || $workOrder->status !== RentalWorkOrder::STATUS_COMPLETED
+            || in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
+            return false;
+        }
+        try {
+            $this->setOutcome([
+                'outcome' => self::OUTCOME_REPAIRED,
+                'outcome_note' => 'Resolved automatically when the work order was completed. Change the outcome if the repair was not complete.',
+                'repaired_at' => ($workOrder->completed_at ?? now())->toDateString(),
+            ], $by, true);
+        } catch (\LogicException|\InvalidArgumentException $e) {
+            return false;   // the tenant check is still open: the fault waits for it
+        }
+        app(\App\Services\Rentals\RentalFaultReportService::class)->notifyResolved($this);
+
+        return true;
+    }
+
+    /**
+     * A work order made from this fault was CANCELLED (and nothing live replaced it): the repair still has to happen, so the fault goes back to
+     * where the owner's decision left it - "approved" (or the owner's own contractor) - and the agent is asked to appoint again, instead of being
+     * stuck on "work order raised" pointing at a dead work order. A fault never decided goes back to reported / sent.
+     */
+    public function workOrderWasCancelled(RentalWorkOrder $workOrder, ?User $by = null): void
+    {
+        if ((int) $this->rental_work_order_id !== (int) $workOrder->id || $this->status !== self::STATUS_WORK_ORDER_RAISED) {
+            return;
+        }
+        $to = match (true) {
+            $this->owner_approval_status === self::APPROVAL_APPROVED => $this->approval_route === self::ROUTE_OWNER_HANDLES ? self::STATUS_OWNER_HANDLING : self::STATUS_APPROVED,
+            $this->sent_to_owner_at !== null => self::STATUS_AWAITING_APPROVAL,
+            default => self::STATUS_REPORTED,
+        };
+        $from = $this->status;
+        $this->forceFill(['status' => $to])->save();
+        $this->logUpdate(RentalFaultReportUpdate::TYPE_STATUS_CHANGE, $by, 'The work order was cancelled - the fault is back to ' . strtolower($this->statusLabel()) . '.', $from, $to);
     }
 
     /**

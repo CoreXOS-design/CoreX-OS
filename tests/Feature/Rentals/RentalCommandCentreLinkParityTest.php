@@ -160,15 +160,17 @@ final class RentalCommandCentreLinkParityTest extends TestCase
         $this->grant($this->agent, ['rental_command_centre' => 'all', 'rental_fault_reports' => 'own', 'rental_work_orders' => 'own']);
 
         $tiles = $this->service()->tileCounts($this->agent, 'all');
-        $this->assertSame(1, $tiles['open_faults']['records'], 'mine: 1 reported by me on my property (the colleague\'s two are not mine to see)');
+        // 8 Oct 2026 (Johan): the property's agent is on the record too, so my own scope includes the colleague's fault on MY property: 2 (the
+        // colleague's own property's fault is still not mine). What matters here is that the tile and the list agree.
+        $this->assertSame(2, $tiles['open_faults']['records'], 'mine: 1 reported by me + the colleague\'s on my property; the colleague\'s own property is not mine');
         $this->assertSame(2, $tiles['open_work_orders']['records']);
 
-        $this->assertSame(1, $this->total('faultReports', route('corex.rental-fault-reports.index', ['open' => 1, 'cc_scope' => 'all'])));
+        $this->assertSame(2, $this->total('faultReports', route('corex.rental-fault-reports.index', ['open' => 1, 'cc_scope' => 'all'])));
         $this->assertSame(2, $this->total('workOrders', route('corex.rental-work-orders.index', ['open' => 1, 'cc_scope' => 'all'])));
 
         // the per-row counts on the properties table follow the same scope
         $rows = $this->service()->tableQuery($this->agent, 'all', [])->get(['id', 'open_faults_count', 'open_work_orders_count'])->keyBy('id');
-        $this->assertSame(1, (int) $rows[$this->mine->id]->open_faults_count);
+        $this->assertSame(2, (int) $rows[$this->mine->id]->open_faults_count);
         $this->assertSame(0, (int) $rows[$this->theirs->id]->open_faults_count);
     }
 

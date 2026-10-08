@@ -116,7 +116,7 @@ class RentalWorkOrderInvoiceController extends Controller
             'invoice_number' => [$creating ? 'required' : 'sometimes', 'string', 'max:100'],
             'invoice_date' => [$creating ? 'required' : 'sometimes', 'date', 'after_or_equal:2000-01-01', 'before_or_equal:today'],
             'amount' => [$creating ? 'required' : 'sometimes', 'numeric', 'min:0', 'max:9999999999.99'],
-            'agency_service_provider_id' => ['nullable', Rule::exists('agency_service_providers', 'id')->where('agency_id', $workOrder->agency_id)],
+            'agency_service_provider_id' => ['nullable', \App\Models\DealV2\AgencyServiceProvider::maintenanceExistsRule((int) $workOrder->agency_id)],
             'supplier_name' => ['nullable', 'string', 'max:191'],
             'share_with_owner' => ['nullable', 'boolean'],
             'document' => $this->invoices->fileRules($workOrder->agency_id, $creating),

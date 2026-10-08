@@ -239,7 +239,20 @@ class RentalCommandCentreService
             'own' => (function () use ($user, $alias) {
                 $ids = array_values(array_filter($user->dataIdentityIds()));
 
-                return $ids === [] ? [' AND 1 = 0', []] : [" AND {$alias}.created_by_user_id IN (" . implode(',', array_fill(0, count($ids), '?')) . ')', $ids];
+                if ($ids === []) {
+                    return [' AND 1 = 0', []];
+                }
+
+                // Same rule as RentalFaultReport / RentalWorkOrder::scopeVisibleTo() (8 Oct 2026): the record's creator, the lease's owner-side
+                // or tenant-side agent, or the property's agent - so a count lands on exactly the rows the list shows.
+                $in = implode(',', array_fill(0, count($ids), '?'));
+
+                return [
+                    " AND ({$alias}.created_by_user_id IN ({$in})"
+                    . " OR properties.agent_id IN ({$in})"
+                    . " OR {$alias}.lease_id IN (SELECT lse.id FROM leases lse WHERE lse.deleted_at IS NULL AND (lse.owner_agent_user_id IN ({$in}) OR lse.tenant_agent_user_id IN ({$in}))))",
+                    array_merge($ids, $ids, $ids, $ids),
+                ];
             })(),
             default => [' AND 1 = 0', []],
         };
@@ -796,6 +809,33 @@ class RentalCommandCentreService
                 'detail' => $fault->title,
                 'route' => 'corex.rental-fault-reports.show',
                 'route_params' => ['rentalFaultReport' => $fault->id],
+            ]);
+        });
+
+        // C2b - the owner has decided and said YES, and nobody has appointed a contractor yet (Johan, 8 Oct 2026): "Owner approved - appoint
+        // contractor", opening the Create work order action directly (?create_work_order=1). Status approved / owner_handling means no work
+        // order exists yet (creating one moves the fault to work_order_raised), so the row leaves the queue by itself the moment the work
+        // order is made. Same own / branch / agency scoping as every rule here.
+        $this->applyPropertyIdScope(
+            $applyQueueFilters(
+                RentalFaultReport::query()->whereIn('status', [RentalFaultReport::STATUS_APPROVED, RentalFaultReport::STATUS_OWNER_HANDLING]),
+                'updated_at'
+            )->with('property'),
+            $user,
+            $scope,
+            'property_id'
+        )->get()->each(function (RentalFaultReport $fault) use (&$items, $today) {
+            $items->push([
+                'type' => 'fault_appoint_contractor',
+                'urgency' => 1,
+                'age_days' => $fault->updated_at ? (int) abs($today->diffInDays($fault->updated_at)) : 0,
+                'item_date' => $fault->updated_at,
+                'property' => $fault->property,
+                'lease' => null,
+                'label' => 'Owner approved - appoint contractor',
+                'detail' => $fault->title . ($fault->approval_route === RentalFaultReport::ROUTE_OWNER_HANDLES ? ' - the owner has their own contractor: confirm them' : ''),
+                'route' => 'corex.rental-fault-reports.show',
+                'route_params' => ['rentalFaultReport' => $fault->id, 'create_work_order' => 1],
             ]);
         });
 

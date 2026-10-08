@@ -38,6 +38,14 @@ final class CreateWorkOrderActionTest extends TestCase
         $this->app->instance(NotificationDispatcher::class, $this->notifier);
     }
 
+    /** 8 Oct 2026: a work order from a fault asks only WHO does the work - on the agency route that is one of the agency's contractors. */
+    private function contractorId(): int
+    {
+        return (int) \App\Models\DealV2\AgencyServiceProvider::create([
+            'agency_id' => $this->agency->id, 'name' => 'Ramsgate Plumbing', 'is_active' => true, 'specialty' => 'plumber', 'created_by_id' => $this->admin->id,
+        ])->id;
+    }
+
     private function assertCreatedAnnouncedOnce(): void
     {
         $this->notifier->shouldHaveReceived('fire')
@@ -75,13 +83,13 @@ final class CreateWorkOrderActionTest extends TestCase
         $fault = $this->faultReport();
 
         $response = $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.raise-work-order', $fault), [
-            'assignment_type' => 'outside_supplier', 'trade_type' => 'plumbing', 'title' => 'Geyser not heating', 'description' => 'No hot water',
+            'assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $this->contractorId(), 'trade_type' => 'plumbing',
         ]);
 
         $workOrder = RentalWorkOrder::firstOrFail();
         $response->assertRedirect(route('corex.rental-work-orders.show', $workOrder));
         $this->assertSame(RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER, $workOrder->assignment_type);
-        $this->assertSame('plumbing', $workOrder->trade_type);
+        $this->assertSame('Geyser not heating', $workOrder->title, 'the title comes from the fault, not a form');
         $this->assertSame(0, RentalJobCard::count(), 'no job card for outside work');
         $this->assertCreatedAnnouncedOnce();
     }
@@ -110,12 +118,13 @@ final class CreateWorkOrderActionTest extends TestCase
             'owner handling' => ['status' => RentalFaultReport::STATUS_OWNER_HANDLING, 'owner_approval_status' => RentalFaultReport::APPROVAL_APPROVED, 'approval_route' => RentalFaultReport::ROUTE_OWNER_HANDLES],
         ];
 
+        $contractor = $this->contractorId();
         foreach ($allowed as $label => $attrs) {
             $fault = $this->faultReport($attrs + ['title' => "Fault ({$label})"]);
             $this->assertNull($fault->workOrderBlockReason(), "{$label} must be allowed");
 
             $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.raise-work-order', $fault), [
-                'assignment_type' => 'outside_supplier', 'title' => "WO {$label}", 'description' => 'x',
+                'assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $contractor, 'contractor_name' => 'Owner Bob',
             ])->assertRedirect()->assertSessionHasNoErrors();
 
             $this->assertNotNull($fault->fresh()->rental_work_order_id, "{$label}: the work order is linked");
@@ -150,8 +159,9 @@ final class CreateWorkOrderActionTest extends TestCase
         $fault = $this->faultReport();
         $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.raise-work-order', $fault), ['assignment_type' => 'internal', 'title' => 'a', 'description' => 'b'])->assertRedirect();
 
-        $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.raise-work-order', $fault->fresh()), ['assignment_type' => 'internal', 'title' => 'a', 'description' => 'b'])
-            ->assertSessionHasErrors('rental_fault_report');
+        // 8 Oct 2026: a second press is taken to the one work order that exists (never a second, never a dead-end error).
+        $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.raise-work-order', $fault->fresh()), ['assignment_type' => 'internal'])
+            ->assertRedirect(route('corex.rental-work-orders.show', RentalWorkOrder::firstOrFail()))->assertSessionHasErrors('rental_fault_report');
 
         $this->assertSame(1, RentalWorkOrder::count());
         $this->assertSame(1, RentalJobCard::count());
@@ -176,14 +186,15 @@ final class CreateWorkOrderActionTest extends TestCase
     {
         $fault = $this->faultReport();
 
-        $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.raise-work-order', $fault), ['assignment_type' => 'internal', 'title' => '', 'description' => ''])
-            ->assertSessionHasErrors(['title', 'description']);
-        $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.raise-work-order', $fault), ['assignment_type' => 'sideways', 'title' => 'x', 'description' => 'y'])
+        // 8 Oct 2026: no title / description to ask for any more - they come from the fault. What is required is WHO does the work.
+        $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.raise-work-order', $fault), ['assignment_type' => 'sideways'])
             ->assertSessionHasErrors('assignment_type');
+        $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.raise-work-order', $fault), ['assignment_type' => 'outside_supplier'])
+            ->assertSessionHasErrors('rental_fault_report');
         $this->assertSame(0, RentalWorkOrder::count());
 
         // trade type is optional for outside work — the lazy-but-valid shortcut
-        $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.raise-work-order', $fault), ['assignment_type' => 'outside_supplier', 'title' => 'x', 'description' => 'y'])
+        $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.raise-work-order', $fault), ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $this->contractorId()])
             ->assertSessionHasNoErrors();
         $this->assertNull(RentalWorkOrder::firstOrFail()->trade_type);
     }
@@ -191,8 +202,11 @@ final class CreateWorkOrderActionTest extends TestCase
     public function test_the_fault_screen_offers_one_create_work_order_button_and_explains_a_refusal(): void
     {
         $open = $this->faultReport();
+        // 8 Oct 2026: a fault the owner has not decided on offers the work order only as the clearly labelled early step; the three
+        // routes are named in plain words and there is no title / description to fill in.
         $this->actingAs($this->admin)->get(route('corex.rental-fault-reports.show', $open))
-            ->assertOk()->assertSee('Create work order')->assertSee('Internal crew')->assertSee('Agency contractor')->assertSee("Owner's contractor", false)->assertDontSee('Raise work order');
+            ->assertOk()->assertSee('Start a work order before the owner decides')->assertSee('Our own maintenance crew')->assertSee("One of the agency's contractors", false)
+            ->assertSee("The owner's own contractor", false)->assertDontSee('Raise work order')->assertDontSee('name="title"', false);
 
         $declined = $this->faultReport(['status' => RentalFaultReport::STATUS_DECLINED, 'title' => 'Declined one']);
         $this->actingAs($this->admin)->get(route('corex.rental-fault-reports.show', $declined))
@@ -311,7 +325,7 @@ final class CreateWorkOrderActionTest extends TestCase
     {
         $paths = [
             'fault, internal' => fn () => $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.raise-work-order', $this->faultReport(['title' => 'F1'])), ['assignment_type' => 'internal', 'title' => 'a', 'description' => 'b']),
-            'fault, external' => fn () => $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.raise-work-order', $this->faultReport(['title' => 'F2'])), ['assignment_type' => 'outside_supplier', 'title' => 'a', 'description' => 'b']),
+            'fault, external' => fn () => $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.raise-work-order', $this->faultReport(['title' => 'F2'])), ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $this->contractorId(), 'title' => 'a', 'description' => 'b']),
             'work order form, internal' => fn () => $this->actingAs($this->admin)->post(route('corex.rental-work-orders.store'), ['property_id' => $this->property->id, 'assignment_type' => 'internal', 'reported_by_type' => 'agent_noticed', 'title' => 'a', 'description' => 'b']),
             'work order form, external' => fn () => $this->actingAs($this->admin)->post(route('corex.rental-work-orders.store'), ['property_id' => $this->property->id, 'assignment_type' => 'outside_supplier', 'reported_by_type' => 'agent_noticed', 'title' => 'a', 'description' => 'b']),
             'card with no work order' => fn () => app(RentalJobCardService::class)->createStandalone(['property_id' => $this->property->id, 'title' => 'a'], $this->admin),

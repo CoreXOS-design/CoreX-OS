@@ -384,6 +384,7 @@ class RentalCompletionService
 
         if (! $dispute) {
             $this->notifyStaff($wo, 'rental_work_order.completion_confirmed', 'Tenant confirmed the work is done — ' . $this->addressFor($wo), $wo->title);
+            $wo->resolveReportedFault($user);   // the agent completed first and the tenant answered later: the fault resolves now
 
             return;
         }
@@ -693,6 +694,7 @@ class RentalCompletionService
                         'note' => "Round {$round->round_no}: no response in {$days} day" . ($days === 1 ? '' : 's') . ' — accepted',
                     ]);
                     RentalCompletionSettledBySilence::dispatch($round);
+                    $wo->resolveReportedFault(null);   // already completed, and the tenant's silence has now settled it
                     if (! $wo->trashed() && $wo->status !== RentalWorkOrder::STATUS_CANCELLED) {
                         $this->notifyStaff($wo, 'rental_work_order.completion_accepted', 'No tenant response — work accepted — ' . $this->addressFor($wo), $wo->title);
                     }

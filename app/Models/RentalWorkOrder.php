@@ -204,6 +204,34 @@ class RentalWorkOrder extends Model
         return app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->stageKey($this);
     }
 
+    /**
+     * THE contractor of this work order, from ONE place (Johan, 8 Oct 2026: the header said "Supplier: -" while the selected quote named one lower
+     * down): the owner's own contractor; else the supplier the work order was assigned to; else the supplier of the SELECTED quote (assigned
+     * only when the work order is sent). Null when nobody is chosen yet.
+     */
+    public function contractorLabel(): ?string
+    {
+        if ($this->isOwnerContractor()) {
+            return $this->contractor_name ?: null;
+        }
+        if ($this->supplier) {
+            return $this->supplier->name;
+        }
+        $selected = $this->relationLoaded('quotes') ? $this->quotes->firstWhere('is_selected', true) : $this->quotes()->where('is_selected', true)->first();
+
+        return $selected?->supplier?->name;
+    }
+
+    /** One name for a raw status wherever it is printed (history, tooltips) - config/rental-work-order-stages.php `status_words`. */
+    public static function statusWord(?string $status): ?string
+    {
+        if ($status === null || $status === '') {
+            return null;
+        }
+
+        return (string) (config("rental-work-order-stages.status_words.{$status}") ?? ucfirst(str_replace('_', ' ', $status)));
+    }
+
     public function stageLabel(string $audience = 'agent'): string
     {
         return app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->stageLabel($this, $audience === 'agent' ? 'agent' : $audience);
@@ -435,8 +463,8 @@ class RentalWorkOrder extends Model
                     'approval_superseded' => 'Recorded decision superseded',
                     default => ucfirst(str_replace('_', ' ', $update->update_type)),
                 },
-                'from' => $update->from_status ? ucfirst(str_replace('_', ' ', $update->from_status)) : null,
-                'to' => $update->to_status ? ucfirst(str_replace('_', ' ', $update->to_status)) : null,
+                'from' => static::statusWord($update->from_status),
+                'to' => static::statusWord($update->to_status),
                 'note' => $update->note,
             ]);
         }
@@ -965,6 +993,18 @@ class RentalWorkOrder extends Model
         // §17.16 — whichever route closed it (office Complete form, job-card close, contractor link), the
         // final-statement listener (Build 2) hears about it here. No listener is registered by the foundation.
         \App\Events\Rentals\RentalWorkOrderClosed::dispatch($this, $by?->id);
+
+        // Johan, 8 Oct 2026: the fault resolves by itself (outcome Repaired, editable) - nobody goes back to pick an outcome by hand.
+        $this->resolveReportedFault($by);
+    }
+
+    /** The fault this work order was made from closes itself once the work order is completed (see RentalFaultReport::resolveFromCompletedWorkOrder). */
+    public function resolveReportedFault(?User $by = null): void
+    {
+        if ($this->status !== self::STATUS_COMPLETED || ! $this->reported_fault_report_id) {
+            return;
+        }
+        RentalFaultReport::withoutGlobalScopes()->find($this->reported_fault_report_id)?->resolveFromCompletedWorkOrder($this, $by);
     }
 
     /**
@@ -1099,6 +1139,11 @@ class RentalWorkOrder extends Model
             'agency_id' => $this->agency_id, 'update_type' => 'status_change',
             'from_status' => $fromStatus, 'to_status' => self::STATUS_CANCELLED, 'created_by_user_id' => $by->id,
         ]);
+
+        // The fault it was made from goes back to "appoint a contractor" instead of staying pointed at this dead work order.
+        if ($this->reported_fault_report_id) {
+            RentalFaultReport::withoutGlobalScopes()->find($this->reported_fault_report_id)?->workOrderWasCancelled($this, $by);
+        }
 
         // §17.7.2 — cancelling the work order withdraws any request still waiting on the owner.
         app(\App\Services\Rentals\RentalApprovalGateService::class)->withdrawOpenVariations($this, 'The work order was cancelled.', $by);

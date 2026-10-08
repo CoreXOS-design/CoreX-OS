@@ -15,6 +15,15 @@
  *   completed       finished
  *   cancelled       called off
  *   needs_decision  (owner only) a quote or extra work is waiting for the owner
+ *
+ * THE OFFICE'S finer stages (the agent's badge only - the tenant and the owner keep the plain ones above): the real position before the work
+ * starts, so the badge never reads "Created" once the work order has been approved or sent:
+ *   approved_to_send     the owner's go-ahead is in (or the quote is within the no-approval limit) - ready to send to the contractor
+ *   sent_to_contractor   the work order has gone to the contractor, who has not booked a date yet
+ *   with_owner_contractor the owner's own contractor has it, no date yet
+ *
+ * `status_words` are the SAME names for the raw status wherever a status is printed (the history's "from -> to", the badge's tooltip), so a
+ * work order never reads "Ordered" in one place and "Sent to contractor" in another.
  */
 return [
     'created' => [
@@ -40,5 +49,23 @@ return [
     ],
     'needs_decision' => [
         'agent' => 'Waiting for the owner', 'owner' => 'Needs your decision', 'tenant' => 'Created',
+    ],
+    'approved_to_send' => [
+        'agent' => 'Approved - ready to send', 'owner' => 'Created', 'tenant' => 'Created',
+    ],
+    'sent_to_contractor' => [
+        'agent' => 'Sent to contractor', 'owner' => 'Created', 'tenant' => 'Created',
+    ],
+    'with_owner_contractor' => [
+        'agent' => "With the owner's contractor", 'owner' => 'Created', 'tenant' => 'Created',
+    ],
+
+    'status_words' => [
+        'reported' => 'Created',
+        'ordered' => 'Sent to contractor',
+        'in_progress' => 'In progress',
+        'disputed' => 'Not complete - reopened',
+        'completed' => 'Completed',
+        'cancelled' => 'Cancelled',
     ],
 ];

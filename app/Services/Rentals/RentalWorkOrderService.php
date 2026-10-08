@@ -111,6 +111,101 @@ class RentalWorkOrderService
     }
 
     /**
+     * Johan, 8 Oct 2026 - "no title, no description. choose a contractor. that should create the work order." THE action behind the fault
+     * screen's Create work order: the agent only chooses WHO does the work; everything else comes from the fault - the title and description
+     * the owner saw ({@see RentalFaultReport::workOrderDraft()}), property, lease (so the tenant), the photos and the owner's decision, all
+     * editable on the work order afterwards.
+     *
+     * $choice: `assignment_type` (internal | outside_supplier | owner_contractor), `agency_service_provider_id` (outside_supplier), and for the
+     * owner's own contractor `contractor_name` / `contractor_phone` (used only when the fault carries no decision to take them from).
+     *
+     * The owner's decision rules the route: owner approved with THEIR contractor -> the work order is for that contractor, exactly as
+     * decided; owner chose "the agency appoints" -> the agent picks the agency's contractor or the internal crew, never the owner's own.
+     * One work order per fault: the fault row is locked, the block reason re-read on the locked row, and everything - work order, job card,
+     * photos, history - is written in ONE transaction, so a double click, two agents, or a failure half-way leave exactly one complete work
+     * order or none.
+     *
+     * @param array<string, mixed> $choice
+     * @return array{work_order: RentalWorkOrder, job_card: ?\App\Models\RentalJobCard}
+     *
+     * @throws \LogicException with a plain sentence when it cannot be done (already created, declined, closed, wrong route)
+     */
+    public function createFromFaultDecision(RentalFaultReport $fault, User $by, array $choice): array
+    {
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($fault, $by, $choice) {
+            $locked = RentalFaultReport::withoutGlobalScopes()->lockForUpdate()->findOrFail($fault->id);
+            if ($reason = $locked->workOrderBlockReason()) {
+                throw new \LogicException($reason);
+            }
+
+            $draft = $locked->workOrderDraft();
+            $decision = $locked->decision();
+            $approved = $decision && $decision->decision === \App\Models\RentalApproval::DECISION_APPROVED;
+            $ownersOwn = $approved && ($decision->contractor_source === \App\Models\RentalApproval::CONTRACTOR_OWN || $locked->approval_route === RentalFaultReport::ROUTE_OWNER_HANDLES);
+
+            $type = $choice['assignment_type'] ?? ($ownersOwn ? RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR : RentalWorkOrder::ASSIGNMENT_INTERNAL);
+            if ($ownersOwn) {
+                $type = RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR;   // the owner decided who: the agent only confirms
+            } elseif ($approved && $type === RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR) {
+                throw new \LogicException('The owner chose for the agency to appoint the contractor - pick one of the agency\'s contractors or the internal crew.');
+            }
+
+            $attributes = ['title' => $draft['title'], 'description' => $draft['description'], 'assignment_type' => $type];
+            if ($type !== RentalWorkOrder::ASSIGNMENT_INTERNAL && ($trade = app(RentalFaultContractorService::class)->tradeCodeFor($locked))) {
+                $attributes['trade_type'] = $trade;
+            }
+
+            $supplierId = null;
+            if ($type === RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER) {
+                $supplierId = (int) ($choice['agency_service_provider_id'] ?? 0);
+                $ok = $supplierId > 0 && \App\Models\DealV2\AgencyServiceProvider::withoutGlobalScopes()
+                    ->where('agency_id', $locked->agency_id)->where('is_active', true)->whereNull('deleted_at')->maintenanceContractors()->whereKey($supplierId)->exists();
+                if (! $ok) {
+                    throw new \LogicException('Choose which contractor does the work.');
+                }
+                $attributes['agency_service_provider_id'] = $supplierId;
+            } elseif ($type === RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR) {
+                $source = $ownersOwn ? $decision : null;
+                $attributes['contractor_name'] = trim((string) ($source?->contractor_name ?? ($choice['contractor_name'] ?? ''))) ?: null;
+                $attributes['contractor_phone'] = trim((string) ($source?->contractor_phone ?? ($choice['contractor_phone'] ?? ''))) ?: null;
+            }
+
+            $jobCard = null;
+            if ($type === RentalWorkOrder::ASSIGNMENT_INTERNAL) {
+                $jobCard = app(RentalJobCardService::class)->createFromFaultReport($locked, $attributes, $by);
+                $workOrder = $jobCard->workOrder()->withoutGlobalScopes()->firstOrFail();
+            } else {
+                $workOrder = $this->fromFaultReport($locked, $by, $attributes);
+                if ($supplierId) {
+                    $workOrder->updates()->create([
+                        'agency_id' => $workOrder->agency_id, 'update_type' => 'supplier_assigned', 'created_by_user_id' => $by->id,
+                        'note' => 'Contractor chosen by the agent when the work order was created. Ordering still follows the usual quote and authorisation steps.',
+                    ]);
+                }
+            }
+
+            // The photos the owner saw travel with the work order (same stored pictures, not copies of the files).
+            foreach ($draft['photos'] as $photo) {
+                $workOrder->photos()->create([
+                    'agency_id' => $workOrder->agency_id, 'photo_type' => RentalWorkOrder::PHOTO_REPORTED,
+                    'storage_path' => $photo->storage_path, 'uploaded_by_user_id' => $by->id, 'file_size_bytes' => $photo->file_size_bytes,
+                ]);
+            }
+
+            $summary = $locked->decisionSummary();
+            $workOrder->updates()->create([
+                'agency_id' => $workOrder->agency_id, 'update_type' => 'note', 'created_by_user_id' => $by->id,
+                'note' => 'Created from fault report #' . $locked->id . ($summary
+                    ? ' - owner ' . ($summary['decision'] === \App\Models\RentalApproval::DECISION_APPROVED ? 'approved' : 'declined') . ' (' . strtolower($summary['how']) . ', ' . ($summary['at']?->format('j M Y') ?? '') . ')'
+                        . ($summary['contractor'] ? ' - ' . $summary['contractor'] : '')
+                    : ' - no owner decision recorded yet') . '. Title, description and photos taken from the fault.',
+            ]);
+
+            return ['work_order' => $workOrder, 'job_card' => $jobCard];
+        });
+    }
+
+    /**
      * §3a.3/§3.1 — same image pipeline as every other photo in this
      * feature family. AT-445 — $uploadedBy widened to nullable: a
      * contractor uploading "after" photos through their no-login secure

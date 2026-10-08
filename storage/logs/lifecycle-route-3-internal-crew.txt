@@ -1,0 +1,47 @@
+LIFECYCLE LEDGER - route-3-internal-crew
+1.1    PASS    cc3  the rental listing is found by the application picker (agent, scoped search)
+1.2    PASS    cc3  the rental property page offers "New rental application"
+2.1    PASS    cc3  agent creates the application for the tenant on this property (draft, link minted)
+2.2    PASS    cc3  agent sends the invite - queued to the tenant, status sent
+2.3    PASS    cc3  applicant opens the public link and autosaves
+2.4    PASS    cc3  applicant submits - returned, signatures stored, FICA hand-off (draft)
+2.5    PASS    cc3  the agent is told: returned mail queued; property agent gets the in-app note
+2.6    PASS    cc3  FICA gate lifts on SUBMITTED (not only on approved)
+3.1    PASS    cc3  review screen opens for the agent
+3.2    PASS    cc3  agent hands the application to the authoriser - under assessment, reviewer notified
+3.3    PASS    cc3  the authoriser (a different person) approves
+3.4    PASS    cc3  agent sends the approval - queued to the applicant, once
+4.1    PASS    cc1  the lease is created from the approved application, prepared for signing (button b)
+4.2    PASS    cc1  the lease carries the owner's agent and the tenant's agent
+4.3    PASS    cc1  the notice terms were captured on the lease agreement terms
+4.4    PASS    cc1  the application is linked to its lease and the lease screen opens
+5.1    PASS    cc1  e-sign: the prepared flow is turned into a signing envelope over HTTP (prepareSigning)
+5.2    PASS    cc1  the lease is out for signing (real hook: LeaseSigningLauncher::linkEnvelope)
+5.3    PASS    cc1  manual Activate is refused while the agreement is out for signing
+5.4    PASS    cc1  all parties sign - the envelope completes as the engine announces it; lease signed and ACTIVE
+5.5    PASS    cc6  portal logins were issued to the tenant and the owner
+5.6    PASS    cc6  the tenant sees the live lease on the portal; the owner sees the property
+6.1    PASS    cc4  agent starts the incoming (move-in) inspection on the live lease
+6.2    PASS    cc4  rooms and items are captured and every item graded
+6.3    PASS    cc4  attendance of every party is recorded (tenant, landlord, agent)
+6.4    PASS    cc4  the signing window opens
+6.5    PASS    cc4  the tenant signs by personal link; the landlord and then the agent sign in CoreX
+6.6    PASS    cc4  the inspection is completed
+6.7    PASS    cc4  the signed report is filed and distributed to the tenant and the owner
+6.8    PASS    cc4  the tenant sees the completed inspection on the portal; a stranger would not
+7.1    PASS    cc6  tenant reports a fault on the portal (201, status reported)
+7.2    PASS    cc6  the lease's owner-side and tenant-side agents are told; the owner is not (yet)
+7.3    PASS    cc6  the Command Centre shows "Review fault" (service and page)
+7.4    PASS    cc6  agent prepares the owner's version and sends it - owner and tenant mails queued, line moves
+7.5    PASS    cc6  the owner sees it on the Faults screen with the agent's version, never the tenant's raw words
+8.1    PASS    cc6  the owner approves - "my agent arranges it"
+9.0    PASS    cc6  agent raises the work order - an internal job with its job card; the line says "our maintenance team"
+9.1    PASS    cc6  the job card is made up: crew assigned, a task, priced parts and labour; the quote goes to the owner (over the limit)
+9.2    PASS    cc6  the owner authorises it on the portal
+9.a    PASS    cc6  the job is scheduled - the booking mirrors to the work order, the tenant is mailed, the line says who is coming
+9.b    PASS    cc6  the agent starts the job - work in progress
+9.c    PASS    cc6  work reported complete - the tenant is asked to check ("Work completed - please check")
+9.d    PASS    cc6  the tenant confirms the repair is fixed on the portal
+9.e    PASS    cc6  the job is closed with who-pays; the tenant's line reads completed
+9.f    PASS    cc6  the agent records the outcome - the fault is resolved
+9.g    PASS    cc6  tenant and owner never saw the job card, a unit cost, a margin or the crew's sign-off name

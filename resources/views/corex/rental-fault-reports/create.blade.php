@@ -14,6 +14,32 @@
      })">
     <h1 class="text-lg font-semibold">Report a Fault</h1>
 
+    @if(! $property)
+        {{-- Johan, 8 Oct 2026: a searchable pick of tenancies (properties that have a lease, shown with their tenant), not a plain dropdown of every
+             rental. Choosing one opens this same form with the property and tenancy filled in - exactly the entry "report a fault" from a lease uses. --}}
+        <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-fault-lease-picker>
+            <p class="text-sm font-medium">Which tenancy is the fault at?</p>
+            <form method="GET" action="{{ route('corex.rental-fault-reports.create') }}" class="flex gap-2">
+                <input type="search" name="q" value="{{ $leaseSearch }}" placeholder="Search by tenant name or address" class="flex-1 rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" autofocus>
+                <button type="submit" class="corex-btn-primary text-xs">Search</button>
+                @if($leaseSearch !== '')<a href="{{ route('corex.rental-fault-reports.create') }}" class="corex-btn-outline text-xs">Clear</a>@endif
+            </form>
+            <div class="space-y-1">
+                @forelse($leaseChoices as $choice)
+                    <a href="{{ route('corex.rental-fault-reports.create', ['property_id' => $choice->property_id, 'lease_id' => $choice->id]) }}" class="block rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" data-lease-choice="{{ $choice->id }}">
+                        <span class="font-medium">{{ $choice->property?->buildDisplayAddress() }}</span>
+                        <span class="text-xs" style="color: var(--text-muted);"> &mdash; {{ $choice->tenantNames() ?: 'no tenant named' }}</span>
+                    </a>
+                @empty
+                    <p class="text-xs" style="color: var(--text-muted);">{{ $leaseSearch !== '' ? 'No current tenancy matches that. ' : 'No current tenancies. ' }}A fault on a property with no tenant can be reported from the property's own page.</p>
+                @endforelse
+                @if($leaseChoices->count() >= 40)<p class="text-xs" style="color: var(--text-muted);">Showing the first 40 - search to narrow it down.</p>@endif
+            </div>
+            <div class="flex justify-end"><a href="{{ route('corex.rental-fault-reports.index') }}" class="corex-btn-outline text-xs">Cancel</a></div>
+        </div>
+    @endif
+
+    @if($property)
     <form method="POST" action="{{ route('corex.rental-fault-reports.store') }}" class="space-y-4 rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         @csrf
 
@@ -32,13 +58,6 @@
             @if($property)
                 <input type="hidden" name="property_id" value="{{ $property->id }}">
                 <div class="text-sm mt-1">{{ $property->buildDisplayAddress() }}</div>
-            @else
-                <select name="property_id" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-                    <option value="">Select a property…</option>
-                    @foreach(\App\Models\Property::where('listing_type', 'rental')->orderBy('title')->limit(500)->get() as $p)
-                        <option value="{{ $p->id }}">{{ $p->buildDisplayAddress() }}</option>
-                    @endforeach
-                </select>
             @endif
         </div>
 
@@ -177,6 +196,7 @@
             <button type="submit" class="corex-btn-primary text-xs">Report Fault</button>
         </div>
     </form>
+    @endif
 </div>
 
 <script>

@@ -30,7 +30,7 @@ class RentalWorkOrderQuoteController extends Controller
     {
         $this->assertVisible($request, $rentalWorkOrder);
         $validated = $request->validate([
-            'agency_service_provider_id' => ['required', Rule::exists('agency_service_providers', 'id')->where('agency_id', $request->user()->effectiveAgencyId())],
+            'agency_service_provider_id' => ['required', \App\Models\DealV2\AgencyServiceProvider::maintenanceExistsRule((int) $request->user()->effectiveAgencyId())],
             'amount' => ['required', 'numeric', 'min:0'],
             'quote_date' => ['required', 'date'],
             'detail_text' => ['nullable', 'string', 'max:2000'],
@@ -67,7 +67,7 @@ class RentalWorkOrderQuoteController extends Controller
         abort_if(in_array($rentalWorkOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true), 409, 'This work order has closed and its quotes can no longer be edited.');
 
         $validated = $request->validate([
-            'agency_service_provider_id' => ['required', Rule::exists('agency_service_providers', 'id')->where('agency_id', $request->user()->effectiveAgencyId())],
+            'agency_service_provider_id' => ['required', \App\Models\DealV2\AgencyServiceProvider::maintenanceExistsRule((int) $request->user()->effectiveAgencyId(), (int) $quote->agency_service_provider_id)],
             'amount' => ['required', 'numeric', 'min:0'],
             'quote_date' => ['required', 'date'],
             'detail_text' => ['nullable', 'string', 'max:2000'],

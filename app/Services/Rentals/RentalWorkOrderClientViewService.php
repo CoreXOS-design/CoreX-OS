@@ -73,6 +73,20 @@ class RentalWorkOrderClientViewService
             return 'appointment_set';
         }
 
+        // The OFFICE's badge follows the real position (the tenant and owner keep the plain 'created'): once approved it is ready to send, once
+        // sent it is with the contractor - it must never keep saying "Created" after the work order has gone out.
+        if ($audience === 'agent') {
+            if ($workOrder->status === RentalWorkOrder::STATUS_ORDERED) {
+                return $workOrder->isOwnerContractor() ? 'with_owner_contractor' : 'sent_to_contractor';
+            }
+            // approved by the owner, or a quote within the no-approval limit (not_required with an approved amount on record)
+            $authorised = $workOrder->owner_approval_status === RentalWorkOrder::APPROVAL_APPROVED
+                || ($workOrder->owner_approval_status === RentalWorkOrder::APPROVAL_NOT_REQUIRED && $workOrder->approved_amount !== null);
+            if ($workOrder->status === RentalWorkOrder::STATUS_REPORTED && $workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER && $authorised) {
+                return 'approved_to_send';
+            }
+        }
+
         return 'created';
     }
 

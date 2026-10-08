@@ -56,13 +56,13 @@
 
         $tileDefs = [
             'total' => ['label' => 'Total', 'params' => []],
-            'reported' => ['label' => 'Reported', 'params' => ['status' => 'reported']],
-            'ordered' => ['label' => 'Ordered', 'params' => ['status' => 'ordered']],
+            'reported' => ['label' => \App\Models\RentalWorkOrder::statusWord('reported'), 'params' => ['status' => 'reported']],
+            'ordered' => ['label' => \App\Models\RentalWorkOrder::statusWord('ordered'), 'params' => ['status' => 'ordered']],
             'in_progress' => ['label' => 'In progress', 'params' => ['status' => 'in_progress']],
             'completed' => ['label' => 'Completed', 'params' => ['status' => 'completed']],
             'cancelled' => ['label' => 'Cancelled', 'params' => ['status' => 'cancelled']],
             // §17.10 — a tenant said finished work is not complete; the office must resolve it.
-            'disputed' => ['label' => 'Disputed', 'params' => ['status' => 'disputed']],
+            'disputed' => ['label' => \App\Models\RentalWorkOrder::statusWord('disputed'), 'params' => ['status' => 'disputed']],
             'overdue' => ['label' => 'Overdue', 'params' => ['overdue' => 1]],
             // §17.17 — the owner owes an answer: the quote is out with him / extra work was put to him.
             'awaiting_owner' => ['label' => 'Awaiting owner', 'params' => ['awaiting_owner' => 1]],
@@ -108,7 +108,7 @@
             <select name="status" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
                 <option value="">All</option>
                 @foreach(['reported', 'ordered', 'in_progress', 'disputed', 'completed', 'cancelled'] as $s)
-                    <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ ucfirst(str_replace('_', ' ', $s)) }}</option>
+                    <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ \App\Models\RentalWorkOrder::statusWord($s) }}</option>
                 @endforeach
             </select>
         </div>
@@ -247,7 +247,7 @@
                         @if($showArchived)
                             <span class="ds-badge ds-badge-muted">Archived {{ $workOrder->deleted_at?->format('Y-m-d') }}</span>
                         @else
-                            <span class="ds-badge {{ $statusBadgeClass($workOrder->status) }}">{{ ucfirst(str_replace('_', ' ', $workOrder->status)) }}</span>
+                            <span class="ds-badge {{ $statusBadgeClass($workOrder->status) }}">{{ \App\Models\RentalWorkOrder::statusWord($workOrder->status) }}</span>
                         @endif
                     </td>
                     <td class="px-4 py-2">{{ $workOrder->priority ? ucfirst($workOrder->priority) : '—' }}</td>
