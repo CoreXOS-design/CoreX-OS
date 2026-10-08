@@ -64,10 +64,17 @@ class RentalTakeOnConfirmService
                 $leaseType = trim((string) ($payload['lease_type'] ?? ''));
                 $isMonthToMonth = $leaseType === RentalTakeOnFieldSchema::LEASE_TYPE_MONTH_TO_MONTH;
 
+                // leases.md §17 — the lease's two agents. The spreadsheet row names the managing agent ($agentId; the person
+                // running the import when it names none), so that person stands in for "who created the lease" in the
+                // default rules: the owner's agent is the property's agent, the tenant's agent is the row's agent.
+                $agents = app(\App\Services\Rentals\LeaseAgentService::class)->defaultsForNewLease($property, null, (int) $agentId);
+
                 $lease = Lease::create([
                     'agency_id' => $agencyId,
                     'branch_id' => $branchId,
                     'property_id' => $property->id,
+                    'owner_agent_user_id' => $agents['owner']['id'],
+                    'tenant_agent_user_id' => $agents['tenant']['id'],
                     'status' => Lease::STATUS_DRAFT,
                     'rental_amount' => $payload['monthly_rental_amount'] ?? 0,
                     'deposit_amount' => $payload['deposit_held'] ?? null,

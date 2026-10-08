@@ -601,6 +601,43 @@
                 @endif
             </div>
 
+            {{-- leases.md §17 (Johan, 8 Oct 2026) — the lease's own two agents. They are who the tenant's and the landlord's portal
+                 links show as "who to call". Changing one is logged in the tenancy log (who, from, to, when). --}}
+            <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);"
+                 x-data="{ editing: {{ $errors->has('owner_agent_user_id') || $errors->has('tenant_agent_user_id') ? 'true' : 'false' }} }" data-qa="lease-agents-card">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-sm font-semibold">Agents</h2>
+                    @permission('leases.create')
+                        <button type="button" class="text-xs underline" style="color: var(--brand-icon, #0ea5e9);" x-show="!editing" x-on:click="editing = true" data-qa="lease-agents-change">Change</button>
+                    @endpermission
+                </div>
+                <div x-show="!editing" class="space-y-1">
+                    @foreach($leaseAgents as $row)
+                        <div data-qa="lease-agent-{{ $row['side'] }}">
+                            <span style="color: var(--text-muted);">{{ $row['label'] }}:</span>
+                            {{ $row['name'] ?? '—' }}@if($row['derived'] && $row['name']) <span class="text-xs" style="color: var(--text-muted);">(default)</span>@endif
+                        </div>
+                    @endforeach
+                </div>
+                @permission('leases.create')
+                    <form method="POST" action="{{ route('corex.leases.agents.update', $lease) }}" x-show="editing" x-cloak class="space-y-3" data-qa="lease-agents-form">
+                        @csrf
+                        @method('PUT')
+                        @foreach($leaseAgents as $row)
+                            @include('corex.leases._agent-select', [
+                                'name' => $row['side'] . '_agent_user_id', 'label' => $row['label'],
+                                'selected' => old($row['side'] . '_agent_user_id', $row['id']),
+                                'agentOptions' => $agentOptions, 'required' => true,
+                            ])
+                        @endforeach
+                        <div class="flex items-center gap-2">
+                            <button type="submit" class="corex-btn-primary text-xs">Save agents</button>
+                            <button type="button" class="corex-btn-outline text-xs" x-on:click="editing = false">Cancel</button>
+                        </div>
+                    </form>
+                @endpermission
+            </div>
+
             <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);">
                 <h2 class="text-sm font-semibold">Open items</h2>
                 @feature('rental-faults')

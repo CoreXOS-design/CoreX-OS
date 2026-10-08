@@ -578,9 +578,11 @@ tenant: each property they rent; owner: each property they own (a vacant one sho
 
 1. **Agent contact.** Name, designation, phone (cell first, else office phone), email (the outward-facing address, `User::outward_email`, never the login),
    and the agency / branch details (agency name, branch name, phone, email, address — the branch's own first, the agency's where the branch has none).
-   Who is "the agent": **the lease carries no agent field of its own**, so it is the agent who approved the lease's signed agreement (`accepted_by_user_id`),
-   else the one who captured it (`created_by_user_id`), else the property's agent (`agent_id`), else the branch alone. Anyone who is not an active user of
-   the **same** agency (left, deactivated, archived, another agency) is skipped. The office block is always present.
+   Who is "the agent" (**amended 8 Oct 2026 — leases.md §17**): the lease now carries **two agents of its own**, the owner's agent and the
+   tenant's agent. The **tenant** portal shows the lease's **tenant's agent**; the **owner** portal shows the lease's **owner's agent**; if that
+   person is not an active user of the same agency (left, deactivated, archived, another agency) → the **property's agent** → the branch alone.
+   A lease whose agents were never filled in is read through the same default rules (`LeaseAgentService::effectiveIds`). The earlier
+   approver / creator fallback (`accepted_by_user_id` → `created_by_user_id` → `agent_id`) is gone. The office block is always present.
 2. **Inspection dates.** *Upcoming*: a booked date today or later whose recording has not reached signing (draft or in progress) — type, date, time, nothing
    recorded. *Past*: inspections that have been **sent** — type, date, status ("Completed", or "Report sent" when a copy was emailed before the inspection was
    marked complete); newest ten listed, the rest counted. **No report link on the home**: a report is opened from Documents under §19's rule (distributed +
@@ -600,11 +602,11 @@ copy logged as sent to a tenant / landlord), or *scheduled* = a future booked da
 a booked date that passed without a report. A scheduled row reports `status: "scheduled"` — a draft / in-progress state is never exposed. The old keys
 (`id, type, status, completed_at`) are kept for the mobile app; `type_label, when, status_label, date, time` are added.
 
-**Choices I made where the spec was silent (reported to Johan).** The "agent on the lease" rule above; a cancelled booking simply disappears (the parties were
+**Choices I made where the spec was silent (reported to Johan).** (The "agent on the lease" rule was replaced by leases.md §17.) A cancelled booking simply disappears (the parties were
 already told when it was cancelled); a booked date that passes without a report disappears rather than showing as "missed"; co-tenants and owners see the same
 rule as in §19.
 
-**Tests — `tests/Feature/RentalPortalAccess/PortalHomeTest.php`:** the agent on the lease with branch / agency details; an agent who left → the property's agent → the
+**Tests — `tests/Feature/RentalPortalAccess/PortalHomeTest.php`:** the agent on the lease with branch / agency details; each side sees its own agent (tenant: tenant's agent, owner: owner's agent); an agent who left → the property's agent → the
 branch; branch without details → the agency's; an agent of another agency never shown; every lease state and the wording for each side; the agency's own notice period
 and renewal window; draft / cancelled / archived lease is no home; upcoming + past inspections, nothing unsent, no report link, newest ten + count; the list endpoint
 (tenant and owner) returns sent + booked only and keeps the mobile keys; the owner home (one block per property, vacant property, tenant names); tenant ↔ tenant,

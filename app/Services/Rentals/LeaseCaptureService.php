@@ -283,6 +283,12 @@ class LeaseCaptureService
 
         try {
             $captured = DB::transaction(function () use ($input, $intent, $user, $previous, $property, $agreement, $agreementValues, $captureKey, $file, &$storedPath) {
+                // leases.md §17 — the lease's two agents: what the screen posted, else the default rules (new lease) or the
+                // term being renewed (renewal). Decided once, here, so the lease and its history say the same thing.
+                $agents = $this->resolveAgents($input, $property, $previous, $user);
+                $input['owner_agent_user_id'] = $agents['owner']['id'];
+                $input['tenant_agent_user_id'] = $agents['tenant']['id'];
+
                 $lease = $previous
                     ? $this->createRenewalTerm($previous, $input, $user)
                     : $this->createNewLease($property, $input, $user);
@@ -302,6 +308,10 @@ class LeaseCaptureService
                     'intent' => $intent,
                     'previous_lease_id' => $previous?->id,
                     'agreement_template_id' => $lease->agreement_template_id,
+                    'owner_agent_user_id' => $agents['owner']['id'],
+                    'owner_agent_rule' => $agents['owner']['rule'],
+                    'tenant_agent_user_id' => $agents['tenant']['id'],
+                    'tenant_agent_rule' => $agents['tenant']['rule'],
                 ]);
 
                 $this->logRentAboveApproved($lease, $input, $user, $previous);
@@ -398,6 +408,8 @@ class LeaseCaptureService
             'source' => ! empty($input['rental_application_id']) ? 'rental_application' : 'manual',
             'rental_application_id' => $input['rental_application_id'] ?? null,
             'created_by_user_id' => $user->id,
+            'owner_agent_user_id' => $input['owner_agent_user_id'] ?? null,
+            'tenant_agent_user_id' => $input['tenant_agent_user_id'] ?? null,
         ]);
 
         foreach (array_values((array) ($input['tenant_contact_ids'] ?? [])) as $index => $contactId) {
@@ -425,11 +437,51 @@ class LeaseCaptureService
             'deposit_amount' => $input['deposit_amount'] ?? null,
             'is_month_to_month' => (bool) ($input['is_month_to_month'] ?? false),
             'lease_type' => $input['lease_type'] ?? null,
+            // leases.md §17 — both agents carry forward to the new term (changed on the capture screen if need be).
+            'owner_agent_user_id' => $input['owner_agent_user_id'] ?? null,
+            'tenant_agent_user_id' => $input['tenant_agent_user_id'] ?? null,
         ], $user);
 
         $lease->update(['deposit_amount' => $input['deposit_amount'] ?? null]);
 
         return $lease;
+    }
+
+    /**
+     * leases.md §17 — the owner's and the tenant's agent for the lease being captured. What the screen posted wins
+     * (the request already refused anyone who is not an active user of the lease's agency); a side left blank gets the
+     * default: for a new lease the default rules (LeaseAgentService), for a renewal the term being renewed.
+     *
+     * @return array{owner:array{id:?int,rule:string},tenant:array{id:?int,rule:string}}
+     */
+    private function resolveAgents(array $input, Property $property, ?Lease $previous, User $user): array
+    {
+        $service = app(LeaseAgentService::class);
+        $agencyId = (int) ($previous?->agency_id ?? $property->agency_id);
+
+        if ($previous) {
+            $carried = $service->effectiveIds($previous);
+            $fallback = [
+                'owner' => ['id' => $carried['owner'], 'rule' => LeaseAgentService::RULE_PREVIOUS_TERM],
+                'tenant' => ['id' => $carried['tenant'], 'rule' => LeaseAgentService::RULE_PREVIOUS_TERM],
+            ];
+        } else {
+            $application = ! empty($input['rental_application_id'])
+                ? \App\Models\RentalApplication::withoutGlobalScopes()->find((int) $input['rental_application_id'])
+                : null;
+            $fallback = $service->defaultsForNewLease($property, $application, $user->id);
+        }
+
+        $out = [];
+        foreach (LeaseAgentService::SIDES as $side) {
+            $posted = $input[LeaseAgentService::column($side)] ?? null;
+            $postedId = is_numeric($posted) ? (int) $posted : 0;
+            $out[$side] = $postedId > 0 && $service->isSelectable($postedId, $agencyId)
+                ? ['id' => $postedId, 'rule' => $postedId === ($fallback[$side]['id'] ?? null) ? $fallback[$side]['rule'] : 'chosen_on_screen']
+                : $fallback[$side];
+        }
+
+        return $out;
     }
 
     private function activate(Lease $lease, bool $isRenewal, User $user): Lease

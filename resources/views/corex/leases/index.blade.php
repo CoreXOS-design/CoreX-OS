@@ -163,6 +163,7 @@
                 <tr style="border-bottom: 1px solid var(--border);">
                     <th class="text-left px-4 py-2"><a href="{{ $sortLink('property') }}" style="color: var(--text-muted);">Property{{ $sortIndicator('property') }}</a></th>
                     <th class="text-left px-4 py-2">Tenant(s)</th>
+                    <th class="text-left px-4 py-2">Agents</th>
                     <th class="text-left px-4 py-2"><a href="{{ $sortLink('status') }}" style="color: var(--text-muted);">Status{{ $sortIndicator('status') }}</a></th>
                     <th class="text-left px-4 py-2"><a href="{{ $sortLink('start_date') }}" style="color: var(--text-muted);">Start{{ $sortIndicator('start_date') }}</a></th>
                     <th class="text-left px-4 py-2"><a href="{{ $sortLink('end_date') }}" style="color: var(--text-muted);">End{{ $sortIndicator('end_date') }}</a></th>
@@ -187,6 +188,11 @@
                         @else
                             <div class="text-xs mt-0.5" style="color: var(--text-muted);">No landlord linked</div>
                         @endif
+                    </td>
+                    {{-- leases.md §17 — the lease's own owner's agent / tenant's agent (a lease not yet back-filled shows a dash). --}}
+                    <td class="px-4 py-2" data-qa="lease-agents-cell">
+                        <div class="text-xs"><span style="color: var(--text-muted);">Owner:</span> {{ $lease->ownerAgent?->name ?: '—' }}</div>
+                        <div class="text-xs"><span style="color: var(--text-muted);">Tenant:</span> {{ $lease->tenantAgent?->name ?: '—' }}</div>
                     </td>
                     <td class="px-4 py-2">
                         @if($showArchived)
@@ -219,7 +225,7 @@
                     </td>
                 </tr>
                 @empty
-                <tr><td colspan="7" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
+                <tr><td colspan="8" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
                     @if($showArchived)
                         No archived leases on this agency.
                     @elseif(!$hasAnyLeases)

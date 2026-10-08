@@ -16,13 +16,15 @@
     @include('corex.rentals.partials._print-list-filters')
     <table>
         <thead>
-            <tr><th>Property</th><th>Tenant(s)</th><th>Status</th><th>Start</th><th>End</th><th>Rent</th><th>Agreement</th></tr>
+            <tr><th>Property</th><th>Tenant(s)</th><th>Owner's agent</th><th>Tenant's agent</th><th>Status</th><th>Start</th><th>End</th><th>Rent</th><th>Agreement</th></tr>
         </thead>
         <tbody>
             @foreach($leases as $lease)
                 <tr>
                     <td>{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}</td>
                     <td>{{ $lease->tenantNames() }}</td>
+                    <td>{{ $lease->ownerAgent?->name ?: '—' }}</td>
+                    <td>{{ $lease->tenantAgent?->name ?: '—' }}</td>
                     <td>{{ ucfirst($lease->status) }}</td>
                     <td>{{ $lease->start_date?->format('Y-m-d') }}</td>
                     <td>{{ $lease->end_date?->format('Y-m-d') ?? ($lease->is_month_to_month ? 'Month-to-month' : '—') }}</td>

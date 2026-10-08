@@ -12,6 +12,7 @@ use App\Models\PropertySettingItem;
 use App\Models\RentalApplication;
 use App\Models\User;
 use App\Models\Docuperfect\Flow;
+use App\Services\Rentals\LeaseAgentService;
 use App\Services\Rentals\LeaseCaptureService;
 use App\Services\Rentals\LeaseSigningLauncher;
 use Illuminate\Http\RedirectResponse;
@@ -66,7 +67,20 @@ trait HandlesLeaseCapture
 
         $base = $previous ? $service->renewalDefaults($previous, []) : null;
 
+        // leases.md §17 — the owner's and the tenant's agent on the screen. A renewal starts from the term being renewed;
+        // a new lease from the default rules (the owner's agent follows the property the agent picks — see the screen).
+        $leaseAgents = app(LeaseAgentService::class);
+        if ($previous) {
+            $carried = $leaseAgents->effectiveIds($previous);
+            $agentDefaults = ['owner' => $carried['owner'], 'tenant' => $carried['tenant']];
+        } else {
+            $defaults = $leaseAgents->defaultsFor($agencyId, $property?->agent_id, $application, $user->id);
+            $agentDefaults = ['owner' => $defaults['owner']['id'], 'tenant' => $defaults['tenant']['id']];
+        }
+
         return [
+            'agentOptions' => $leaseAgents->selectableAgents($agencyId, $previous?->branch_id ?? $property?->branch_id ?? $user->effectiveBranchId())->all(),
+            'agentDefaults' => $agentDefaults,
             'agreementState' => $state['state'],
             'agreementReason' => $state['reason'],
             'agreements' => $agreements,

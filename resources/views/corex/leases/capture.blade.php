@@ -62,6 +62,9 @@
         'signersOn' => $canPrepare && $agreementReady,
         'fixedPropertyId' => $isRenew ? $lease->property_id : null,
         'fixedTenantIds' => $isRenew ? $lease->tenants->sortByDesc('is_primary')->pluck('contact_id')->filter()->values()->all() : [],
+        // leases.md §17 — once the agent has chosen an owner's agent themselves (or the form came back with one), picking
+        // a different property no longer overwrites it.
+        'ownerAgentTouched' => $isRenew || old('owner_agent_user_id') !== null,
     ];
 
     $settingsLink = route('corex.rental-lease-templates.index');
@@ -227,6 +230,29 @@
             </div>
         </div>
 
+        {{-- leases.md §17 (Johan, 8 Oct 2026) — the two agents on the lease. The owner's agent starts as the property's agent
+             (it follows the property picked here until the agent chooses one); the tenant's agent starts as the agent who sent
+             out the application (else who processed it, else you). A renewal carries both forward. The portal links show them. --}}
+        <div class="grid grid-cols-2 gap-3" data-qa="lease-agents-fields">
+            <div class="col-span-2 sm:col-span-1">
+                @include('corex.leases._agent-select', [
+                    'name' => 'owner_agent_user_id', 'label' => "Owner's agent",
+                    'selected' => old('owner_agent_user_id', $agentDefaults['owner'] ?? null),
+                    'agentOptions' => $agentOptions, 'required' => false,
+                    'attrs' => 'x-ref="ownerAgent" @change="ownerAgentTouched = true"',
+                    'help' => 'Looks after the landlord. Shown on the landlord\'s portal link.',
+                ])
+            </div>
+            <div class="col-span-2 sm:col-span-1">
+                @include('corex.leases._agent-select', [
+                    'name' => 'tenant_agent_user_id', 'label' => "Tenant's agent",
+                    'selected' => old('tenant_agent_user_id', $agentDefaults['tenant'] ?? null),
+                    'agentOptions' => $agentOptions, 'required' => false,
+                    'help' => 'Looks after the tenant. Shown on the tenant\'s portal link.',
+                ])
+            </div>
+        </div>
+
         {{-- Johan, QA1, 2026-10-07 — lease rent above the amount this tenant was approved for. Server twin:
              RentalApplication::rentAboveApproved() via LeaseCaptureRequest (refuses / demands the reason regardless of this UI). --}}
         @if($rentalApplication && $rentalApplication->approved_rental_amount !== null)
@@ -371,6 +397,7 @@ function leaseCaptureForm(searchUrl, seed, propertyCfg, cfg) {
         fixedTenantIds: cfg.fixedTenantIds || [],
         signers: { loaded: false, landlords: [], tenants: [], landlordMissing: false, landlordUrl: null },
         signersSeq: 0,
+        ownerAgentTouched: !!cfg.ownerAgentTouched,
         async refreshSigners() {
             if (!this.signersOn) { return; }
             const propertyId = this.fixedPropertyId || this.propertyId || '';
@@ -458,6 +485,11 @@ function leaseCaptureForm(searchUrl, seed, propertyCfg, cfg) {
             // The letting commission % starts at this property's own, unless the agent already typed one.
             if (Object.prototype.hasOwnProperty.call(this.vals, 'commission_percent') && String(this.vals.commission_percent || '').trim() === '' && p.commission_percent != null) {
                 this.vals.commission_percent = String(p.commission_percent);
+            }
+            // The owner's agent follows the property's agent until the agent picks one themselves (leases.md §17).
+            const ownerSelect = this.$refs.ownerAgent;
+            if (!this.ownerAgentTouched && ownerSelect && p.agent_id && ownerSelect.querySelector('option[value="' + p.agent_id + '"]')) {
+                ownerSelect.value = String(p.agent_id);
             }
             this.refreshSigners();
             this.propertyResults = [];

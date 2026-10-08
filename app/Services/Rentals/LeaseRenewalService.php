@@ -46,6 +46,10 @@ class LeaseRenewalService
         }
 
         return DB::transaction(function () use ($current, $terms, $user) {
+            // leases.md §17 — a renewal carries both agents forward from the term it renews (the capture screen may have
+            // changed them, and says so in $terms); never reset to the property's agent on the way.
+            $carried = app(LeaseAgentService::class)->effectiveIds($current);
+
             $newTerm = Lease::create([
                 'agency_id' => $current->agency_id,
                 'branch_id' => $current->branch_id,
@@ -60,6 +64,8 @@ class LeaseRenewalService
                 'source' => 'manual',
                 'previous_lease_id' => $current->id,
                 'created_by_user_id' => $user->id,
+                'owner_agent_user_id' => $terms['owner_agent_user_id'] ?? $carried['owner'],
+                'tenant_agent_user_id' => $terms['tenant_agent_user_id'] ?? $carried['tenant'],
             ]);
 
             foreach ($current->tenants as $tenant) {

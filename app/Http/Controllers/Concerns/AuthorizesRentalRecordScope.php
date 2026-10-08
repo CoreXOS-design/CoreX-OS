@@ -58,6 +58,12 @@ trait AuthorizesRentalRecordScope
             return;
         }
 
+        // Leases only (leases.md §17.5): the owner's agent and the tenant's agent on the lease are its people too —
+        // Lease::scopeVisibleTo() 'own' is creator OR either agent, so this guard accepts the same three.
+        if ($scope === 'own' && $record instanceof \App\Models\Lease && $record->isOwnedBy($user)) {
+            return;
+        }
+
         // Rental inspections only (rental-inspections.md §45.8 H4): the inspector booked to do an
         // inspection someone else created sees it on their own board — RentalInspection::
         // scopeVisibleTo() 'own' is creator OR inspector — so this per-record guard accepts the
