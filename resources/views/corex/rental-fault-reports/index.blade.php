@@ -47,15 +47,15 @@
 
         $tileDefs = [
             'total' => ['label' => 'Total', 'params' => []],
-            'reported' => ['label' => 'Reported', 'params' => ['status' => 'reported']],
-            'under_review' => ['label' => 'Under agent review', 'params' => ['status' => 'under_review']],
-            'awaiting_approval' => ['label' => 'Sent to owner', 'params' => ['status' => 'awaiting_approval']],
-            'approved' => ['label' => 'Approved', 'params' => ['status' => 'approved']],
-            'declined' => ['label' => 'Declined', 'params' => ['status' => 'declined']],
-            'work_order_raised' => ['label' => 'Work order raised', 'params' => ['status' => 'work_order_raised']],
-            'owner_handling' => ['label' => 'Owner handling', 'params' => ['status' => 'owner_handling']],
-            'resolved' => ['label' => 'Resolved', 'params' => ['status' => 'resolved']],
-            'cancelled' => ['label' => 'Cancelled', 'params' => ['status' => 'cancelled']],
+            'reported' => ['label' => \App\Models\RentalFaultReport::statusWord('reported'), 'params' => ['status' => 'reported']],
+            'under_review' => ['label' => \App\Models\RentalFaultReport::statusWord('under_review'), 'params' => ['status' => 'under_review']],
+            'awaiting_approval' => ['label' => \App\Models\RentalFaultReport::statusWord('awaiting_approval'), 'params' => ['status' => 'awaiting_approval']],
+            'approved' => ['label' => \App\Models\RentalFaultReport::statusWord('approved'), 'params' => ['status' => 'approved']],
+            'declined' => ['label' => \App\Models\RentalFaultReport::statusWord('declined'), 'params' => ['status' => 'declined']],
+            'work_order_raised' => ['label' => \App\Models\RentalFaultReport::statusWord('work_order_raised'), 'params' => ['status' => 'work_order_raised']],
+            'owner_handling' => ['label' => \App\Models\RentalFaultReport::statusWord('owner_handling'), 'params' => ['status' => 'owner_handling']],
+            'resolved' => ['label' => \App\Models\RentalFaultReport::statusWord('resolved'), 'params' => ['status' => 'resolved']],
+            'cancelled' => ['label' => \App\Models\RentalFaultReport::statusWord('cancelled'), 'params' => ['status' => 'cancelled']],
             'open_no_work_order' => ['label' => 'Open, no work order', 'params' => ['open_no_work_order' => 1]],
         ];
         $tileClearParams = ['status' => null, 'open_no_work_order' => null, 'page' => null];

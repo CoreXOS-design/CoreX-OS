@@ -224,6 +224,12 @@ class RentalWorkOrder extends Model
         return $this->supplier?->name;
     }
 
+    /** This work order's status in plain words - on the owner's-own-contractor route "ordered" is "Owner arranges" (nothing is sent to anyone). */
+    public function statusLabel(): string
+    {
+        return $this->isOwnerContractor() && $this->status === self::STATUS_ORDERED ? 'Owner arranges' : (string) static::statusWord($this->status);
+    }
+
     /** One name for a raw status wherever it is printed (history, tooltips) - config/rental-work-order-stages.php `status_words`. */
     public static function statusWord(?string $status): ?string
     {
@@ -466,8 +472,9 @@ class RentalWorkOrder extends Model
                     'approval_superseded' => 'Recorded decision superseded',
                     default => ucfirst(str_replace('_', ' ', $update->update_type)),
                 },
-                'from' => static::statusWord($update->from_status),
-                'to' => static::statusWord($update->to_status),
+                // O2: on the owner's-own-contractor route nothing is ever "sent to the contractor" - the owner arranges it.
+                'from' => $this->isOwnerContractor() && $update->from_status === self::STATUS_ORDERED ? 'Owner arranges' : static::statusWord($update->from_status),
+                'to' => $this->isOwnerContractor() && $update->to_status === self::STATUS_ORDERED ? 'Owner arranges' : static::statusWord($update->to_status),
                 'note' => $update->note,
             ]);
         }

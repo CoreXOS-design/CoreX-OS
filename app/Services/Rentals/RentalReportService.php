@@ -69,9 +69,9 @@ class RentalReportService
             RentalFaultReport::STATUS_OWNER_HANDLING,
         ]],
         'awaiting_landlord' => ['label' => 'Awaiting landlord', 'statuses' => [RentalFaultReport::STATUS_AWAITING_APPROVAL]],
-        'approved' => ['label' => 'Approved', 'statuses' => [RentalFaultReport::STATUS_APPROVED]],
+        'approved' => ['label' => 'Owner approved', 'statuses' => [RentalFaultReport::STATUS_APPROVED]],
         'resolved' => ['label' => 'Resolved', 'statuses' => [RentalFaultReport::STATUS_RESOLVED]],
-        'declined' => ['label' => 'Declined', 'statuses' => [RentalFaultReport::STATUS_DECLINED]],
+        'declined' => ['label' => 'Owner declined', 'statuses' => [RentalFaultReport::STATUS_DECLINED]],
         'cancelled' => ['label' => 'Cancelled', 'statuses' => [RentalFaultReport::STATUS_CANCELLED]],
     ];
 

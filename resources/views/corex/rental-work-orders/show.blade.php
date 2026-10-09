@@ -27,7 +27,7 @@
     <div class="flex items-center justify-between">
         <div>
             <h1 class="text-lg font-semibold">{{ $workOrder->title }}</h1>
-            <span class="ds-badge {{ $statusBadgeClass }}" title="{{ \App\Models\RentalWorkOrder::statusWord($workOrder->status) }}">{{ $workOrder->stageLabel('agent') }}</span>
+            <span class="ds-badge {{ $statusBadgeClass }}" title="{{ $workOrder->statusLabel() }}">{{ $workOrder->stageLabel('agent') }}</span>
             <span class="text-xs" style="color: var(--text-muted);">{{ $workOrder->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $workOrder->property?->trashed() ? ' (archived)' : '' }}</span>
         </div>
         <div class="flex items-center gap-2">
@@ -64,6 +64,13 @@
             @else
                 <div>{{ $proceed->note }}</div>
             @endif
+        </div>
+    @endif
+
+    @if($isOpen && $workOrder->isOwnerContractor())
+        <div class="rounded-md p-3 text-sm space-y-1" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, transparent); border: 1px solid var(--border);" data-next-step data-owner-route>
+            <div class="font-semibold">What happens next</div>
+            <div>The owner arranges and pays their own contractor, so there is no quote, spend limit or agency fee here. <strong>1.</strong> Capture the contractor's name and number below if you know them. <strong>2.</strong> Set the appointment with the tenant. <strong>3.</strong> When the owner confirms the work is done (they can also tell us on their portal), mark the work order complete.</div>
         </div>
     @endif
 
@@ -142,7 +149,10 @@
             @if($workOrder->owner_approval_status !== \App\Models\RentalWorkOrder::APPROVAL_NOT_REQUIRED)
                 <div><span style="color: var(--text-muted);">Owner approval:</span> {{ ucfirst($workOrder->owner_approval_status) }}</div>
             @endif
-            @if($workOrder->ordered_at)
+            @if($workOrder->isOwnerContractor())
+                {{-- O2: nothing is sent to anyone on this route - the owner arranges their own contractor. --}}
+                <div data-owner-arranges><span style="color: var(--text-muted);">Contractor:</span> Owner arranges &mdash; their contractor</div>
+            @elseif($workOrder->ordered_at)
                 <div><span style="color: var(--text-muted);">{{ \App\Models\RentalWorkOrder::statusWord('ordered') }}:</span> {{ $workOrder->ordered_at->format('Y-m-d') }}</div>
             @endif
             @if($workOrder->completed_at)
@@ -229,7 +239,9 @@
     </div>
     @endif
 
-    @if($isOpen && $workOrder->assignment_type !== \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL)
+    {{-- O3 (Johan, 9 Oct 2026): quotes, the spend-limit text and the agency fee apply only to a contractor the AGENCY appoints; the owner arranges and pays
+         their own, so none of it is shown on that route. --}}
+    @if($isOpen && $workOrder->assignment_type === \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER)
     {{-- §3.4c — the value the approval-limit gate rides on.
          AT-442 req #8 — shown only for the outside-supplier path; an
          internal job card's own quote-to-owner lives on its own screen. --}}
@@ -482,11 +494,13 @@
          outside-supplier path. --}}
     @if($isOpen && $workOrder->assignment_type !== \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL)
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
-        <h2 class="text-sm font-semibold">Supplier</h2>
+        <h2 class="text-sm font-semibold">{{ $workOrder->isOwnerContractor() ? 'Progress' : 'Supplier' }}</h2>
         {{-- BUILD 2 (§17.9.5) — replaces "Assign supplier" + the plain supplier mail: the work order goes to the contractor of the SELECTED quote,
              with the owner's approval shown on it. Enabled only once the owner's approval (or the no-approval limit, or an emergency agreement) covers it. --}}
         @permission('rental_work_orders.create')
-        @if(!$selectedQuote)
+        @if($workOrder->isOwnerContractor())
+            <p class="text-xs" style="color: var(--text-muted);" data-owner-arranges-note>The owner arranges and pays their own contractor{{ $workOrder->contractor_name ? ' (' . $workOrder->contractor_name . ')' : '' }} &mdash; there is no quote to capture and nothing to send. Set the appointment with the tenant, and mark it complete once the owner confirms the work is done.</p>
+        @elseif(!$selectedQuote)
             <p class="text-xs" style="color: var(--text-muted);">Capture the contractor's quote and select it first — the work order goes to that contractor once the owner has approved.</p>
         @else
             <form method="POST" action="{{ route('corex.rental-work-orders.assign-supplier', $workOrder) }}" class="flex flex-wrap items-center gap-2">

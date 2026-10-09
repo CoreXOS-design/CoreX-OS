@@ -286,7 +286,7 @@ class RentalFaultReportController extends Controller
         $rows = $faultReports->map(fn (RentalFaultReport $fr) => [
             $fr->property?->buildDisplayAddress() ?? 'Unknown property',
             $fr->title,
-            ucfirst(str_replace('_', ' ', $fr->status)),
+            $fr->statusLabel(),
             $fr->outcome ? ucfirst(str_replace('_', ' ', $fr->outcome)) : '',
             $fr->reported_at?->format('Y-m-d') ?? '',
         ]);

@@ -163,7 +163,8 @@ class RentalCommandCentreController extends Controller
             $queueItems = $queuePropertyId
                 ? $queueItemsAll->filter(fn (array $i) => ($i['property']?->id) === $queuePropertyId)->values()
                 : $queueItemsAll;
-            $queueTotalCount = $queueItems->count();
+            // C1: rows that are only information ("with owner 3d") are listed but are not counted as needing action.
+            $queueTotalCount = $queueItems->where('informational', '!=', true)->count();
 
             $queuePage = max(1, (int) $request->get('queue_page', 1));
             if ($queueGroupBy === 'none') {

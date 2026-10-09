@@ -1019,6 +1019,9 @@ class RentalCommandCentreService
             ]);
         });
 
+        // C1 (Johan, 9 Oct 2026): work orders and job cards that are waiting on the AGENT (and, as information only, on the owner / tenant).
+        $this->waitingWorkItems($user, $scope, $applyQueueFilters, $today, $items);
+
         return match ($sort) {
             // Nulls (no date on the item) sort last regardless of direction
             // — same "unknown sorts last, never first" rule the table's own
@@ -1033,6 +1036,132 @@ class RentalCommandCentreService
                 ['age_days', 'desc'],
             ])->values(),
         };
+    }
+
+    /**
+     * C1 (Johan, 9 Oct 2026) - the work orders / job cards whose NEXT STEP is the agent's, one row each, opening the exact place to act; and,
+     * as plain information (never counted as "needs action"), the ones that are with the owner or the tenant, with how long ("with owner 3d").
+     * Same own / branch / agency scoping as every other rule here (applyPropertyIdScope). States that already had their own row are NOT repeated:
+     * disputed work ("Resolve dispute") and stale ordered / in-progress work ("Open", the overdue rule) are skipped here.
+     *
+     * Agent actions: work order with no quote captured; quotes captured but none chosen; the owner declined the quote; approved - ready to send to
+     * the contractor; sent / approved with no appointment; the completion check answered - complete it (agency contractor AND the owner's own
+     * contractor); an internal job card with no crew, or with a crew but no date. Informational: the quote is with the owner; the completion
+     * check is with the tenant.
+     */
+    private function waitingWorkItems(User $user, string $scope, \Closure $applyQueueFilters, $today, Collection &$items): void
+    {
+        $overdueDays = RentalWorkOrderSetting::overdueReminderDaysFor($user->effectiveAgencyId());
+        $overdueIds = RentalWorkOrder::query()->overdue($overdueDays)->pluck('id')->all();
+
+        $push = function (array $row) use (&$items) {
+            $items->push($row + ['lease' => null, 'informational' => false]);
+        };
+        $age = fn ($at) => $at ? (int) abs($today->diffInDays($at)) : 0;
+
+        // ── work orders (agency contractor / the owner's own contractor) ─────────────────────────────────────────────────────────────
+        $this->applyPropertyIdScope(
+            $applyQueueFilters(
+                RentalWorkOrder::query()->whereNotIn('status', [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED, RentalWorkOrder::STATUS_DISPUTED])
+                    ->where('assignment_type', '!=', RentalWorkOrder::ASSIGNMENT_INTERNAL),
+                'updated_at'
+            )->with(['property', 'quotes']),
+            $user,
+            $scope,
+            'property_id'
+        )->get()->each(function (RentalWorkOrder $wo) use ($push, $age, $overdueIds) {
+            if (in_array($wo->id, $overdueIds, true)) {
+                return;   // already has its "Open" (overdue) row
+            }
+            $base = ['property' => $wo->property, 'route' => 'corex.rental-work-orders.show', 'route_params' => ['rentalWorkOrder' => $wo->id]];
+            $round = $wo->completionRounds()->orderByDesc('round_no')->first();
+            $roundAnswered = $round && in_array($round->outcome, [
+                \App\Models\RentalWorkCompletionRound::OUTCOME_CONFIRMED, \App\Models\RentalWorkCompletionRound::OUTCOME_ACCEPTED_BY_SILENCE, \App\Models\RentalWorkCompletionRound::OUTCOME_NO_TENANT,
+            ], true);
+
+            // the completion check: with the tenant (information) / answered (the agent completes it)
+            if ($round && $round->outcome === \App\Models\RentalWorkCompletionRound::OUTCOME_AWAITING_TENANT) {
+                $push($base + ['type' => 'wo_tenant_check', 'urgency' => 5, 'informational' => true, 'age_days' => $age($round->opened_at), 'item_date' => $round->opened_at,
+                    'label' => 'With tenant', 'detail' => $wo->title . ' - the tenant is checking the finished work (with tenant ' . $age($round->opened_at) . 'd)']);
+
+                return;
+            }
+            if ($roundAnswered) {
+                $push($base + ['type' => 'wo_complete', 'urgency' => 1, 'age_days' => $age($round->responded_at ?? $round->opened_at), 'item_date' => $round->responded_at ?? $round->opened_at,
+                    'label' => 'Complete work order', 'detail' => $wo->title . ($wo->isOwnerContractor() ? ' - the owner\'s contractor finished: confirm and complete it' : ' - the check is answered: complete it')]);
+
+                return;
+            }
+
+            if ($wo->isOwnerContractor()) {
+                if (! $wo->appointment_at) {
+                    $push($base + ['type' => 'wo_set_appointment', 'urgency' => 2, 'age_days' => $age($wo->created_at), 'item_date' => $wo->created_at,
+                        'label' => 'Set appointment', 'detail' => $wo->title . ' - the owner arranges the contractor: set the appointment with the tenant']);
+                }
+
+                return;
+            }
+
+            if ($wo->status === RentalWorkOrder::STATUS_REPORTED) {
+                $live = $wo->quotes->whereNull('declined_at');
+                $selected = $wo->quotes->firstWhere('is_selected', true);
+                if ($wo->owner_approval_status === RentalWorkOrder::APPROVAL_DECLINED && ! $selected) {
+                    $declined = $wo->quotes->whereNotNull('declined_at')->sortByDesc('declined_at')->first();
+                    $push($base + ['type' => 'wo_quote_declined', 'urgency' => 1, 'age_days' => $age($declined?->declined_at ?? $wo->updated_at), 'item_date' => $declined?->declined_at ?? $wo->updated_at,
+                        'label' => 'Quote declined', 'detail' => $wo->title . ' - the owner declined the quote: get another quote, or cancel the work order']);
+                } elseif ($live->isEmpty()) {
+                    $push($base + ['type' => 'wo_capture_quote', 'urgency' => 2, 'age_days' => $age($wo->created_at), 'item_date' => $wo->created_at,
+                        'label' => 'Capture a quote', 'detail' => $wo->title . ' - no quote captured yet']);
+                } elseif (! $selected) {
+                    $push($base + ['type' => 'wo_choose_quote', 'urgency' => 1, 'age_days' => $age($live->max('created_at')), 'item_date' => $live->max('created_at'),
+                        'label' => 'Choose a quote', 'detail' => $wo->title . ' - ' . $live->count() . ($live->count() === 1 ? ' quote' : ' quotes') . ' captured, none chosen: the owner has not been asked']);
+                } elseif ($wo->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING) {
+                    $push($base + ['type' => 'wo_with_owner', 'urgency' => 5, 'informational' => true, 'age_days' => $age($selected->updated_at), 'item_date' => $selected->updated_at,
+                        'label' => 'With owner', 'detail' => $wo->title . ' - quote R' . number_format($selected->ownerFacingAmount(), 2) . ' (with owner ' . $age($selected->updated_at) . 'd)']);
+                } elseif ($wo->owner_approval_status === RentalWorkOrder::APPROVAL_APPROVED || ($wo->owner_approval_status === RentalWorkOrder::APPROVAL_NOT_REQUIRED && $wo->approved_amount !== null)) {
+                    $push($base + ['type' => 'wo_send', 'urgency' => 1, 'age_days' => $age($wo->updated_at), 'item_date' => $wo->updated_at,
+                        'label' => 'Send to contractor', 'detail' => $wo->title . ' - approved: send the work order to the contractor']);
+                }
+
+                return;
+            }
+
+            // sent to the contractor (ordered / in progress) with no appointment yet
+            if (! $wo->appointment_at) {
+                $push($base + ['type' => 'wo_set_appointment', 'urgency' => 2, 'age_days' => $age($wo->ordered_at ?? $wo->updated_at), 'item_date' => $wo->ordered_at ?? $wo->updated_at,
+                    'label' => 'Set appointment', 'detail' => $wo->title . ' - sent to the contractor, no appointment set']);
+            }
+        });
+
+        // ── internal job cards ────────────────────────────────────────────────────────────────────────────────────────────────────────
+        $this->applyPropertyIdScope(
+            $applyQueueFilters(
+                \App\Models\RentalJobCard::query()->whereNotIn('status', [\App\Models\RentalJobCard::STATUS_COMPLETED, \App\Models\RentalJobCard::STATUS_CANCELLED, \App\Models\RentalJobCard::STATUS_DISPUTED]),
+                'updated_at'
+            )->with(['property', 'workOrder']),
+            $user,
+            $scope,
+            'property_id'
+        )->get()->each(function (\App\Models\RentalJobCard $card) use ($push, $age) {
+            $base = ['property' => $card->property, 'route' => 'corex.rental-job-cards.show', 'route_params' => ['rentalJobCard' => $card->id]];
+            $title = $card->title ?: 'Job card';
+            if (! $card->rental_crew_id) {
+                $push($base + ['type' => 'jc_assign_crew', 'urgency' => 2, 'age_days' => $age($card->created_at), 'item_date' => $card->created_at,
+                    'label' => 'Assign a crew', 'detail' => $title . ' - no crew assigned' . ($card->scheduled_at ? '' : ' and no date set')]);
+            } elseif (! $card->scheduled_at && ! $card->worker_signed_off_at) {
+                $wo = $card->workOrder;
+                $withOwner = $wo && $wo->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING;
+                $approved = $card->status === \App\Models\RentalJobCard::STATUS_APPROVED
+                    || ($wo && ($wo->owner_approval_status === RentalWorkOrder::APPROVAL_APPROVED || ($wo->owner_approval_status === RentalWorkOrder::APPROVAL_NOT_REQUIRED && $wo->approved_amount !== null)));
+                if ($withOwner) {
+                    $push($base + ['type' => 'jc_with_owner', 'urgency' => 5, 'informational' => true, 'age_days' => $age($card->updated_at), 'item_date' => $card->updated_at,
+                        'label' => 'With owner', 'detail' => $title . ' - quote with the owner (with owner ' . $age($card->updated_at) . 'd)']);
+                } elseif ($approved) {
+                    $push($base + ['type' => 'jc_book', 'urgency' => 2, 'age_days' => $age($card->updated_at), 'item_date' => $card->updated_at,
+                        'label' => 'Book a date', 'detail' => $title . ' - approved, no date set']);
+                }
+            }
+        });
     }
 
     /**

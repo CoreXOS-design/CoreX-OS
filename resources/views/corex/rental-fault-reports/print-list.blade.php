@@ -23,7 +23,7 @@
                 <tr>
                     <td>{{ $faultReport->property?->buildDisplayAddress() ?? 'Unknown property' }}</td>
                     <td>{{ $faultReport->title }}</td>
-                    <td>{{ ucfirst(str_replace('_', ' ', $faultReport->status)) }}</td>
+                    <td>{{ $faultReport->statusLabel() }}</td>
                     <td>{{ $faultReport->outcome ? ucfirst(str_replace('_', ' ', $faultReport->outcome)) : '—' }}</td>
                     <td>{{ $faultReport->reported_at?->format('Y-m-d') }}</td>
                 </tr>

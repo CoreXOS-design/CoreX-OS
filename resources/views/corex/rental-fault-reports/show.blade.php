@@ -48,7 +48,7 @@
     <div class="flex items-center justify-between">
         <div>
             <h1 class="text-lg font-semibold">{{ $faultReport->title }}</h1>
-            <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst(str_replace('_', ' ', $faultReport->status)) }}</span>
+            <span class="ds-badge {{ $statusBadgeClass }}">{{ $faultReport->statusLabel() }}</span>
             @if($faultReport->faultType)
                 <span class="ds-badge ds-badge-muted">{{ $faultReport->faultType->name }}</span>
             @endif

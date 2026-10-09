@@ -396,18 +396,13 @@ class RentalFaultReport extends Model
      */
     public function statusLabel(): string
     {
-        return match ($this->status) {
-            self::STATUS_REPORTED => 'Reported',
-            self::STATUS_UNDER_REVIEW => 'Under agent review',
-            self::STATUS_AWAITING_APPROVAL => 'Sent to owner',
-            self::STATUS_APPROVED => 'Owner decided - approved',
-            self::STATUS_DECLINED => 'Owner decided - declined',
-            self::STATUS_OWNER_HANDLING => 'Owner decided - owner arranges the repair',
-            self::STATUS_WORK_ORDER_RAISED => 'Work order raised',
-            self::STATUS_RESOLVED => 'Resolved',
-            self::STATUS_CANCELLED => 'Cancelled',
-            default => ucfirst(str_replace('_', ' ', (string) $this->status)),
-        };
+        return static::statusWord((string) $this->status);
+    }
+
+    /** C2 (Johan, 9 Oct 2026): the one name of a status, wherever it is printed - config/rental-fault-statuses.php. */
+    public static function statusWord(string $status): string
+    {
+        return (string) (config("rental-fault-statuses.{$status}") ?? ucfirst(str_replace('_', ' ', $status)));
     }
 
     /** The same status for the OWNER's screens: an unsent report is only ever "with your agent". */
