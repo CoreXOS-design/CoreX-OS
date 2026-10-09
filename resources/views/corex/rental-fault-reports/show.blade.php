@@ -463,9 +463,9 @@
             </div>
         @endif
         @permission('rental_fault_reports.create')
-        <form method="POST" action="{{ route('corex.rental-fault-reports.photos.store', $faultReport) }}" enctype="multipart/form-data" class="flex items-end gap-2">
+        <form method="POST" action="{{ route('corex.rental-fault-reports.photos.store', $faultReport) }}" enctype="multipart/form-data" class="flex flex-wrap items-end gap-2">
             @csrf
-            <input type="file" name="photo" accept="image/*" required class="text-xs">
+            <input type="file" name="photo" accept="image/*" required class="text-xs min-w-0 max-w-full">
             <button type="submit" class="corex-btn-outline text-xs">Upload photo</button>
         </form>
         @endpermission
