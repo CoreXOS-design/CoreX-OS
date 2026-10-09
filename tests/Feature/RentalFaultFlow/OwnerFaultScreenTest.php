@@ -201,7 +201,7 @@ class OwnerFaultScreenTest extends TestCase
         $this->assertStringNotContainsString('Decisions</button>', $html);
         $this->assertStringNotContainsString("landlordTab === 'decisions'", $html);
         $this->assertStringNotContainsString('Jobs</button>', $html);
-        $this->assertSame(2, substr_count($html, 'Work orders<span class="count"'), 'owner and tenant both have a Work orders tab with a count');
+        $this->assertSame(1, substr_count($html, 'Work orders<span class="count"'), 'the owner\'s Work orders tab has a count; the tenant\'s does not (D1: nothing waits on the tenant)');
         $this->assertStringContainsString('data-faults-count', $html);
         $this->assertStringContainsString('data-workorders-count', $html);
 

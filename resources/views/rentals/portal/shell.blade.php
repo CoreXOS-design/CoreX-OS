@@ -190,7 +190,7 @@
                             <button :class="{active: tenantTab==='home'}" @click="tenantTab='home'; loadOverview()">Home</button>
                             <button :class="{active: tenantTab==='lease'}" @click="tenantTab='lease'; loadTenantLeases()">Lease</button>
                             <button :class="{active: tenantTab==='faults'}" @click="tenantTab='faults'; loadFaultReports()">Faults</button>
-                            <button :class="{active: tenantTab==='jobs'}" @click="tenantTab='jobs'; loadWorkOrders()">Work orders<span class="count" data-workorders-count x-show="tenantChecksWaiting() > 0" x-text="tenantChecksWaiting()"></span></button>
+                            <button :class="{active: tenantTab==='jobs'}" @click="tenantTab='jobs'; loadWorkOrders()">Work orders</button>{{-- D1: no count badge - the tenant's "is it fixed?" is optional, nobody waits on it --}}
                             <button :class="{active: tenantTab==='documents'}" @click="tenantTab='documents'; loadDocuments()">Documents</button>
                         </div>
 
