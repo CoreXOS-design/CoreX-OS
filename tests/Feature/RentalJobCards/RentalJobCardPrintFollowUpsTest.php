@@ -404,7 +404,7 @@ final class RentalJobCardPrintFollowUpsTest extends TestCase
         // Scheduled (as legacy cards are) and check the box + send still work.
         RentalWorkOrderSetting::where('agency_id', $this->agency->id)->update(['no_approval_spend_threshold' => 10]);
         $card = $this->cardWithLandlord(RentalJobCard::STATUS_SCHEDULED);
-        $this->show($card)->assertSee('id="jc-quote-box"', false)->assertSee('Send to owner as quote');
+        $this->show($card)->assertSee('id="jc-quote-box"', false)->assertSee('Send quote to owner for approval');   // 9 Oct 2026 (J2): above the limit the button says what it does
 
         // The service has no status rule beyond "not closed" — a send from
         // Scheduled works and leaves the status alone (work already planned).
