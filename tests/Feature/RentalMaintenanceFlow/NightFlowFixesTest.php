@@ -497,11 +497,12 @@ final class NightFlowFixesTest extends TestCase
         $t = $line('tenant');
         $this->assertSame('todo', $t['sent_to_contractor']['state']);
         $this->assertSame('todo', $t['appointment_set']['state'], 'no appointment is "done" before approval');
-        $this->assertSame('Waiting for a quote', $t['sent_to_contractor']['detail']);
+        $this->assertSame('Being arranged', $t['sent_to_contractor']['detail'], 'D1: the tenant is never told about quotes');
+        $this->assertSame('Your agent is getting a quote', $line('owner')['sent_to_contractor']['detail']);
         $this->assertSame('owner_decided', $progress->forFault($fault->fresh(), 'tenant')['current']);
 
         $this->postQuote($wo, 4120);   // over the limit -> the owner is asked
-        $this->assertSame('Waiting for the owner to approve the quote', $line('tenant')['sent_to_contractor']['detail']);
+        $this->assertSame('Being arranged', $line('tenant')['sent_to_contractor']['detail'], 'D1: nor about the owner\'s approval of a price');
         $this->assertSame('Waiting for your approval of the quote', $line('owner')['sent_to_contractor']['detail']);
         $this->assertSame('todo', $line('tenant')['appointment_set']['state']);
 

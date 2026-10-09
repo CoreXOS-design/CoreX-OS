@@ -158,6 +158,10 @@ class RentalFaultProgressService
         }
         if ($last !== null) {
             $steps[$last]['current'] = true;
+            // T1/D1: reported finished, not yet closed -> the line says so (the same words as the work order card), never a tenant hold.
+            if ($wo && $steps[$last]['key'] === 'in_progress' && app(RentalWorkOrderClientViewService::class)->reportedFinished($wo)) {
+                $steps[$last]['label'] = $this->label('reported_finished', $aud);
+            }
         }
         // A declined fault ends at its decision: no later steps are shown at all.
         if ($ended === 'not_approved') {

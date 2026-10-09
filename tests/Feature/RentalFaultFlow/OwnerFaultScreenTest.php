@@ -388,7 +388,7 @@ class OwnerFaultScreenTest extends TestCase
         app(\App\Services\Rentals\RentalCompletionService::class)->openRound($wo->fresh(), ['reported_by_label' => 'Owner Bob', 'reported_via' => 'owner_portal']);
         $tenantP = $this->progress($fault->fresh());
         $last = end($tenantP['steps']);
-        $this->assertSame('Work in progress', $tenantP['current_label']);
+        $this->assertSame('Work reported finished', $tenantP['current_label']);
         $this->assertNotSame('done', $last['state']);
         $this->assertNull($last['action'], 'no "please check" action holds the line');
         $this->assertNull(end($this->progress($fault->fresh(), Progress::AUDIENCE_OWNER)['steps'])['action']);
