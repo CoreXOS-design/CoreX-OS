@@ -306,6 +306,36 @@ final class NightFlowFixesTest extends TestCase
         $this->assertNotNull($b->fresh()->declined_at, 'the declined quote keeps its record');
     }
 
+    public function test_q2_a_quote_declined_before_the_fix_is_brought_in_line_and_the_page_shows_the_way_forward(): void
+    {
+        $this->property->forceFill(['rental_no_approval_spend_threshold' => 500])->save();
+        $wo = $this->externalWorkOrder();
+        $this->postQuote($wo, 900);
+        $b = $wo->quotes()->first();
+        // the OLD shape (work order 64): declined on the work order, the quote still selected, no declined mark
+        $wo->approvals()->create(['agency_id' => $this->agency->id, 'decision' => 'declined', 'evidence_type' => 'portal', 'evidence_text' => 'Too expensive, get another quote.', 'decided_at' => now()->subHour()]);
+        $wo->forceFill(['owner_approval_status' => RentalWorkOrder::APPROVAL_DECLINED])->save();
+        $this->assertTrue((bool) $b->fresh()->is_selected);
+
+        // even before the repair the page already shows the declined state and the way forward
+        $html = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
+        $this->assertStringContainsString('data-quote-declined', $html);
+        $this->assertStringContainsString('capture another quote', $html);
+        $this->assertStringNotContainsString('>Selected<', $html);
+
+        (require database_path('migrations/2026_10_09_120000_backfill_declined_quotes_on_rental_work_orders.php'))->up();
+        (require database_path('migrations/2026_10_09_120000_backfill_declined_quotes_on_rental_work_orders.php'))->up();   // idempotent
+
+        $b = $b->fresh();
+        $this->assertFalse((bool) $b->is_selected);
+        $this->assertNotNull($b->declined_at);
+        $this->assertSame('Too expensive, get another quote.', $b->decline_reason);
+        $this->assertSame(1, $wo->updates()->where('update_type', 'quote_declined')->count(), 'one history line, however often it runs');
+        $html = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->getContent();
+        $this->assertStringContainsString('Declined by the owner', $html);
+        $this->assertStringContainsString('Too expensive, get another quote.', $html);
+    }
+
     public function test_q2_cancelling_the_work_order_after_a_declined_quote_closes_the_fault_as_owner_declined(): void
     {
         $this->property->forceFill(['rental_no_approval_spend_threshold' => 500])->save();

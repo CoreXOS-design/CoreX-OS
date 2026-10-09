@@ -48,8 +48,8 @@
         @php $nextContractor = $workOrder->contractorLabel() ?? 'the contractor'; @endphp
         <div class="rounded-md p-3 text-sm space-y-1" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, transparent); border: 1px solid var(--border);" data-next-step>
             <div class="font-semibold">What happens next</div>
-            @if($workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_DECLINED && ! $selectedQuote)
-                @php $declinedQuote = $workOrder->quotes->whereNotNull('declined_at')->sortByDesc('declined_at')->first(); @endphp
+            @if($workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_DECLINED)
+                @php $declinedQuote = $workOrder->quotes->whereNotNull('declined_at')->sortByDesc('declined_at')->first() ?? $selectedQuote; @endphp
                 <div class="font-medium" style="color: var(--ds-crimson, #b3261e);" data-quote-declined>The owner declined the quote{{ $declinedQuote ? ' (' . ($declinedQuote->supplier?->name ?? 'supplier') . ', R' . number_format($declinedQuote->ownerFacingAmount(), 2) . ')' : '' }}{{ $declinedQuote?->decline_reason ? ': ' . $declinedQuote->decline_reason : '.' }}</div>
                 <div>Two ways forward: <strong>capture another quote</strong> (or choose one you already have) &mdash; within the property's no-approval limit of R{{ number_format($noApprovalThreshold, 2) }} it is approved automatically, above it it goes to the owner &mdash; <strong>or cancel the work order</strong>, which closes the fault as &ldquo;owner declined&rdquo;.</div>
             @elseif(! $selectedQuote && $workOrder->quotes->isNotEmpty())
@@ -263,10 +263,10 @@
                                 {{ $quote->supplier?->name ?? 'Unknown supplier' }} — R{{ number_format($quote->ownerFacingAmount(), 2) }}
                             @endif
                             <span style="color: var(--text-muted);">({{ $quote->quote_date?->format('Y-m-d') }})</span>
-                            @if($quote->is_selected)
+                            @if($quote->is_selected && $workOrder->owner_approval_status !== \App\Models\RentalWorkOrder::APPROVAL_DECLINED)
                                 <span class="ds-badge ds-badge-success">Selected</span>
                             @endif
-                            @if($quote->declined_at)
+                            @if($quote->declined_at || ($quote->is_selected && $workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_DECLINED))
                                 <span class="ds-badge ds-badge-danger" data-quote-declined-badge>Declined by the owner</span>
                                 @if($quote->decline_reason)<span class="text-xs" style="color: var(--ds-crimson, #b3261e);">&mdash; {{ $quote->decline_reason }}</span>@endif
                             @endif
