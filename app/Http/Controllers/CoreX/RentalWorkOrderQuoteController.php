@@ -56,7 +56,7 @@ class RentalWorkOrderQuoteController extends Controller
         $quote = $rentalWorkOrder->recordQuote($validated, $request->user());
 
         // Only quote on the work order (live ones; archived are out): there is nothing to choose between, so it IS the quote.
-        $onlyQuote = $rentalWorkOrder->quotes()->count() === 1;
+        $onlyQuote = $rentalWorkOrder->quotes()->whereNull('declined_at')->count() === 1;
         $selected = false;
         if ($explicitlySelected || $onlyQuote) {
             try {
@@ -78,6 +78,19 @@ class RentalWorkOrderQuoteController extends Controller
     private function capturedMessage(RentalWorkOrder $workOrder, bool $selected): string
     {
         if (! $selected) {
+            // Q1 (Johan, 9 Oct 2026): say what is REALLY true. Another quote may still be the chosen one, with the owner.
+            $chosen = $workOrder->quotes()->where('is_selected', true)->first();
+            if ($chosen) {
+                $name = ($chosen->supplier?->name ?? 'The earlier quote') . ' (R' . number_format($chosen->ownerFacingAmount(), 2) . ')';
+                $where = match ($workOrder->owner_approval_status) {
+                    RentalWorkOrder::APPROVAL_PENDING => 'is with the owner',
+                    RentalWorkOrder::APPROVAL_APPROVED => 'is approved by the owner',
+                    default => 'is approved (within the owner\'s no-approval limit)',
+                };
+
+                return "Quote captured. {$name} is still the chosen quote and {$where}. Use Select on the new quote to put that one to the owner instead.";
+            }
+
             return 'Quote captured. No quote is chosen yet - the owner has not been asked. Choose one with its Select button.';
         }
         if ($workOrder->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING) {

@@ -133,7 +133,7 @@ final class JobCardNightFixesTest extends TestCase
         $this->assertCount(1, $this->sent(RentalOwnerQuoteMail::class));
         $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $wo->fresh()->owner_approval_status);
         $this->assertSame(RentalJobCard::STATUS_QUOTED, $card->fresh()->status);
-        $this->assertStringContainsString('Re-send revised quote to owner for approval', $this->page($card));
+        $this->assertStringContainsString('Re-send revised quote (Rev 2) to owner for approval', $this->page($card));
     }
 
     // ── J3 ───────────────────────────────────────────────────────────────────

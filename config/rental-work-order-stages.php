@@ -50,6 +50,9 @@ return [
     'needs_decision' => [
         'agent' => 'Waiting for the owner', 'owner' => 'Needs your decision', 'tenant' => 'Created',
     ],
+    'quote_declined' => [
+        'agent' => 'Owner declined the quote', 'owner' => 'You declined the quote', 'tenant' => 'Created',
+    ],
     'approved_to_send' => [
         'agent' => 'Approved - ready to send', 'owner' => 'Created', 'tenant' => 'Created',
     ],

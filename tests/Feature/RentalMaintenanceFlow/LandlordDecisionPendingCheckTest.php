@@ -88,7 +88,7 @@ final class LandlordDecisionPendingCheckTest extends TestCase
         $this->assertDatabaseHas('rental_approval_decisions', ['rental_work_order_id' => $wo->id, 'decision' => 'approved', 'decided_by' => 'owner', 'term_key' => 'owner_decision']);
 
         $other = $this->externalWorkOrder(['owner_approval_status' => RentalWorkOrder::APPROVAL_PENDING, 'title' => 'Declined job']);
-        $this->postJson(self::L . '/work-orders/' . $other->id . '/decision', ['decision' => 'decline'])->assertOk();
+        $this->postJson(self::L . '/work-orders/' . $other->id . '/decision', ['decision' => 'decline', 'note' => 'Too expensive'])->assertOk();
         $this->assertDatabaseHas('rental_approval_decisions', ['rental_work_order_id' => $other->id, 'decision' => 'declined', 'decided_by' => 'owner']);
     }
 

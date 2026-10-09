@@ -587,7 +587,8 @@ class ClientLandlordRentalsController extends Controller
 
         $data = $request->validate([
             'decision' => 'required|in:approve,decline',
-            'note' => 'nullable|string|max:2000',
+            // Q4 (Johan, 9 Oct 2026): a decline always carries the owner's reason.
+            'note' => 'nullable|required_if:decision,decline|string|max:2000',
         ]);
 
         try {

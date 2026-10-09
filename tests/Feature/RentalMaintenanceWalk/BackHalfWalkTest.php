@@ -407,7 +407,7 @@ final class BackHalfWalkTest extends TestCase
         $this->quoteAndSelect($wo, $supplier, 1500);
 
         $this->asOwner();
-        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'decline'])->assertOk();
+        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'decline', 'note' => 'Too expensive'])->assertOk();
         $this->assertSame(RentalWorkOrder::APPROVAL_DECLINED, $wo->fresh()->owner_approval_status);
 
         // Nothing can be sent to the contractor on a declined quote, and the owner cannot decide a second time.

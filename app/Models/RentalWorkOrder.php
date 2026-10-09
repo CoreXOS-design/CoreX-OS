@@ -214,12 +214,14 @@ class RentalWorkOrder extends Model
         if ($this->isOwnerContractor()) {
             return $this->contractor_name ?: null;
         }
-        if ($this->supplier) {
-            return $this->supplier->name;
-        }
+        // Q3 (Johan, 9 Oct 2026): once a quote is selected the contractor IS that quote's supplier (selectQuote() also keeps the assigned supplier in step
+        // while the work order has not gone out); before that, whoever was chosen when the work order was created.
         $selected = $this->relationLoaded('quotes') ? $this->quotes->firstWhere('is_selected', true) : $this->quotes()->where('is_selected', true)->first();
+        if ($selected?->supplier) {
+            return $selected->supplier->name;
+        }
 
-        return $selected?->supplier?->name;
+        return $this->supplier?->name;
     }
 
     /** One name for a raw status wherever it is printed (history, tooltips) - config/rental-work-order-stages.php `status_words`. */
@@ -459,6 +461,7 @@ class RentalWorkOrder extends Model
                     'quote_selected' => 'Quote selected',
                     'quote_archived' => 'Quote archived',
                     'quote_restored' => 'Quote restored',
+                    'quote_declined' => 'Quote declined by the owner',
                     'approval_rederived' => 'Approval requirement re-derived',
                     'approval_superseded' => 'Recorded decision superseded',
                     default => ucfirst(str_replace('_', ' ', $update->update_type)),
@@ -542,6 +545,10 @@ class RentalWorkOrder extends Model
         }
 
         $decision = $attributes['decision'];
+        // Q4 (Johan, 9 Oct 2026): a decline always carries the reason - from the owner on the portal, from the agent recording it, same as on a fault.
+        if ($decision === self::APPROVAL_DECLINED && trim((string) ($attributes['evidence_text'] ?? '')) === '') {
+            throw new \InvalidArgumentException('A reason is required when a quote is declined.');
+        }
         $selectedQuote = $this->quotes()->where('is_selected', true)->first();
 
         $approval = $this->approvals()->create([
@@ -562,6 +569,18 @@ class RentalWorkOrder extends Model
         $this->forceFill([
             'owner_approval_status' => $decision === self::APPROVAL_APPROVED ? self::APPROVAL_APPROVED : self::APPROVAL_DECLINED,
         ])->save();
+
+        // Q2 (Johan, 9 Oct 2026): the declined quote is marked DECLINED (with the reason) and stops being the selected one - the work order is not
+        // left pointing at a dead quote. The agent's way forward: capture / choose another quote and put it to the owner, or cancel the work order.
+        if ($decision === self::APPROVAL_DECLINED && $selectedQuote) {
+            $selectedQuote->forceFill([
+                'is_selected' => false, 'declined_at' => $approval->decided_at ?? now(), 'decline_reason' => trim((string) $attributes['evidence_text']),
+            ])->save();
+            $this->updates()->create([
+                'agency_id' => $this->agency_id, 'update_type' => 'quote_declined', 'created_by_user_id' => $recordedBy instanceof User ? $recordedBy->id : null,
+                'note' => $this->describeQuote($selectedQuote) . ' declined by the owner: ' . trim((string) $attributes['evidence_text']),
+            ]);
+        }
 
         // §17.6.4 — the owner's decision is a decision row too, and (when it is an approval) sets the baseline that
         // later variations are measured against: the selected quote's OWNER-FACING amount.
@@ -673,7 +692,21 @@ class RentalWorkOrder extends Model
         $oldStatus            = $this->owner_approval_status;
 
         $this->quotes()->where('id', '!=', $quote->id)->update(['is_selected' => false]);
-        $quote->forceFill(['is_selected' => true])->save();
+        $quote->forceFill(['is_selected' => true, 'declined_at' => null, 'decline_reason' => null])->save();
+
+        // Q3: the work order's contractor follows the chosen quote (only while it has not gone out - once ordered the contractor is the one it was sent to).
+        if ($this->assignment_type === self::ASSIGNMENT_OUTSIDE_SUPPLIER && $this->status === self::STATUS_REPORTED
+            && $quote->agency_service_provider_id && (int) $quote->agency_service_provider_id !== (int) $this->agency_service_provider_id) {
+            $from = $this->supplier?->name;
+            $this->forceFill(['agency_service_provider_id' => $quote->agency_service_provider_id])->save();
+            $this->unsetRelation('supplier');
+            $this->updates()->create([
+                'agency_id' => $this->agency_id, 'update_type' => 'supplier_changed', 'created_by_user_id' => $by->id,
+                'note' => $from
+                    ? 'Contractor changed from ' . $from . ' to ' . ($quote->supplier?->name ?? 'the quote\'s supplier') . ' with the chosen quote.'
+                    : 'Contractor set to ' . ($quote->supplier?->name ?? 'the quote\'s supplier') . ' with the chosen quote.',
+            ]);
+        }
 
         $variation = null;
         if ($emergency) {

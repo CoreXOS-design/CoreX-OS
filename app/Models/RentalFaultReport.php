@@ -859,6 +859,20 @@ class RentalFaultReport extends Model
         if ((int) $this->rental_work_order_id !== (int) $workOrder->id || $this->status !== self::STATUS_WORK_ORDER_RAISED) {
             return;
         }
+        // Q2 (Johan, 9 Oct 2026): the owner declined the work order's quote and the agent cancelled the work order - that IS the end of this repair:
+        // the fault closes as "owner declined" (automatic, so it can still be changed), instead of going back to "appoint a contractor".
+        if ($workOrder->owner_approval_status === RentalWorkOrder::APPROVAL_DECLINED) {
+            try {
+                $this->setOutcome([
+                    'outcome' => self::OUTCOME_OWNER_DECLINED,
+                    'outcome_note' => 'The owner declined the quote and the work order was cancelled. Change the outcome if that is not right.',
+                ], $by, true);
+
+                return;
+            } catch (\LogicException|\InvalidArgumentException $e) {
+                // fall through to the ordinary "back to where the decision left it"
+            }
+        }
         $to = match (true) {
             $this->owner_approval_status === self::APPROVAL_APPROVED => $this->approval_route === self::ROUTE_OWNER_HANDLES ? self::STATUS_OWNER_HANDLING : self::STATUS_APPROVED,
             $this->sent_to_owner_at !== null => self::STATUS_AWAITING_APPROVAL,

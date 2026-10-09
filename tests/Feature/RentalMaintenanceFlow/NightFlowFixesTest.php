@@ -242,6 +242,144 @@ final class NightFlowFixesTest extends TestCase
         $this->getJson(self::L . "/fault-reports/{$fault->id}")->assertOk()->assertJsonPath('fault_report.work_order.appointment_note', 'Electrician will hoot at the gate');
     }
 
+    // ── Q1–Q4 (Johan's two-quotes walk, 9 Oct 2026) ─────────────────────────
+
+    public function test_q1_a_second_quote_says_the_first_is_still_chosen_and_with_the_owner(): void
+    {
+        $this->property->forceFill(['rental_no_approval_spend_threshold' => 500])->save();
+        $wo = $this->externalWorkOrder();
+        $this->postQuote($wo, 900);   // A: over the limit -> with the owner
+
+        $this->postQuote($wo, 400)->assertSessionHas('success', fn ($m) => str_contains($m, 'is still the chosen quote and is with the owner')
+            && str_contains($m, 'R900.00') && str_contains($m, 'Use Select on the new quote to put that one to the owner instead.') && ! str_contains($m, 'No quote is chosen yet'));
+        $this->assertSame(1, $wo->quotes()->where('is_selected', true)->count());
+        $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $wo->fresh()->owner_approval_status, 'the owner is still asked about A');
+    }
+
+    public function test_q2_a_declined_quote_is_marked_declined_and_unselected_and_every_party_reads_the_right_state(): void
+    {
+        $this->property->forceFill(['rental_no_approval_spend_threshold' => 500])->save();
+        $fault = $this->approvedFault();
+        $supplier = $this->supplier('Ramsgate Electrical');
+        $wo = app(\App\Services\Rentals\RentalWorkOrderService::class)->createFromFaultDecision($fault, $this->admin, ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $supplier->id])['work_order'];
+        $this->postQuote($wo, 900);                                   // A
+        $this->postQuote($wo, 1200);                                  // B
+        $b = $wo->quotes()->orderByDesc('id')->first();
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.quotes.select', [$wo, $b]))->assertSessionHasNoErrors();
+        $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $wo->fresh()->owner_approval_status);
+
+        Sanctum::actingAs($this->clientFor($this->landlord), ['client']);
+        $this->postJson(self::L . "/work-orders/{$wo->id}/decision", ['decision' => 'decline', 'note' => 'Far too expensive'])->assertOk();
+
+        // the quote itself
+        $b = $b->fresh();
+        $this->assertFalse((bool) $b->is_selected);
+        $this->assertNotNull($b->declined_at);
+        $this->assertSame('Far too expensive', $b->decline_reason);
+        $this->assertSame(0, $wo->quotes()->where('is_selected', true)->count(), 'no dead selected quote');
+        $this->assertTrue($wo->updates()->where('update_type', 'quote_declined')->exists());
+
+        // the office screen: badge, the declined quote with its reason, the two ways forward
+        $html = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
+        $this->assertStringContainsString('Owner declined the quote', $html);
+        $this->assertStringContainsString('data-quote-declined', $html);
+        $this->assertStringContainsString('data-quote-declined-badge', $html);
+        $this->assertStringContainsString('Far too expensive', $html);
+        $this->assertStringContainsString('capture another quote', $html);
+        $this->assertStringContainsString('cancel the work order', $html);
+        $this->assertStringContainsString('closes the fault as', $html);
+
+        // the owner's card and the tenant's: neutral, the right words for each
+        $svc = app(RentalWorkOrderClientViewService::class);
+        $this->assertSame('You declined the quote', $svc->payload($wo->fresh(), RentalWorkOrderClientViewService::AUDIENCE_LANDLORD)['stage_label']);
+        $this->assertSame('Created', $svc->payload($wo->fresh(), RentalWorkOrderClientViewService::AUDIENCE_TENANT)['stage_label'], 'the tenant never learns the decision');
+        $prog = app(\App\Services\Rentals\RentalFaultProgressService::class);
+        $this->assertSame('Being arranged', collect($prog->forFault($fault->fresh(), 'tenant')['steps'])->firstWhere('key', 'sent_to_contractor')['detail']);
+        $this->assertStringContainsString('You declined the quote', collect($prog->forFault($fault->fresh(), 'owner')['steps'])->firstWhere('key', 'sent_to_contractor')['detail']);
+
+        // forward 1: a new quote can be put to the owner again (the declined one stays on record)
+        $c = $this->postQuote($wo, 1100);
+        $c->assertSessionHas('success', fn ($m) => str_contains($m, 'No quote is chosen yet'));   // A and C are both candidates - the agent chooses
+        $newest = $wo->quotes()->orderByDesc('id')->first();
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.quotes.select', [$wo, $newest]))->assertSessionHasNoErrors();
+        $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $wo->fresh()->owner_approval_status);
+        $this->assertNotNull($b->fresh()->declined_at, 'the declined quote keeps its record');
+    }
+
+    public function test_q2_cancelling_the_work_order_after_a_declined_quote_closes_the_fault_as_owner_declined(): void
+    {
+        $this->property->forceFill(['rental_no_approval_spend_threshold' => 500])->save();
+        $fault = $this->approvedFault();
+        $supplier = $this->supplier('Ramsgate Electrical');
+        $wo = app(\App\Services\Rentals\RentalWorkOrderService::class)->createFromFaultDecision($fault, $this->admin, ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $supplier->id])['work_order'];
+        $this->postQuote($wo, 1200);
+        $wo->fresh()->recordApproval($this->landlord, ['decision' => 'declined', 'evidence_type' => \App\Models\RentalApproval::EVIDENCE_PORTAL, 'evidence_text' => 'No thanks']);
+
+        $wo->fresh()->cancel($this->admin, 'Owner declined the quote');
+
+        $f = $fault->fresh();
+        $this->assertSame(RentalFaultReport::STATUS_RESOLVED, $f->status);
+        $this->assertSame(RentalFaultReport::OUTCOME_OWNER_DECLINED, $f->outcome);
+        $this->assertTrue((bool) $f->outcome_set_automatically);
+
+        // a cancel that is NOT after a decline still goes back to appoint (unchanged)
+        $other = $this->approvedFault();
+        $wo2 = app(\App\Services\Rentals\RentalWorkOrderService::class)->createFromFaultDecision($other, $this->admin, ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $supplier->id])['work_order'];
+        $wo2->fresh()->cancel($this->admin, 'Changed plan');
+        $this->assertSame(RentalFaultReport::STATUS_APPROVED, $other->fresh()->status);
+    }
+
+    public function test_q3_the_contractor_is_the_selected_quotes_supplier_and_the_history_says_when_it_changed(): void
+    {
+        $fault = $this->approvedFault();
+        $zz = $this->supplier('ZZ Sunday Contractor');
+        $sweep = $this->supplier('CC2 SWEEP');
+        $wo = app(\App\Services\Rentals\RentalWorkOrderService::class)->createFromFaultDecision($fault, $this->admin, ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $zz->id])['work_order'];
+        $this->assertSame('ZZ Sunday Contractor', $wo->fresh()->contractorLabel());
+
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.quotes.store', $wo), [
+            'agency_service_provider_id' => $sweep->id, 'amount' => 300, 'quote_date' => now()->toDateString(), 'detail_text' => 'Sweep',
+        ])->assertSessionHasNoErrors();
+
+        $fresh = $wo->fresh();
+        $this->assertSame('CC2 SWEEP', $fresh->contractorLabel());
+        $this->assertSame($sweep->id, (int) $fresh->agency_service_provider_id, 'the assigned supplier follows the chosen quote');
+        $this->assertTrue($fresh->updates()->where('update_type', 'supplier_changed')->where('note', 'Contractor changed from ZZ Sunday Contractor to CC2 SWEEP with the chosen quote.')->exists());
+        $html = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
+        $this->assertMatchesRegularExpression('/Supplier:<\/span>\s*CC2 SWEEP/', $html);
+        $this->assertStringNotContainsString('Supplier:</span> ZZ Sunday', $html);
+    }
+
+    public function test_q4_a_decline_needs_its_reason_from_the_agent_and_from_the_owner(): void
+    {
+        $this->property->forceFill(['rental_no_approval_spend_threshold' => 500])->save();
+        $wo = $this->externalWorkOrder();
+        $this->postQuote($wo, 1200);
+
+        // the office form labels it and the dialog validates it first
+        $html = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
+        $this->assertStringContainsString('Reason for declining (required)', $html);
+        $this->assertStringContainsString('x-on:click="ask()"', $html);
+
+        // the agent records a decline with no reason -> refused, still pending
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.approval.store', $wo), ['decision' => 'declined', 'evidence_type' => 'verbal_note', 'evidence_text' => ''])->assertSessionHasErrors('evidence_text');
+        $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $wo->fresh()->owner_approval_status);
+        // the owner on the portal with no reason -> refused
+        Sanctum::actingAs($this->clientFor($this->landlord), ['client']);
+        $this->postJson(self::L . "/work-orders/{$wo->id}/decision", ['decision' => 'decline'])->assertStatus(422);
+        $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $wo->fresh()->owner_approval_status);
+        // and the model itself never takes a reasonless decline
+        try {
+            $wo->fresh()->recordApproval($this->admin, ['decision' => 'declined', 'evidence_type' => 'verbal_note', 'evidence_text' => '   ']);
+            $this->fail('a reasonless decline must be refused');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('reason is required', $e->getMessage());
+        }
+        // with a reason it goes through
+        $this->postJson(self::L . "/work-orders/{$wo->id}/decision", ['decision' => 'decline', 'note' => 'Too dear'])->assertOk();
+        $this->assertSame(RentalWorkOrder::APPROVAL_DECLINED, $wo->fresh()->owner_approval_status);
+    }
+
     // ── B. no appointment, no contractor name for the tenant, before the job is approved ──
 
     public function test_an_appointment_cannot_be_set_before_the_job_is_approved_by_anyone_and_nobody_is_emailed(): void
@@ -309,7 +447,8 @@ final class NightFlowFixesTest extends TestCase
         // approved -> both see it
         $this->postQuote($wo, 300);   // 8 Oct threshold R500 default: auto-approved
         $tenant = $svc->payload($wo->fresh(), RentalWorkOrderClientViewService::AUDIENCE_TENANT);
-        $this->assertSame('Ramsgate Electrical', $tenant['contractor_name']);
+        $this->assertSame($wo->fresh()->contractorLabel(), $tenant['contractor_name'], 'the contractor is the chosen quote\'s supplier (Q3)');
+        $this->assertNotNull($tenant['contractor_name']);
         $this->assertNotNull($tenant['appointment_at']);
         $this->assertTrue($svc->payload($wo->fresh(), RentalWorkOrderClientViewService::AUDIENCE_LANDLORD)['owner_can_appoint']);
     }

@@ -72,7 +72,7 @@ class RentalJobCardStageService
             'title' => $within ? 'Confirm the price' : ($currentRevision ? 'Quote to owner' : 'Send quote to owner'),
             'button' => $within
                 ? "Confirm price - within the owner's limit, approved automatically"
-                : ($currentRevision ? 'Re-send revised quote to owner for approval (Rev ' . ($currentRevision + 1) . ')' : 'Send quote to owner for approval'),
+                : ($currentRevision ? 'Re-send revised quote (Rev ' . ($currentRevision + 1) . ') to owner for approval' : 'Send quote to owner for approval'),
             'confirm' => $within
                 ? 'Confirm the price of ' . $money($amount) . '? It is within the owner\'s no-approval limit of ' . $money($limit) . ', so it is approved automatically. Nothing is sent to the owner.'
                 : ($currentRevision
@@ -89,7 +89,8 @@ class RentalJobCardStageService
             'edit_lines' => $open,
             'assign_crew' => $open,
             'price' => $open && $hasLines && $unpriced === 0 && ! $baseline && in_array($key, ['draft', 'quoted', 'owner_declined', 'approved', 'scheduled', 'in_progress'], true),
-            'schedule' => $open && $authorised && in_array($key, ['draft', 'quoted', 'approved', 'scheduled', 'in_progress'], true),
+            // a card that is already booked / under way can always be re-booked (it was cleared to be booked); an unbooked one needs the approval first
+            'schedule' => $open && ($authorised || in_array($card->status, [RentalJobCard::STATUS_SCHEDULED, RentalJobCard::STATUS_IN_PROGRESS], true)) && in_array($key, ['draft', 'quoted', 'approved', 'scheduled', 'in_progress'], true),
             'start' => $open && $card->status === RentalJobCard::STATUS_SCHEDULED && ! $workerDone,
             'crew_link' => $open && $authorised && $crewVisible,
             'worker_sign_off' => $open && ! $workerDone && in_array($card->status, [RentalJobCard::STATUS_SCHEDULED, RentalJobCard::STATUS_IN_PROGRESS, RentalJobCard::STATUS_DISPUTED], true),

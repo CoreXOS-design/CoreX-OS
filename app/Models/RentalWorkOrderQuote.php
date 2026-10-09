@@ -33,6 +33,9 @@ class RentalWorkOrderQuote extends Model
         'document_storage_path',
         'detail_text',
         'is_selected',
+        // Q2 (9 Oct 2026) - the owner declined THIS quote: when, and why. A declined quote is never the selected one.
+        'declined_at',
+        'decline_reason',
         'captured_by_user_id',
         // §17.11 — the estimate-term wording in force when this quote was sent.
         'term_text',
@@ -52,6 +55,7 @@ class RentalWorkOrderQuote extends Model
         'is_selected' => 'boolean',
         'revision' => 'integer',
         'superseded_at' => 'datetime',
+        'declined_at' => 'datetime',
     ];
 
     public function workOrder(): BelongsTo

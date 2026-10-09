@@ -48,7 +48,11 @@
         @php $nextContractor = $workOrder->contractorLabel() ?? 'the contractor'; @endphp
         <div class="rounded-md p-3 text-sm space-y-1" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, transparent); border: 1px solid var(--border);" data-next-step>
             <div class="font-semibold">What happens next</div>
-            @if(! $selectedQuote && $workOrder->quotes->isNotEmpty())
+            @if($workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_DECLINED && ! $selectedQuote)
+                @php $declinedQuote = $workOrder->quotes->whereNotNull('declined_at')->sortByDesc('declined_at')->first(); @endphp
+                <div class="font-medium" style="color: var(--ds-crimson, #b3261e);" data-quote-declined>The owner declined the quote{{ $declinedQuote ? ' (' . ($declinedQuote->supplier?->name ?? 'supplier') . ', R' . number_format($declinedQuote->ownerFacingAmount(), 2) . ')' : '' }}{{ $declinedQuote?->decline_reason ? ': ' . $declinedQuote->decline_reason : '.' }}</div>
+                <div>Two ways forward: <strong>capture another quote</strong> (or choose one you already have) &mdash; within the property's no-approval limit of R{{ number_format($noApprovalThreshold, 2) }} it is approved automatically, above it it goes to the owner &mdash; <strong>or cancel the work order</strong>, which closes the fault as &ldquo;owner declined&rdquo;.</div>
+            @elseif(! $selectedQuote && $workOrder->quotes->isNotEmpty())
                 <div class="font-medium" style="color: var(--ds-crimson, #b3261e);" data-quote-not-selected>No quote chosen yet &mdash; the owner has not been asked, and the work order cannot be sent. Choose the quote below with its Select button.</div>
             @elseif(! $selectedQuote)
                 <div>Capture {{ $nextContractor }}'s quote below and select it. If the quote is <strong>R{{ number_format($noApprovalThreshold, 2) }} or less</strong> (this property's no-approval limit) it is approved automatically and you can send the work order. If it is <strong>more</strong>, it goes to the owner for approval first, and the work order cannot be sent until they approve.</div>
@@ -250,6 +254,10 @@
                             @if($quote->is_selected)
                                 <span class="ds-badge ds-badge-success">Selected</span>
                             @endif
+                            @if($quote->declined_at)
+                                <span class="ds-badge ds-badge-danger" data-quote-declined-badge>Declined by the owner</span>
+                                @if($quote->decline_reason)<span class="text-xs" style="color: var(--ds-crimson, #b3261e);">&mdash; {{ $quote->decline_reason }}</span>@endif
+                            @endif
                             @if($quote->document_storage_path)
                                 <a href="{{ route('corex.rental-work-orders.quotes.download', [$workOrder, $quote]) }}" class="underline text-xs">Document</a>
                             @endif
@@ -363,6 +371,8 @@
                         <input type="checkbox" name="is_selected" value="1">
                         Use this quote instead of the selected one
                     </label>
+                @elseif($workOrder->quotes->whereNull('declined_at')->isNotEmpty())
+                    <p class="text-xs col-span-2" style="color: var(--text-muted);">No quote is chosen yet. Capture this one, then choose it with its Select button to put it to the owner.</p>
                 @else
                     <p class="text-xs col-span-2" style="color: var(--text-muted);" data-quote-autoselect>This is the first quote, so it is selected automatically: within the property's no-approval limit (R{{ number_format($noApprovalThreshold, 2) }}) it is approved on the spot, above it the owner is asked.</p>
                 @endif
@@ -438,11 +448,11 @@
         @permission('rental_work_orders.record_approval')
         @if($workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_PENDING)
         <button type="button" onclick="document.getElementById('wo-approval-form').classList.toggle('hidden')" class="corex-btn-outline text-xs">Record decision on the owner's behalf</button>
-        <form id="wo-approval-form" method="POST" action="{{ route('corex.rental-work-orders.approval.store', $workOrder) }}" class="hidden space-y-3 pt-2">
+        <form id="wo-approval-form" method="POST" action="{{ route('corex.rental-work-orders.approval.store', $workOrder) }}" class="hidden space-y-3 pt-2" x-data="{ decision: 'approved' }">
             @csrf
             <div>
                 <label class="text-xs font-medium">Decision</label>
-                <select name="decision" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                <select name="decision" required x-model="decision" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                     <option value="approved">Approved</option>
                     <option value="declined">Declined</option>
                 </select>
@@ -456,10 +466,10 @@
                 </select>
             </div>
             <div>
-                <label class="text-xs font-medium">What the owner said</label>
+                <label class="text-xs font-medium"><span x-show="decision === 'declined'" x-cloak data-decline-reason-label>Reason for declining (required)</span><span x-show="decision !== 'declined'">What the owner said</span></label>
                 <textarea name="evidence_text" required rows="2" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);"></textarea>
             </div>
-            <button type="submit" class="corex-btn-primary text-xs">Save decision</button>
+            <x-confirm-submit title="Record the owner's decision" message="Record this decision on the owner's behalf? It goes on the record with the evidence you give." confirm-label="Record decision">Save decision</x-confirm-submit>
         </form>
         @endif
         @endpermission

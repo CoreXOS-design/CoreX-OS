@@ -69,6 +69,10 @@ class RentalWorkOrderClientViewService
         if ($audience !== self::AUDIENCE_TENANT && $workOrder->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING) {
             return 'needs_decision';
         }
+        // Q2: the owner declined the quote - not "Created" any more. (The tenant keeps the plain stage: it never learns the owner's decision.)
+        if ($audience !== self::AUDIENCE_TENANT && $workOrder->owner_approval_status === RentalWorkOrder::APPROVAL_DECLINED) {
+            return 'quote_declined';
+        }
         if ($this->appointmentAt($workOrder, $audience === 'agent')) {
             return 'appointment_set';
         }

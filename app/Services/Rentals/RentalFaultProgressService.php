@@ -106,9 +106,9 @@ class RentalFaultProgressService
             $waiting = null;
             if ($wo && $handedOverAt === null && $wo->assignment_type === RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER) {
                 $waiting = $this->label(match (true) {
+                    $wo->owner_approval_status === RentalWorkOrder::APPROVAL_DECLINED => 'wait_declined',
                     ! $wo->quotes()->where('is_selected', true)->exists() && $wo->owner_approval_status !== RentalWorkOrder::APPROVAL_APPROVED => 'wait_quote',
                     $wo->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING => 'wait_approval',
-                    $wo->owner_approval_status === RentalWorkOrder::APPROVAL_DECLINED => 'wait_declined',
                     default => 'wait_send',
                 }, $aud);
             }
