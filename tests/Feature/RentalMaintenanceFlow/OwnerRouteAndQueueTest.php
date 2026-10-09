@@ -230,9 +230,9 @@ final class OwnerRouteAndQueueTest extends TestCase
 
     public function test_c2_one_name_per_fault_status_everywhere(): void
     {
-        $this->assertSame('Owner approved', RentalFaultReport::statusWord('approved'));
-        $this->assertSame('Owner arranges the repair', RentalFaultReport::statusWord('owner_handling'));
-        $this->assertSame('Owner declined', RentalFaultReport::statusWord('declined'));
+        $this->assertSame('Owner decided - approved', RentalFaultReport::statusWord('approved'));
+        $this->assertSame('Owner decided - owner arranges the repair', RentalFaultReport::statusWord('owner_handling'));
+        $this->assertSame('Owner decided - declined', RentalFaultReport::statusWord('declined'));
 
         $fault = $this->sentFault();
         $fault->recordApproval($this->admin, ['decision' => 'approved', 'approval_route' => 'owner_handles', 'evidence_type' => 'verbal_note', 'evidence_text' => 'ok']);
@@ -240,14 +240,14 @@ final class OwnerRouteAndQueueTest extends TestCase
         $detail = $this->actingAs($this->admin)->get(route('corex.rental-fault-reports.show', $fault))->assertOk()->getContent();
 
         foreach ([$list, $detail] as $html) {
-            $this->assertStringContainsString('Owner arranges the repair', $html);
-            $this->assertStringNotContainsString('Owner decided -', $html);
+            $this->assertStringContainsString('Owner decided - owner arranges the repair', $html);
             $this->assertStringNotContainsString('Owner handling', $html);
         }
-        $this->assertStringContainsString('Owner approved', $list, 'tile and filter');
+        $this->assertStringContainsString('Owner decided - approved', $list, 'tile and filter');
+        $this->assertDoesNotMatchRegularExpression('/>\s*Approved\s*</', $list, 'no second name for the same status');
         // print list and export use the same words
         $print = $this->actingAs($this->admin)->get(route('corex.rental-fault-reports.print-list'))->assertOk()->getContent();
-        $this->assertStringContainsString('Owner arranges the repair', $print);
+        $this->assertStringContainsString('Owner decided - owner arranges the repair', $print);
         $this->assertStringNotContainsString('Owner handling', $print);
     }
 }

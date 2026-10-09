@@ -10,9 +10,10 @@ return [
     'reported' => 'Reported',
     'under_review' => 'Under agent review',
     'awaiting_approval' => 'Sent to owner',
-    'approved' => 'Owner approved',
-    'declined' => 'Owner declined',
-    'owner_handling' => 'Owner arranges the repair',
+    // Johan's own words for the "owner decided" family (fault flow F2) - one set, used everywhere.
+    'approved' => 'Owner decided - approved',
+    'declined' => 'Owner decided - declined',
+    'owner_handling' => 'Owner decided - owner arranges the repair',
     'work_order_raised' => 'Work order raised',
     'resolved' => 'Resolved',
     'cancelled' => 'Cancelled',
