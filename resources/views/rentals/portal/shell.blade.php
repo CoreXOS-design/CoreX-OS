@@ -311,7 +311,7 @@
                                         {{-- §17.10.4 — "Is this finished?" — only while a completion round waits on this tenant. --}}
                                         <template x-if="w.awaiting_answer">
                                             <div data-finished-block style="margin-top:12px; padding-top:12px; border-top:1px solid #e3e8ef;">
-                                                <h2>Is this finished?</h2>
+                                                <h2>Is it fixed? <span class="muted">(optional)</span></h2>
                                                 <p class="muted" x-text="(w.awaiting_answer.reported_by || 'The crew') + ' says this work is done. Please check it and tell us if it is fixed - your answer is optional and never holds the job up.'"></p>
                                                 <button class="btn btn-ok" :disabled="!!(answerBusy)" @click="answerCompletion(w, true)" x-text="answerBusy ? 'Sending…' : 'All done, thanks'"></button>
                                                 <template x-if="!answerForm || answerForm.workOrderId !== w.id">
@@ -330,7 +330,7 @@
                                             </div>
                                         </template>
 
-                                        <template x-for="r in w.rounds" :key="r.id">
+                                        <template x-for="r in w.rounds.filter(x => x.outcome !== 'awaiting_tenant')" :key="r.id">
                                             <div style="margin-top:10px; padding-top:10px; border-top:1px solid #eef1f6;">
                                                 <div class="row"><span class="muted" x-text="'Check ' + r.round_no + ' — reported done ' + (r.reported_at ? r.reported_at.substring(0,10) : '')"></span><span class="badge" x-text="r.outcome_label"></span></div>
                                                 <p class="muted" x-show="r.response_note" x-text="r.response_note ? 'You said: ' + r.response_note : ''"></p>
@@ -502,7 +502,7 @@
                             </div>
                         </template>
                         {{-- BUILD 2 END --}}
-                                        <template x-for="r in w.rounds" :key="r.id">
+                                        <template x-for="r in w.rounds.filter(x => x.outcome !== 'awaiting_tenant')" :key="r.id">
                                             <div style="margin-top:10px; padding-top:10px; border-top:1px solid #eef1f6;">
                                                 <div class="row"><span class="muted" x-text="'Tenant check ' + r.round_no + ' — reported done ' + (r.reported_at ? r.reported_at.substring(0,10) : '')"></span><span class="badge" x-text="r.outcome_label"></span></div>
                                                 <p class="muted" x-show="r.response_note" x-text="r.response_note ? 'The tenant said: ' + r.response_note : ''"></p>
