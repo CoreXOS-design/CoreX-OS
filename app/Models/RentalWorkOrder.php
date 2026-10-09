@@ -694,9 +694,9 @@ class RentalWorkOrder extends Model
         $this->quotes()->where('id', '!=', $quote->id)->update(['is_selected' => false]);
         $quote->forceFill(['is_selected' => true, 'declined_at' => null, 'decline_reason' => null])->save();
 
-        // Q3: the work order's contractor follows the chosen quote (only while it has not gone out - once ordered the contractor is the one it was sent to).
+        // Q3: when a contractor was already appointed (at creation) the work order's contractor follows the chosen quote - only while it has not gone out (once ordered it is the one it was sent to). With nobody appointed yet nothing is assigned here: sending it is still the agent's explicit step, and the header reads the chosen quote's supplier.
         if ($this->assignment_type === self::ASSIGNMENT_OUTSIDE_SUPPLIER && $this->status === self::STATUS_REPORTED
-            && $quote->agency_service_provider_id && (int) $quote->agency_service_provider_id !== (int) $this->agency_service_provider_id) {
+            && $this->agency_service_provider_id && $quote->agency_service_provider_id && (int) $quote->agency_service_provider_id !== (int) $this->agency_service_provider_id) {
             $from = $this->supplier?->name;
             $this->forceFill(['agency_service_provider_id' => $quote->agency_service_provider_id])->save();
             $this->unsetRelation('supplier');
