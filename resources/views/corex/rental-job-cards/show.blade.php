@@ -132,8 +132,8 @@
     <div x-data="rentalJobCardBuilder({
             isDraft: {{ $isDraft ? 'true' : 'false' }},
             draftTasks: {{ $draftTasksJson->toJson() }},
-        })" id="jc-layout" class="flex flex-col lg:flex-row gap-4 items-start">
-        <div id="jc-left-col" class="w-full lg:flex-1 min-w-0 space-y-4">
+        })" id="jc-layout" class="flex flex-col xl:flex-row gap-4 items-start">
+        <div id="jc-left-col" class="w-full xl:flex-1 min-w-0 space-y-4">
 
             {{-- 1. THE JOB --}}
             <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
@@ -579,7 +579,7 @@
         {{-- Johan, 9 Oct 2026 (J3): ONE page scroll - no nested scroll areas. The right column is the "what to do now" column, wide enough to read,
              and its blocks follow the card's stage ($stage = RentalJobCardStageService): early on the price and approval come first, once the job
              is booked the crew, the sign-offs and the signed copy do. --}}
-        <div id="jc-right-col" class="w-full lg:basis-[400px] lg:max-w-[440px] lg:flex-shrink-0 lg:grow-0 space-y-4">
+        <div id="jc-right-col" class="w-full xl:basis-[300px] xl:max-w-[320px] 2xl:basis-[380px] 2xl:max-w-[400px] xl:flex-shrink-0 xl:grow-0 space-y-4">
             @if(in_array($stage['key'], ['draft', 'quoted', 'owner_declined'], true))
                 @include('corex.rental-job-cards._quote-box')
                 @include('corex.rental-job-cards._approval-panel')
