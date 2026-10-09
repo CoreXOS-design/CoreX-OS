@@ -146,16 +146,21 @@ final class RentalListControllersNoGrantTest extends TestCase
         $controller = app(RentalInspectionDueController::class);
 
         $scopes = new ReflectionMethod($controller, 'scopes');
-        $propertyScope = new ReflectionMethod($controller, 'propertyScope');
+        $leaseReach = new ReflectionMethod($controller, 'leaseReach');
 
-        // Granted: normal answer, own only.
+        // Granted ('own'): the lease constraint — the one query-layer definition of what the Due board may show — narrows
+        // the query to the user's own properties/leases instead of leaving it open.
+        $query = \App\Models\Lease::query();
+        $leaseReach->invoke($controller, $this->grantedUser, null)($query);
+        $this->assertStringContainsString('agent_id', $query->toSql());
+
         [$max, $resolved, $options] = $scopes->invoke($controller, $this->requestFor($this->grantedUser));
         $this->assertSame(['own', 'own', ['own']], [$max, $resolved, $options]);
 
         // Not granted: refused.
         foreach ([
             fn () => $scopes->invoke($controller, $this->requestFor($this->noGrantUser)),
-            fn () => $propertyScope->invoke($controller, \App\Models\Property::query(), $this->noGrantUser, null),
+            fn () => $leaseReach->invoke($controller, $this->noGrantUser, null)(\App\Models\Lease::query()),
         ] as $call) {
             try {
                 $call();

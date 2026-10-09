@@ -573,7 +573,7 @@
                                      Screened out of the tray BEFORE filing,
                                      the most common real case (a duplicate or
                                      blurry shot). --}}
-                                <button type="button" @click.stop="if (confirm('Archive this photo?')) photoUploader({{ $sectionJs }}).archivePhoto(photo.id)"
+                                <button type="button" @click.stop="window.corexConfirm({ message: 'Archive this photo?', confirmLabel: 'Archive', danger: true }).then((yes) => { if (yes) photoUploader({{ $sectionJs }}).archivePhoto(photo.id) })"
                                         class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
                                         style="background:var(--ds-crimson); color:#fff; line-height:1;" title="Archive">&times;</button>
                             </div>

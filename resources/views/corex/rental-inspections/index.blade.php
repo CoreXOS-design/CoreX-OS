@@ -173,36 +173,36 @@
         @endif
     </form>
 
-    <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
         <table class="w-full text-sm">
             <thead>
                 <tr style="border-bottom: 1px solid var(--border);">
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('property') }}" style="color: var(--text-muted);">Property{{ $sortIndicator('property') }}</a></th>
-                    <th class="text-left px-4 py-2">Tenant(s)</th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('type') }}" style="color: var(--text-muted);">Type{{ $sortIndicator('type') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('status') }}" style="color: var(--text-muted);">Status{{ $sortIndicator('status') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('scheduled_for') }}" style="color: var(--text-muted);">Scheduled{{ $sortIndicator('scheduled_for') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('inspector') }}" style="color: var(--text-muted);">Inspector{{ $sortIndicator('inspector') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('attended') }}" style="color: var(--text-muted);">Attended{{ $sortIndicator('attended') }}</a></th>
-                    <th class="text-left px-4 py-2">{{ $archived ? 'Archived' : 'Discrepancy' }}</th>
+                    <th class="text-left px-3 py-2"><a href="{{ $sortLink('property') }}" style="color: var(--text-muted);">Property{{ $sortIndicator('property') }}</a></th>
+                    <th class="text-left px-3 py-2">Tenant(s)</th>
+                    <th class="text-left px-3 py-2"><a href="{{ $sortLink('type') }}" style="color: var(--text-muted);">Type{{ $sortIndicator('type') }}</a></th>
+                    <th class="text-left px-3 py-2"><a href="{{ $sortLink('status') }}" style="color: var(--text-muted);">Status{{ $sortIndicator('status') }}</a></th>
+                    <th class="text-left px-3 py-2"><a href="{{ $sortLink('scheduled_for') }}" style="color: var(--text-muted);">Scheduled{{ $sortIndicator('scheduled_for') }}</a></th>
+                    <th class="text-left px-3 py-2"><a href="{{ $sortLink('inspector') }}" style="color: var(--text-muted);">Inspector{{ $sortIndicator('inspector') }}</a></th>
+                    <th class="text-left px-3 py-2"><a href="{{ $sortLink('attended') }}" style="color: var(--text-muted);">Attended{{ $sortIndicator('attended') }}</a></th>
+                    <th class="text-left px-3 py-2">{{ $archived ? 'Archived' : 'Discrepancy' }}</th>
                     <th></th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($inspections as $inspection)
                 <tr style="border-bottom: 1px solid var(--border);" data-qa="rental-inspection-row-{{ $inspection->id }}">
-                    <td class="px-4 py-2">{{ $inspection->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $inspection->property?->trashed() ? ' (archived)' : '' }}</td>
-                    <td class="px-4 py-2">{{ $inspection->lease?->tenantNames() ?? '—' }}</td>
-                    <td class="px-4 py-2">{{ \App\Models\RentalInspection::typeLabel($inspection->type) }}</td>
-                    <td class="px-4 py-2"><span class="ds-badge {{ $statusBadgeClass($inspection->status) }}">{{ ucfirst(str_replace('_', ' ', $inspection->status)) }}</span></td>
-                    <td class="px-4 py-2">
+                    <td class="px-3 py-2">{{ $inspection->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $inspection->property?->trashed() ? ' (archived)' : '' }}</td>
+                    <td class="px-3 py-2">{{ $inspection->lease?->tenantNames() ?? '—' }}</td>
+                    <td class="px-3 py-2">{{ \App\Models\RentalInspection::typeLabel($inspection->type) }}</td>
+                    <td class="px-3 py-2"><span class="ds-badge {{ $statusBadgeClass($inspection->status) }}">{{ ucfirst(str_replace('_', ' ', $inspection->status)) }}</span></td>
+                    <td class="px-3 py-2">
                         {{ $inspection->scheduled_for?->format('Y-m-d') ?? $inspection->created_at?->format('Y-m-d') . ' (started)' }}
                         @if($inspection->scheduled_for && $inspection->scheduled_time)
                             {{ substr((string) $inspection->scheduled_time, 0, 5) }}
                         @endif
                     </td>
-                    <td class="px-4 py-2">{{ $inspection->inspector?->name ?? '—' }}</td>
-                    <td class="px-4 py-2" data-qa="attended-cell">
+                    <td class="px-3 py-2">{{ $inspection->inspector?->name ?? '—' }}</td>
+                    <td class="px-3 py-2" data-qa="attended-cell">
                         {{-- §45.5 — attended of expected; ad-hoc checks and cancelled inspections have no attendance rule. --}}
                         @if($inspection->type === 'ad_hoc' || $inspection->status === 'cancelled' || ! ($expectedCounts[$inspection->id] ?? 0))
                             —
@@ -210,14 +210,14 @@
                             {{ $attendedCounts[$inspection->id] ?? 0 }} of {{ $expectedCounts[$inspection->id] }}
                         @endif
                     </td>
-                    <td class="px-4 py-2">
+                    <td class="px-3 py-2">
                         @if($archived)
                             {{ $inspection->archivedBy?->name ?? 'Unknown' }} — {{ $inspection->deleted_at?->format('Y-m-d') }}
                         @elseif($inspection->hasUnresolvedDiscrepancy())
                             <span class="ds-badge ds-badge-danger">Unresolved</span>
                         @endif
                     </td>
-                    <td class="px-4 py-2 text-right">
+                    <td class="px-3 py-2 text-right">
                         @if($archived)
                             @permission('rental_inspections.restore')
                             <form method="POST" action="{{ route('corex.rental-inspections.restore', $inspection->id) }}" class="inline">

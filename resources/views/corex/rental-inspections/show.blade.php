@@ -145,14 +145,19 @@
             @elseif($inspection->publicLinkIsValid())
                 {{-- Token still unexpired, but the inspection is cancelled: the link is switched off (RentalInspection::findByPublicToken()). --}}
                 <p class="text-xs" style="color: var(--text-muted);">The link is switched off while this inspection is cancelled.</p>
+            @elseif($inspection->status === \App\Models\RentalInspection::STATUS_CANCELLED || $inspection->trashed())
+                <p class="text-xs" style="color: var(--text-muted);">No link is offered while this inspection is {{ $inspection->trashed() ? 'archived' : 'cancelled' }}.</p>
             @else
                 <p class="text-xs" style="color: var(--text-muted);">No live link — generate one to share. The downloaded report only carries the QR code / link once a live link exists.</p>
             @endif
             <div class="flex items-center gap-2">
+                {{-- A cancelled or archived inspection cannot get a live link (the server refuses it), so the button is not offered. --}}
+                @if($inspection->status !== \App\Models\RentalInspection::STATUS_CANCELLED && ! $inspection->trashed())
                 <form method="POST" action="{{ route('corex.rental-inspections.public-link.generate', $inspection) }}">
                     @csrf
                     <button type="submit" class="corex-btn-outline text-xs">{{ $inspection->publicLinkIsValid() ? 'Regenerate' : 'Generate' }} link</button>
                 </form>
+                @endif
                 @if($inspection->publicLinkIsValid())
                     <form method="POST" action="{{ route('corex.rental-inspections.public-link.revoke', $inspection) }}" data-confirm="Revoke this link? Anyone with the current link or PDF will lose access immediately." data-confirm-danger data-confirm-label="Revoke">
                         @csrf
@@ -644,9 +649,9 @@
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Scanned forms</h2>
         @permission('rental_inspections.create')
-            <form method="POST" action="{{ route('corex.rental-inspections.scans.store', $inspection) }}" enctype="multipart/form-data" class="flex items-center gap-2">
+            <form method="POST" action="{{ route('corex.rental-inspections.scans.store', $inspection) }}" enctype="multipart/form-data" class="flex flex-wrap items-center gap-2">
                 @csrf
-                <input type="file" name="scan" accept="application/pdf,image/jpeg,image/png,image/heic,image/heif" required class="text-xs">
+                <input type="file" name="scan" accept="application/pdf,image/jpeg,image/png,image/heic,image/heif" required class="text-xs min-w-0 max-w-full">
                 <button type="submit" class="corex-btn-outline text-xs">Upload scan</button>
             </form>
         @endpermission

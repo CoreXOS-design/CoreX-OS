@@ -186,18 +186,18 @@
         @endif
     </form>
 
-    <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
         <table class="w-full text-sm" data-qa="due-table">
             <thead>
                 <tr style="border-bottom: 1px solid var(--border);">
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('type') }}" style="color: var(--text-muted);">Type{{ $sortIndicator('type') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('property') }}" style="color: var(--text-muted);">Property{{ $sortIndicator('property') }}</a></th>
-                    <th class="text-left px-4 py-2">Tenant(s)</th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('due') }}" style="color: var(--text-muted);">Due{{ $sortIndicator('due') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('status') }}" style="color: var(--text-muted);">Status{{ $sortIndicator('status') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('overdue') }}" style="color: var(--text-muted);">Days overdue{{ $sortIndicator('overdue') }}</a></th>
-                    <th class="text-left px-4 py-2">Agent</th>
-                    <th class="text-left px-4 py-2">Note</th>
+                    <th class="text-left px-3 py-2"><a href="{{ $sortLink('type') }}" style="color: var(--text-muted);">Type{{ $sortIndicator('type') }}</a></th>
+                    <th class="text-left px-3 py-2"><a href="{{ $sortLink('property') }}" style="color: var(--text-muted);">Property{{ $sortIndicator('property') }}</a></th>
+                    <th class="text-left px-3 py-2">Tenant(s)</th>
+                    <th class="text-left px-3 py-2"><a href="{{ $sortLink('due') }}" style="color: var(--text-muted);">Due{{ $sortIndicator('due') }}</a></th>
+                    <th class="text-left px-3 py-2"><a href="{{ $sortLink('status') }}" style="color: var(--text-muted);">Status{{ $sortIndicator('status') }}</a></th>
+                    <th class="text-left px-3 py-2"><a href="{{ $sortLink('overdue') }}" style="color: var(--text-muted);">Days overdue{{ $sortIndicator('overdue') }}</a></th>
+                    <th class="text-left px-3 py-2">Agent</th>
+                    <th class="text-left px-3 py-2">Note</th>
                     <th></th>
                 </tr>
             </thead>
@@ -205,19 +205,19 @@
                 @forelse($rows as $row)
                 @php $pd = $row['planned']; @endphp
                 <tr style="border-bottom: 1px solid var(--border); vertical-align: top;" data-qa="due-row-{{ $row['key'] }}">
-                    <td class="px-4 py-2">{{ $typeLabels[$row['type']] ?? ucfirst($row['type']) }}</td>
-                    <td class="px-4 py-2">{{ $row['property_address'] }}</td>
-                    <td class="px-4 py-2">{{ $row['tenants'] ?: '—' }}</td>
-                    <td class="px-4 py-2">{{ $row['due_on']?->format('Y-m-d') ?? '—' }}</td>
-                    <td class="px-4 py-2"><span class="ds-badge {{ $badge($row['state']) }}">{{ $stateLabels[$row['state']] ?? $row['state'] }}</span></td>
-                    <td class="px-4 py-2">{{ $row['days_overdue'] > 0 ? $row['days_overdue'] : '—' }}</td>
-                    <td class="px-4 py-2">{{ $row['agent_name'] ?? '—' }}</td>
-                    <td class="px-4 py-2 text-xs" style="color: var(--text-secondary); max-width: 18rem;">
+                    <td class="px-3 py-2">{{ $typeLabels[$row['type']] ?? ucfirst($row['type']) }}</td>
+                    <td class="px-3 py-2">{{ $row['property_address'] }}</td>
+                    <td class="px-3 py-2">{{ $row['tenants'] ?: '—' }}</td>
+                    <td class="px-3 py-2">{{ $row['due_on']?->format('Y-m-d') ?? '—' }}</td>
+                    <td class="px-3 py-2"><span class="ds-badge {{ $badge($row['state']) }}">{{ $stateLabels[$row['state']] ?? $row['state'] }}</span></td>
+                    <td class="px-3 py-2">{{ $row['days_overdue'] > 0 ? $row['days_overdue'] : '—' }}</td>
+                    <td class="px-3 py-2">{{ $row['agent_name'] ?? '—' }}</td>
+                    <td class="px-3 py-2 text-xs" style="color: var(--text-secondary); max-width: 18rem;">
                         {{ $row['source'] === 'due_list' ? $row['reason'] : ($row['note'] ?: '') }}
                         @if($row['reason'] && $row['source'] === 'planned') <br><em>Skipped: {{ $row['reason'] }}</em> @endif
                         @if($pd && $pd->trashed()) <br>Archived by {{ $pd->archivedBy?->name ?? 'unknown' }} — {{ $pd->deleted_at?->format('Y-m-d') }} @endif
                     </td>
-                    <td class="px-4 py-2 text-right" style="min-width: 15rem;">
+                    <td class="px-3 py-2 text-right" style="min-width: 15rem;">
                         @if(!$pd)
                             {{-- Computed In/Out item: hand off to the ordinary start/schedule form, prefilled. --}}
                             @permission('rental_inspections.create')
