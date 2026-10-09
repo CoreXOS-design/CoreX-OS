@@ -169,9 +169,8 @@ final class JobCardNightFixesTest extends TestCase
         $this->assertStringNotContainsString('lg:overflow-y-auto', $html);
         $this->assertStringNotContainsString('sizeColumns', $html);
         $this->assertStringNotContainsString('jc-left-col" class="w-full lg:flex-1 min-w-0 space-y-4 lg:overflow-y-auto', $html);
-        // below 1280px the side panels stack under the job; from 1280px they are one column beside it (300px, 380px from 1536px) so the lines table keeps >= 600px
-        $this->assertStringContainsString('xl:flex-row', $html);
-        $this->assertStringContainsString('xl:basis-[300px]', $html);
+        // below 1536px the side panels stack under the job (so the lines table keeps >= 600px at 1280); from 1536px they are one 380px column beside it
+        $this->assertStringContainsString('2xl:flex-row', $html);
         $this->assertStringContainsString('2xl:basis-[380px]', $html);
         $this->assertStringNotContainsString('lg:basis-[400px]', $html);
     }
