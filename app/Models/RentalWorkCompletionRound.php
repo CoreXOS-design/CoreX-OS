@@ -136,11 +136,11 @@ class RentalWorkCompletionRound extends Model
         return match ($this->outcome) {
             self::OUTCOME_CONFIRMED => 'Tenant confirmed the work is done (' . $on($this->responded_at) . ', ' . ($this->respondedViaLabel() ?? 'answered') . ')',
             self::OUTCOME_DISPUTED => 'Tenant said the work is NOT complete (' . $on($this->responded_at) . ')',
-            self::OUTCOME_ACCEPTED_BY_SILENCE => 'Accepted — no response by ' . $on($this->window_ends_at),
+            self::OUTCOME_ACCEPTED_BY_SILENCE => 'Accepted — no response',
             self::OUTCOME_NO_TENANT => $this->tenant_notify_status === self::NOTIFY_DISABLED
                 ? 'No tenant check — switched off for this agency'
                 : 'No tenant check — nobody is living at the property',
-            default => 'Waiting for the tenant — answer due ' . ($this->window_ends_at ? $on($this->window_ends_at) : 'soon')
+            default => 'Tenant asked to check — an answer is optional and never holds the job up'
                 . match ($this->tenant_notify_status) {
                     self::NOTIFY_SENT => ' (emailed ' . $on($this->tenant_notified_at) . ')',
                     self::NOTIFY_NO_EMAIL => ' — the tenant has no email on file: record their answer by phone',

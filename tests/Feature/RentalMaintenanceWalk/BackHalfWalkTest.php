@@ -193,18 +193,17 @@ final class BackHalfWalkTest extends TestCase
         $round = RentalWorkCompletionRound::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->firstOrFail();
         $this->assertSame(RentalWorkCompletionRound::OUTCOME_AWAITING_TENANT, $round->outcome);
         $line = $this->tenantLine($fault);
-        $this->assertSame('Work completed — please check', $line['current_label']);
-        $this->assertSame('check', end($line['steps'])['action']);
+        // T1 (9 Oct 2026): reporting done is NOT a tenant hold - the line stays "in progress" until the agent closes it.
+        $this->assertSame('Work in progress', $line['current_label']);
 
-        // 9 - the tenant says NOT complete -> reopened, and the line says so.
+        // 9 - the tenant says NOT complete: stored, nothing reopens by itself; the agent sends it back, and only then does the line say "being put right".
         $this->asTenant();
         $this->postJson("/api/v1/client/rentals/work-orders/{$wo->id}/completion-response", ['fixed' => false, 'note' => 'Still dripping a little'])->assertOk();
+        $this->assertSame(RentalWorkOrder::STATUS_IN_PROGRESS, $wo->fresh()->status);
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.send-back', $wo))->assertSessionHasNoErrors();
         $this->screensDraw($fault, 'agency route: disputed');
         $this->assertSame(RentalWorkOrder::STATUS_DISPUTED, $wo->fresh()->status);
         $this->assertSame('Not complete — being put right', $this->tenantLine($fault)['current_label']);
-        // ...and the agent cannot close it while it is disputed.
-        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.complete', $wo), ['paid_by' => 'owner', 'cost_amount' => 1500])
-            ->assertSessionHasErrors('rental_work_order');
 
         // 10 - the contractor puts it right and reports done again -> round 2 -> the tenant confirms.
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.contractor-done', $wo), ['reported_via' => 'phone', 'date_done' => now()->toDateString()])
@@ -264,9 +263,10 @@ final class BackHalfWalkTest extends TestCase
         $this->assertSame('in_progress', $this->tenantLine($fault)['current']);
         $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/progress", ['action' => 'finished', 'note' => 'All done'])->assertOk();
         $round = RentalWorkCompletionRound::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->first();
-        $this->assertNotNull($round, 'the owner reporting it finished opens the tenant check');
+        $this->assertNotNull($round, 'the owner reporting it finished records the (optional) tenant check');
         $this->assertSame(RentalWorkCompletionRound::OUTCOME_AWAITING_TENANT, $round->outcome);
-        $this->assertSame('Work completed — please check', $this->tenantLine($fault)['current_label']);
+        $this->assertSame(RentalWorkOrder::STATUS_IN_PROGRESS, $wo->fresh()->status, 'T1: reported finished closes nothing');
+        $this->assertSame('Work in progress', $this->tenantLine($fault)['current_label'], 'and starts no tenant hold');
 
         // The tenant confirms; the agent closes and records the cost against the TENANT's deposit.
         $this->asTenant();
@@ -329,12 +329,15 @@ final class BackHalfWalkTest extends TestCase
         // The crew signs it complete from the link -> the tenant is asked to check.
         $this->post("{$base}/complete", ['full_name' => 'Sipho Dlamini', 'confirm' => '1'])->assertSessionHasNoErrors();
         $round = RentalWorkCompletionRound::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->first();
-        $this->assertNotNull($round, 'crew completion opens a tenant check round');
-        $this->assertSame('Work completed — please check', $this->tenantLine($fault)['current_label']);
+        $this->assertNotNull($round, 'crew completion records the (optional) tenant check round');
+        $this->assertSame('Work in progress', $this->tenantLine($fault)['current_label'], 'T1: no tenant hold');
 
-        // The tenant says it is NOT complete: work order AND card reopen; the crew link is live again; the tenant sees "being put right".
+        // The tenant says it is NOT complete: stored, nothing reopens. The AGENT sends it back: work order AND card reopen, the crew gets a fresh link, the tenant sees "being put right".
         $this->asTenant();
         $this->postJson("/api/v1/client/rentals/work-orders/{$wo->id}/completion-response", ['fixed' => false, 'note' => 'Still no hot water'])->assertOk();
+        $this->assertNotSame(RentalWorkOrder::STATUS_DISPUTED, $wo->fresh()->status);
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.send-back', $wo), ['return_to' => 'job_card'])->assertSessionHasNoErrors();
+        $base = parse_url((string) session('crew_link_url'), PHP_URL_PATH);
         $this->assertSame(RentalWorkOrder::STATUS_DISPUTED, $wo->fresh()->status);
         $this->assertSame('disputed', $card->fresh()->status);
         $this->assertSame('Not complete — being put right', $this->tenantLine($fault)['current_label']);
@@ -517,7 +520,7 @@ final class BackHalfWalkTest extends TestCase
         $this->assertCount(0, $this->getJson('/api/v1/client/rentals/landlord/decisions')->json('variations'));
     }
 
-    public function test_a_disputed_work_order_is_a_command_centre_item_until_it_is_put_right(): void
+    public function test_a_tenant_not_fixed_answer_is_a_command_centre_item_until_it_is_put_right(): void
     {
         $fault = $this->approvedFault('own', ['contractor_name' => 'Bob']);
         $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.raise-work-order', $fault), ['assignment_type' => 'owner_contractor', 'title' => 'Tap', 'description' => 'D', 'contractor_name' => 'Bob'])->assertSessionHasNoErrors();
@@ -526,6 +529,8 @@ final class BackHalfWalkTest extends TestCase
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.contractor-done', $wo), ['reported_via' => 'phone', 'date_done' => now()->toDateString()])->assertSessionHasNoErrors();
         $this->asTenant();
         $this->postJson("/api/v1/client/rentals/work-orders/{$wo->id}/completion-response", ['fixed' => false, 'note' => 'Still leaking'])->assertOk();
+        // T1: the tenant's "not fixed" does not reopen anything by itself - it raises ONE "Tenant says not fixed" row for the agent.
+        $this->assertNotSame(RentalWorkOrder::STATUS_DISPUTED, $wo->fresh()->status);
 
         $this->asGuest();
         $svc = app(\App\Services\Rentals\RentalCommandCentreService::class);
@@ -533,8 +538,9 @@ final class BackHalfWalkTest extends TestCase
         $items = $svc->queueItems($this->admin, 'all')->filter(fn ($i) => $i['type'] === 'work_order_disputed');
         $this->assertCount(1, $items);
         $this->assertSame($wo->id, $items->first()['route_params']['rentalWorkOrder']);
+        $this->assertSame('Tenant says not fixed', $items->first()['label']);
 
-        // Reported done again -> back in progress -> the item leaves the queue.
+        // Reported done again (the contractor put it right) -> the item leaves the queue.
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.contractor-done', $wo), ['reported_via' => 'phone', 'date_done' => now()->toDateString()])->assertSessionHasNoErrors();
         $this->assertCount(0, $svc->queueItems($this->admin, 'all')->filter(fn ($i) => $i['type'] === 'work_order_disputed'));
     }

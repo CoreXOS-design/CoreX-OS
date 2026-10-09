@@ -338,7 +338,7 @@ class WorkOrderFlowTest extends TestCase
         $this->assertSame(RentalWorkOrder::STATUS_IN_PROGRESS, $wo->fresh()->status);
 
         $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/progress", ['action' => 'finished', 'note' => 'All fixed'])->assertOk()
-            ->assertJsonPath('work_order.stage', 'check_requested');
+            ->assertJsonPath('work_order.stage', 'reported_finished');
         $round = RentalWorkCompletionRound::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->firstOrFail();
         $this->assertSame('owner_portal', $round->reported_via);
 

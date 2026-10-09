@@ -839,27 +839,33 @@ class RentalCommandCentreService
             ]);
         });
 
-        // C3 - a tenant said the finished work is NOT complete (work order status "disputed", spec 17.10.6). The agent gets an in-app
-        // note when it happens, but the tenant is waiting and nothing else puts it in front of anyone: it stays here until the work is
-        // reported done again (status leaves "disputed"). Same own / branch / agency scoping as every rule here.
+        // C3 - T1 (Johan, 9 Oct 2026): a tenant said the work is NOT fixed - before or after the agent closed it. It does NOT reopen anything by
+        // itself; this row puts the answer in front of the agent until they act: "Send back" (reopens it for the crew / contractor) or "Seen - no
+        // action". Once sent back (work order status "disputed") the agent has acted and the row leaves. Same own / branch / agency scoping.
         $this->applyPropertyIdScope(
             $applyQueueFilters(
-                RentalWorkOrder::query()->where('status', RentalWorkOrder::STATUS_DISPUTED),
+                RentalWorkOrder::query()->whereNotIn('status', [RentalWorkOrder::STATUS_DISPUTED, RentalWorkOrder::STATUS_CANCELLED])
+                    ->whereHas('completionRounds', fn ($q) => $q->where('outcome', \App\Models\RentalWorkCompletionRound::OUTCOME_DISPUTED)->whereNull('dispute_resolved_at')),
                 'updated_at'
             )->with('property'),
             $user,
             $scope,
             'property_id'
-        )->get()->each(function (RentalWorkOrder $workOrder) use (&$items, $today) {
+        )->get()->filter(function (RentalWorkOrder $wo) {
+            $latest = $wo->latestCompletionRound();
+
+            return $latest && $latest->outcome === \App\Models\RentalWorkCompletionRound::OUTCOME_DISPUTED && $latest->dispute_resolved_at === null;
+        })->each(function (RentalWorkOrder $workOrder) use (&$items, $today) {
+            $said = $workOrder->latestCompletionRound()?->responded_at ?? $workOrder->updated_at;
             $items->push([
                 'type' => 'work_order_disputed',
                 'urgency' => 1,
-                'age_days' => $workOrder->updated_at ? (int) abs($today->diffInDays($workOrder->updated_at)) : 0,
-                'item_date' => $workOrder->updated_at,
+                'age_days' => $said ? (int) abs($today->diffInDays($said)) : 0,
+                'item_date' => $said,
                 'property' => $workOrder->property,
                 'lease' => null,
-                'label' => 'Resolve dispute',
-                'detail' => $workOrder->title . ' - the tenant says it is not complete',
+                'label' => 'Tenant says not fixed',
+                'detail' => $workOrder->title . ($workOrder->status === RentalWorkOrder::STATUS_COMPLETED ? ' - closed, but the tenant says it is not fixed: send it back or mark it seen' : ' - the tenant says it is not fixed'),
                 'route' => 'corex.rental-work-orders.show',
                 'route_params' => ['rentalWorkOrder' => $workOrder->id],
             ]);
@@ -882,7 +888,12 @@ class RentalCommandCentreService
             $user,
             $scope,
             'property_id'
-        )->get()->each(function (RentalWorkOrder $wo) use (&$items, $today) {
+        )->get()->reject(function (RentalWorkOrder $wo) {
+            // T1: an outside / owner-contractor job already reported finished has its own "Reported finished - check and close" row - never two rows.
+            $latest = $wo->assignment_type !== RentalWorkOrder::ASSIGNMENT_INTERNAL ? $wo->latestCompletionRound() : null;
+
+            return $latest && $latest->outcome !== \App\Models\RentalWorkCompletionRound::OUTCOME_DISPUTED;
+        })->each(function (RentalWorkOrder $wo) use (&$items, $today) {
             $items->push([
                 'type' => 'work_order_overdue',
                 'urgency' => 1,
@@ -1042,12 +1053,12 @@ class RentalCommandCentreService
      * C1 (Johan, 9 Oct 2026) - the work orders / job cards whose NEXT STEP is the agent's, one row each, opening the exact place to act; and,
      * as plain information (never counted as "needs action"), the ones that are with the owner or the tenant, with how long ("with owner 3d").
      * Same own / branch / agency scoping as every other rule here (applyPropertyIdScope). States that already had their own row are NOT repeated:
-     * disputed work ("Resolve dispute") and stale ordered / in-progress work ("Open", the overdue rule) are skipped here.
+     * work the tenant disputed ("Tenant says not fixed") and stale ordered / in-progress work ("Open", the overdue rule) are skipped here.
      *
      * Agent actions: work order with no quote captured; quotes captured but none chosen; the owner declined the quote; approved - ready to send to
-     * the contractor; sent / approved with no appointment; the completion check answered - complete it (agency contractor AND the owner's own
-     * contractor); an internal job card with no crew, or with a crew but no date. Informational: the quote is with the owner; the completion
-     * check is with the tenant.
+     * the contractor; sent / approved with no appointment; the work reported done - complete it (agency contractor AND the owner's own
+     * contractor); an internal job card with no crew, or with a crew but no date. Informational: the quote is with the owner. (T1: the tenant's
+     * check is never a row - it does not hold anything up.)
      */
     private function waitingWorkItems(User $user, string $scope, \Closure $applyQueueFilters, $today, Collection &$items): void
     {
@@ -1070,25 +1081,17 @@ class RentalCommandCentreService
             $scope,
             'property_id'
         )->get()->each(function (RentalWorkOrder $wo) use ($push, $age, $overdueIds) {
-            if (in_array($wo->id, $overdueIds, true)) {
-                return;   // already has its "Open" (overdue) row
-            }
             $base = ['property' => $wo->property, 'route' => 'corex.rental-work-orders.show', 'route_params' => ['rentalWorkOrder' => $wo->id]];
             $round = $wo->completionRounds()->orderByDesc('round_no')->first();
-            $roundAnswered = $round && in_array($round->outcome, [
-                \App\Models\RentalWorkCompletionRound::OUTCOME_CONFIRMED, \App\Models\RentalWorkCompletionRound::OUTCOME_ACCEPTED_BY_SILENCE, \App\Models\RentalWorkCompletionRound::OUTCOME_NO_TENANT,
-            ], true);
-
-            // the completion check: with the tenant (information) / answered (the agent completes it)
-            if ($round && $round->outcome === \App\Models\RentalWorkCompletionRound::OUTCOME_AWAITING_TENANT) {
-                $push($base + ['type' => 'wo_tenant_check', 'urgency' => 5, 'informational' => true, 'age_days' => $age($round->opened_at), 'item_date' => $round->opened_at,
-                    'label' => 'With tenant', 'detail' => $wo->title . ' - the tenant is checking the finished work (with tenant ' . $age($round->opened_at) . 'd)']);
-
-                return;
+            if ((! $round || $round->outcome === \App\Models\RentalWorkCompletionRound::OUTCOME_DISPUTED) && in_array($wo->id, $overdueIds, true)) {
+                return;   // already has its "Open" (overdue) row
             }
-            if ($roundAnswered) {
-                $push($base + ['type' => 'wo_complete', 'urgency' => 1, 'age_days' => $age($round->responded_at ?? $round->opened_at), 'item_date' => $round->responded_at ?? $round->opened_at,
-                    'label' => 'Complete work order', 'detail' => $wo->title . ($wo->isOwnerContractor() ? ' - the owner\'s contractor finished: confirm and complete it' : ' - the check is answered: complete it')]);
+            // T1 (9 Oct 2026): work reported done -> the agent completes it on the contractor's word and evidence. The tenant's check is an optional
+            // record and neither holds this row back nor gets a row of its own (no "with tenant").
+            if ($round) {
+                $by = $round->reported_via === \App\Models\RentalWorkCompletionRound::VIA_OWNER_PORTAL ? 'the owner' : ($round->reported_by_label ?: 'the contractor');
+                $push($base + ['type' => 'wo_complete', 'urgency' => 1, 'age_days' => $age($round->opened_at), 'item_date' => $round->opened_at,
+                    'label' => 'Reported finished - check and close', 'detail' => $wo->title . ' - reported finished by ' . $by . ($round->opened_at ? ' on ' . $round->opened_at->format('j M Y') : '') . ': check it and complete the work order']);
 
                 return;
             }

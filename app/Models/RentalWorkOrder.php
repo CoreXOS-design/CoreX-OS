@@ -350,6 +350,15 @@ class RentalWorkOrder extends Model
         return $this->status === self::STATUS_DISPUTED;
     }
 
+    /** T1 (9 Oct 2026): the tenant said "not fixed" and nobody has acted on it yet (sent it back, or marked it seen). Never blocks closing. */
+    public function hasUnresolvedTenantDispute(): bool
+    {
+        $round = $this->latestCompletionRound();
+
+        return $this->hasOpenDispute()
+            || ($round && $round->outcome === RentalWorkCompletionRound::OUTCOME_DISPUTED && $round->dispute_resolved_at === null);
+    }
+
     /** §17.7 / §17.9.4 — the owner already approved an amount for this work order (never true of emergency work). */
     public function hasApprovedBaseline(): bool
     {

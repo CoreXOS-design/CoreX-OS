@@ -75,7 +75,7 @@ final class LeaseTimelineMaintenanceFlowTest extends TestCase
         }
     }
 
-    public function test_silence_and_a_send_back_are_logged(): void
+    public function test_a_send_back_is_logged_and_silence_is_not_a_thing_any_more(): void
     {
         $service = app(RentalCompletionService::class);
         $round = $service->openRound($this->workOrder, ['reported_by_label' => 'Team 1', 'reported_via' => 'crew_link']);
@@ -85,11 +85,11 @@ final class LeaseTimelineMaintenanceFlowTest extends TestCase
         [$other] = $this->internalJob(['title' => 'Quiet job']);
         $silent = $service->openRound($other, ['reported_by_label' => 'Team 2', 'reported_via' => 'crew_link']);
         $silent->forceFill(['window_ends_at' => now()->subHour(), 'opened_at' => now()->subDays(5)])->save();
-        $service->settleSilent();
+        $service->settleSilent();   // T1 (9 Oct 2026): retired - nothing is accepted by silence
 
         $log = $this->descriptions('completion_check');
         $this->assertContains('Dispute sent back to the crew: Fix the geyser', $log);
-        $this->assertTrue(collect($log)->contains(fn ($d) => str_starts_with($d, 'Accepted — no response in 5 days (round 1)')), 'silence is logged with its length');
+        $this->assertFalse(collect($log)->contains(fn ($d) => str_starts_with($d, 'Accepted — no response')), 'silence settles nothing and logs nothing');
     }
 
     public function test_approval_decisions_appear_as_work_order_entries(): void

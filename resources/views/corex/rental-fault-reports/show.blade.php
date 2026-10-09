@@ -105,7 +105,7 @@
             @if($faultReport->workOrder)
                 {{-- §17.12 — the fault's chips are derived read-only from the linked work order. --}}
                 <div><span style="color: var(--text-muted);">Work order:</span> @feature('rental-work-orders')<a href="{{ route('corex.rental-work-orders.show', $faultReport->rental_work_order_id) }}" class="underline">#{{ $faultReport->rental_work_order_id }}</a>@else #{{ $faultReport->rental_work_order_id }} @endfeature
-                    <span class="ds-badge {{ $faultReport->workOrder->status === \App\Models\RentalWorkOrder::STATUS_DISPUTED ? 'ds-badge-danger' : 'ds-badge-muted' }}">{{ ucfirst(str_replace('_', ' ', $faultReport->workOrder->status)) }}</span>
+                    <span class="ds-badge {{ $faultReport->workOrder->status === \App\Models\RentalWorkOrder::STATUS_DISPUTED ? 'ds-badge-danger' : 'ds-badge-muted' }}">{{ $faultReport->workOrder->stageLabel('agent') }}</span>
                     @if($faultReport->workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_PENDING)
                         <span class="ds-badge ds-badge-info">Awaiting owner approval</span>
                     @endif
@@ -114,7 +114,7 @@
                     @endif
                     @php $faultRound = $faultReport->workOrder->latestCompletionRound(); @endphp
                     @if($faultRound && $faultRound->isAwaitingTenant())
-                        <span class="ds-badge ds-badge-info">Tenant check — answer due {{ $faultRound->window_ends_at?->format('j M') ?? 'by phone' }}</span>
+                        <span class="ds-badge ds-badge-info">Tenant asked to check (optional)</span>
                     @endif
                 </div>
             @endif

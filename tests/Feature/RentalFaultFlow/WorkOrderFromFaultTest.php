@@ -461,7 +461,7 @@ final class WorkOrderFromFaultTest extends TestCase
         $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.outcome.store', $edited), ['outcome' => 'repaired', 'repaired_at' => now()->toDateString()])->assertSessionHasErrors('rental_fault_report');
     }
 
-    public function test_the_fault_waits_while_the_tenant_has_the_work_disputed_and_resolves_when_it_is_settled(): void
+    public function test_the_fault_resolves_when_the_work_order_is_completed_whatever_the_tenant_has_or_has_not_said(): void
     {
         $fault = $this->approved();
         $this->raise($fault, ['assignment_type' => 'internal']);
@@ -473,11 +473,10 @@ final class WorkOrderFromFaultTest extends TestCase
         ]);
         $wo->forceFill(['status' => RentalWorkOrder::STATUS_COMPLETED, 'completed_at' => now(), 'paid_by' => 'owner'])->save();
 
-        $this->assertFalse($fault->fresh()->resolveFromCompletedWorkOrder($wo->fresh(), $this->agent), 'refused while the tenant has not answered');
-        $this->assertSame(RentalFaultReport::STATUS_WORK_ORDER_RAISED, $fault->fresh()->status);
-
-        app(\App\Services\Rentals\RentalCompletionService::class)->settleSilent();   // "no answer in N days = accepted"
+        // T1 (Johan, 9 Oct 2026): the tenant has not answered - and it does not matter.
+        $this->assertTrue($fault->fresh()->resolveFromCompletedWorkOrder($wo->fresh(), $this->agent));
         $this->assertSame(RentalFaultReport::STATUS_RESOLVED, $fault->fresh()->status);
+        $this->assertSame(\App\Models\RentalWorkCompletionRound::OUTCOME_AWAITING_TENANT, $round->fresh()->outcome, 'the optional check stays on the record');
         $this->assertTrue($fault->fresh()->outcome_set_automatically);
     }
 

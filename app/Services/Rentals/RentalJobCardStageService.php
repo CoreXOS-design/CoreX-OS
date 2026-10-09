@@ -144,7 +144,7 @@ class RentalJobCardStageService
             'signed_off' => $agentDone
                 ? 'Both sign-offs are in. Choose who pays and complete the job card.'
                 : 'The crew says it is done. Check the work: Agent sign-off, then Complete the job card (you choose who pays).',
-            'disputed' => 'The tenant says the work is not complete. Send it back to the crew (see the tenant check panel).',
+            'disputed' => 'The job was sent back to the crew because the tenant says it is not complete. When the crew has put it right, complete the job card again.',
             'completed' => 'This job card is complete.',
             default => 'This job card was cancelled' . ($card->cancel_reason ? ': ' . $card->cancel_reason : '') . '.',
         };

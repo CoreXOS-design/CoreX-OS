@@ -312,7 +312,7 @@
                                         <template x-if="w.awaiting_answer">
                                             <div data-finished-block style="margin-top:12px; padding-top:12px; border-top:1px solid #e3e8ef;">
                                                 <h2>Is this finished?</h2>
-                                                <p class="muted" x-text="(w.awaiting_answer.reported_by || 'The crew') + ' says this work is complete. Please check it' + (w.awaiting_answer.answer_due ? ' — if we do not hear from you by ' + w.awaiting_answer.answer_due.substring(0,10) + ' we will treat it as accepted.' : '.')"></p>
+                                                <p class="muted" x-text="(w.awaiting_answer.reported_by || 'The crew') + ' says this work is done. Please check it and tell us if it is fixed - your answer is optional and never holds the job up.'"></p>
                                                 <button class="btn btn-ok" :disabled="!!(answerBusy)" @click="answerCompletion(w, true)" x-text="answerBusy ? 'Sending…' : 'All done, thanks'"></button>
                                                 <template x-if="!answerForm || answerForm.workOrderId !== w.id">
                                                     <button class="btn btn-outline" @click="openNotComplete(w)">Not complete / still wrong</button>
@@ -410,7 +410,8 @@
                                         <p x-show="!w.completed_at && w.appointment_at"><strong x-text="w.appointment_at ? 'Appointment: ' + new Date(w.appointment_at).toLocaleString([], {dateStyle:'full', timeStyle:'short'}) : ''"></strong><span class="muted" x-show="w.appointment_note" x-text="w.appointment_note ? ' — ' + w.appointment_note : ''"></span></p>
                                         <a class="link" href="#" x-show="w.rental_fault_report_id" @click.prevent="landlordTab='faults'; loadLandlordFaults(); openFault(w.rental_fault_report_id)">See the fault →</a>
                                         <p class="muted" x-show="w.contractor_phone" x-text="w.contractor_phone ? 'Contractor phone: ' + w.contractor_phone : ''"></p>
-                                        <p class="muted" x-show="w.owner_facing_amount !== null && w.owner_facing_amount !== undefined" x-text="'Amount: R ' + w.owner_facing_amount"></p>
+                                        <p class="muted" x-show="w.owner_facing_amount !== null && w.owner_facing_amount !== undefined && w.owner_approval_status !== 'pending'" x-text="'Amount: ' + money(w.owner_facing_amount)" data-wo-amount></p>
+                                        <p x-show="w.reported_finished" data-owner-reported-finished><strong x-text="w.reported_finished ? w.reported_finished.text : ''"></strong></p>
                                         {{-- §17.31 — supplier invoices the agent has chosen to share with the owner (never shown to a tenant). --}}
                                         <div data-wo-invoices x-show="(w.invoices || []).length" style="margin-top:10px; padding-top:10px; border-top:1px solid #eef1f6;">
                                             <p class="muted"><strong>Supplier invoices</strong></p>
@@ -437,12 +438,13 @@
                                                         <button class="btn btn-outline" @click="setAppointment(w)" x-text="w.appointment_at ? 'Change the appointment' : 'Set the appointment'"></button>
                                                     </div>
                                                 </template>
-                                                <p class="muted" x-show="!w.owner_can_appoint" data-owner-appointment-locked>The appointment can be set once the job is approved.</p>
+                                                <p class="muted" x-show="!w.owner_can_appoint && !w.owner_work_started" data-owner-appointment-locked>The appointment can be set once the job is approved.</p>
                                                 {{-- Only the buttons that will work (the server decides: owner_can_start / owner_can_finish), else the plain reason why not. --}}
                                                 <template x-if="w.who !== 'our_team'">
                                                     <div data-owner-progress>
-                                                        <button class="btn btn-outline" x-show="w.owner_can_start" @click="reportProgress(w, 'started')" data-owner-started>The work has started</button>
-                                                        <button class="btn btn-ok" x-show="w.owner_can_finish" @click="reportProgress(w, 'finished')" data-owner-finished>The work is finished</button>
+                                                        <button class="btn btn-ok" x-show="w.owner_can_start" @click="reportProgress(w, 'started')" data-owner-started>The work has started</button>
+                                                        {{-- P4: only the NEXT step is the big green button - "finished" is plain until the work has started --}}
+                                                        <button class="btn" :class="w.owner_can_start ? 'btn-outline' : 'btn-ok'" x-show="w.owner_can_finish" @click="reportProgress(w, 'finished')" data-owner-finished>The work is finished</button>
                                                         <p class="muted" x-show="w.owner_progress_note" x-text="w.owner_progress_note" data-owner-progress-note></p>
                                                     </div>
                                                 </template>
@@ -457,7 +459,11 @@
                                         <template x-if="w.owner_approval_status === 'pending'">
                                             <div data-wo-decision style="margin-top:10px; padding-top:10px; border-top:1px solid #eef1f6;">
                                                 <p class="badge" style="background:#fdecea; color:#b3261e;">Needs your decision</p>
-                                                <p class="muted">Quote: <strong x-text="'R ' + (w.owner_facing_amount ?? 0)"></strong></p>
+                                                <p class="muted">Quote: <strong x-text="money(w.owner_facing_amount)" data-wo-quote-amount></strong></p>
+                                                {{-- P2: what the quote covers, so there is something to judge the figure by --}}
+                                                <p data-wo-quote-details x-show="w.quote && w.quote.details" style="white-space:pre-line;" x-text="w.quote ? w.quote.details : ''"></p>
+                                                <p x-show="w.quote && w.quote.document_url"><a class="link" data-wo-quote-document :href="w.quote ? w.quote.document_url : '#'" target="_blank" rel="noopener">Open the contractor's quote document →</a></p>
+                                                <p class="muted" x-show="!w.quote || (!w.quote.details && !w.quote.document_url)" data-wo-quote-nodetails>No further details were attached to this quote.</p>
                                                 <button class="btn btn-ok" :disabled="!!(busy['wo' + w.id])" @click="decideWorkOrder(w.id, 'approve')" x-text="busy['wo' + w.id] ? 'Sending…' : 'Approve'" data-wo-approve></button>
                                                 <button class="btn btn-danger" x-show="!declineOpen[w.id]" :disabled="!!(busy['wo' + w.id])" @click="declineOpen[w.id] = true" data-wo-decline>Decline</button>
                                                 {{-- Declining asks for the reason (the agent is told it). --}}
@@ -1179,6 +1185,8 @@ function rentalsPortal() {
             if (r.ok) this.propertyDetail = r.data.property;
         },
         // The app's own dialogs (partials/corex-confirm) - never the browser's alert() / prompt().
+        // P1 (9 Oct 2026): money reads the same everywhere - R4,120.00
+        money(v) { return 'R' + Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
         say(message) { return window.corexNotice ? window.corexNotice(message) : Promise.resolve(); },
         async promptNote() {
             if (!window.corexConfirm) return '';

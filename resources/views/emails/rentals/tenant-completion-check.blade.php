@@ -29,7 +29,7 @@
         <p>Please check it and tell us whether it is done, or still wrong.</p>
         <p style="margin: 24px 0;"><a class="btn" href="{{ $url }}">Check the work</a></p>
         <p class="muted">Or copy this link into your browser:<br>{{ $url }}</p>
-        <p>@if($answerBy)If we don't hear from you by {{ $answerBy }} we will treat the work as accepted.@else If we don't hear from you we will treat the work as accepted.@endif You can also answer in the <a href="{{ $portalUrl }}">tenant portal</a>.</p>
+        <p>Your answer is optional and never holds the job up. You can also answer in the <a href="{{ $portalUrl }}">tenant portal</a>.</p>
         <p class="muted">This link is private to you — please do not forward it.</p>
     </div>
     <div class="footer">

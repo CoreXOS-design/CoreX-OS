@@ -13,9 +13,9 @@ use Tests\Feature\RentalMaintenanceFlow\Concerns\BuildsCompletionFlowWorld;
 use Tests\TestCase;
 
 /**
- * .ai/specs/rental-work-orders.md §17.10.6 / §17.12 — a fault's "repaired" outcome waits for the tenant check: it cannot be
- * saved while the linked work order is DISPUTED, or while its latest round is still waiting for the tenant. Every other
- * outcome, a fault with no work order, and a settled check are unaffected.
+ * .ai/specs/rental-work-orders.md §17.37 (T1, Johan 9 Oct 2026) — a fault's "repaired" outcome is NEVER held back by the tenant's check
+ * (it used to wait for the tenant, §17.10.6): an open check, a "not fixed" answer, an unreachable tenant - none of them stop the agent
+ * recording the repair. Every other outcome and a fault with no work order are unaffected.
  */
 final class FaultOutcomeGuardTest extends TestCase
 {
@@ -46,29 +46,27 @@ final class FaultOutcomeGuardTest extends TestCase
         return app(RentalCompletionService::class)->openRound($this->fault->workOrder, ['reported_by_label' => 'Plumber', 'reported_via' => 'office']);
     }
 
-    public function test_repaired_is_refused_while_the_tenant_check_is_waiting_and_says_when_it_is_due(): void
+    public function test_repaired_is_allowed_while_the_tenant_check_is_waiting(): void
     {
-        $round = $this->openRound();
+        $this->openRound();
 
         foreach (['repaired', 'repaired_partially'] as $outcome) {
-            $this->save($outcome)->assertSessionHasErrors('rental_fault_report');
-            $this->assertStringContainsString('Waiting for the tenant to check the finished work', session('errors')->first('rental_fault_report'));
-            $this->assertStringContainsString($round->window_ends_at->format('j M Y'), session('errors')->first('rental_fault_report'));
+            $this->save($outcome)->assertSessionHasNoErrors();
+            $this->assertSame(RentalFaultReport::STATUS_RESOLVED, $this->fault->fresh()->status);
+            $this->assertSame($outcome, $this->fault->fresh()->outcome);
+            $this->fault->fresh()->forceFill(['status' => RentalFaultReport::STATUS_WORK_ORDER_RAISED, 'outcome' => null, 'resolved_at' => null])->save();
         }
-
-        $this->assertNotSame(RentalFaultReport::STATUS_RESOLVED, $this->fault->fresh()->status);
-        $this->assertNull($this->fault->fresh()->outcome);
     }
 
-    public function test_repaired_is_refused_while_the_work_order_is_disputed(): void
+    public function test_repaired_is_allowed_while_the_tenant_says_it_is_not_fixed(): void
     {
         $round = $this->openRound();
         app(RentalCompletionService::class)->respond($round, false, 'Still leaking at the joint', [], ['contact' => $this->tenant, 'via' => 'portal']);
 
-        $this->save('repaired')->assertSessionHasErrors('rental_fault_report');
+        $this->save('repaired')->assertSessionHasNoErrors();
 
-        $this->assertStringContainsString('not complete', session('errors')->first('rental_fault_report'));
-        $this->assertNotSame(RentalFaultReport::STATUS_RESOLVED, $this->fault->fresh()->status);
+        $this->assertSame(RentalFaultReport::STATUS_RESOLVED, $this->fault->fresh()->status);
+        $this->assertSame(RentalWorkCompletionRound::OUTCOME_DISPUTED, $round->fresh()->outcome, 'the tenant\'s answer stays on the record');
     }
 
     public function test_other_outcomes_are_not_held_up(): void
@@ -90,26 +88,14 @@ final class FaultOutcomeGuardTest extends TestCase
         $this->assertSame(RentalFaultReport::STATUS_RESOLVED, $this->fault->fresh()->status);
     }
 
-    public function test_repaired_is_allowed_after_silence_is_accepted(): void
-    {
-        $round = $this->openRound();
-        $round->forceFill(['window_ends_at' => now()->subHour()])->save();
-        app(RentalCompletionService::class)->settleSilent();
-
-        $this->save('repaired')->assertSessionHasNoErrors();
-        $this->assertSame(RentalFaultReport::STATUS_RESOLVED, $this->fault->fresh()->status);
-    }
-
-    public function test_repaired_is_allowed_when_no_tenant_check_was_asked_for(): void
+    public function test_repaired_is_allowed_for_an_unreachable_tenant(): void
     {
         $this->tenant->forceFill(['email' => null])->save();
         $round = $this->openRound();
-        // an unreachable tenant still waits (the office records their answer) — only when nobody lives there is nothing to wait for
         $this->assertSame(RentalWorkCompletionRound::OUTCOME_AWAITING_TENANT, $round->outcome);
-        $this->save('repaired')->assertSessionHasErrors('rental_fault_report');
 
-        $round->forceFill(['outcome' => RentalWorkCompletionRound::OUTCOME_NO_TENANT])->save();
         $this->save('repaired')->assertSessionHasNoErrors();
+        $this->assertSame(RentalFaultReport::STATUS_RESOLVED, $this->fault->fresh()->status);
     }
 
     public function test_a_fault_with_no_work_order_is_never_held_up(): void
@@ -123,13 +109,14 @@ final class FaultOutcomeGuardTest extends TestCase
         $this->assertSame(RentalFaultReport::STATUS_RESOLVED, $plain->fresh()->status);
     }
 
-    public function test_the_fault_screen_shows_the_work_orders_stage_and_the_waiting_check(): void
+    public function test_the_fault_screen_shows_the_work_orders_stage_and_the_optional_check(): void
     {
         $this->openRound();
 
         $html = $this->actingAs($this->admin)->get(route('corex.rental-fault-reports.show', $this->fault))->assertOk()->getContent();
 
-        $this->assertStringContainsString('In progress', $html);
-        $this->assertStringContainsString('Tenant check — answer due', $html);
+        $this->assertStringContainsString('Reported finished', $html);
+        $this->assertStringContainsString('Tenant asked to check (optional)', $html);
+        $this->assertStringNotContainsString('answer due', $html);
     }
 }

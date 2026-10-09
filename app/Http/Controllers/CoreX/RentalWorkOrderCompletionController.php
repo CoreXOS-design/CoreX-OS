@@ -115,6 +115,20 @@ class RentalWorkOrderCompletionController extends Controller
         return $redirect;
     }
 
+    /** T1 (9 Oct 2026): the agent has read the tenant's "not fixed" and needs no further action - the needs-action row goes; nothing is reopened. */
+    public function disputeSeen(Request $request, RentalWorkOrder $rentalWorkOrder): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
+
+        try {
+            $this->completion->acknowledgeDispute($rentalWorkOrder, $request->user());
+        } catch (\LogicException $e) {
+            return back()->withErrors(['completion' => $e->getMessage()]);
+        }
+
+        return $this->backTo($rentalWorkOrder, $request)->with('success', 'Marked as seen - nothing was reopened.');
+    }
+
     /** Back to the screen the action was pressed on: the job card when it came from there, else the work order. */
     private function backTo(RentalWorkOrder $workOrder, Request $request): RedirectResponse
     {

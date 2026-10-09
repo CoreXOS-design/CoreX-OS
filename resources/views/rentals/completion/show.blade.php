@@ -50,7 +50,7 @@
             <p class="muted" style="margin-top:10px;">
                 {{ $reportedBy }} says this work is complete @if($reportedOn)({{ $reportedOn }})@endif.
                 Please check it and tell us if it is done, or still wrong.
-                @if($answerBy)If we don't hear from you by <strong>{{ $answerBy }}</strong> we will treat it as accepted.@endif
+                Your answer is optional - it never holds the job up.
             </p>
             @if(count($photos))
                 <div class="photos">

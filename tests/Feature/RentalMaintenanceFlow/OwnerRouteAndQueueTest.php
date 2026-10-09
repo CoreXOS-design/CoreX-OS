@@ -199,7 +199,7 @@ final class OwnerRouteAndQueueTest extends TestCase
             'WO-withowner' => ['wo_with_owner', true, 'corex.rental-work-orders.show'],
             'WO-send' => ['wo_send', false, 'corex.rental-work-orders.show'],
             'WO-noappt' => ['wo_set_appointment', false, 'corex.rental-work-orders.show'],
-            'WO-tenantcheck' => ['wo_tenant_check', true, 'corex.rental-work-orders.show'],
+            'WO-tenantcheck' => ['wo_complete', false, 'corex.rental-work-orders.show'],   // T1: reported finished = the AGENT's to check and close, whatever the tenant has said
             'WO-answered' => ['wo_complete', false, 'corex.rental-work-orders.show'],
             'WO-ownerroute' => ['wo_set_appointment', false, 'corex.rental-work-orders.show'],
             'JC-nocrew' => ['jc_assign_crew', false, 'corex.rental-job-cards.show'],
@@ -213,6 +213,8 @@ final class OwnerRouteAndQueueTest extends TestCase
             $this->assertSame($route, $row['route'], $title);
         }
         $this->assertNull($this->rowFor('WO-appt'), 'a sent work order WITH an appointment waits on nobody here');
+        $this->assertSame('Reported finished - check and close', $this->rowFor('WO-tenantcheck')['label'], 'T1: one row, plain words');
+        $this->assertSame(1, app(RentalCommandCentreService::class)->queueItems($this->admin, 'all')->filter(fn ($i) => str_contains((string) ($i['detail'] ?? ''), 'WO-tenantcheck'))->count(), 'never two rows');
 
         // information rows are never counted as "needs action", and they carry their age
         $items = app(RentalCommandCentreService::class)->queueItems($this->admin, 'all');

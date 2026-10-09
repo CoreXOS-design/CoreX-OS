@@ -384,13 +384,14 @@ class OwnerFaultScreenTest extends TestCase
         $this->assertSame('Work in progress', $p['current_label']);
         $this->assertNotNull(collect($p['steps'])->firstWhere('key', 'in_progress')['at']);
 
-        // Reported done: the tenant is asked to check - said in the line, with the action.
+        // Reported done (T1, 9 Oct 2026): NOT a tenant hold - the line stays "in progress" and "Work completed" is still ahead until the agent closes it.
         app(\App\Services\Rentals\RentalCompletionService::class)->openRound($wo->fresh(), ['reported_by_label' => 'Owner Bob', 'reported_via' => 'owner_portal']);
         $tenantP = $this->progress($fault->fresh());
         $last = end($tenantP['steps']);
-        $this->assertSame('Work completed — please check', $last['label']);
-        $this->assertSame('check', $last['action']);
-        $this->assertNull(end($this->progress($fault->fresh(), Progress::AUDIENCE_OWNER)['steps'])['action'], 'only the tenant is offered the check');
+        $this->assertSame('Work in progress', $tenantP['current_label']);
+        $this->assertNotSame('done', $last['state']);
+        $this->assertNull($last['action'], 'no "please check" action holds the line');
+        $this->assertNull(end($this->progress($fault->fresh(), Progress::AUDIENCE_OWNER)['steps'])['action']);
 
         // Closed: Work completed, dated.
         $wo->fresh()->complete($this->agent, ['paid_by' => 'owner']);

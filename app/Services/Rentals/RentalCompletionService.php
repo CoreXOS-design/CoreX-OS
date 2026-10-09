@@ -189,8 +189,8 @@ class RentalCompletionService
         return match ($check['notify_status']) {
             RentalWorkCompletionRound::NOTIFY_DISABLED => ' — the tenant check is switched off for this agency',
             RentalWorkCompletionRound::NOTIFY_NO_TENANT => ' — nobody is living at the property, so no tenant check',
-            RentalWorkCompletionRound::NOTIFY_NO_EMAIL => " — the tenant has no email on file: record their answer by phone (answer due {$check['window_ends_at']->format('j M Y')})",
-            default => $check['window_ends_at'] ? " — tenant asked to check (answer due {$check['window_ends_at']->format('j M Y')})" : '',
+            RentalWorkCompletionRound::NOTIFY_NO_EMAIL => " — the tenant has no email on file: their answer is optional, record it by phone if they give one",
+            default => $check['window_ends_at'] ? ' — tenant asked to check (optional)' : '',
         };
     }
 
@@ -258,7 +258,7 @@ class RentalCompletionService
             RentalWorkCompletionRound::OUTCOME_CONFIRMED, RentalWorkCompletionRound::OUTCOME_DISPUTED => self::STATE_ANSWERED,
             RentalWorkCompletionRound::OUTCOME_ACCEPTED_BY_SILENCE => self::STATE_ENDED,
             RentalWorkCompletionRound::OUTCOME_NO_TENANT => self::STATE_CLOSED,
-            default => ($round->window_ends_at && $round->window_ends_at->isPast()) ? self::STATE_ENDED : self::STATE_OPEN,
+            default => self::STATE_OPEN,   // T1 (9 Oct 2026): the tenant may answer whenever they like - no cut-off date
         };
     }
 
@@ -346,17 +346,9 @@ class RentalCompletionService
                 return false;
             }
 
-            $snapshot = [];
-            $wo->markDisputed($note);
-            if ($card && $card->status !== RentalJobCard::STATUS_CANCELLED) {
-                $snapshot = $card->reopenForDispute($note);
-                // §17.10.9 — closing a card killed its crew link; reopening must not quietly bring the old one back to life.
-                // A fresh link is issued only by "Send back to crew" (or the agency's immediate-send setting).
-                if (($snapshot['status_before'] ?? null) === RentalJobCard::STATUS_COMPLETED) {
-                    app(RentalSecureAccessTokenService::class)->revokeAllFor($card);
-                }
-            }
-            $locked->forceFill($base + ['sign_off_snapshot' => $snapshot ?: null])->save();
+            // T1 (Johan, 9 Oct 2026): "tenant says not fixed" is stored and raises a needs-action row; it does NOT reopen the work order or the card
+            // by itself, and does not stop the job being closed. Reopening is the agent's own act: "Send back" (see performSendBack()).
+            $locked->forceFill($base)->save();
             $wo->mirrorCompletionAnswer(false, $note, $contact?->id);
 
             $wo->updates()->create([
@@ -444,6 +436,24 @@ class RentalCompletionService
     // Send it back
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
+    /**
+     * T1 (Johan, 9 Oct 2026): the agent has read the tenant's "not fixed" and decided no action is needed (e.g. closed on the crew's word and evidence).
+     * Marks the dispute seen; the "Tenant says not fixed" row leaves the queue. Nothing is reopened or deleted - the answer stays on the record.
+     */
+    public function acknowledgeDispute(RentalWorkOrder $workOrder, User $by): void
+    {
+        $round = RentalWorkCompletionRound::withoutGlobalScopes()->where('rental_work_order_id', $workOrder->id)
+            ->where('outcome', RentalWorkCompletionRound::OUTCOME_DISPUTED)->whereNull('dispute_resolved_at')->orderByDesc('round_no')->first();
+        if (! $round) {
+            throw new \LogicException('There is no open "not fixed" answer on this work order.');
+        }
+        $round->forceFill(['dispute_resolved_at' => now()])->save();
+        $workOrder->updates()->create([
+            'agency_id' => $workOrder->agency_id, 'update_type' => 'dispute_seen', 'created_by_user_id' => $by->id,
+            'note' => 'The tenant\'s "not fixed" answer was seen by ' . $by->name . ' - no further action taken.',
+        ]);
+    }
+
     /** The office sends a disputed job back to the crew / contractor (fresh link + the tenant's note and photos). */
     public function sendBack(RentalWorkOrder $workOrder, User $by): void
     {
@@ -470,12 +480,29 @@ class RentalCompletionService
     private function performSendBack(RentalWorkOrder $workOrder, ?User $by): array
     {
         $wo = RentalWorkOrder::withoutGlobalScopes()->findOrFail($workOrder->id);
-        if (! $wo->hasOpenDispute()) {
+        $round = RentalWorkCompletionRound::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)
+            ->where('outcome', RentalWorkCompletionRound::OUTCOME_DISPUTED)->orderByDesc('round_no')->first();
+        if (! $wo->hasOpenDispute() && ! ($round && $round->dispute_resolved_at === null)) {
             throw new \LogicException('Only a work order the tenant has reported as not complete can be sent back.');
         }
 
-        $round = RentalWorkCompletionRound::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)
-            ->where('outcome', RentalWorkCompletionRound::OUTCOME_DISPUTED)->orderByDesc('round_no')->first();
+        // T1: the agent chose to put it right - THIS is what reopens the work order (and its job card, even a closed one) for the crew / contractor.
+        if (! $wo->hasOpenDispute() && $wo->status !== RentalWorkOrder::STATUS_CANCELLED) {
+            $note = (string) ($round?->response_note ?? '');
+            $card0 = $wo->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL ? $this->cardFor($wo, null) : null;
+            $snapshot = [];
+            $wo->markDisputed($note);
+            if ($card0 && $card0->status !== RentalJobCard::STATUS_CANCELLED) {
+                $snapshot = $card0->reopenForDispute($note);
+                if (($snapshot['status_before'] ?? null) === RentalJobCard::STATUS_COMPLETED) {
+                    app(RentalSecureAccessTokenService::class)->revokeAllFor($card0);
+                }
+            }
+            if ($round && $snapshot) {
+                $round->forceFill(['sign_off_snapshot' => $snapshot])->save();
+            }
+            $wo->refresh();
+        }
         $photos = $round
             ? RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_completion_round_id', $round->id)->orderBy('id')->get()
             : collect();
@@ -660,53 +687,13 @@ class RentalCompletionService
     // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /**
-     * Daily (`rentals:settle-completion-rounds`): every `awaiting_tenant` round past its window becomes
-     * `accepted_by_silence` (§17.10.8). Never touches a disputed round. Returns how many were settled.
+     * Johan, 9 Oct 2026 (T1): silence settles nothing any more - the tenant's check is an optional record, so no answer is ever "accepted by silence"
+     * or chased. The command (`rentals:settle-completion-rounds`) stays registered and simply does nothing.
      */
     public function settleSilent(): int
     {
-        $settled = 0;
-
-        RentalWorkCompletionRound::withoutGlobalScopes()
-            ->where('outcome', RentalWorkCompletionRound::OUTCOME_AWAITING_TENANT)
-            ->whereNotNull('window_ends_at')
-            ->where('window_ends_at', '<=', now())
-            ->orderBy('id')
-            ->chunkById(100, function ($rounds) use (&$settled) {
-                foreach ($rounds as $round) {
-                    // Claim it with ONE conditional update, so an answer arriving at the same moment wins.
-                    $claimed = RentalWorkCompletionRound::withoutGlobalScopes()->whereKey($round->id)
-                        ->where('outcome', RentalWorkCompletionRound::OUTCOME_AWAITING_TENANT)
-                        ->update(['outcome' => RentalWorkCompletionRound::OUTCOME_ACCEPTED_BY_SILENCE, 'updated_at' => now()]);
-                    if ($claimed === 0) {
-                        continue;
-                    }
-                    $settled++;
-
-                    $round->refresh();
-                    $wo = RentalWorkOrder::withoutGlobalScopes()->withTrashed()->find($round->rental_work_order_id);
-                    if (! $wo) {
-                        continue;
-                    }
-                    $days = max(1, (int) round($round->opened_at->diffInDays($round->window_ends_at, true)));
-                    $wo->updates()->create([
-                        'agency_id' => $wo->agency_id, 'update_type' => 'completion_accepted',
-                        'note' => "Round {$round->round_no}: no response in {$days} day" . ($days === 1 ? '' : 's') . ' — accepted',
-                    ]);
-                    RentalCompletionSettledBySilence::dispatch($round);
-                    $wo->resolveReportedFault(null);   // already completed, and the tenant's silence has now settled it
-                    if (! $wo->trashed() && $wo->status !== RentalWorkOrder::STATUS_CANCELLED) {
-                        $this->notifyStaff($wo, 'rental_work_order.completion_accepted', 'No tenant response — work accepted — ' . $this->addressFor($wo), $wo->title);
-                    }
-                }
-            });
-
-        return $settled;
+        return 0;
     }
-
-    // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
-    // Helpers
-    // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /** The user who should hear about / send mail for this work order: the property's agent, else the creator. */
     public function agentFor(RentalWorkOrder $wo): ?User

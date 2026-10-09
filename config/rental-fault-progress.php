@@ -29,7 +29,6 @@ return [
     'appointment_set' => ['tenant' => 'Appointment set', 'owner' => 'Appointment set', 'agent' => 'Appointment set'],
     'in_progress' => ['tenant' => 'Work in progress', 'owner' => 'Work in progress', 'agent' => 'Work in progress'],
     'completed' => ['tenant' => 'Work completed', 'owner' => 'Work completed', 'agent' => 'Work completed'],
-    'completed_check' => ['tenant' => 'Work completed — please check', 'owner' => 'Work completed — the tenant is checking', 'agent' => 'Work completed — tenant check'],
     'reopened' => ['tenant' => 'Not complete — being put right', 'owner' => 'Not complete — being put right', 'agent' => 'Not complete — reopened'],
     'cancelled' => ['tenant' => 'Cancelled', 'owner' => 'Cancelled', 'agent' => 'Cancelled'],
     // A fault closed with no repair work (e.g. resolved with the tenant's first-aid steps, or the owner handled it).

@@ -19,7 +19,7 @@ use App\Models\RentalWorkOrderSetting;
  *   - Landlord: the OWNER-FACING amount only (the selected quote's selling figure, or the final amount once closed);
  *     never cost, markup or margin.
  *   - Plain stage labels only, never a raw status: Reported · Being arranged · Needs your decision · Approved ·
- *     Scheduled · In progress · Reported complete — please check · Not complete — reopened · Completed · Cancelled.
+ *     Scheduled · In progress · Reported finished (waiting for the agent) · Not complete — reopened · Completed · Cancelled.
  *
  * Callers pass work orders they have ALREADY resolved through RentalPortalScopeService (the caller's own lease /
  * property); this class decides what of an opened record is shown. Every query strips global scopes (a portal
@@ -49,11 +49,14 @@ class RentalWorkOrderClientViewService
         if ($workOrder->status === RentalWorkOrder::STATUS_DISPUTED) {
             return 'reopened';
         }
-        if ($latest && $latest->outcome === RentalWorkCompletionRound::OUTCOME_AWAITING_TENANT) {
-            return 'check_requested';
-        }
+        // Johan, 9 Oct 2026 (T1): no "reported complete - tenant check" holding stage. The work order is in progress until the agent closes it,
+        // then it is completed; the tenant's check is an optional record beside that.
         if ($workOrder->status === RentalWorkOrder::STATUS_COMPLETED) {
             return 'completed';
+        }
+        // T1: reported finished (by the crew, the contractor or the owner) = waiting for the agent to close. Never a tenant hold.
+        if ($this->reportedFinished($workOrder, $latest)) {
+            return 'reported_finished';
         }
         if ($workOrder->status === RentalWorkOrder::STATUS_IN_PROGRESS) {
             return 'in_progress';
@@ -77,9 +80,9 @@ class RentalWorkOrderClientViewService
             return 'appointment_set';
         }
 
-        // The OFFICE's badge follows the real position (the tenant and owner keep the plain 'created'): once approved it is ready to send, once
+        // The OFFICE's and the OWNER's badges follow the real position (the tenant keeps the plain 'created'): once approved it is ready to send, once
         // sent it is with the contractor - it must never keep saying "Created" after the work order has gone out.
-        if ($audience === 'agent') {
+        if ($audience !== self::AUDIENCE_TENANT) {
             if ($workOrder->status === RentalWorkOrder::STATUS_ORDERED) {
                 return $workOrder->isOwnerContractor() ? 'with_owner_contractor' : 'sent_to_contractor';
             }
@@ -89,9 +92,23 @@ class RentalWorkOrderClientViewService
             if ($workOrder->status === RentalWorkOrder::STATUS_REPORTED && $workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER && $authorised) {
                 return 'approved_to_send';
             }
+            // P3: no quote chosen yet on the agency-contractor route
+            if ($workOrder->status === RentalWorkOrder::STATUS_REPORTED && $workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER && ! $workOrder->isOwnerContractor()
+                && $audience === self::AUDIENCE_LANDLORD && ! $this->ownerVisibleQuote($workOrder)) {
+                return 'awaiting_quote';
+            }
         }
 
         return 'created';
+    }
+
+    /** T1: the work was reported finished and nobody has closed it yet (and it is not sent back). */
+    public function reportedFinished(RentalWorkOrder $workOrder, ?RentalWorkCompletionRound $latest = null): bool
+    {
+        $latest ??= $this->latestRound($workOrder);
+
+        return $latest && $latest->outcome !== RentalWorkCompletionRound::OUTCOME_DISPUTED
+            && ! in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED, RentalWorkOrder::STATUS_DISPUTED], true);
     }
 
     /** The plain-words stage for this work order, as this audience should read it (words come from the config data). */
@@ -235,13 +252,12 @@ class RentalWorkOrderClientViewService
             'rounds' => $rounds->map(fn (RentalWorkCompletionRound $r) => $this->roundPayload($r, $workOrder))->values()->all(),
             // The one open question for the tenant: "is this finished?" (null when nothing waits on them).
             'awaiting_answer' => $latest && $latest->outcome === RentalWorkCompletionRound::OUTCOME_AWAITING_TENANT
-                && ! ($latest->window_ends_at && $latest->window_ends_at->isPast()) && $workOrder->status !== RentalWorkOrder::STATUS_CANCELLED
+                && $workOrder->status !== RentalWorkOrder::STATUS_CANCELLED
                 ? [
                     'round_id' => $latest->id,
                     'round_no' => $latest->round_no,
                     'reported_by' => $this->reportedBy($latest, $workOrder),
                     'reported_at' => $latest->opened_at?->toIso8601String(),
-                    'answer_due' => $latest->window_ends_at?->toIso8601String(),
                 ]
                 : null,
         ];
@@ -252,20 +268,46 @@ class RentalWorkOrderClientViewService
             $selected = RentalWorkOrderQuote::withoutGlobalScopes()
                 ->where('agency_id', $workOrder->agency_id)->whereNull('deleted_at')
                 ->where('rental_work_order_id', $workOrder->id)->where('is_selected', true)->first();
+            // P2: what the quote covers, so the owner has something to judge the figure by - the quote's details text and (when no agency fee
+            // sits on top of it) a link to the contractor's document. Never the contractor's own total when a fee applies.
+            $payload['quote'] = $selected ? [
+                'details' => $selected->detail_text ?: null,
+                'document_url' => ($selected->document_storage_path && $selected->ownerMayOpenDocument())
+                    ? route('client.rentals.landlord.work-orders.quote-file', ['workOrder' => $workOrder->id], false) : null,
+                'quote_date' => $selected->quote_date?->toDateString(),
+            ] : null;
             $payload['owner_facing_amount'] = $workOrder->status === RentalWorkOrder::STATUS_COMPLETED && $workOrder->cost_amount !== null
                 ? (float) $workOrder->cost_amount
                 : ($selected?->ownerFacingAmount());
             $payload['owner_approval_status'] = $workOrder->owner_approval_status;
             // What the owner may PRESS on this work order's progress, decided here with the same rules the buttons are checked against on
             // the server (recordOwnerProgress / recordOwnerReportedDone) - so the portal shows only buttons that will work, and says why when none do.
-            $payload += $this->ownerProgressActions($workOrder, ! empty($payload['awaiting_answer']));
-            // the appointment box on the owner's card only once the job is approved (the server refuses it before)
-            $payload['owner_can_appoint'] = ! in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true) && $this->jobApproved($workOrder);
+            $reportedFinished = $this->reportedFinished($workOrder);
+            $payload += $this->ownerProgressActions($workOrder, $reportedFinished);
+            $latestRound = $this->latestRound($workOrder);
+            $payload['reported_finished'] = $reportedFinished && $latestRound ? [
+                'by' => $this->reportedBy($latestRound, $workOrder),
+                'at' => $latestRound->opened_at?->toIso8601String(),
+                'text' => 'Reported finished by ' . ($latestRound->reported_via === RentalWorkCompletionRound::VIA_OWNER_PORTAL ? 'you' : $this->reportedBy($latestRound, $workOrder))
+                    . ($latestRound->opened_at ? ' on ' . $latestRound->opened_at->format('j M Y') : ''),
+            ] : null;
+            // the appointment box on the owner's card: only once the job is approved (the server refuses it before) and only until the work has started
+            $workStarted = $reportedFinished || in_array($workOrder->status, [RentalWorkOrder::STATUS_IN_PROGRESS, RentalWorkOrder::STATUS_DISPUTED], true);
+            $payload['owner_work_started'] = $workStarted;
+            $payload['owner_can_appoint'] = ! $workStarted && ! in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true) && $this->jobApproved($workOrder);
             // §17.31 — supplier invoices the agent has chosen to share. LANDLORD only: the tenant payload never carries this key.
             $payload['invoices'] = app(RentalWorkOrderInvoiceService::class)->ownerPayload($workOrder);
         }
 
         return $payload;
+    }
+
+    /** The quote the owner is being asked about / has approved: the live selected one. */
+    public function ownerVisibleQuote(RentalWorkOrder $workOrder): ?RentalWorkOrderQuote
+    {
+        return RentalWorkOrderQuote::withoutGlobalScopes()
+            ->where('agency_id', $workOrder->agency_id)->whereNull('deleted_at')
+            ->where('rental_work_order_id', $workOrder->id)->where('is_selected', true)->first();
     }
 
     /**
@@ -287,7 +329,7 @@ class RentalWorkOrderClientViewService
             return $none('You can tell us when the work starts and finishes once the agency has sent this to the contractor.');
         }
         if ($checkWaiting) {
-            return $none('The work was reported finished and the tenant is checking it.');
+            return $none('The work has been reported finished. The agency will check it and close the job.');
         }
 
         return [
@@ -324,7 +366,6 @@ class RentalWorkOrderClientViewService
                 RentalWorkCompletionRound::OUTCOME_NO_TENANT => 'No tenant check',
                 default => 'Waiting for the tenant',
             },
-            'answer_due' => $round->window_ends_at?->toIso8601String(),
             'responded_at' => $round->responded_at?->toIso8601String(),
             'response_note' => $round->response_note,
             'photos' => $photos->map(fn (RentalWorkOrderPhoto $p) => $this->photoView->photoPayload($p))->values()->all(),

@@ -773,12 +773,7 @@ class RentalFaultReport extends Model
         $note = $attributes['outcome_note'] ?? null;
         $repairedAt = $attributes['repaired_at'] ?? null;
 
-        // §17.10.6 — a fault's "repaired" outcome waits for the tenant check: it cannot be saved while the linked work
-        // order is disputed, or while its latest completion round is still waiting for the tenant. Other outcomes
-        // (not repaired, owner declined, …) are unaffected.
-        if (in_array($outcome, [self::OUTCOME_REPAIRED, self::OUTCOME_REPAIRED_PARTIALLY], true) && $this->rental_work_order_id) {
-            $this->assertTenantCheckAllowsRepairedOutcome();
-        }
+        // Johan, 9 Oct 2026 (T1): the "repaired" outcome is never held back by the tenant's check - closing the work order resolves the fault.
 
         // §4.4 — self-explanatory in a way not_repaired/tenant_liable are not;
         // no note required, same treatment 'repaired' itself already gets.
@@ -820,9 +815,7 @@ class RentalFaultReport extends Model
     /**
      * Johan, 8 Oct 2026: completing the work order resolves its fault by itself - outcome Repaired, dated the day the work order was completed,
      * marked automatic so the agent can still change it ("repaired partially", "not repaired"...). Called by RentalWorkOrder::complete() and,
-     * when the tenant answers after the agent already completed, by the tenant check. Never forces it: while the tenant has the work disputed or
-     * has not yet answered, the repaired outcome is refused by setOutcome()'s own guard and the fault simply waits - this is called again when
-     * the tenant settles it. Returns whether the fault was resolved now.
+     * and by the tenant's confirmation arriving later. T1 (9 Oct 2026): the tenant's answer never holds the fault back. Returns whether the fault was resolved now.
      */
     public function resolveFromCompletedWorkOrder(RentalWorkOrder $workOrder, ?User $by = null): bool
     {
@@ -837,7 +830,7 @@ class RentalFaultReport extends Model
                 'repaired_at' => ($workOrder->completed_at ?? now())->toDateString(),
             ], $by, true);
         } catch (\LogicException|\InvalidArgumentException $e) {
-            return false;   // the tenant check is still open: the fault waits for it
+            return false;   // refused for another reason (e.g. no outcome allowed in this state)
         }
         app(\App\Services\Rentals\RentalFaultReportService::class)->notifyResolved($this);
 
@@ -914,23 +907,6 @@ class RentalFaultReport extends Model
         $linked = RentalWorkOrder::withoutGlobalScopes()->find($this->rental_work_order_id);
 
         return $linked !== null && $linked->status !== RentalWorkOrder::STATUS_CANCELLED;
-    }
-
-    /** §17.10.6 — the guard behind setOutcome(): refuses "repaired" while the tenant has not settled the finished work. */
-    private function assertTenantCheckAllowsRepairedOutcome(): void
-    {
-        $workOrder = RentalWorkOrder::withoutGlobalScopes()->find($this->rental_work_order_id);
-        if (! $workOrder) {
-            return;
-        }
-        if ($workOrder->hasOpenDispute()) {
-            throw new \LogicException('The tenant has reported the work as not complete — the repair cannot be marked as done until it is put right and the tenant checks it again.');
-        }
-        $round = $workOrder->latestCompletionRound();
-        if ($round && $round->isAwaitingTenant()) {
-            $due = $round->window_ends_at ? ' (answer due ' . $round->window_ends_at->format('j M Y') . ')' : '';
-            throw new \LogicException("Waiting for the tenant to check the finished work{$due} — the repair can be marked as done once they answer, or when their time to answer runs out.");
-        }
     }
 
     /**

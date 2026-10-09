@@ -17,7 +17,7 @@ use Illuminate\Support\Carbon;
  *
  *   1 Sent to agent -> 2 Agent reviewing -> 3 Sent to owner for approval -> 4 Owner approved (or Not approved)
  *   -> 5 Sent to contractor for scheduling -> 6 Appointment set (date, time, who is coming) -> 7 Work in progress
- *   -> 8 Work completed (with the tenant's "please check" while a check is open)
+ *   -> 8 Work completed (only when the agent has closed the work order - the tenant's check is optional and holds nothing)
  *
  * Every step is DERIVED from the real records (the fault, its decision, the work order, its completion rounds) - there is no
  * separately typed status to drift. Each step that has been reached carries the moment it was reached. The words are data
@@ -134,8 +134,6 @@ class RentalFaultProgressService
             if ($wo && $wo->status === RentalWorkOrder::STATUS_DISPUTED) {
                 // Not finished after all: the plain "being put right" line replaces the completed step for now.
                 $push('reopened', 'reopened', $round?->responded_at ?? $wo->updated_at, null, null, $wo->id);
-            } elseif ($awaiting && $wo->status !== RentalWorkOrder::STATUS_COMPLETED) {
-                $push('completed', 'completed_check', $round->opened_at, null, $aud === self::AUDIENCE_TENANT ? 'check' : null, $wo->id);
             } elseif ($wo && $wo->status === RentalWorkOrder::STATUS_COMPLETED) {
                 $push('completed', 'completed', $wo->completed_at ?? $wo->updated_at, null, null, $wo->id);
             } elseif ($closedByFault) {

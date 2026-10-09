@@ -601,7 +601,7 @@ trait DrivesRentalLifecycle
     /** Tenant confirms the work is done (portal), the agent closes with who-pays, the fault is resolved. */
     protected function completeConfirmAndClose(?\App\Models\RentalWorkOrder $wo, string $idPrefix, string $paidBy, bool $internal): void
     {
-        $this->step("{$idPrefix}.c", 'work reported complete - the tenant is asked to check ("Work completed - please check")', 'cc6', function () use ($wo, $internal) {
+        $this->step("{$idPrefix}.c", 'work reported complete - the tenant is asked (optionally) to check; nothing is held ("Work in progress" until the agent closes)', 'cc6', function () use ($wo, $internal) {
             $this->asStaff();
             if ($internal) {
                 $card = $wo->fresh()->jobCard;
@@ -611,11 +611,11 @@ trait DrivesRentalLifecycle
             } else {
                 $this->post(route('corex.rental-work-orders.contractor-done', $wo), ['reported_via' => 'phone', 'note' => 'Done', 'date_done' => now()->toDateString()])->assertSessionHasNoErrors();
             }
-            $this->assertSame('Work completed — please check', $this->progress('tenant')['current_label']);
+            $this->assertSame('Work in progress', $this->progress('tenant')['current_label'], 'T1 (9 Oct 2026): no tenant hold');
             $this->assertCount(1, $this->mailer->sentOf(\App\Mail\Rentals\RentalTenantCompletionCheckMail::class));
         }, ["{$idPrefix}.b"]);
 
-        $this->step("{$idPrefix}.d", 'the tenant confirms the repair is fixed on the portal', 'cc6', function () use ($wo) {
+        $this->step("{$idPrefix}.d", 'the tenant confirms the repair is fixed on the portal (optional)', 'cc6', function () use ($wo) {
             $this->asPortal($this->tenant);
             $this->postJson("/api/v1/client/rentals/work-orders/{$wo->id}/completion-response", ['fixed' => true], ['X-Submission-Key' => 'e2e-' . uniqid()])->assertSuccessful();
         }, ["{$idPrefix}.c"]);

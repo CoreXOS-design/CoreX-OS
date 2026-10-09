@@ -73,22 +73,35 @@ final class DisputeLifecycleTest extends TestCase
         return $round->fresh();
     }
 
+    /** T1 (9 Oct 2026): "Send back" is the agent's own act - the ONLY thing that reopens a job the tenant said is not fixed. */
+    private function sendBack(?RentalWorkOrder $wo = null): void
+    {
+        app(RentalCompletionService::class)->sendBack(($wo ?? $this->workOrder)->fresh(), $this->admin);
+    }
+
     private function photos(): array
     {
         return [UploadedFile::fake()->image('drip1.jpg'), UploadedFile::fake()->image('drip2.jpg')];
     }
 
-    // ── Both records go Disputed ─────────────────────────────────────────
+    // ── The tenant's "not fixed" is a record; the agent's send-back reopens ─
 
-    public function test_a_dispute_puts_the_work_order_and_the_job_card_in_the_disputed_stage_and_logs_it(): void
+    public function test_a_dispute_is_stored_and_reopens_nothing_until_the_agent_sends_it_back(): void
     {
         $round = $this->dispute();
+
+        $this->assertSame(RentalWorkCompletionRound::OUTCOME_DISPUTED, $round->outcome);
+        $this->assertNotSame(RentalWorkOrder::STATUS_DISPUTED, $this->workOrder->fresh()->status, 'T1: not reopened by itself');
+        $this->assertNotSame(RentalJobCard::STATUS_DISPUTED, $this->card->fresh()->status);
+        $this->assertTrue($this->workOrder->fresh()->hasUnresolvedTenantDispute());
+        $this->assertSame(0, $this->workOrder->updates()->where('update_type', 'dispute_opened')->count());
+
+        $this->sendBack();
 
         $this->assertSame(RentalWorkOrder::STATUS_DISPUTED, $this->workOrder->fresh()->status);
         $this->assertSame(RentalJobCard::STATUS_DISPUTED, $this->card->fresh()->status);
         $this->assertTrue($this->workOrder->fresh()->hasOpenDispute());
         $this->assertFalse($this->card->fresh()->isClosed(), 'disputed is an OPEN state');
-        $this->assertSame(RentalWorkCompletionRound::OUTCOME_DISPUTED, $round->outcome);
 
         $woLog = $this->workOrder->updates()->where('update_type', 'dispute_opened')->sole();
         $this->assertStringContainsString('The tap still drips', $woLog->note);
@@ -106,10 +119,13 @@ final class DisputeLifecycleTest extends TestCase
         $this->assertSame(RentalWorkOrder::STATUS_COMPLETED, $this->workOrder->fresh()->status);
 
         $round = $this->dispute();
+        $this->assertSame(RentalJobCard::STATUS_COMPLETED, $this->card->fresh()->status, 'T1: the tenant\'s answer does not reopen a closed job');
+        $this->sendBack();
+        $round = $round->fresh();
 
         $card = $this->card->fresh();
         $this->assertSame(RentalJobCard::STATUS_DISPUTED, $card->status);
-        $this->assertNull($card->completed_at, 'a completed job is reopened');
+        $this->assertNull($card->completed_at, 'a completed job is reopened by the agent\'s send-back');
         $this->assertNull($card->worker_signed_off_at);
         $this->assertNull($card->worker_sign_off_name);
         $this->assertNull($card->agent_signed_off_at);
@@ -135,7 +151,7 @@ final class DisputeLifecycleTest extends TestCase
 
         $this->dispute();
 
-        $this->get('/secure/job-cards/' . $oldRaw)->assertSee('no longer available');   // reopened: still dead until "Send back"
+        $this->get('/secure/job-cards/' . $oldRaw)->assertSee('no longer available');   // still closed: dead until the agent's "Send back"
         $fresh = app(RentalCompletionService::class)->sendBackWithResult($this->workOrder->fresh(), $this->admin)['link_url'];
         $this->get($fresh)->assertOk()->assertSee('The tenant says this is not complete');
     }
@@ -151,34 +167,30 @@ final class DisputeLifecycleTest extends TestCase
 
     // ── The close is refused while disputed, and is never half done ──────
 
-    public function test_closing_is_refused_for_the_card_the_work_order_and_the_office_screen_while_disputed(): void
+    public function test_a_tenant_dispute_never_stops_the_agent_closing_the_job(): void
     {
+        // T1 (Johan, 9 Oct 2026): "agent can close on word and evidence from the crew or contractor" - the tenant's "not fixed" is a record.
         $this->dispute();
-        $message = 'A tenant has reported this work as not complete — resolve the dispute first.';
-
-        try {
-            $this->workOrder->fresh()->complete($this->admin, ['paid_by' => 'owner']);
-            $this->fail('a disputed work order must not close');
-        } catch (\LogicException $e) {
-            $this->assertSame($message, $e->getMessage());
-        }
-
-        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.complete', $this->workOrder), ['paid_by' => 'owner'])
-            ->assertSessionHasErrors('rental_work_order');
-        $this->assertSame($message, session('errors')->first('rental_work_order'));
-        // ...and the person pressing the button can actually SEE it on the work-order screen
-        $this->actingAs($this->admin)->followingRedirects()->from(route('corex.rental-work-orders.show', $this->workOrder))
-            ->post(route('corex.rental-work-orders.complete', $this->workOrder), ['paid_by' => 'owner'])
-            ->assertSee($message, false)->assertSee('data-completion-error', false);
 
         $card = $this->card->fresh();
-        $card->workerSignOff($this->admin, 'Foreman Joe');
-        $card->fresh()->agentSignOff($this->admin);
-        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.complete', $card))->assertSessionHasErrors('rental_job_card');
-        $this->assertSame($message, session('errors')->first('rental_job_card'));
+        $card->agentSignOff($this->admin);
+        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.complete', $card))->assertSessionHasNoErrors();
 
-        $this->assertSame(RentalJobCard::STATUS_DISPUTED, $this->card->fresh()->status, 'not closed, not half-closed');
+        $this->assertSame(RentalJobCard::STATUS_COMPLETED, $this->card->fresh()->status);
+        $this->assertSame(RentalWorkOrder::STATUS_COMPLETED, $this->workOrder->fresh()->status);
+        $this->assertSame(RentalWorkCompletionRound::OUTCOME_DISPUTED, $this->round->fresh()->outcome, 'the tenant\'s answer stays on the record');
+        $this->assertTrue($this->workOrder->fresh()->hasUnresolvedTenantDispute(), 'and still raises its needs-action row');
+    }
+
+    public function test_a_job_the_agent_sent_back_can_be_closed_again_by_the_agent(): void
+    {
+        $this->dispute();
+        $this->sendBack();
         $this->assertSame(RentalWorkOrder::STATUS_DISPUTED, $this->workOrder->fresh()->status);
+
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.complete', $this->workOrder), ['paid_by' => 'owner'])->assertSessionHasNoErrors();
+
+        $this->assertSame(RentalWorkOrder::STATUS_COMPLETED, $this->workOrder->fresh()->status);
     }
 
     public function test_the_card_and_its_work_order_close_together_or_not_at_all(): void
@@ -288,6 +300,7 @@ final class DisputeLifecycleTest extends TestCase
     public function test_the_crews_page_shows_the_banner_the_photos_only_there_and_report_fixed(): void
     {
         $this->dispute(null, 'The tap still drips after the repair', $this->photos());
+        $this->sendBack();
         $raw = app(RentalSecureAccessTokenService::class)->issueForJobCard($this->card->fresh(), $this->admin)['raw_token'];
 
         $html = $this->get('/secure/job-cards/' . $raw)->assertOk()->getContent();
@@ -348,8 +361,10 @@ final class DisputeLifecycleTest extends TestCase
     public function test_a_disputed_job_can_be_disputed_again_in_the_next_round_and_closed_once_confirmed(): void
     {
         $this->dispute();
+        $this->sendBack();
         $second = $this->crewReportsDone($this->card->fresh());
         $this->dispute($second, 'Now the pipe underneath is wet');
+        $this->sendBack();
 
         $this->assertSame(RentalWorkOrder::STATUS_DISPUTED, $this->workOrder->fresh()->status);
         $third = $this->crewReportsDone($this->card->fresh());
@@ -399,7 +414,7 @@ final class DisputeLifecycleTest extends TestCase
         $this->dispute();
 
         $this->assertCount(0, $this->mailer->sentOf(RentalLandlordDisputeMail::class));
-        $this->assertSame(RentalWorkOrder::STATUS_DISPUTED, $this->workOrder->fresh()->status, 'the dispute itself is unaffected');
+        $this->assertTrue($this->workOrder->fresh()->hasUnresolvedTenantDispute(), 'the dispute itself is unaffected');
     }
 
     public function test_the_crew_is_sent_back_straight_away_only_when_the_setting_is_on(): void
@@ -429,7 +444,7 @@ final class DisputeLifecycleTest extends TestCase
         $this->assertSame(RentalWorkOrder::STATUS_IN_PROGRESS, $external->fresh()->status);
 
         app(RentalCompletionService::class)->respond($round, false, 'Pipe still sweating at the joint', [], ['contact' => $this->tenant, 'via' => 'portal']);
-        $this->assertSame(RentalWorkOrder::STATUS_DISPUTED, $external->fresh()->status);
+        $this->assertSame(RentalWorkOrder::STATUS_IN_PROGRESS, $external->fresh()->status, 'T1: nothing reopens until the agent sends it back');
         $this->assertSame(0, RentalJobCard::where('rental_work_order_id', $external->id)->count());
 
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.send-back', $external))->assertSessionHasNoErrors();
@@ -447,16 +462,16 @@ final class DisputeLifecycleTest extends TestCase
         $this->assertNotNull($round->fresh()->dispute_resolved_at);
     }
 
-    public function test_a_disputed_external_job_cannot_be_closed_by_the_complete_form(): void
+    public function test_a_disputed_external_job_can_be_closed_by_the_complete_form(): void
     {
         $external = $this->externalJob();
         $round = app(RentalCompletionService::class)->recordContractorDone($external, ['reported_via' => 'phone'], $this->admin);
         app(RentalCompletionService::class)->respond($round, false, 'Still leaking underneath', [], ['contact' => $this->tenant, 'via' => 'portal']);
 
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.complete', $external), ['paid_by' => 'owner', 'cost_amount' => 300])
-            ->assertSessionHasErrors('rental_work_order');
+            ->assertSessionHasNoErrors();
 
-        $this->assertSame(RentalWorkOrder::STATUS_DISPUTED, $external->fresh()->status);
+        $this->assertSame(RentalWorkOrder::STATUS_COMPLETED, $external->fresh()->status, 'T1: the agent closes on the contractor\'s word');
     }
 
     // ── The office screens ───────────────────────────────────────────────

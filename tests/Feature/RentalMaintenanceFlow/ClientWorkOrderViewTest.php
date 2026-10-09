@@ -139,10 +139,11 @@ final class ClientWorkOrderViewTest extends TestCase
         $table['approved'] = [$this->stageFor('landlord'), 'Created'];
 
         $round = app(RentalCompletionService::class)->openRound($this->workOrder->fresh(), ['reported_by_label' => 'Team 1', 'reported_via' => 'crew_link']);
-        $table['reported done, tenant asked'] = [$this->stageFor(), 'Reported complete — please check'];
+        $table['reported done (T1: waiting for the agent to close, no tenant hold)'] = [$this->stageFor(), 'Work reported finished'];
 
         app(RentalCompletionService::class)->respond($round, false, 'Still wet under the sink', [], ['contact' => $this->tenant, 'via' => 'portal']);
-        $table['disputed'] = [$this->stageFor(), 'Not complete — reopened'];
+        app(RentalCompletionService::class)->sendBack($this->workOrder->fresh(), $this->admin);   // T1: the AGENT's send-back is what reopens it
+        $table['disputed and sent back'] = [$this->stageFor(), 'Not complete — reopened'];
 
         $this->workOrder->forceFill(['status' => 'completed', 'completed_at' => now()])->save();
         $this->workOrder->completionRounds()->update(['outcome' => RentalWorkCompletionRound::OUTCOME_CONFIRMED]);
@@ -228,6 +229,7 @@ final class ClientWorkOrderViewTest extends TestCase
         $this->makePhoto($this->card, 'completed');   // the crew's finished-job photo
         $round = app(RentalCompletionService::class)->openRound($this->workOrder, ['reported_by_label' => 'Sipho Dlamini', 'reported_via' => 'crew_link', 'rental_job_card_id' => $this->card->id]);
         app(RentalCompletionService::class)->respond($round, false, 'Still wet under the sink', [UploadedFile::fake()->image('wet.jpg')], ['contact' => $this->tenant, 'via' => 'portal']);
+        app(RentalCompletionService::class)->sendBack($this->workOrder->fresh(), $this->admin);
         $disputePhoto = RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_completion_round_id', $round->id)->sole();
 
         foreach (['tenant' => fn () => $this->asTenant(), 'landlord' => fn () => $this->asLandlord()] as $who => $login) {
@@ -246,17 +248,17 @@ final class ClientWorkOrderViewTest extends TestCase
         }
     }
 
-    public function test_the_open_question_is_offered_to_the_tenant_only_while_a_round_waits_on_them(): void
+    public function test_the_optional_question_is_offered_to_the_tenant_until_they_answer(): void
     {
         $round = app(RentalCompletionService::class)->openRound($this->workOrder, ['reported_by_label' => 'Team 1', 'reported_via' => 'crew_link']);
         $this->asTenant();
 
         $open = $this->getJson("/api/v1/client/rentals/work-orders/{$this->workOrder->id}")->json('work_order.awaiting_answer');
         $this->assertSame($round->id, $open['round_id']);
-        $this->assertNotNull($open['answer_due']);
+        $this->assertArrayNotHasKey('answer_due', $open, 'T1: no answer-by date');
 
         $round->forceFill(['window_ends_at' => now()->subMinute()])->save();
-        $this->assertNull($this->getJson("/api/v1/client/rentals/work-orders/{$this->workOrder->id}")->json('work_order.awaiting_answer'), 'no question once the window has passed');
+        $this->assertNotNull($this->getJson("/api/v1/client/rentals/work-orders/{$this->workOrder->id}")->json('work_order.awaiting_answer'), 'T1: the question never expires');
 
         $round->forceFill(['window_ends_at' => now()->addDay(), 'outcome' => RentalWorkCompletionRound::OUTCOME_CONFIRMED])->save();
         $this->assertNull($this->getJson("/api/v1/client/rentals/work-orders/{$this->workOrder->id}")->json('work_order.awaiting_answer'));

@@ -10,7 +10,7 @@
  *   created         the work order exists (arranging the contractor / waiting for the go-ahead)
  *   appointment_set a date for the repair is booked
  *   in_progress     the work has started
- *   check_requested the work is reported done and the tenant is asked to check
+ *   reported_finished the work is reported finished (crew / contractor / owner); the agent checks it and closes it - the tenant's check is optional and holds nothing
  *   reopened        the tenant said it is not complete - it is being put right
  *   completed       finished
  *   cancelled       called off
@@ -35,9 +35,6 @@ return [
     'in_progress' => [
         'agent' => 'In progress', 'owner' => 'In progress', 'tenant' => 'In progress',
     ],
-    'check_requested' => [
-        'agent' => 'Reported complete — tenant check', 'owner' => 'Reported complete — the tenant is checking', 'tenant' => 'Reported complete — please check',
-    ],
     'reopened' => [
         'agent' => 'Not complete — reopened', 'owner' => 'Not complete — reopened', 'tenant' => 'Not complete — reopened',
     ],
@@ -53,14 +50,22 @@ return [
     'quote_declined' => [
         'agent' => 'Owner declined the quote', 'owner' => 'You declined the quote', 'tenant' => 'Created',
     ],
+    // P3 (Johan, 9 Oct 2026): the owner never reads a bare "Created" - these are the owner's words for the early positions.
+    'awaiting_quote' => [
+        'agent' => 'Created', 'owner' => 'Waiting for a quote', 'tenant' => 'Created',
+    ],
     'approved_to_send' => [
-        'agent' => 'Approved - ready to send', 'owner' => 'Created', 'tenant' => 'Created',
+        'agent' => 'Approved - ready to send', 'owner' => 'Approved - being arranged', 'tenant' => 'Created',
     ],
     'sent_to_contractor' => [
-        'agent' => 'Sent to contractor', 'owner' => 'Created', 'tenant' => 'Created',
+        'agent' => 'Sent to contractor', 'owner' => 'With the contractor', 'tenant' => 'Created',
     ],
     'with_owner_contractor' => [
-        'agent' => "With the owner's contractor", 'owner' => 'Created', 'tenant' => 'Created',
+        'agent' => "With the owner's contractor", 'owner' => 'With your contractor', 'tenant' => 'Created',
+    ],
+    // T1 (9 Oct 2026): the work is reported finished (by the crew, the contractor or the owner) and the AGENT checks and closes it. Never a tenant hold.
+    'reported_finished' => [
+        'agent' => 'Reported finished - check and close', 'owner' => 'Reported finished', 'tenant' => 'Work reported finished',
     ],
 
     'status_words' => [

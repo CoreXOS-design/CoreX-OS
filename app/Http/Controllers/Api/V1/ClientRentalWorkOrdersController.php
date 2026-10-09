@@ -119,6 +119,34 @@ class ClientRentalWorkOrdersController extends Controller
         return $response;
     }
 
+    /** P2 - the selected quote's document for the owner who is asked to approve it (owner scope; refused when a fee makes the document's total differ from what the owner pays). */
+    public function landlordQuoteFile(Request $request, int $workOrder): \Symfony\Component\HttpFoundation\Response|JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+
+        $order = $this->scope->landlordWorkOrder($contact, $workOrder);
+        $quote = $order ? app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->ownerVisibleQuote($order) : null;
+        $disk = \Illuminate\Support\Facades\Storage::disk('local');
+        if (! $quote || ! $quote->document_storage_path || ! $quote->ownerMayOpenDocument() || ! $disk->exists($quote->document_storage_path)) {
+            return response()->json(['message' => 'Quote document not found.'], 404);
+        }
+
+        app(\App\Services\ClientAuthService::class)->log($request->user(), (int) $contact->agency_id, $contact->id, 'document_viewed', $request, [
+            'document_id' => $quote->id, 'kind' => 'work_order_quote', 'role' => 'landlord', 'rental_work_order_id' => $order->id,
+        ]);
+
+        $mime = $disk->mimeType($quote->document_storage_path) ?: 'application/octet-stream';
+        $inline = in_array(strtolower($mime), ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'], true);
+        $headers = ['Content-Type' => $mime, 'X-Content-Type-Options' => 'nosniff', 'Cache-Control' => 'private, no-store, max-age=0'];
+        $ext = pathinfo($quote->document_storage_path, PATHINFO_EXTENSION);
+        $name = 'Quote' . ($ext ? ".{$ext}" : '');
+
+        return $inline ? $disk->response($quote->document_storage_path, $name, $headers, 'inline') : $disk->download($quote->document_storage_path, $name, $headers);
+    }
+
     /**
      * Shared by the new endpoint and the old `…/confirm` alias (ClientTenantRentalsController): one place that turns
      * the service's refusals into plain 422 messages.

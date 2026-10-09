@@ -4258,6 +4258,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->whereNumber('round')->name('corex.rental-work-orders.completion-rounds.answer');
         Route::post('/{rentalWorkOrder}/send-back', [\App\Http\Controllers\CoreX\RentalWorkOrderCompletionController::class, 'sendBack'])
             ->name('corex.rental-work-orders.send-back');
+        Route::post('/{rentalWorkOrder}/dispute-seen', [\App\Http\Controllers\CoreX\RentalWorkOrderCompletionController::class, 'disputeSeen'])
+            ->name('corex.rental-work-orders.dispute-seen');
     });
     // §17.14 — the four completion-check settings (Settings → Rental Work Orders; also a Setup Wizard saver).
     Route::post('/settings/rental-work-orders/completion-check', [\App\Http\Controllers\CoreX\RentalCompletionSettingsController::class, 'update'])

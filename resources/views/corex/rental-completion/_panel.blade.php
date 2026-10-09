@@ -16,9 +16,14 @@
     $cpRounds = $workOrder->completionRounds()->with('photos')->get();
     $cpLatest = $cpRounds->last();
     $cpOpenRound = $cpLatest && $cpLatest->isAwaitingTenant() ? $cpLatest : null;
-    $cpDisputed = $workOrder->hasOpenDispute();
-    $cpDisputedRound = $cpDisputed ? $cpRounds->where('outcome', \App\Models\RentalWorkCompletionRound::OUTCOME_DISPUTED)->last() : null;
+    $cpDisputed = $workOrder->hasOpenDispute();                       // sent back to the crew / contractor and not yet reported fixed
+    $cpDisputedRound = $cpRounds->where('outcome', \App\Models\RentalWorkCompletionRound::OUTCOME_DISPUTED)->last();
+    $cpUnseen = $cpDisputedRound && $cpDisputedRound->dispute_resolved_at === null && ! $cpDisputed && $workOrder->status !== \App\Models\RentalWorkOrder::STATUS_CANCELLED;   // T1: says "not fixed", nobody has acted yet
     $cpExternal = $workOrder->assignment_type !== \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL;
+    // T1: the work is reported finished and the agent has not closed it yet (never a tenant hold)
+    $cpAwaitingClose = $cpLatest && $cpLatest->outcome !== \App\Models\RentalWorkCompletionRound::OUTCOME_DISPUTED
+        && ! in_array($workOrder->status, [\App\Models\RentalWorkOrder::STATUS_COMPLETED, \App\Models\RentalWorkOrder::STATUS_CANCELLED, \App\Models\RentalWorkOrder::STATUS_DISPUTED], true);
+    $cpFinishedBy = $cpLatest ? ($cpLatest->reported_via === \App\Models\RentalWorkCompletionRound::VIA_OWNER_PORTAL ? 'the owner' : ($cpLatest->reported_by_label ?: 'the contractor')) : '';
     $cpCanReportDone = $cpExternal && in_array($workOrder->status, [\App\Models\RentalWorkOrder::STATUS_ORDERED, \App\Models\RentalWorkOrder::STATUS_IN_PROGRESS, \App\Models\RentalWorkOrder::STATUS_DISPUTED], true);
     $cpTz = $workOrder->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
     $cpReturnTo = ($context ?? 'work_order') === 'job_card' ? 'job_card' : 'work_order';
@@ -31,8 +36,10 @@
         <h2 class="text-sm font-semibold">Completion check</h2>
         @if($cpDisputed)
             <span class="ds-badge ds-badge-danger">Disputed</span>
+        @elseif($cpUnseen)
+            <span class="ds-badge ds-badge-danger">Tenant says not fixed</span>
         @elseif($cpOpenRound)
-            <span class="ds-badge ds-badge-info">Tenant check — answer due {{ $cpOpenRound->window_ends_at?->copy()->setTimezone($cpTz)->format('j M') ?? 'by phone' }}</span>
+            <span class="ds-badge ds-badge-info">Tenant asked to check (optional)</span>
         @elseif($cpLatest && $cpLatest->outcome === \App\Models\RentalWorkCompletionRound::OUTCOME_CONFIRMED)
             <span class="ds-badge ds-badge-success">Tenant confirmed</span>
         @elseif($cpLatest && $cpLatest->outcome === \App\Models\RentalWorkCompletionRound::OUTCOME_ACCEPTED_BY_SILENCE)
@@ -44,6 +51,12 @@
     @if($errors->has('completion') || ($cpReturnTo === 'work_order' && $errors->has('rental_work_order')))
         <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);" data-completion-error>{{ $errors->first('completion') ?: $errors->first('rental_work_order') }}</div>
     @endif
+    @if($cpAwaitingClose)
+        <div class="text-sm p-2 rounded" style="background: color-mix(in srgb, #16a34a 10%, transparent);" data-reported-finished>
+            Reported finished by {{ $cpFinishedBy }} on {{ $cpLatest->opened_at?->copy()->setTimezone($cpTz)->format('j M Y') }}
+            ({{ $cpLatest->reportedViaLabel() }}). Check it and press <strong>Complete</strong> to close the job - the tenant's check is optional and does not hold it up.
+        </div>
+    @endif
     @if(session('completion_warning'))
         <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, #f59e0b 14%, transparent); color: #b45309;">{{ session('completion_warning') }}</div>
     @endif
@@ -54,7 +67,7 @@
     @endif
 
     {{-- 1. The dispute: what the tenant said, and the one decision the office must take. --}}
-    @if($cpDisputed && $cpDisputedRound)
+    @if(($cpDisputed || $cpUnseen) && $cpDisputedRound)
         <div class="rounded-md p-3 space-y-2" style="background: color-mix(in srgb, var(--ds-crimson, #dc2626) 6%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 30%, transparent);" data-dispute-panel>
             <div class="text-sm font-semibold" style="color: var(--ds-crimson, #dc2626);">The tenant says this is not complete</div>
             <div class="text-xs" style="color: var(--text-muted);">
@@ -70,18 +83,28 @@
                 </div>
             @endif
             <p class="text-xs" style="color: var(--text-muted);">
-                The job cannot be closed until it is put right and reported done again.
-                @if($cpExternal) Send it back to the contractor, then capture their completion below when they report it fixed.
-                @else Send it back to the crew; when they press “Report fixed” a new check starts.
+                @if($cpUnseen)
+                    This does not reopen the job by itself{{ $workOrder->status === \App\Models\RentalWorkOrder::STATUS_COMPLETED ? ' - it is closed' : '' }}. You decide: send it back, or mark it seen if no action is needed.
+                @else
+                    Sent back - it closes again when you complete it.
                 @endif
             </p>
+            @if($cpUnseen)
             @permission('rental_work_orders.manage_completion')
-                <form method="POST" action="{{ route('corex.rental-work-orders.send-back', $workOrder) }}" class="inline">
-                    @csrf
-                    <input type="hidden" name="return_to" value="{{ $cpReturnTo }}">
-                    <button type="submit" class="corex-btn-primary text-xs">{{ $cpExternal ? 'Send back to contractor' : 'Send back to crew' }}</button>
-                </form>
+                <div class="flex flex-wrap gap-2">
+                    <form method="POST" action="{{ route('corex.rental-work-orders.send-back', $workOrder) }}" class="inline">
+                        @csrf
+                        <input type="hidden" name="return_to" value="{{ $cpReturnTo }}">
+                        <button type="submit" class="corex-btn-primary text-xs">{{ $cpExternal ? 'Send back to contractor' : 'Send back to crew' }}</button>
+                    </form>
+                    <form method="POST" action="{{ route('corex.rental-work-orders.dispute-seen', $workOrder) }}" class="inline">
+                        @csrf
+                        <input type="hidden" name="return_to" value="{{ $cpReturnTo }}">
+                        <button type="submit" class="corex-btn-outline text-xs">Seen - no action needed</button>
+                    </form>
+                </div>
             @endpermission
+            @endif
         </div>
     @endif
 

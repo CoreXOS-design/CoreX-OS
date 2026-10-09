@@ -271,6 +271,8 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::get('/work-orders/{workOrder}', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'landlordShow'])->whereNumber('workOrder')->name('work-orders.show');
             // §17.31 — a supplier invoice the agent has chosen to share with the owner. Tenants never reach this: the work order is resolved through the OWNER scope.
             Route::get('/work-orders/{workOrder}/invoices/{invoice}/file', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'landlordInvoiceFile'])->whereNumber(['workOrder', 'invoice'])->name('work-orders.invoices.file');
+            // P2 (9 Oct 2026): the owner can open the selected quote's document - only when no agency fee sits on top of it (the document shows the contractor's own total).
+            Route::get('/work-orders/{workOrder}/quote-file', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'landlordQuoteFile'])->whereNumber('workOrder')->name('work-orders.quote-file');
             // BUILD 3 END
         });
     });

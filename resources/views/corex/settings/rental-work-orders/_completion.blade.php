@@ -31,12 +31,12 @@
                 </p>
             </div>
             <div>
-                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="completion_response_window_days">Days the tenant has to answer</label>
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="completion_response_window_days">Days the tenant's email link stays open</label>
                 <input type="number" id="completion_response_window_days" name="completion_response_window_days"
                        value="{{ old('completion_response_window_days', $cWindow) }}" min="1" max="30" step="1"
                        class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
                 <p class="text-xs mt-2" style="color: var(--text-muted);">
-                    Default is {{ \App\Models\RentalWorkOrderSetting::DEFAULT_COMPLETION_RESPONSE_WINDOW_DAYS }} days. If the tenant has not answered by then, the work counts as accepted.
+                    Default is {{ \App\Models\RentalWorkOrderSetting::DEFAULT_COMPLETION_RESPONSE_WINDOW_DAYS }} days (plus a week of grace). The tenant's answer is optional - it never holds up closing the job, and nothing is accepted because the tenant was silent.
                 </p>
             </div>
             <div>

@@ -18,13 +18,13 @@ class SettleRentalCompletionRounds extends Command
 {
     protected $signature = 'rentals:settle-completion-rounds';
 
-    protected $description = 'Accept every tenant completion check that nobody answered inside its response window';
+    protected $description = 'Retired (9 Oct 2026): silence settles nothing any more - the tenant check is an optional record. Does nothing.';
 
     public function handle(RentalCompletionService $completion): int
     {
         $settled = $completion->settleSilent();
 
-        $this->info("Settled {$settled} completion round(s) as accepted — no tenant response inside the window.");
+        $this->info("Settled {$settled} completion round(s) - the command is retired: an unanswered tenant check is never accepted by silence or chased.");
 
         return self::SUCCESS;
     }

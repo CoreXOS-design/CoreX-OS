@@ -128,6 +128,15 @@ class RentalWorkOrderQuote extends Model
      * payloads may use: the selling amount when a fee was applied, else the quote's own amount.
      * (The office also sees `amount` and `fee_amount`; the contractor's documents show `amount` only.)
      */
+    /**
+     * P2 (9 Oct 2026): the contractor's own document shows the contractor's total. The owner sees the total THEY pay and no more, so the document
+     * is opened to them only when no agency fee sits on top of it (the two totals are then the same).
+     */
+    public function ownerMayOpenDocument(): bool
+    {
+        return $this->selling_amount === null || round((float) $this->selling_amount, 2) === round((float) $this->amount, 2);
+    }
+
     public function ownerFacingAmount(): float
     {
         return (float) ($this->selling_amount ?? $this->amount);

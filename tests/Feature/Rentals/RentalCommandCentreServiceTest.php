@@ -829,13 +829,20 @@ final class RentalCommandCentreServiceTest extends TestCase
         self::assertCount(0, $review());
     }
 
-    public function test_queue_resolve_dispute_rule_lists_a_disputed_work_order_with_scoping_and_leaves_when_put_right(): void
+    public function test_queue_tenant_says_not_fixed_rule_lists_an_unanswered_dispute_with_scoping_and_leaves_when_the_agent_acts(): void
     {
+        // T1 (Johan, 9 Oct 2026): the tenant's "not fixed" is a record that raises ONE row for the agent; it reopens nothing by itself.
         [$agency, $branch, $agentOne] = $this->makeAgencyBranchAgent();
         $agentTwo = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
-        $mine = $this->makeWorkOrder($agency, $branch, $this->makeRentalProperty($agency, $branch, $agentOne), RentalWorkOrder::STATUS_DISPUTED, now()->subDays(2));
-        $colleagues = $this->makeWorkOrder($agency, $branch, $this->makeRentalProperty($agency, $branch, $agentTwo), RentalWorkOrder::STATUS_DISPUTED, now()->subDays(2));
+        $mine = $this->makeWorkOrder($agency, $branch, $this->makeRentalProperty($agency, $branch, $agentOne), RentalWorkOrder::STATUS_IN_PROGRESS, now()->subDays(2));
+        $colleagues = $this->makeWorkOrder($agency, $branch, $this->makeRentalProperty($agency, $branch, $agentTwo), RentalWorkOrder::STATUS_COMPLETED, now()->subDays(2));
         $notDisputed = $this->makeWorkOrder($agency, $branch, $this->makeRentalProperty($agency, $branch, $agentOne), RentalWorkOrder::STATUS_IN_PROGRESS, now()->subDays(2));
+        $roundFor = fn (RentalWorkOrder $wo) => \App\Models\RentalWorkCompletionRound::withoutGlobalScopes()->create([
+            'agency_id' => $agency->id, 'rental_work_order_id' => $wo->id, 'round_no' => 1, 'outcome' => \App\Models\RentalWorkCompletionRound::OUTCOME_DISPUTED,
+            'opened_at' => now()->subDays(3), 'responded_at' => now()->subDays(2), 'response_note' => 'Still leaking', 'reported_by_label' => 'Crew', 'reported_via' => 'office',
+        ]);
+        $mineRound = $roundFor($mine);
+        $roundFor($colleagues);
 
         $this->grantAllScope($agentOne, 'rental_command_centre', $agency->id);
         $this->actingAs($agentOne);
@@ -843,12 +850,12 @@ final class RentalCommandCentreServiceTest extends TestCase
             ->pluck('route_params.rentalWorkOrder')->sort()->values()->all();
 
         self::assertSame([$mine->id], $ids('own'));
-        self::assertEqualsCanonicalizing([$mine->id, $colleagues->id], $ids('branch'));
+        self::assertEqualsCanonicalizing([$mine->id, $colleagues->id], $ids('branch'), 'a CLOSED job with a "not fixed" answer still raises its row');
         self::assertNotContains($notDisputed->id, $ids('all'));
-        self::assertSame('Resolve dispute', $this->service->queueItems($agentOne, 'own')->firstWhere('type', 'work_order_disputed')['label']);
+        self::assertSame('Tenant says not fixed', $this->service->queueItems($agentOne, 'own')->firstWhere('type', 'work_order_disputed')['label']);
 
-        // Reported done again -> back in progress -> gone.
-        RentalWorkOrder::where('id', $mine->id)->update(['status' => RentalWorkOrder::STATUS_IN_PROGRESS]);
+        // The agent marks it seen (or sends it back, which puts the work order in the disputed stage) -> gone.
+        $mineRound->forceFill(['dispute_resolved_at' => now()])->save();
         self::assertSame([], $ids('own'));
     }
 

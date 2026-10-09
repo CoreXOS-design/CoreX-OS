@@ -322,19 +322,14 @@ final class MaintenanceFlowFoundationTest extends TestCase
         $this->assertNull($line->fresh()->cost_total, 'no cost is ever back-filled or invented');
     }
 
-    public function test_the_dispute_guard_is_live_since_build_three_and_the_cost_guard_ignores_unapproved_work(): void
+    public function test_the_dispute_guard_no_longer_blocks_a_close_and_the_cost_guard_ignores_unapproved_work(): void
     {
         $guards = app(RentalCloseGuards::class);
         $wo = $this->workOrder(['status' => RentalWorkOrder::STATUS_DISPUTED]);
 
-        // Build 3 (§17.10.9) — a disputed work order cannot be closed.
-        try {
-            $guards->assertNotDisputed($wo);
-            $this->fail('a disputed work order must not be closable');
-        } catch (\LogicException $e) {
-            $this->assertStringContainsString('resolve the dispute first', $e->getMessage());
-        }
-        $guards->assertNotDisputed($this->workOrder());   // a normal one passes
+        // T1 (Johan, 9 Oct 2026) - the tenant's answer never blocks closing: a work order in the disputed stage can still be closed by the agent.
+        $guards->assertNotDisputed($wo);
+        $guards->assertNotDisputed($this->workOrder());
 
         $guards->assertFinalCostWithinApproval($wo, 99999.0, $this->admin);   // Build 2: no approved amount, so nothing to measure against
         $this->assertTrue($wo->hasOpenDispute());

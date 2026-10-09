@@ -21,12 +21,9 @@ class RentalCloseGuards
      */
     public function assertNotDisputed(RentalWorkOrder $workOrder): void
     {
-        // BUILD 3 — §17.10.9. Not blocked while a round is merely awaiting the tenant (the office may close and
-        // invoice during the window; a dispute inside the window reopens it, §17.22 Decision 2) — only while
-        // the work order itself is in the disputed stage.
-        if ($workOrder->hasOpenDispute()) {
-            throw new \LogicException('A tenant has reported this work as not complete — resolve the dispute first.');
-        }
+        // Johan, 9 Oct 2026 (T1): "agent can close on word and evidence from the crew or contractor". The tenant's answer - a confirmation or a
+        // "not fixed" - is an optional RECORD and never blocks closing, before or after. (Before this, a tenant dispute put the work order in the
+        // disputed stage and this refused to close it.) A "not fixed" raises a needs-action row; it does not reopen anything by itself.
     }
 
     /**

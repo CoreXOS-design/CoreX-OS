@@ -81,7 +81,7 @@ final class TenantCompletionResponseTest extends TestCase
         $this->assertStringNotContainsString('Sipho Dlamini', $html, 'never the crew member\'s name (8 Oct 2026)');
         $this->assertStringContainsString('All done, thanks', $html);
         $this->assertStringContainsString('Not complete / still wrong', $html);
-        $this->assertStringContainsString($this->round->fresh()->window_ends_at->format('j M Y'), $html);
+        $this->assertStringContainsString('optional', $html, 'T1: the answer is optional - no answer-by date');
         $this->assertStringNotContainsString('R ', strip_tags(preg_replace('#<(style|script).*?</\1>#s', '', $html)));
     }
 
@@ -119,8 +119,8 @@ final class TenantCompletionResponseTest extends TestCase
         $this->assertCount(2, $photos);
         $this->assertSame([RentalWorkOrder::PHOTO_DISPUTE], $photos->pluck('photo_type')->unique()->all());
         $this->assertSame([RentalWorkOrderPhoto::VIA_TENANT], $photos->pluck('uploaded_via')->unique()->all());
-        $this->assertSame(RentalWorkOrder::STATUS_DISPUTED, $this->workOrder->fresh()->status);
-        $this->assertSame(RentalJobCard::STATUS_DISPUTED, $this->card->fresh()->status);
+        $this->assertNotSame(RentalWorkOrder::STATUS_DISPUTED, $this->workOrder->fresh()->status, 'T1: stored, not reopened');
+        $this->assertNotSame(RentalJobCard::STATUS_DISPUTED, $this->card->fresh()->status);
         $this->assertFalse((bool) $this->workOrder->fresh()->tenant_confirmed_fixed, 'the mirror says "not fixed"');
 
         $this->get($this->url())->assertOk()->assertSee('You answered on')->assertSee('the work is not complete')->assertSee('The tap still drips');
@@ -201,17 +201,16 @@ final class TenantCompletionResponseTest extends TestCase
         $this->assertSame(RentalWorkCompletionRound::OUTCOME_AWAITING_TENANT, $this->round->fresh()->outcome);
     }
 
-    public function test_after_the_window_the_link_says_the_response_period_has_ended_and_refuses_an_answer(): void
+    public function test_after_the_old_window_the_link_still_takes_an_answer(): void
     {
+        // T1: no cut-off - "silence = accepted" is retired, the answer is an optional record at any time.
         $this->round->forceFill(['window_ends_at' => now()->subHour()])->save();
 
-        $this->get($this->url())->assertOk()->assertSee('The response period has ended — please report a new fault.');
-        // a refused answer sends the tenant back to the page, which says why
+        $this->get($this->url())->assertOk()->assertDontSee('response period has ended');
         $this->post($this->url(), ['answer' => 'not_fixed', 'note' => 'Still broken after all'])->assertRedirect($this->url());
-        $this->get($this->url())->assertOk()->assertSee('response period has ended');
 
-        $this->assertSame(RentalWorkCompletionRound::OUTCOME_AWAITING_TENANT, $this->round->fresh()->outcome);
-        $this->assertNotSame(RentalWorkOrder::STATUS_DISPUTED, $this->workOrder->fresh()->status, 'a late complaint is a new fault, never a reopening');
+        $this->assertSame(RentalWorkCompletionRound::OUTCOME_DISPUTED, $this->round->fresh()->outcome);
+        $this->assertNotSame(RentalWorkOrder::STATUS_DISPUTED, $this->workOrder->fresh()->status, 'and it reopens nothing by itself');
     }
 
     public function test_a_cancelled_job_closes_the_link(): void
@@ -260,19 +259,16 @@ final class TenantCompletionResponseTest extends TestCase
 
         $this->assertSame(RentalWorkCompletionRound::OUTCOME_DISPUTED, $this->round->fresh()->outcome);
         $this->assertSame(1, RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_completion_round_id', $this->round->id)->count());
-        $this->assertSame(RentalWorkOrder::STATUS_DISPUTED, $this->workOrder->fresh()->status);
+        $this->assertNotSame(RentalWorkOrder::STATUS_DISPUTED, $this->workOrder->fresh()->status, 'T1: stored, not reopened');
     }
 
-    public function test_the_portal_refuses_a_repeat_answer_and_a_late_one_in_plain_words(): void
+    public function test_the_portal_refuses_a_repeat_answer_in_plain_words(): void
     {
         Sanctum::actingAs($this->clientUserFor($this->tenant), ['client']);
         $url = "/api/v1/client/rentals/work-orders/{$this->workOrder->id}/completion-response";
 
         $this->round->forceFill(['window_ends_at' => now()->subMinute()])->save();
-        $this->postJson($url, ['fixed' => true])->assertStatus(422)->assertJsonPath('message', 'The response period has ended — please report a new fault.');
-
-        $this->round->forceFill(['window_ends_at' => now()->addDay()])->save();
-        $this->postJson($url, ['fixed' => true])->assertOk();
+        $this->postJson($url, ['fixed' => true])->assertOk();   // T1: the old window no longer cuts the tenant off
         $this->postJson($url, ['fixed' => false, 'note' => 'Changed my mind'])->assertStatus(422)->assertJsonPath('message', 'This check has already been answered.');
     }
 
@@ -302,7 +298,7 @@ final class TenantCompletionResponseTest extends TestCase
         $this->postJson("/api/v1/client/rentals/work-orders/{$this->workOrder->id}/confirm", ['fixed' => false, 'note' => 'Still not heating up'])->assertOk();
 
         $this->assertSame(RentalWorkCompletionRound::OUTCOME_DISPUTED, $this->round->fresh()->outcome);
-        $this->assertSame(RentalWorkOrder::STATUS_DISPUTED, $this->workOrder->fresh()->status);
+        $this->assertNotSame(RentalWorkOrder::STATUS_DISPUTED, $this->workOrder->fresh()->status, 'T1: stored, not reopened');
     }
 
     public function test_the_old_confirm_endpoint_still_behaves_as_before_with_no_open_round(): void
