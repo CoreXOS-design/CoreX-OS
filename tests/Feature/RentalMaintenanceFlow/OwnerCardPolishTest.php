@@ -152,4 +152,32 @@ final class OwnerCardPolishTest extends TestCase
         $this->assertSame(RentalWorkOrder::STATUS_COMPLETED, $wo->fresh()->status);
         $this->assertCount(0, app(RentalCommandCentreService::class)->queueItems($this->admin, 'all')->filter(fn ($i) => ($i['route_params']['rentalWorkOrder'] ?? null) === $wo->id));
     }
+
+    public function test_l1_no_unanswered_tenant_check_block_on_the_owner_or_tenant_card(): void
+    {
+        $src = file_get_contents(resource_path('views/rentals/portal/shell.blade.php'));
+
+        $this->assertSame(2, substr_count($src, "w.rounds.filter(x => x.outcome !== 'awaiting_tenant')"), 'owner and tenant cards list ANSWERED checks only');
+        $this->assertStringContainsString('Is it fixed?', $src);
+        $this->assertStringNotContainsString('Waiting for the tenant', file_get_contents(app_path('Services/Rentals/RentalWorkOrderClientViewService.php')));
+    }
+
+    public function test_l2_the_agent_screen_of_a_reported_finished_job_says_what_to_do_and_hides_appointment_and_quote_capture(): void
+    {
+        $wo = $this->externalWorkOrder(['status' => RentalWorkOrder::STATUS_IN_PROGRESS, 'owner_approval_status' => RentalWorkOrder::APPROVAL_APPROVED, 'approved_amount' => 4120]);
+        $before = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
+        $this->assertStringContainsString('id="appointment-card"', $before);
+        $this->assertStringContainsString('Capture quote', $before);
+
+        app(RentalCompletionService::class)->recordContractorDone($wo, ['reported_via' => 'phone', 'note' => 'Done'], $this->admin);
+
+        $html = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
+        $this->assertStringContainsString('data-reported-finished-step', $html);
+        $this->assertStringContainsString('reported the work finished on', $html);
+        $this->assertStringContainsString('Check it and press <strong>Complete</strong>', $html);
+        $this->assertStringNotContainsString('id="appointment-card"', $html, 'no appointment change once the work is reported finished');
+        $this->assertStringNotContainsString('Capture quote', $html, 'no quote capture once the work is reported finished');
+        $this->assertStringContainsString('data-complete-work-order', $html, 'Complete stays the primary button');
+        $this->assertStringContainsString('<details', $html);
+    }
 }

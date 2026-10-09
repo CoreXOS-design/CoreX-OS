@@ -10,6 +10,9 @@
         default => 'ds-badge-muted',
     };
     $isOpen = !in_array($workOrder->status, ['completed', 'cancelled'], true);
+    // L2 (Johan, 9 Oct 2026): the work is reported finished (owner / contractor / crew) and waits for the AGENT to check and close it.
+    $woFinishedRound = app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->reportedFinished($workOrder) ? $workOrder->latestCompletionRound() : null;
+    $woReportedFinished = $woFinishedRound !== null;
 @endphp
 
 @section('content')
@@ -67,7 +70,14 @@
         </div>
     @endif
 
-    @if($isOpen && $workOrder->isOwnerContractor())
+    @if($isOpen && $woReportedFinished)
+        <div class="rounded-md p-3 text-sm space-y-1" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, transparent); border: 1px solid var(--border);" data-next-step data-reported-finished-step>
+            <div class="font-semibold">What happens next</div>
+            <div>{{ $woFinishedRound->reported_via === \App\Models\RentalWorkCompletionRound::VIA_OWNER_PORTAL ? 'The owner' : ($woFinishedRound->reported_by_label ?: 'The contractor') }} reported the work finished on {{ $woFinishedRound->opened_at?->format('j M Y') }}. Check it and press <strong>Complete</strong>. The tenant's answer is optional and does not hold it up.</div>
+        </div>
+    @endif
+
+    @if($isOpen && $workOrder->isOwnerContractor() && ! $woReportedFinished)
         <div class="rounded-md p-3 text-sm space-y-1" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, transparent); border: 1px solid var(--border);" data-next-step data-owner-route>
             <div class="font-semibold">What happens next</div>
             <div>The owner arranges and pays their own contractor, so there is no quote, spend limit or agency fee here. <strong>1.</strong> Capture the contractor's name and number below if you know them. <strong>2.</strong> Set the appointment with the tenant. <strong>3.</strong> When the owner confirms the work is done (they can also tell us on their portal), mark the work order complete.</div>
@@ -76,7 +86,7 @@
 
     {{-- W2/W6 (Johan, 8 Oct 2026) - the appointment for the repair. The agent normally coordinates it with the tenant; the tenant is
          emailed when it is set or changed, and sees it (with who is doing the work and the progress) on their portal. --}}
-    @if($isOpen)
+    @if($isOpen && ! $woReportedFinished)
     @permission('rental_work_orders.create')
     @php
         $tzApp = $workOrder->agency?->outreachTimezone() ?: config('app.timezone');
@@ -350,6 +360,7 @@
                 @endforeach
             </ul>
         @endif
+        @if(! $woReportedFinished)
         <form method="POST" action="{{ route('corex.rental-work-orders.quotes.store', $workOrder) }}" enctype="multipart/form-data" class="space-y-2 pt-2">
             @csrf
             <div class="grid grid-cols-2 gap-2">
@@ -391,6 +402,7 @@
             </div>
             <button type="submit" class="corex-btn-outline text-xs">Capture quote</button>
         </form>
+        @endif
         @endpermission
         {{-- BUILD 2 (§17.9.1a) — per-work-order override of the agency's fee on this contractor's quote; blank = the agency default.
              Locked once the owner has approved an amount (a change would be a variation). --}}

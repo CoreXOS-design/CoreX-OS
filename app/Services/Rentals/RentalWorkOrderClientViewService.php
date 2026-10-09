@@ -364,7 +364,7 @@ class RentalWorkOrderClientViewService
                 RentalWorkCompletionRound::OUTCOME_DISPUTED => 'Reported not complete',
                 RentalWorkCompletionRound::OUTCOME_ACCEPTED_BY_SILENCE => 'Accepted — no response',
                 RentalWorkCompletionRound::OUTCOME_NO_TENANT => 'No tenant check',
-                default => 'Waiting for the tenant',
+                default => 'Not answered (optional)',
             },
             'responded_at' => $round->responded_at?->toIso8601String(),
             'response_note' => $round->response_note,
