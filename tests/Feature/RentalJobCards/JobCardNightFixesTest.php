@@ -229,6 +229,50 @@ final class JobCardNightFixesTest extends TestCase
         }
     }
 
+    /** The layout regression Johan hit on QA1 (a stray closing tag threw the side panels out of their column, so they became extra flex items). */
+    public function test_in_every_stage_the_page_is_exactly_one_main_column_and_one_side_column_with_balanced_markup(): void
+    {
+        $this->property->forceFill(['rental_no_approval_spend_threshold' => 1000000])->save();
+        [$card] = $this->internalJob(345);
+        $check = function (string $label) use ($card): void {
+            $html = $this->page($card->fresh());
+            $dom = new \DOMDocument();
+            @$dom->loadHTML('<?xml encoding="utf-8" ?>' . $html);
+            $xp = new \DOMXPath($dom);
+            $kids = $xp->query("//*[@id='jc-layout']/*");
+            $this->assertSame(2, $kids->length, "{$label}: #jc-layout holds exactly the main and the side column");
+            $this->assertSame(['jc-left-col', 'jc-right-col'], [$kids->item(0)->getAttribute('id'), $kids->item(1)->getAttribute('id')], $label);
+            foreach (['jc-approval-panel', 'jc-signed-copy-box', 'jc-quote-box'] as $id) {
+                $all = $xp->query("//*[@id='{$id}']")->length;
+                $inSide = $xp->query("//*[@id='jc-right-col']//*[@id='{$id}']")->length;
+                $this->assertSame($all, $inSide, "{$label}: #{$id} sits inside the side column");
+            }
+        };
+
+        $check('draft');
+        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $card))->assertSessionHasNoErrors();
+        $check('approved');
+        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.schedule', $card), ['scheduled_at' => now()->addDay()->format('Y-m-d\TH:i')]);
+        $check('scheduled');
+        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.start', $card));
+        $check('in progress');
+        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.worker-sign-off', $card), ['worker_sign_off_name' => 'Sam']);
+        $check('crew done');
+        $html = $this->page($card);
+        $this->assertStringNotContainsString('data-schedule-locked', $html, 'no stale "booking opens once approved" on an approved, booked job');
+        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.agent-sign-off', $card));
+        $check('both signed');
+    }
+
+    public function test_the_worker_sign_off_asks_who_signed_and_confirms(): void
+    {
+        [$card] = $this->internalJob(345);
+        $card->forceFill(['status' => RentalJobCard::STATUS_SCHEDULED, 'scheduled_at' => now()->addDay()])->save();
+        $html = $this->page($card);
+        $this->assertMatchesRegularExpression('/<input type="text" name="worker_sign_off_name"[^>]*required/', $html);
+        $this->assertMatchesRegularExpression('/<form[^>]*worker-sign-off[^>]*data-confirm="Record that the crew has done the work\?/s', $html);
+    }
+
     public function test_the_stage_service_gives_the_ordered_stages_and_each_has_a_plain_next_step(): void
     {
         $this->property->forceFill(['rental_no_approval_spend_threshold' => 500])->save();

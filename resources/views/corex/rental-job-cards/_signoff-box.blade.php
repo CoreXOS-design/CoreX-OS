@@ -7,9 +7,10 @@
                      records it, naming who on the (already-assigned) crew actually did the
                      work — free text, with that crew's own member names offered via the
                      native datalist below as a convenience, not a constraint. --}}
-                <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.worker-sign-off', $jobCard) }}" class="space-y-2">
+                <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.worker-sign-off', $jobCard) }}" class="space-y-2"
+                      data-confirm="Record that the crew has done the work? This is the worker sign-off and cannot be undone." data-confirm-title="Worker sign-off" data-confirm-label="Record sign-off">
                     @csrf
-                    <input type="text" name="worker_sign_off_name" list="worker-sign-off-names" maxlength="191" placeholder="Who did the work (optional)" aria-label="Who did the work" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
+                    <input type="text" name="worker_sign_off_name" list="worker-sign-off-names" maxlength="191" required value="{{ $jobCard->crew && $jobCard->crew->members->count() === 1 ? $jobCard->crew->members->first()->name : '' }}" placeholder="Who signed off the work? (name)" aria-label="Who signed off the work" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
                     <datalist id="worker-sign-off-names">
                         @foreach($jobCard->crew?->members ?? [] as $member)
                             <option value="{{ $member->name }}">
@@ -65,4 +66,3 @@
                 @endpermission
             </div>
             @endif
-        </div>

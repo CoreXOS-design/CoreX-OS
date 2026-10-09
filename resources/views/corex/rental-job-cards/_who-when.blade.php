@@ -40,8 +40,8 @@
                     <input type="datetime-local" name="due_at" value="{{ old('due_at', $jobCard->scheduleInputValue('due_at')) }}" aria-label="Due" class="w-full rounded-md px-2 py-1.5 text-xs" style="border: 1px solid var(--border);">
                     <button type="submit" class="corex-btn-outline text-xs w-full">Set</button>
                 </form>
-                @else
-                    <p class="text-xs" style="color: var(--text-muted);" data-schedule-locked>Booking a date opens once the job is approved{{ $stage['key'] === 'signed_off' ? '' : '' }}.</p>
+                @elseif(in_array($stage['key'], ['draft', 'quoted', 'owner_declined'], true))
+                    <p class="text-xs" style="color: var(--text-muted);" data-schedule-locked>Booking a date opens once the job is approved.</p>
                 @endif
                 @if($stage['can']['start'])
                 <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.start', $jobCard) }}">
