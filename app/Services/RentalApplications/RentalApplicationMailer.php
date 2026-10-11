@@ -188,9 +188,10 @@ class RentalApplicationMailer
             ->first();
 
         if ($existing) {
-            if (empty($existing->token)) {
-                $existing->token = Str::random(64);
-                $existing->token_expires_at = now()->addDays(14);
+            // 2026-10-11 hotfix — a lapsed link is renewed too, not only a
+            // missing one, so a reused draft never hands out a dead link.
+            $existing->keepLinkAliveUntil(now()->addDays(14));
+            if ($existing->isDirty()) {
                 $existing->save();
             }
 
