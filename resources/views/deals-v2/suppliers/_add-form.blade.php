@@ -10,7 +10,12 @@
     $saveLabel = $saveLabel ?? 'Save to directory';
     $popup = $popup ?? false;
 @endphp
-        <form method="POST" action="{{ route('deals-v2.suppliers.store') }}" class="grid grid-cols-1 md:grid-cols-3 gap-4" id="{{ $idp }}-form" {!! $formAttrs !!}>
+        {{-- rentals-faults-work-orders.md section 21.1 - the KIND of supplier (default Contractor). Only a Contractor has a trade; any other kind is saved as trade "Other". --}}
+        @php
+            $kindOptions = \App\Models\DealV2\AgencyServiceProvider::KINDS;
+            $kindSync = "var t=document.getElementById('{$idp}-specialty'); if(t){ var c=t.closest('div'); var on=document.getElementById('{$idp}-kind').value==='contractor'; c.style.display=on?'':'none'; t.disabled=!on; }";
+        @endphp
+        <form method="POST" action="{{ route('deals-v2.suppliers.store') }}" class="grid grid-cols-1 md:grid-cols-3 gap-4" id="{{ $idp }}-form" onreset="setTimeout(function(){ {{ $kindSync }} }, 0)" {!! $formAttrs !!}>
             @csrf
             @if(! empty($faultId))<input type="hidden" name="fault_id" value="{{ $faultId }}">@endif
             @if(! empty($workOrderId))<input type="hidden" name="work_order_id" value="{{ $workOrderId }}">@endif
@@ -21,6 +26,16 @@
                        class="w-full rounded-md px-3 py-2 text-sm"
                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                        placeholder="e.g. Sparky Electrical">
+            </div>
+            <div>
+                <label for="{{ $idp }}-kind" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Kind of supplier</label>
+                <select id="{{ $idp }}-kind" name="kind" onchange="{{ $kindSync }}"
+                        class="w-full rounded-md px-3 py-2 text-sm"
+                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                    @foreach($kindOptions as $kindKey => $kindText)
+                        <option value="{{ $kindKey }}">{{ $kindText }}</option>
+                    @endforeach
+                </select>
             </div>
             <div>
                 <label for="{{ $idp }}-specialty" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">{{ $popup ? 'Trade' : 'Specialty' }} <span class="text-red-500">*</span></label>

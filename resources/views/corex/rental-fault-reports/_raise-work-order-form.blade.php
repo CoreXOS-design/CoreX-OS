@@ -69,8 +69,11 @@
                     @endif
                 </div>
             @endif
-            @forelse(collect($contractorPicker)->groupBy(fn ($c) => $cls && $cls['category'] ? ($c['suits'] ? 'suits' : 'others') : 'all') as $groupKey => $groupRows)
-                @if($cls && $cls['category'])
+            @forelse(collect($contractorPicker)->groupBy(fn ($c) => ($c['first_responder'] ?? false) ? 'set' : ($cls && $cls['category'] ? ($c['suits'] ? 'suits' : 'others') : 'all')) as $groupKey => $groupRows)
+                @if($groupKey === 'set')
+                    {{-- section 21.3 - the people set up to look at this fault first, in their order --}}
+                    <div class="text-xs font-semibold pt-1" data-contractor-group="set">Set for this property</div>
+                @elseif($cls && $cls['category'])
                     <div class="text-xs font-semibold pt-1" data-contractor-group="{{ $groupKey }}">{{ $groupKey === 'suits' ? 'Suits ' . ($cls['type'] ?: $cls['category']) : 'Other contractors' }}</div>
                 @endif
                 @foreach($groupRows as $c)
@@ -79,6 +82,7 @@
                            x-show="q === '' || $el.dataset.search.indexOf(q.toLowerCase()) !== -1">
                         <input type="radio" name="contractor_pick" value="{{ $c['id'] }}" x-model="picked">
                         <span class="font-medium">{{ $c['name'] }}</span>
+                        @if(($c['kind'] ?? 'contractor') !== 'contractor')<span class="ds-badge ds-badge-muted" data-contractor-kind="{{ $c['kind'] }}">{{ $c['kind_label'] }}</span>@endif
                         @if($c['trades'])<span class="text-xs" style="color: var(--text-muted);">{{ $c['trades'] }}</span>@endif
                         @if($c['phone'])<span class="text-xs" style="color: var(--text-muted);">{{ $c['phone'] }}</span>@endif
                         @if(! ($c['has_contact'] ?? true))<span class="ds-badge ds-badge-danger" data-no-contact-details>no contact details</span>@endif

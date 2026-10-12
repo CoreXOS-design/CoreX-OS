@@ -148,6 +148,11 @@
         @endif
     @endpermission
 
+    {{-- section 21.3 - who the property / its owner says looks at this fault first, and the agent's two choices. Only while the fault is still being prepared. --}}
+    @if($stage === 'prepare' && ! $faultReport->workOrder && ! $faultReport->isTenantSelfResolved() && $firstResponders->isNotEmpty())
+        @include('partials.first-look-block', ['firstResponders' => $firstResponders, 'canAct' => auth()->user()->hasPermission('rental_fault_reports.create')])
+    @endif
+
     <div class="grid grid-cols-3 gap-4">
     <div class="col-span-3 lg:col-span-2 space-y-4">
 

@@ -37,7 +37,26 @@ class AgencyServiceProvider extends Model
         'is_preferred',
         'is_active',
         'created_by_id',
+        'kind',
     ];
+
+    /**
+     * AT-452 family (rentals-faults-work-orders.md section 21.1) - the KIND of supplier. Every existing row is a contractor. Kind does NOT change who
+     * is offered as a repair contractor (see scopeMaintenanceContractors); it is shown beside the name and drives "Who looks at faults first".
+     */
+    public const KIND_CONTRACTOR = 'contractor';
+    public const KINDS = [
+        'contractor' => 'Contractor',
+        'caretaker' => 'Caretaker / complex manager',
+        'owner_team' => "Owner's own maintenance team",
+        'insurer' => 'Insurer / insurance assessor',
+        'body_corporate' => 'Body corporate / managing agent',
+    ];
+
+    public static function kindLabel(?string $kind): string
+    {
+        return self::KINDS[$kind ?: self::KIND_CONTRACTOR] ?? self::KINDS[self::KIND_CONTRACTOR];
+    }
 
     /**
      * AT-364 — the FIXED attorney capabilities and the boolean column each maps to. A firm can

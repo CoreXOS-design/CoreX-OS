@@ -1444,6 +1444,17 @@ class Property extends Model
     }
 
     /**
+     * .ai/specs/rentals-faults-work-orders.md section 21.2 - who looks at a fault of this type FIRST on this rental property, in order: this property's own
+     * "Who looks at faults first" entries that cover the type, else the owner's default. Empty when nobody is set. Read-only; sends nothing.
+     *
+     * @return \Illuminate\Support\Collection<int, array<string, mixed>> supplier_id, name, kind, kind_label, tell_mode, tell_label, source, source_label, position, callout_line, phone, has_contact
+     */
+    public function firstRespondersFor(\App\Models\RentalFaultType|int|null $faultType = null): \Illuminate\Support\Collection
+    {
+        return app(\App\Services\Rentals\FirstResponderService::class)->forProperty($this, $faultType);
+    }
+
+    /**
      * AT-105 enhancement — the canonical pivot-role SET a routing contact_role
      * resolves across. 'seller_owner' deliberately spans BOTH seller and owner
      * (esign auto-link writes 'owner' for sellers — investigation §3). Returns

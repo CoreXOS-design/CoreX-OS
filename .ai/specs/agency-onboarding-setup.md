@@ -257,6 +257,8 @@ agency, so the visible count is ≤ 13.
 These were built and then removed on Johan's call. They are out of scope by decision, not
 by oversight — do not reinstate them without asking:
 
+- **"Who looks at faults first" (per-property / per-owner first responders, `rental_first_responders`)** (2026-10-12, qa1 AT-452 family; **recorded for Johan**). It is per-property and per-owner DATA with a change log - like the owner's work terms, which are not wizard controls either - not an agency setting, so there is nothing to switch on in onboarding. Spec `rentals-faults-work-orders.md` §21.4.
+
 - **`lease_settings.default_pre_let_status` — "the status that means back on the market"** (2026-10-08, qa1-cc2, **pending
   Johan's confirmation**). It is a pick from the agency's OWN property statuses, which a wizard control cannot list (wizard
   `options` are static config; a closure would break `config:cache`). It is on Settings → Leases, default `active`, valid for

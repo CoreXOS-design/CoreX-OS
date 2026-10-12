@@ -130,10 +130,11 @@
             }).catch(function () { /* the next page load shows it */ });
     }
 
-    function changed(message, covered) {
+    function changed(message, covered, provider) {
         closeAll(true);
         say(message);
-        window.dispatchEvent(new CustomEvent('cx-contractor-changed', { detail: { covered: !!covered, message: message } }));
+        // `provider` (id, name, kind...) is only set when a supplier was just added - "Who looks at faults first" picks it straight away.
+        window.dispatchEvent(new CustomEvent('cx-contractor-changed', { detail: { covered: !!covered, message: message, provider: provider || null } }));
         refreshRegions();
     }
 
@@ -146,6 +147,7 @@
         form.querySelectorAll('input[name="fault_id"],input[name="work_order_id"]').forEach(function (i) { i.remove(); });
         Object.keys(ids()).forEach(function (k) { var h = document.createElement('input'); h.type = 'hidden'; h.name = k; h.value = ids()[k]; form.appendChild(h); });
         form.querySelectorAll('input[name="service_types[]"]').forEach(function (c) { c.checked = !!d.tradeCode && c.getAttribute('data-trade-code') === d.tradeCode; });
+        addModal.querySelector('#cxcp-add-title').textContent = d.title || 'Add a contractor';
         addModal.querySelector('[data-cp-add-sub]').textContent = d.type ? 'This contractor will be offered for "' + d.type + '" faults.' : 'Add the details of the new contractor.';
         show(addModal);
         var first = form.querySelector('input[name="name"]'); if (first) first.focus();
@@ -159,7 +161,7 @@
             .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, status: r.status, d: d }; }); })
             .then(function (res) {
                 btn.disabled = false;
-                if (res.ok && res.d.ok) { changed((res.d.provider ? res.d.provider.name : 'The contractor') + ' was added to your contractors.', res.d.covered); return; }
+                if (res.ok && res.d.ok) { changed((res.d.provider ? res.d.provider.name : 'The contractor') + ' was added to your contractors.', res.d.covered, res.d.provider); return; }
                 var msgs = res.d && res.d.errors ? Object.keys(res.d.errors).map(function (k) { return res.d.errors[k][0]; }) : [(res.d && res.d.message) || 'That could not be saved. Please try again.'];
                 formErrors.textContent = msgs.join(' '); formErrors.classList.remove('hidden');
             }).catch(function () { btn.disabled = false; formErrors.textContent = 'No connection - nothing was saved. Please try again.'; formErrors.classList.remove('hidden'); });
@@ -268,7 +270,7 @@
         e.preventDefault();
         opener = b;
         ctx = { faultId: b.getAttribute('data-fault-id') || null, workOrderId: b.getAttribute('data-work-order-id') || null };
-        var d = { type: b.getAttribute('data-type'), tradeCode: b.getAttribute('data-trade-code') || null, providerId: b.getAttribute('data-provider-id'), name: b.getAttribute('data-provider-name'), workOrderId: b.getAttribute('data-work-order-id') };
+        var d = { title: b.getAttribute('data-title'), type: b.getAttribute('data-type'), tradeCode: b.getAttribute('data-trade-code') || null, providerId: b.getAttribute('data-provider-id'), name: b.getAttribute('data-provider-name'), workOrderId: b.getAttribute('data-work-order-id') };
         var mode = b.getAttribute('data-contractor-popup');
         if (mode === 'add') openAdd(d); else if (mode === 'details') openDetails(d); else openTypes(d);
     });

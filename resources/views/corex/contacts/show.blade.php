@@ -1001,6 +1001,9 @@
              ════════════════════════════ --}}
         <div x-show="activeTab === 'properties'" x-cloak class="p-6 space-y-6">
 
+            {{-- rentals-faults-work-orders.md section 21.3 - this owner's default "Who looks at faults first" for all their rental properties. --}}
+            @include('corex.contacts._first-responders')
+
             @include('corex.contacts._linked-properties')
 
             @include('corex.contacts._linked-deals')

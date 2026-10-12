@@ -48,12 +48,15 @@ class AgencyServiceProviderService
         }
 
         $specialty = $data['specialty'] ?? 'other';
+        // rentals-faults-work-orders.md section 21.1 - a caretaker and a contractor with the same name are two suppliers, never merged.
+        $kind = array_key_exists($data['kind'] ?? '', AgencyServiceProvider::KINDS) ? $data['kind'] : AgencyServiceProvider::KIND_CONTRACTOR;
         $name = trim((string) ($data['name'] ?? ''));
         $email = isset($data['email']) ? strtolower(trim((string) $data['email'])) : null;
 
         $existing = AgencyServiceProvider::query()
             ->withoutGlobalScopes()->where('agency_id', $agencyId)
             ->where('specialty', $specialty)
+            ->where('kind', $kind)
             ->when($email, fn ($q) => $q->whereRaw('LOWER(email) = ?', [$email]),
                    fn ($q) => $q->whereRaw('LOWER(TRIM(name)) = ?', [strtolower($name)]))
             ->first();
@@ -84,6 +87,7 @@ class AgencyServiceProviderService
             'is_preferred' => (bool) ($data['is_preferred'] ?? false),
             'is_active' => true,
             'created_by_id' => $userId,
+            'kind' => $kind,
         ]);
     }
 

@@ -318,6 +318,7 @@ class RentalFaultReport extends Model
                     RentalFaultReportUpdate::TYPE_PHOTO_NOTE_SET => 'Photo note saved',
                     RentalFaultReportUpdate::TYPE_PHOTO_NOTE_REMOVED => 'Photo note removed',
                     RentalFaultReportUpdate::TYPE_SENT_WITHOUT_CONTRACTOR => 'Sent to owner without a contractor',
+                    RentalFaultReportUpdate::TYPE_FIRST_RESPONDER_CHOSEN => 'First to look at this chosen',
                     default => ucfirst(str_replace('_', ' ', $update->update_type)),
                 },
                 'from' => $update->from_status ? ucfirst(str_replace('_', ' ', $update->from_status)) : null,

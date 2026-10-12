@@ -1196,6 +1196,9 @@ Route::prefix('deals-v2/suppliers')->middleware(['auth'])->group(function () {
     // The firm's business address — needed on any document the firm signs (e.g. an executor).
     Route::post('/{provider}/address', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'updateAddress'])->name('deals-v2.suppliers.address')->middleware('permission:deals_v2.manage_suppliers');
     Route::post('/{provider}/deactivate', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'deactivate'])->name('deals-v2.suppliers.deactivate')->middleware('permission:deals_v2.manage_suppliers');
+    // rentals-faults-work-orders.md section 21.1 - reactivate a deactivated supplier; change a supplier's kind.
+    Route::post('/{provider}/reactivate', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'reactivate'])->name('deals-v2.suppliers.reactivate')->middleware('permission:deals_v2.manage_suppliers');
+    Route::post('/{provider}/kind', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'setKind'])->name('deals-v2.suppliers.kind')->middleware('permission:deals_v2.manage_suppliers');
     // (DR2 respec) firm → contact persons management.
     Route::post('/{provider}/contacts', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'storeContact'])->name('deals-v2.suppliers.contacts.store')->middleware('permission:deals_v2.manage_suppliers');
     Route::post('/contacts/{contact}/deactivate', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'deactivateContact'])->name('deals-v2.suppliers.contacts.deactivate')->middleware('permission:deals_v2.manage_suppliers');
@@ -4213,6 +4216,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{rentalFaultReport}/pdf', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'pdf'])->name('corex.rental-fault-reports.pdf');
         Route::put('/{rentalFaultReport}', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'update'])
             ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.update');
+        // section 21.3 - the two buttons of the "First to look at this" block (nothing is sent by this alone; see FirstResponderDispatcher).
+        Route::post('/{rentalFaultReport}/first-responder', \App\Http\Controllers\CoreX\RentalFaultFirstResponderController::class)
+            ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.first-responder');
         Route::post('/{rentalFaultReport}/repair-anyway', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'repairAnyway'])
             ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.repair-anyway');
         Route::post('/{rentalFaultReport}/cancel', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'cancel'])
@@ -4388,6 +4394,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.approvals');
     // §17.6.2 — the owner's work terms per rental property (own permission; OWN/BRANCH/AGENCY via authorizeProperty() in the controller).
     Route::prefix('properties')->middleware(['permission:access_properties', 'agency.required', 'deny_assistant_property_write'])->name('corex.properties.')->group(function () {
+        // rentals-faults-work-orders.md section 21 - "Who looks at faults first" for this rental property (same permission as the other work terms).
+        Route::put('/{property}/rental-first-responders', [\App\Http\Controllers\CoreX\RentalFirstRespondersController::class, 'updateProperty'])
+            ->middleware('permission:rental_work_orders.manage_work_terms')->name('rental-first-responders.update');
         Route::put('/{property}/rental-work-terms', [\App\Http\Controllers\CoreX\RentalPropertyWorkTermsController::class, 'update'])
             ->middleware('permission:rental_work_orders.manage_work_terms')->name('rental-work-terms.update');
     });
@@ -6106,6 +6115,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/street-complex-search/pdf', [\App\Http\Controllers\CoreX\ContactController::class, 'streetComplexSearchPdf'])->name('street-complex-search.pdf');
         Route::delete('/destroy-all',     [\App\Http\Controllers\CoreX\ContactController::class, 'destroyAll'])->middleware('permission:contacts.delete')->name('destroy-all');
         Route::get('/{contact}',          [\App\Http\Controllers\CoreX\ContactController::class, 'show'])->middleware(\App\Http\Middleware\LogsContactAccess::class . ':view')->name('show');
+        // section 21.3 - the owner's default "Who looks at faults first" for all their rental properties.
+        Route::put('/{contact}/first-responders', [\App\Http\Controllers\CoreX\RentalFirstRespondersController::class, 'updateOwner'])
+            ->middleware([\App\Http\Middleware\LogsContactAccess::class . ':edit', 'permission:contacts.edit', 'permission:rental_work_orders.manage_work_terms'])->name('first-responders.update');
         Route::put('/{contact}',          [\App\Http\Controllers\CoreX\ContactController::class, 'update'])->middleware(\App\Http\Middleware\LogsContactAccess::class . ':edit')->name('update');
         Route::put('/{contact}/property-address', [\App\Http\Controllers\CoreX\ContactController::class, 'updatePropertyAddress'])->middleware(\App\Http\Middleware\LogsContactAccess::class . ':edit')->name('property-address.update');
         Route::delete('/{contact}/property-address', [\App\Http\Controllers\CoreX\ContactController::class, 'clearPropertyAddress'])->middleware(\App\Http\Middleware\LogsContactAccess::class . ':edit')->name('property-address.clear');

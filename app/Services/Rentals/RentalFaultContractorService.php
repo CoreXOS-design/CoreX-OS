@@ -166,8 +166,20 @@ class RentalFaultContractorService
     public function pickerFor(RentalFaultReport $fault): Collection
     {
         $c = $this->classify($fault);
+        $rows = $c['suits']->concat($c['others'])->values();
 
-        return $c['suits']->concat($c['others'])->values();
+        // rentals-faults-work-orders.md section 21.3 - the people set up to look at this fault first come on top ("Set for this property"), in their order; each
+        // is then not repeated below. Every row also carries its kind, so the picker can say "Caretaker" next to a name.
+        $kinds = AgencyServiceProvider::withoutGlobalScopes()->whereIn('id', $rows->pluck('id'))->pluck('kind', 'id');
+        $rows = $rows->map(fn ($r) => $r + ['kind' => (string) ($kinds[$r['id']] ?: AgencyServiceProvider::KIND_CONTRACTOR), 'kind_label' => AgencyServiceProvider::kindLabel($kinds[$r['id']] ?? null), 'first_responder' => false]);
+        $first = $fault->property
+            ? $fault->property->firstRespondersFor($fault->rental_fault_type_id)->map(fn ($f) => $rows->firstWhere('id', $f['supplier_id']))->filter()->map(fn ($r) => ['first_responder' => true] + $r)->values()
+            : collect();
+        if ($first->isEmpty()) {
+            return $rows->values();
+        }
+
+        return $first->concat($rows->reject(fn ($r) => $first->contains('id', $r['id'])))->values();
     }
 
     /** Is this supplier one of the options for this fault? (server-side guard for both decision routes) */

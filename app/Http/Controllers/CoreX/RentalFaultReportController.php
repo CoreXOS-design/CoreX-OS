@@ -448,6 +448,8 @@ class RentalFaultReportController extends Controller
             'decisionSummary' => $rentalFaultReport->decisionSummary(),
             // Create work order: every active contractor of the agency, those that suit this type of work first (searchable on the screen).
             'contractorPicker' => app(\App\Services\Rentals\RentalFaultContractorService::class)->pickerFor($rentalFaultReport),
+            // section 21.3 - who looks at this fault first (property list, else the owner's default); read-only, sends nothing
+            'firstResponders' => $rentalFaultReport->property ? $rentalFaultReport->property->firstRespondersFor($rentalFaultReport->rental_fault_type_id) : collect(),
             // the agency's active crews, for the optional "which crew" pick on the internal-crew route
             'crewPicker' => \App\Models\RentalCrew::query()->active()->with('members')->orderBy('name')->get(),
         ]);

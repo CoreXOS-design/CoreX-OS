@@ -38,14 +38,34 @@ class SupplierDirectoryController extends Controller
     public function index(Request $request)
     {
         $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
-        $providers = AgencyServiceProvider::query()->withoutGlobalScopes()
+
+        // rentals-faults-work-orders.md section 21.1 - the list's search / filter / sort / paging (design standard). Defaults = the order it always had.
+        $search = trim((string) $request->query('q', ''));
+        $kindFilter = array_key_exists((string) $request->query('kind', ''), AgencyServiceProvider::KINDS) ? (string) $request->query('kind') : '';
+        $status = in_array($request->query('status'), ['active', 'inactive'], true) ? (string) $request->query('status') : 'all';
+        $sort = in_array($request->query('sort'), ['name', 'kind', 'specialty', 'newest'], true) ? (string) $request->query('sort') : '';
+
+        $query = AgencyServiceProvider::query()->withoutGlobalScopes()
             ->where('agency_id', $agencyId)
             ->with([
                 'serviceContacts' => fn ($q) => $q->orderByDesc('is_active')->orderBy('attorney_name'),
                 'serviceTypes',
             ])
-            ->orderByDesc('is_active')->orderBy('specialty')->orderByDesc('is_preferred')->orderBy('name')
-            ->get();
+            ->when($search !== '', function ($q) use ($search) {
+                $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $search) . '%';
+                $q->where(fn ($w) => $w->where('name', 'like', $like)->orWhere('company', 'like', $like)->orWhere('email', 'like', $like)->orWhere('phone', 'like', $like));
+            })
+            ->when($kindFilter !== '', fn ($q) => $q->where('kind', $kindFilter))
+            ->when($status === 'active', fn ($q) => $q->where('is_active', true))
+            ->when($status === 'inactive', fn ($q) => $q->where('is_active', false));
+        match ($sort) {
+            'name' => $query->orderBy('name'),
+            'kind' => $query->orderBy('kind')->orderBy('name'),
+            'specialty' => $query->orderBy('specialty')->orderBy('name'),
+            'newest' => $query->orderByDesc('id'),
+            default => $query->orderByDesc('is_active')->orderBy('specialty')->orderByDesc('is_preferred')->orderBy('name'),
+        };
+        $providers = $query->paginate(25)->withQueryString();
 
         // AT-319 — the agency's active, configurable service types drive the per-supplier tick boxes.
         // Resolve the SAME way Settings → COC/Service Types does (AgencyScope / acting-agency session
@@ -66,6 +86,8 @@ class SupplierDirectoryController extends Controller
             'providerEvents' => $events,
             'providers' => $providers,
             'specialties' => self::SPECIALTIES,
+            'kinds' => AgencyServiceProvider::KINDS,
+            'filters' => ['q' => $search, 'kind' => $kindFilter, 'status' => $status, 'sort' => $sort],
             'serviceTypes' => $serviceTypes,
             'returnFault' => $this->returnFault($request, $agencyId),
         ]);
@@ -146,7 +168,7 @@ class SupplierDirectoryController extends Controller
             $this->recordEvent($provider, 'created_from_fault', 'Added from ' . ($fault ? 'fault report #' . $fault->id : 'work order #' . $workOrder->id) . ' by ' . $request->user()->name . '.', $request->user(), $fault?->id, $workOrder?->id);
         }
         if ($request->wantsJson()) {
-            return response()->json(['ok' => true, 'provider' => ['id' => $provider->id, 'name' => $provider->name]] + $this->coverage($fault, $workOrder, $agencyId));
+            return response()->json(['ok' => true, 'provider' => ['id' => $provider->id, 'name' => $provider->name, 'kind' => $provider->kind ?: AgencyServiceProvider::KIND_CONTRACTOR, 'kind_label' => AgencyServiceProvider::kindLabel($provider->kind), 'phone' => $provider->phone]] + $this->coverage($fault, $workOrder, $agencyId));
         }
 
         return back()->with('success', 'Provider saved to the directory.');
@@ -370,6 +392,34 @@ class SupplierDirectoryController extends Controller
         return back()->with('success', "{$provider->name} deactivated — hidden from new pickers, historic deals unaffected.");
     }
 
+    /** Bring a deactivated supplier back into the pickers (the other half of Deactivate - nothing is ever hard deleted). */
+    public function reactivate(Request $request, AgencyServiceProvider $provider)
+    {
+        $this->authorizeAgency($request, $provider);
+        $provider->update(['is_active' => true]);
+        $this->recordEvent($provider, 'reactivated', 'Reactivated by ' . $request->user()->name . '.', $request->user(), null, null);
+
+        return back()->with('success', "{$provider->name} is active again.");
+    }
+
+    /** rentals-faults-work-orders.md section 21.1 - change what KIND of supplier this is (persist-on-change, same idiom as the service types). */
+    public function setKind(Request $request, AgencyServiceProvider $provider)
+    {
+        $this->authorizeAgency($request, $provider);
+        $data = $request->validate(['kind' => 'required|in:' . implode(',', array_keys(AgencyServiceProvider::KINDS))]);
+        $old = $provider->kind;
+        if ($old !== $data['kind']) {
+            $provider->update(['kind' => $data['kind']]);
+            $this->recordEvent($provider, 'kind_changed', 'Kind changed from ' . AgencyServiceProvider::kindLabel($old) . ' to ' . AgencyServiceProvider::kindLabel($data['kind']) . ' by ' . $request->user()->name . '.', $request->user(), null, null);
+        }
+
+        if ($request->wantsJson()) {
+            return response()->json(['ok' => true, 'kind' => $provider->kind, 'label' => AgencyServiceProvider::kindLabel($provider->kind)]);
+        }
+
+        return back()->with('success', "{$provider->name} is now a " . strtolower(AgencyServiceProvider::kindLabel($provider->kind)) . '.');
+    }
+
     // ── inline (JSON) — used by the deal form ────────────────────────────
 
     public function search(Request $request): JsonResponse
@@ -416,9 +466,16 @@ class SupplierDirectoryController extends Controller
 
     private function validated(Request $request): array
     {
-        return $request->validate([
+        // section 21.1 - a caretaker / insurer / owner's team / body corporate has no trade: it is always saved as "Other".
+        $kind = (string) $request->input('kind', '');
+        if ($kind !== '' && $kind !== AgencyServiceProvider::KIND_CONTRACTOR) {
+            $request->merge(['specialty' => 'other']);
+        }
+
+        $data = $request->validate([
             'name' => 'required|string|max:191',
             'specialty' => 'required|string|in:' . implode(',', self::SPECIALTIES),
+            'kind' => 'sometimes|nullable|string|in:' . implode(',', array_keys(AgencyServiceProvider::KINDS)),
             'company' => 'nullable|string|max:191',
             'registration_number' => 'nullable|string|max:100',
             'email' => 'nullable|email|max:191',
@@ -431,6 +488,13 @@ class SupplierDirectoryController extends Controller
             // the fault / work order popups talk in the agent's words ("The trade field is required."), the directory page is unchanged
             'specialty' => 'trade', 'registration_number' => 'company registration number', 'is_preferred' => 'preferred contractor tick',
         ] : []);
+
+        // a blank kind means "leave it as it is" (the column is never null)
+        if (array_key_exists('kind', $data) && ($data['kind'] === null || $data['kind'] === '')) {
+            unset($data['kind']);
+        }
+
+        return $data;
     }
 
     /**
@@ -540,6 +604,7 @@ class SupplierDirectoryController extends Controller
     {
         return [
             'id' => $p->id, 'name' => $p->name, 'specialty' => $p->specialty,
+            'kind' => $p->kind ?: AgencyServiceProvider::KIND_CONTRACTOR, 'kind_label' => AgencyServiceProvider::kindLabel($p->kind),
             'company' => $p->company, 'email' => $p->email, 'phone' => $p->phone,
             'is_preferred' => (bool) $p->is_preferred, 'is_active' => (bool) $p->is_active,
             // AT-364 — the fixed attorney capabilities (a firm can be both).

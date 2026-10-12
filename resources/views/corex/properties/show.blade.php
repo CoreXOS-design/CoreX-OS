@@ -5066,6 +5066,9 @@
                 {{-- BUILD 2 (.ai/specs/rental-work-orders.md §17.6.2) — "Work terms agreed with the owner": the no-approval limit and the
                      variation tolerance, with who/when and a history. Its own form and its own permission. --}}
                 @include('corex.properties._rental-work-terms')
+
+                {{-- rentals-faults-work-orders.md section 21 - "Who looks at faults first": up to three ordered first responders, with the owner's default behind them. --}}
+                @include('corex.properties._rental-first-responders')
             @endif
         </div>
         @endif
