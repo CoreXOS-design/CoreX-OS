@@ -5067,6 +5067,9 @@
                      variation tolerance, with who/when and a history. Its own form and its own permission. --}}
                 @include('corex.properties._rental-work-terms')
 
+                {{-- rentals-faults-work-orders.md section 22 - "How the owner wants faults handled": the OWNER's own limits, with evidence, confirm and dispute. --}}
+                @include('corex.properties._rental-owner-fault-settings')
+
                 {{-- rentals-faults-work-orders.md section 21 - "Who looks at faults first": up to three ordered first responders, with the owner's default behind them. --}}
                 @include('corex.properties._rental-first-responders')
             @endif

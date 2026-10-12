@@ -54,6 +54,10 @@ Route::post('/buyer/portal/{token}/respond', [\App\Http\Controllers\BuyerPortalC
     ->middleware('throttle:30,1')
     ->name('buyer-portal.respond');
 
+// ── "I do not agree with this" (public, SIGNED link in the owner's email) - rentals-faults-work-orders.md section 22.6. GET only asks; the POST records.
+Route::match(['get', 'post'], '/owner/fault-settings/{property}/{contact}/dispute', [\App\Http\Controllers\RentalFaultSettingsDisputeController::class, 'handle'])
+    ->middleware(['signed', 'throttle:20,1'])->whereNumber(['property', 'contact'])->name('rentals.fault-settings.dispute');
+
 // ── Contractor Secure Link (public, no auth) — AT-445, .ai/specs/rental-portal-access.md §4/§9 ──
 Route::prefix('secure/work-orders/{token}')->middleware('throttle:30,1')->group(function () {
     Route::get('/', [\App\Http\Controllers\ContractorSecureLinkController::class, 'show'])->name('rentals.secure-link.show');
@@ -4400,6 +4404,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // rentals-faults-work-orders.md section 21 - "Who looks at faults first" for this rental property (same permission as the other work terms).
         Route::put('/{property}/rental-first-responders', [\App\Http\Controllers\CoreX\RentalFirstRespondersController::class, 'updateProperty'])
             ->middleware('permission:rental_work_orders.manage_work_terms')->name('rental-first-responders.update');
+        // rentals-faults-work-orders.md section 22 - the OWNER's "How I want faults handled", captured by the agent with evidence / sent to the owner to confirm.
+        Route::post('/{property}/rental-owner-fault-settings', [\App\Http\Controllers\CoreX\RentalPropertyFaultSettingsController::class, 'capture'])
+            ->middleware('permission:rental_work_orders.manage_work_terms')->name('rental-owner-fault-settings.capture');
+        Route::post('/{property}/rental-owner-fault-settings/send', [\App\Http\Controllers\CoreX\RentalPropertyFaultSettingsController::class, 'send'])
+            ->middleware('permission:rental_work_orders.manage_work_terms')->name('rental-owner-fault-settings.send');
+        Route::get('/{property}/rental-owner-fault-settings/evidence', [\App\Http\Controllers\CoreX\RentalPropertyFaultSettingsController::class, 'evidence'])
+            ->middleware('permission:rental_work_orders.manage_work_terms')->name('rental-owner-fault-settings.evidence');
         Route::put('/{property}/rental-work-terms', [\App\Http\Controllers\CoreX\RentalPropertyWorkTermsController::class, 'update'])
             ->middleware('permission:rental_work_orders.manage_work_terms')->name('rental-work-terms.update');
     });

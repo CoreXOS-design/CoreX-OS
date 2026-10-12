@@ -65,6 +65,7 @@
                     In force: <strong>R{{ number_format($wtTerms->noApprovalLimit, 2) }}</strong> ({{ $wtSourceText($wtTerms->limitSource) }}).
                     Agency default: R{{ number_format($wtAgencyLimit, 2) }}. Leave blank to use the agency default.
                 </p>
+                <p class="text-xs mt-1" style="color: var(--text-muted);">The owner's own answer for repairs is recorded under &ldquo;How the owner wants faults handled&rdquo; below.</p>
             </div>
             <div>
                 <label class="prop-label" for="wt-tolerance">Variation tolerance (% above the approved amount)</label>
