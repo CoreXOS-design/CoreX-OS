@@ -28,4 +28,14 @@ return [
     'presentation_doc_extract_v1'     => (bool) env('PRESENTATION_DOC_EXTRACT_V1', true),
     'document_library_v1'             => (bool) env('DOCUMENT_LIBRARY_V1', true),
     'properties'                      => (bool) env('PROPERTIES_ENABLED', true),
+    // AT-432 (.ai/specs/auctions.md §20). This is the PLATFORM-WIDE emergency
+    // kill-switch only (set AUCTIONS_ENABLED=false to hide auctions everywhere).
+    // It must default ON: the real "does this agency auction?" switch is the
+    // per-agency row in config/corex-features.php ('auctions', default false),
+    // toggled under Settings → Features and the onboarding wizard. Defaulting
+    // this outer AND to false made that agency toggle inert on every install
+    // (the owner's global context bypasses the gate, so Auctions showed until
+    // you switched into an agency — and then vanished). An agency that does
+    // not auction still sees no change: the per-agency default keeps it off.
+    'auctions'                        => (bool) env('AUCTIONS_ENABLED', true),
 ];

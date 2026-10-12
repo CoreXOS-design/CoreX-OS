@@ -58,6 +58,7 @@ class ContactMatch extends Model
         'share_slug',
         'status',
         'is_primary',
+        'open_to_auction',
         'listing_type',
         'category',
         'property_type',
@@ -90,6 +91,7 @@ class ContactMatch extends Model
 
     protected $casts = [
         'is_primary'            => 'boolean',
+        'open_to_auction'       => 'boolean',
         'price_min'             => 'integer',
         'price_max'             => 'integer',
         'move_in_date'          => 'date',

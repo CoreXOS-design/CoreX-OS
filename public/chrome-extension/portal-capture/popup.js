@@ -31,6 +31,28 @@
     }
   } catch (e) { /* keep the fallback text */ }
 
+  // ── Theme toggle (AT-449) ──────────────────────────────────
+  // The popup ALWAYS opens in light (popup.html ships data-theme="light" and
+  // nothing is persisted). The header button flips light/dark for this popup
+  // session only — by design, so a stray dark choice never sticks.
+  (function initThemeToggle() {
+    var btn = document.getElementById('themeToggle');
+    if (!btn) return;
+    var root = document.documentElement;
+    function apply(theme) {
+      root.setAttribute('data-theme', theme);
+      var toDark = theme !== 'dark';
+      var label = toDark ? 'Switch to dark theme' : 'Switch to light theme';
+      btn.title = label;
+      btn.setAttribute('aria-label', label);
+      btn.setAttribute('aria-pressed', theme === 'dark' ? 'true' : 'false');
+    }
+    apply('light');
+    btn.addEventListener('click', function () {
+      apply(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+    });
+  })();
+
   // ── DOM refs ───────────────────────────────────────────────
   const states = {
     notOnPortal:  document.getElementById('stateNotOnPortal'),
@@ -1704,14 +1726,20 @@
   // ── Event listeners ────────────────────────────────────────
 
   // Settings
+  // The screen Back should return to. Captured when Settings opens, and never
+  // overwritten with 'settings' itself: on first run (no token saved) the popup
+  // OPENS on Settings, so previousState was 'settings' and Back/Settings did nothing.
+  let settingsReturnState = null;
+
   els.settingsToggle.addEventListener('click', () => {
+    if (currentState !== 'settings') settingsReturnState = currentState;
     els.apiUrl.value   = settings.apiUrl;
     els.apiToken.value = settings.apiToken;
     showState('settings');
   });
 
   els.backFromSettings.addEventListener('click', () => {
-    showState(previousState || 'notOnPortal');
+    showState(settingsReturnState && settingsReturnState !== 'settings' ? settingsReturnState : 'notOnPortal');
   });
 
   els.saveSettings.addEventListener('click', async () => {
