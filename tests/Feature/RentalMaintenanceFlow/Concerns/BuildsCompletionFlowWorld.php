@@ -118,13 +118,24 @@ trait BuildsCompletionFlowWorld
 
     protected function faultReport(array $overrides = []): RentalFaultReport
     {
-        return RentalFaultReport::create(array_merge([
+        $fault = RentalFaultReport::create(array_merge([
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id, 'lease_id' => $this->lease->id,
             'reported_by_type' => RentalFaultReport::REPORTED_BY_TENANT, 'reported_by_contact_id' => $this->tenant->id,
             'reported_channel' => RentalFaultReport::CHANNEL_PHONE, 'captured_by_user_id' => $this->admin->id,
             'title' => 'Geyser not heating', 'description' => 'No hot water since Monday', 'status' => RentalFaultReport::STATUS_REPORTED,
             'owner_approval_status' => RentalFaultReport::APPROVAL_NOT_REQUIRED, 'reported_at' => now(), 'created_by_user_id' => $this->admin->id,
         ], $overrides));
+
+        // Section 22 (nothing is automatic): a work order needs a Decision 1 authorisation. These fixtures are faults the owner has already authorised;
+        // the "no authority, no work order" rule itself is proven in AuthorityFlowTest.
+        if (in_array($fault->status, [RentalFaultReport::STATUS_REPORTED, RentalFaultReport::STATUS_UNDER_REVIEW, RentalFaultReport::STATUS_AWAITING_APPROVAL], true)) {
+            \App\Models\RentalAuthorisation::withoutGlobalScopes()->create([
+                'agency_id' => $fault->agency_id, 'rental_fault_report_id' => $fault->id, 'point' => 'inspect', 'outcome' => 'authorised', 'basis' => 'owner_link',
+                'stage' => $fault->status, 'told_via' => 'link', 'told_at' => now(), 'by_contact_id' => $this->tenant->id,
+            ]);
+        }
+
+        return $fault;
     }
 
     /**

@@ -72,7 +72,7 @@ final class NightFlowFixesTest extends TestCase
         $html = $this->actingAs($this->admin)->get(route('corex.rental-fault-reports.show', $fault))->assertOk()->getContent();
 
         $appoint = strpos($html, 'data-appoint-contractor');
-        $description = strpos($html, 'Description (as reported)');
+        $description = strpos($html, 'What the tenant reported');
         $this->assertNotFalse($appoint, 'the appoint step is on the page');
         $this->assertLessThan($description, $appoint, 'above the description, where the agent is looking');
         $this->assertStringContainsString('Owner approved', $html);

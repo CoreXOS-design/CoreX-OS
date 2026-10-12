@@ -75,24 +75,11 @@ final class OwnerRouteAndQueueTest extends TestCase
     public function test_o1_the_owners_contractor_details_typed_on_the_decision_form_are_saved_and_reach_the_work_order(): void
     {
         $fault = $this->sentFault();
+        // section 22: the screen no longer carries this form (the agent uses "Record the owner's decision"); the endpoint stays for the API and still saves the owner's contractor
         $html = $this->actingAs($this->admin)->get(route('corex.rental-fault-reports.show', $fault))->assertOk()->getContent();
-        $fields = $this->formFields($html, 'record-approval-form');
-
-        $names = array_column($fields, 'name');
-        $this->assertSame(1, count(array_keys($names, 'contractor_name', true)), 'exactly one contractor_name input on the decision form (no duplicate hidden one)');
-        $this->assertSame(1, count(array_keys($names, 'contractor_phone', true)), 'exactly one contractor_phone input');
-
-        // fill what the person types, post EXACTLY the rendered field set (a real browser posts hidden/x-show fields too)
-        $values = ['decision' => 'approved', 'approval_route' => 'owner_handles', 'evidence_type' => 'verbal_note', 'evidence_text' => 'Owner phoned',
+        $this->assertStringNotContainsString('record-approval-form', $html);
+        $post = ['decision' => 'approved', 'approval_route' => 'owner_handles', 'evidence_type' => 'verbal_note', 'evidence_text' => 'Owner phoned',
             'contractor_name' => 'Pieter Pool Repairs', 'contractor_phone' => '082 555 0101'];
-        $post = [];
-        foreach ($fields as $f) {
-            if (in_array($f['type'], ['radio', 'checkbox'], true) || in_array($f['name'], ['_token'], true)) {
-                continue;
-            }
-            $post[$f['name']] = $values[$f['name']] ?? $f['value'];
-        }
-        $post = array_merge($post, $values);
         $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.approval.store', $fault), $post)->assertSessionHasNoErrors();
 
         $decision = $fault->fresh()->decision();
