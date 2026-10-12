@@ -1,0 +1,43 @@
+{{--
+    The app's own confirm step for a form button (replaces the browser's window.confirm() box - STANDARDS "Confirmations Before Destructive
+    Actions"). Put it INSIDE the <form>: the trigger button opens an in-page dialog; its "confirm" button is the form's real submit button
+    (so `name` / `value` reach the server exactly as a plain submit button's would). Escape, a click outside, or Cancel closes it.
+
+    <x-confirm-submit title="Send to the owner" message="Send this to the owner now?" confirm-label="Send to owner" name="send_now" value="1">Save and send</x-confirm-submit>
+
+    Extra attributes (class, x-bind:disabled, data-*) go to the trigger button. Pass :plain="true" to use your class instead of the default solid-primary one.
+--}}
+@props(['title' => 'Please confirm', 'message', 'confirmLabel' => 'Yes, continue', 'name' => null, 'value' => null, 'danger' => false, 'plain' => false])
+<span x-data="{
+        open: false, sending: false, err: '',
+        // J6 (Johan, 9 Oct 2026): the dialog opens only when the form is valid. Otherwise the browser's own message shows on the field AND the
+        // field is named here, so a required field left empty is never hidden behind the dialog.
+        ask() {
+            const f = this.$el.closest('form');
+            this.err = '';
+            if (f && !f.reportValidity()) {
+                const bad = f.querySelector(':invalid');
+                const label = bad ? ((bad.closest('div') && bad.closest('div').querySelector('label')) || {}).textContent : '';
+                this.err = (label ? label.replace(/\s+/g, ' ').trim() + ' - ' : '') + ((bad && bad.validationMessage) || 'please complete the form first');
+                return;
+            }
+            this.open = true;
+        }
+    }" x-on:keydown.escape.window="open = false" class="inline-block">
+    {{-- plain: the caller's own class is used as given. By default the trigger is ALWAYS solid-primary, and a class passed in is only appended to it (so "corex-btn-outline" never won). --}}
+    <button type="button" {{ $plain ? $attributes : $attributes->merge(['class' => 'corex-btn-primary text-xs']) }} x-on:click="ask()" data-confirm-trigger>{{ $slot }}</button>
+    <span class="block text-xs mt-1" style="color: var(--ds-crimson, #b3261e);" x-show="err" x-cloak x-text="err" data-confirm-error></span>
+    <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(15, 23, 42, .5);"
+         x-on:click.self="open = false" role="dialog" aria-modal="true" aria-label="{{ $title }}" data-confirm-modal>
+        <div class="rounded-md p-5 w-full max-w-md space-y-3" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+            <h3 class="text-sm font-semibold">{{ $title }}</h3>
+            <p class="text-sm">{{ $message }}</p>
+            <div class="flex justify-end gap-2">
+                <button type="button" class="corex-btn-outline text-xs" x-on:click="open = false" data-confirm-cancel>Cancel</button>
+                <button type="submit" @if($name) name="{{ $name }}" value="{{ $value }}" @endif
+                        class="{{ $danger ? 'corex-btn-outline' : 'corex-btn-primary' }} text-xs" @if($danger) style="color: var(--ds-crimson, #b3261e);" @endif
+                        x-on:click="sending = true" data-confirm-go>{{ $confirmLabel }}</button>
+            </div>
+        </div>
+    </div>
+</span>

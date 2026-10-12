@@ -40,14 +40,14 @@
 
             <label>Your signature - draw with your finger</label>
             <canvas id="pad" aria-label="Signature box"></canvas>
-            <button type="button" class="clear" id="clear">Clear</button>
+            <button type="button" class="clear" id="clear">Clear the signature</button>
 
             <label class="confirm" style="margin:14px 0 0; color:#0f172a; font-size:15px; font-weight:400;">
                 <input type="checkbox" id="confirmed"> <span>I confirm that I am collecting this title deed.</span>
             </label>
 
             <div class="err" id="err" role="alert"></div>
-            <button type="button" class="go" id="go">Confirm</button>
+            <button type="button" class="go" id="go">Confirm and sign</button>
             <div style="font-size:12px;color:#94a3b8;margin-top:10px;">This link works once and stops working at {{ $expires }}.</div>
         </form>
 

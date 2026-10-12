@@ -96,7 +96,7 @@ class TitleDeedConsentService
     public function recordPhoneConsent(User $by, TitleDeed $deed, array $rep, int $ownerContactId, int $phoneId, string $spokeTo, ?string $calledAt): TitleDeedConsent
     {
         $this->assertRepresentativeRouteOpen($deed);
-        if (! TitleDeedSetting::phoneConsentAllowedFor($deed->agency_id)) {
+        if (! TitleDeedPolicy::for($deed->agency_id)->phoneConsent) {
             throw new TitleDeedException('Phone-call consent is not switched on for this agency.');
         }
         $rep = $this->cleanRep($rep);
@@ -290,12 +290,14 @@ class TitleDeedConsentService
 
     private function assertRepresentativeRouteOpen(TitleDeed $deed): void
     {
-        $agencyId = $deed->agency_id;
-        if (! TitleDeedSetting::representativesAllowedFor($agencyId)) {
+        $policy = TitleDeedPolicy::for($deed->agency_id);
+        if (! $policy->repsAllowed) {
             throw new TitleDeedException('Representatives are not allowed to collect for this agency.');
         }
-        if (TitleDeedSetting::repWithoutPinModeFor($agencyId) === TitleDeedSetting::REP_REFUSE) {
-            throw new TitleDeedException('A representative cannot collect without the PIN at this agency.');
+        if (! $policy->repWithoutPinOffered()) {
+            throw new TitleDeedException($policy->pinRequired()
+                ? "At this agency the owner's PIN is required, so a representative must have it."
+                : 'A representative cannot collect without the PIN at this agency.');
         }
     }
 

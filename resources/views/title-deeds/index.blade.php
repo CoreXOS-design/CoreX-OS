@@ -8,7 +8,7 @@
             <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Title Deeds</h1>
             <div class="flex flex-wrap items-center gap-2">
                 @if($total > 0)
-                <a href="{{ route('title-deeds.export', request()->query()) }}" class="corex-btn-outline text-xs">Export CSV</a>
+                <a href="{{ route('title-deeds.export', request()->query()) }}" class="corex-btn-outline text-xs">Download as a spreadsheet (CSV)</a>
                 @endif
                 @permission('title_deeds.create')
                 <a href="{{ route('title-deeds.create') }}" class="corex-btn-primary text-xs">Log a deed</a>
@@ -57,7 +57,7 @@
                 <label for="td-agent" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Agent</label>
                 <select id="td-agent" name="agent_id" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <option value="">All agents</option>
-                    @foreach($agents as $a)<option value="{{ $a->id }}" @selected((string) $filters['agent_id'] === (string) $a->id)>{{ $a->name }}</option>@endforeach
+                    @foreach($agents as $a)<option value="{{ $a->id }}" @selected((string) $filters['agent_id'] === (string) $a->id)>{{ $a->label }}</option>@endforeach
                 </select>
             </div>
             @endif
@@ -70,7 +70,7 @@
                 <input id="td-to" type="date" name="to" value="{{ $filters['to'] }}" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
             <div class="flex items-center gap-2">
-                <button type="submit" class="corex-btn-primary">Filter</button>
+                <button type="submit" class="corex-btn-primary">Apply the filters</button>
                 @if($hasFilters)<a href="{{ route('title-deeds.index') }}" class="text-xs font-semibold" style="color: var(--brand-icon);">Clear</a>@endif
             </div>
         </form>
@@ -88,7 +88,7 @@
                         <x-sort-header field="status" label="Status" />
                         <x-sort-header field="waiting" label="Days waiting" align="right" />
                         <x-sort-header field="collected" label="Collected" />
-                        <th class="px-3 py-3"><span class="sr-only">Actions</span></th>
+                        <th class="text-right px-3 py-3 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">What to do</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -101,12 +101,11 @@
                         <td class="px-4 py-3">{{ $d->agent?->name ?? '—' }}</td>
                         <td class="px-4 py-3 whitespace-nowrap">{{ $d->received_at?->format('d M Y') }}</td>
                         <td class="px-4 py-3 whitespace-nowrap">
+                            {{-- Plain text: a coloured word looks like a link. Only "Archived" carries meaning that the row is out of play. --}}
                             @if($d->trashed())
-                                <span style="color: var(--ds-amber);">Archived</span>
-                            @elseif($d->isCollected())
-                                <span style="color: var(--ds-green);">Collected</span>
+                                <span class="inline-block rounded px-2 py-0.5 text-xs font-medium" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">Archived</span>
                             @else
-                                <span style="color: {{ $d->status === 'notified' ? 'var(--brand-icon)' : 'var(--text-secondary)' }};">{{ $d->status_label }}</span>
+                                <span style="color: var(--text-primary);">{{ $d->status_label }}</span>
                             @endif
                         </td>
                         <td class="px-4 py-3 text-right tabular-nums">{{ $d->days_waiting ?? '—' }}</td>
@@ -149,7 +148,8 @@
     <div x-show="ask" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(15, 23, 42, .5);" x-on:click.self="ask = null" x-on:keydown.escape.window="ask = null" role="dialog" aria-modal="true">
         <form method="POST" :action="ask ? ask.url : '#'" class="rounded-md p-5 w-full max-w-md space-y-3" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" x-on:submit="sending = true">
             @csrf
-            <input type="hidden" name="_form_token" :value="ask ? ask.token : ''">
+            <input type="hidden" name="_method" :value="ask && ask.method ? ask.method : 'POST'">
+            <input type="hidden" name="_form_token" :value="ask && ask.token ? ask.token : ''">
             <input type="hidden" name="return_to" :value="returnTo">
             <input type="hidden" name="channel" :value="ask && ask.channel ? ask.channel : ''">
             <h3 class="text-sm font-semibold" x-text="ask ? ask.title : ''"></h3>
@@ -160,12 +160,27 @@
             </div>
         </form>
     </div>
+
+    {{-- "More": every other action for one row, each as a worded button. Archive sits last and apart. --}}
+    <div x-show="more" x-cloak class="fixed inset-0 z-40 flex items-center justify-center p-4" style="background: rgba(15, 23, 42, .5);" x-on:click.self="more = null" x-on:keydown.escape.window="more = null" role="dialog" aria-modal="true" aria-label="More actions">
+        <div class="rounded-md p-5 w-full max-w-sm space-y-2" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+            <h3 class="text-sm font-semibold" x-text="more ? more.title : ''"></h3>
+            <template x-for="(it, i) in (more ? more.items : [])" :key="i">
+                <div :style="it.danger ? 'border-top: 1px solid var(--border); margin-top: .75rem; padding-top: .75rem;' : ''">
+                    <template x-if="it.href"><a :href="it.href" class="corex-btn-outline text-sm w-full block text-left no-underline" x-text="it.label"></a></template>
+                    <template x-if="it.ask"><button type="button" class="corex-btn-outline text-sm w-full text-left" :style="it.danger ? 'color: var(--ds-crimson);' : ''" x-text="it.label" @click="const a = it.ask; more = null; openAsk(a)"></button></template>
+                </div>
+            </template>
+            <div class="flex justify-end pt-2"><button type="button" class="corex-btn-outline text-xs" x-on:click="more = null">Close</button></div>
+        </div>
+    </div>
 </div>
 
 <script>
     function deedRowActions(cfg) {
         return {
-            ask: null, sending: false, returnTo: cfg.returnTo,
+            ask: null, more: null, sending: false, returnTo: cfg.returnTo,
+            openMore(m) { this.more = m; },
             openAsk(a) { this.sending = false; this.ask = a; },
             // The whole row opens the record - except a click on a link, button or form inside it.
             rowClick(e, url) {

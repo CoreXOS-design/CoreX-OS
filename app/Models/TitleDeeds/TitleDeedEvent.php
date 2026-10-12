@@ -26,13 +26,13 @@ class TitleDeedEvent extends Model
     public const KIND_SIGNING_LINK = 'signing_link';
 
     public const KIND_LABELS = [
-        self::KIND_OWNER_NOTICE => 'Owner notice',
-        self::KIND_PIN_RESEND => 'PIN resent',
-        self::KIND_PIN_NEW => 'New PIN',
-        self::KIND_CONSENT_REQUEST => 'Consent request',
-        self::KIND_REMINDER => 'Reminder',
-        self::KIND_COLLECTED_NOTICE => 'Collected notice',
-        self::KIND_SIGNING_LINK => 'Signing link',
+        self::KIND_OWNER_NOTICE => 'Collection notice',
+        self::KIND_PIN_RESEND => 'The PIN, sent again',
+        self::KIND_PIN_NEW => 'A new PIN',
+        self::KIND_CONSENT_REQUEST => 'Request to confirm a representative',
+        self::KIND_REMINDER => 'Reminder that the deed is waiting',
+        self::KIND_COLLECTED_NOTICE => 'Notice that the deed was collected',
+        self::KIND_SIGNING_LINK => 'Link to sign on their own phone',
     ];
 
     public const CHANNEL_EMAIL = 'email';
@@ -75,5 +75,13 @@ class TitleDeedEvent extends Model
     public function deed(): BelongsTo
     {
         return $this->belongsTo(TitleDeed::class, 'title_deed_id')->withTrashed();
+    }
+
+    /** What this message is, in words ("Collection notice with the PIN"), for the panel that waits for a person to send it. */
+    public function messageLabel(bool $pinUsed): string
+    {
+        $label = self::KIND_LABELS[$this->kind] ?? $this->kind;
+
+        return ($pinUsed && in_array($this->kind, [self::KIND_OWNER_NOTICE, self::KIND_REMINDER], true)) ? $label . ' with the PIN' : $label;
     }
 }

@@ -196,7 +196,7 @@ final class TitleDeedNotifyTest extends TitleDeedTestCase
 
     public function test_when_the_agency_does_not_use_a_pin_the_notice_has_none(): void
     {
-        TitleDeedSetting::create(['agency_id' => $this->agencyId, 'pin_required' => false]);
+        $this->settings(['pin_mode' => 'not_used']);
         $deed = $this->deed([$this->contact('Thandi', 'Mkhize')]);
 
         $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id), $this->tk('notify', $deed))->assertSessionHas('success');

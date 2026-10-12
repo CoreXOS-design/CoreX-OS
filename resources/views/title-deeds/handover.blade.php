@@ -2,7 +2,7 @@
 
 @section('corex-content')
 @php
-    $s = $ctx['settings'];
+    $p = $ctx['policy'];
     $pin = $ctx['pin'];
     $consent = $ctx['consent'];
     $ovr = $ctx['override'];
@@ -10,8 +10,43 @@
     $input = 'w-full rounded-md px-3 py-3 text-base';
     $inputStyle = 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);';
     $lbl = 'block text-xs font-medium mb-1';
-    $repOpen = $s['representatives_allowed'] && $s['rep_mode'] !== 'refuse';
-    $startMode = old('method', ($s['pin_required'] && $pin['issued'] && ! $pin['locked']) ? 'pin' : 'id_check');
+    $repOpen = $p->repWithoutPinOffered();
+    // Which ways in are offered at all: Not used / Required are applied here, so staff only ever see what the server will accept.
+    $tabs = collect([
+        'pin' => $p->pinUsed() ? 'The collector has the PIN' : null,
+        'id_check' => ($p->ownerIdCheckOffered()) ? 'The owner is here without the PIN' : null,
+        'representative' => $repOpen ? 'Someone else is here without the PIN' : null,
+    ])->filter();
+    $startMode = old('method');
+    if (! $tabs->has($startMode)) {
+        $startMode = ($p->pinUsed() && $pin['issued'] && ! $pin['locked']) ? 'pin' : ($tabs->keys()->first() ?? 'pin');
+    }
+    $photoNote = $p->photoRequired() ? '' : ' (optional)';
+    // The few steps that will happen, per way in, so staff know what is coming before they start.
+    $steps = [
+        'pin' => array_values(array_filter([
+            "Type the PIN the collector gives you",
+            $p->photoUsed() ? "Photograph the collector's ID" . $photoNote : null,
+            $p->signatureUsed() ? ($p->signOnScreen ? 'The collector signs in the box' . ($p->signatureRequired() ? '' : ' (optional)') : 'Send the collector a signing link and wait for them to sign') : null,
+            'Press "Hand the deed over"',
+        ])),
+        'id_check' => array_values(array_filter([
+            "Choose the owner and type the ID number you saw",
+            $p->photoUsed() ? "Photograph the collector's ID" . $photoNote : null,
+            $p->signatureUsed() ? ($p->signOnScreen ? 'The owner signs in the box' . ($p->signatureRequired() ? '' : ' (optional)') : 'Send the owner a signing link and wait for them to sign') : null,
+            'Press "Hand the deed over"',
+        ])),
+        'representative' => array_values(array_filter([
+            "Type their name, ID number and relationship to the owner",
+            $p->repRule === 'consent_or_letter'
+                ? 'Ask the owner to confirm by link, or upload the signed authority letter' . ($p->phoneConsent ? ' (or record a phone call)' : '')
+                : 'Ask the owner to confirm by link' . ($p->phoneConsent ? ' (or record a phone call)' : ''),
+            ($p->letterRequired() && $p->repRule !== 'consent_or_letter') ? 'Upload the owner\'s signed authority letter' : null,
+            $p->photoUsed() ? "Photograph the collector's ID" . $photoNote : null,
+            $p->signatureUsed() ? ($p->signOnScreen ? 'They sign in the box' . ($p->signatureRequired() ? '' : ' (optional)') : 'Send them a signing link and wait for them to sign') : null,
+            'Press "Hand the deed over"',
+        ])),
+    ];
     $blocked = $ovr['needed'] && ! $ovr['can'];
     $hasLink = (bool) $link;
 @endphp
@@ -23,7 +58,10 @@
         pollUrl: @js($pollUrl),
         signingPollUrl: @js($signingPollUrl),
         linkState: @js($linkState),
-        sigRequired: @js($s['signature_required']),
+        sigRequired: @js($p->signatureRequired()),
+        sigOnScreen: @js($p->signOnScreen),
+        letterRequired: @js($p->letterRequired()),
+        repRule: @js($p->repRule),
         showUrl: @js(route('title-deeds.show', $deed->id)),
      })">
 
@@ -68,19 +106,19 @@
                     @csrf <input type="hidden" name="_form_token" value="{{ $tokens['link_email'] }}">
                     <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="send_email">Email for the link</label>
                     <input id="send_email" name="send_email" type="email" maxlength="191" value="{{ old('send_email', $link->send_email) }}" class="{{ $input }}" style="{{ $inputStyle }}">
-                    <button type="submit" class="corex-btn-outline text-xs">Email link</button>
+                    <button type="submit" class="corex-btn-outline text-xs">Email the link to the collector</button>
                 </form>
                 <form method="POST" action="{{ route('title-deeds.signing-link.whatsapp', [$deed->id, $link->id]) }}" class="space-y-1">
                     @csrf <input type="hidden" name="_form_token" value="{{ $tokens['link_whatsapp'] }}">
                     <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="send_mobile">Mobile for WhatsApp</label>
                     <input id="send_mobile" name="send_mobile" type="tel" maxlength="40" value="{{ old('send_mobile', $link->send_mobile) }}" class="{{ $input }}" style="{{ $inputStyle }}">
-                    <button type="submit" class="corex-btn-outline text-xs">Prepare WhatsApp</button>
+                    <button type="submit" class="corex-btn-outline text-xs">Prepare a WhatsApp with the link</button>
                 </form>
             </div>
             @else
             <div class="flex flex-wrap items-center gap-2">
-                <form method="POST" action="{{ route('title-deeds.signing-link.email', [$deed->id, $link->id]) }}">@csrf <input type="hidden" name="_form_token" value="{{ $tokens['link_email'] }}"><button type="submit" class="corex-btn-outline text-xs">Email link</button></form>
-                <form method="POST" action="{{ route('title-deeds.signing-link.whatsapp', [$deed->id, $link->id]) }}">@csrf <input type="hidden" name="_form_token" value="{{ $tokens['link_whatsapp'] }}"><button type="submit" class="corex-btn-outline text-xs">Prepare WhatsApp</button></form>
+                <form method="POST" action="{{ route('title-deeds.signing-link.email', [$deed->id, $link->id]) }}">@csrf <input type="hidden" name="_form_token" value="{{ $tokens['link_email'] }}"><button type="submit" class="corex-btn-outline text-xs">Email the link to the collector</button></form>
+                <form method="POST" action="{{ route('title-deeds.signing-link.whatsapp', [$deed->id, $link->id]) }}">@csrf <input type="hidden" name="_form_token" value="{{ $tokens['link_whatsapp'] }}"><button type="submit" class="corex-btn-outline text-xs">Prepare a WhatsApp with the link</button></form>
             </div>
             @endif
 
@@ -101,27 +139,36 @@
                 <button type="submit" class="corex-btn-primary text-base py-3 px-6" :disabled="linkState.state !== 'signed' || submitting" @if($blocked) disabled @endif>Hand the deed over</button>
             </form>
             <form method="POST" action="{{ route('title-deeds.signing-link.cancel', [$deed->id, $link->id]) }}">@csrf
-                <x-confirm-submit title="Cancel the signing link" message="The link stops working{{ $link->status === 'signed' ? ' and the collector\'s signature is discarded' : '' }}. You can sign on this screen or generate a new link." confirm-label="Cancel the link" :danger="true" class="corex-btn-outline text-xs">Cancel link</x-confirm-submit>
+                <x-confirm-submit :plain="true" title="Cancel the signing link" message="The link stops working{{ $link->status === 'signed' ? ' and the collector\'s signature is discarded' : '' }}. You can sign on this screen or create a new link." confirm-label="Cancel the link" :danger="true" class="corex-btn-outline text-xs">Cancel the signing link</x-confirm-submit>
             </form>
         </div>
     </div>
 
     @include('title-deeds._prepared-whatsapp', ['prepared' => $prepared, 'deed' => $deed])
 @else
-    {{-- How is it being handed over? --}}
-    <div class="grid grid-cols-3 gap-2 text-sm" role="tablist">
-        <button type="button" class="rounded-md px-2 py-3 font-semibold" :style="mode === 'pin' ? 'background: var(--brand-icon); color: #fff;' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'" @click="mode = 'pin'">Has the PIN</button>
-        <button type="button" class="rounded-md px-2 py-3 font-semibold" :style="mode === 'id_check' ? 'background: var(--brand-icon); color: #fff;' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'" @click="mode = 'id_check'">Owner, ID check</button>
-        <button type="button" class="rounded-md px-2 py-3 font-semibold" :style="mode === 'representative' ? 'background: var(--brand-icon); color: #fff;' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'" @click="mode = 'representative'">Rep, no PIN</button>
+    {{-- How is it being handed over? Spelled as the situation at the counter. A way that is Not used (or ruled out by a Required PIN) is not shown at all. --}}
+    @if($tabs->count() > 1)
+    <div class="grid gap-2 text-sm {{ $tabs->count() === 3 ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2' }}" role="tablist" aria-label="Who is at the counter">
+        @foreach($tabs as $key => $label)
+        <button type="button" class="rounded-md px-3 py-3 font-semibold text-left" role="tab" :aria-selected="mode === '{{ $key }}'" :style="mode === '{{ $key }}' ? 'background: var(--brand-icon); color: #fff;' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'" @click="mode = '{{ $key }}'">{{ $label }}</button>
+        @endforeach
     </div>
+    @elseif($p->pinRequired())
+    <div class="text-sm font-semibold" style="color: var(--text-primary);">This agency needs the owner's PIN to hand a deed over.</div>
+    @endif
+
+    @foreach($steps as $key => $list)
+        @if($tabs->has($key))
+        <div x-show="mode === '{{ $key }}'" x-cloak class="rounded-md px-4 py-3 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" data-steps="{{ $key }}">
+            <span class="font-semibold">What happens next:</span>
+            @foreach($list as $i => $step)<span class="whitespace-nowrap">{{ $i + 1 }}. {{ $step }}{{ $loop->last ? '' : ';' }}</span> @endforeach
+        </div>
+        @endif
+    @endforeach
 
     {{-- Representative without the PIN: ask the owners / record a phone call (their own forms) --}}
     <div x-show="mode === 'representative'" x-cloak class="space-y-4">
-        @if(! $repOpen)
-            <div class="rounded-md p-4 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">
-                @if(! $s['representatives_allowed']) Representatives are not allowed to collect at this agency. @else A representative must have the PIN at this agency. @endif
-            </div>
-        @else
+        @if($repOpen)
         <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="text-sm font-semibold" style="color: var(--text-primary);">Who is collecting</div>
             <form method="POST" action="{{ route('title-deeds.consent.request', $deed->id) }}" id="rep-form" class="space-y-3">
@@ -141,9 +188,9 @@
                         <input id="rep_relationship" name="rep_relationship" type="text" maxlength="100" value="{{ old('rep_relationship') }}" x-model="rep.rel" class="{{ $input }}" style="{{ $inputStyle }}" :readonly="consentLocksRep">
                     </div>
                 </div>
-                @if($s['rep_mode'] !== 'refuse')
+                @if($p->repRule !== 'refuse')
                 <div class="flex flex-wrap items-center gap-3">
-                    <button type="submit" class="corex-btn-primary" x-show="!consentLocksRep">Ask owner to confirm</button>
+                    <button type="submit" class="corex-btn-primary" x-show="!consentLocksRep">Ask the owner to confirm by link</button>
                     <template x-if="consent.state === 'waiting' && consent.consent_id">
                         <button type="submit" form="cancel-consent-form" class="text-xs font-semibold" style="color: var(--ds-crimson);">Withdraw the request</button>
                     </template>
@@ -166,7 +213,7 @@
 
         @include('title-deeds._prepared-whatsapp', ['prepared' => $prepared, 'deed' => $deed])
 
-        @if($s['phone_consent_allowed'])
+        @if($p->phoneConsent)
         <details class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
             <summary class="text-sm font-semibold cursor-pointer" style="color: var(--text-primary);">Record a phone call instead</summary>
             <form method="POST" action="{{ route('title-deeds.consent.phone', $deed->id) }}" class="space-y-3 mt-3"
@@ -198,7 +245,7 @@
                         <input id="called_at" name="called_at" type="datetime-local" max="{{ now()->format('Y-m-d\TH:i') }}" value="{{ now()->format('Y-m-d\TH:i') }}" class="{{ $input }}" style="{{ $inputStyle }}">
                     </div>
                 </div>
-                <button type="submit" class="corex-btn-outline">Record the call</button>
+                <button type="submit" class="corex-btn-outline">Record the phone call</button>
             </form>
         </details>
         @endif
@@ -220,7 +267,7 @@
 
         {{-- PIN --}}
         <div x-show="mode === 'pin'" x-cloak class="space-y-3">
-            @if(! $s['pin_required'])
+            @if(! $p->pinUsed())
                 <div class="text-sm" style="color: var(--text-secondary);">This agency does not use a collection PIN.</div>
             @elseif(! $pin['issued'])
                 <div class="text-sm" style="color: var(--text-secondary);">No PIN has been issued yet - notify the owners from the record first.</div>
@@ -236,7 +283,7 @@
                     <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="collector_type">Who is collecting</label>
                     <select id="collector_type" name="collector_type" x-model="collectorType" class="{{ $input }}" style="{{ $inputStyle }}">
                         <option value="owner">An owner</option>
-                        @if($s['representatives_allowed'])<option value="representative">A representative</option>@endif
+                        @if($p->repsAllowed)<option value="representative">A representative (who has the PIN)</option>@endif
                     </select>
                 </div>
                 <div x-show="collectorType === 'representative'" x-cloak class="space-y-3">
@@ -267,44 +314,45 @@
             </div>
         </div>
 
-        {{-- Representative: authority letter --}}
-        <div x-show="mode === 'representative'" x-cloak class="space-y-2">
-            @if($s['rep_mode'] === 'consent_or_letter' || $s['authority_letter_required'])
-            <div>
-                <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="authority_letter">
-                    Signed authority letter @if($s['authority_letter_required']) (required) @elseif($s['rep_mode'] === 'consent_or_letter') (instead of the owners' confirmation) @endif
-                </label>
-                <input id="authority_letter" name="authority_letter" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic" capture="environment" class="block w-full text-sm" style="color: var(--text-secondary);">
-            </div>
-            @endif
-        </div>
-
-        @if($s['collector_id_photo_required'])
-        <div>
-            <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="collector_id_photo">Photo of the collector's ID</label>
-            <input id="collector_id_photo" name="collector_id_photo" type="file" accept="image/*,.pdf" capture="environment" required class="block w-full text-sm" style="color: var(--text-secondary);">
+        {{-- Authority letter (Required / Optional; Not used = not shown). Only for a representative. --}}
+        @if($p->letterUsed())
+        <div x-show="mode === 'representative' || (mode === 'pin' && collectorType === 'representative')" x-cloak>
+            <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="authority_letter" x-text="letterLabel()">Signed authority letter</label>
+            <input id="authority_letter" name="authority_letter" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic" capture="environment" class="block w-full text-sm" style="color: var(--text-secondary);" :required="letterIsRequired()">
         </div>
         @endif
 
-        {{-- Collector signs on THIS screen --}}
+        {{-- Photo of the collector's ID (Required / Optional; Not used = not shown) --}}
+        @if($p->photoUsed())
+        <div>
+            <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="collector_id_photo">Photo of the collector's ID{{ $photoNote }}</label>
+            <input id="collector_id_photo" name="collector_id_photo" type="file" accept="image/*,.pdf" capture="environment" @if($p->photoRequired()) required @endif class="block w-full text-sm" style="color: var(--text-secondary);">
+        </div>
+        @endif
+
+        {{-- Signature: Required / Optional on this screen; "Not used" or "sign on our screen = No" = no box at all --}}
+        @if($p->signatureUsed() && $p->signOnScreen)
         <div class="space-y-3">
             <div>
-                <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="typed_name">Collector's full name{{ $s['signature_required'] ? '' : ' (optional)' }}</label>
+                <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="typed_name">Collector's full name{{ $p->signatureRequired() ? '' : ' (optional)' }}</label>
                 <input id="typed_name" name="typed_name" type="text" maxlength="191" autocomplete="off" value="{{ old('typed_name') }}" class="{{ $input }}" style="{{ $inputStyle }}">
             </div>
             <div>
-                <label class="{{ $lbl }}" style="color: var(--text-secondary);">Collector signs here{{ $s['signature_required'] ? '' : ' (optional)' }}</label>
+                <label class="{{ $lbl }}" style="color: var(--text-secondary);">Collector signs here{{ $p->signatureRequired() ? '' : ' (optional)' }}</label>
                 <canvas x-ref="pad" id="td-signature-pad" class="w-full block rounded-md" style="height:180px; touch-action:none; background:#fff; border: 1px solid var(--border);" aria-label="Signature box"></canvas>
                 <div class="flex items-center justify-between">
-                    <button type="button" @click="clearPad()" class="mt-1 text-xs underline" style="color: var(--text-muted);">Clear</button>
+                    <button type="button" @click="clearPad()" class="mt-1 text-xs underline" style="color: var(--text-muted);">Clear the signature</button>
                     <span x-show="padFailed" x-cloak class="text-xs" style="color: var(--ds-crimson);">The signature box could not start. Reload this page, or use the signing link below.</span>
                 </div>
             </div>
         </div>
+        @elseif($p->signatureUsed())
+        <div class="text-sm" style="color: var(--text-secondary);">Signing on this screen is switched off at this agency{{ $p->signByLink ? ': send the collector a signing link below.' : '.' }}</div>
+        @endif
 
         @if($signByLink)
-        <details class="rounded-md p-3" style="background: var(--surface-2); border: 1px solid var(--border);" @if($errors->any() && old('send_email')) open @endif>
-            <summary class="text-sm font-semibold cursor-pointer" style="color: var(--text-primary);">Collector signs on their own phone instead</summary>
+        <details class="rounded-md p-3" style="background: var(--surface-2); border: 1px solid var(--border);" @if(($errors->any() && old('send_email')) || ! $p->signOnScreen) open @endif>
+            <summary class="text-sm font-semibold cursor-pointer" style="color: var(--text-primary);">{{ $p->signOnScreen ? 'Or: the collector signs on their own phone' : 'The collector signs on their own phone' }}</summary>
             <div class="mt-3 space-y-3">
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" x-show="mode === 'representative' || (mode === 'pin' && collectorType === 'representative')" x-cloak>
                     <div>
@@ -316,7 +364,7 @@
                         <input id="send_mobile_new" name="send_mobile" type="tel" maxlength="40" value="{{ old('send_mobile') }}" class="{{ $input }}" style="{{ $inputStyle }}">
                     </div>
                 </div>
-                <button type="submit" formaction="{{ route('title-deeds.signing-link.generate', $deed->id) }}" data-link="1" class="corex-btn-outline text-sm">Generate signing link</button>
+                <button type="submit" formaction="{{ route('title-deeds.signing-link.generate', $deed->id) }}" data-link="1" class="corex-btn-outline text-sm">Create the signing link</button>
             </div>
         </details>
         @endif
@@ -360,15 +408,21 @@
             padApi() { const c = this.$refs.pad; return c && window.tdSignaturePad ? window.tdSignaturePad.of(c) : null; },
             setupPad() {
                 const c = this.$refs.pad;
-                if (!c) return;
+                if (!c) return;   // signature Not used, or signing on this screen is switched off
                 if (!window.tdSignaturePad) { this.padFailed = true; return; }
                 window.tdSignaturePad.attach(c, { onChange: (empty) => { this.padEmpty = empty; this.clientError = ''; } });
                 setTimeout(() => { const p = this.padApi(); if (!p || !p.ready()) this.padFailed = true; }, 1500);
             },
             clearPad() { const p = this.padApi(); if (p) p.clear(); },
+            letterIsRequired() { return cfg.letterRequired; },
+            letterLabel() {
+                if (cfg.letterRequired) return 'Signed authority letter (required)';
+                if (this.mode === 'representative' && cfg.repRule === 'consent_or_letter') return "Signed authority letter (instead of the owner's confirmation)";
+                return 'Signed authority letter (optional)';
+            },
             get consentLocksRep() { return this.consent.state === 'waiting' || this.consent.state === 'approved'; },
             canSubmit() {
-                @if($s['rep_mode'] === 'owner_consent')
+                @if($p->repRule === 'owner_consent')
                 if (this.mode === 'representative') return this.consent.state === 'approved';
                 @endif
                 return true;
@@ -397,6 +451,11 @@
                 this.clientError = '';
                 const viaLink = e.submitter && e.submitter.dataset && e.submitter.dataset.link === '1';
                 if (viaLink) { this.submitting = false; return; }          // generating a signing link needs no signature on this screen
+                if (!this.$refs.pad) {
+                    // No box on this screen: signing here is switched off, or no signature is collected at all.
+                    if (cfg.sigRequired) { e.preventDefault(); this.clientError = 'This agency collects the signature on the collector\'s own phone. Create the signing link below and wait for them to sign.'; return; }
+                    this.submitting = true; return;
+                }
                 const name = (document.getElementById('typed_name') || {}).value || '';
                 if (cfg.sigRequired && name.trim().length < 2) { e.preventDefault(); this.clientError = "Type the collector's full name before they sign."; return; }
                 const p = this.padApi();

@@ -44,7 +44,7 @@ class TitleDeedNotifier
             $pin = DB::transaction(function () use ($by, $deed) {
                 $locked = $this->lockOpenDeed($deed);
                 $code = null;
-                if (TitleDeedSetting::pinRequiredFor($locked->agency_id)) {
+                if (TitleDeedPolicy::for($locked->agency_id)->pinUsed()) {
                     $this->assertNotLocked($locked);
                     if ($this->pins->hasActivePin($locked) && ($code = $this->pins->currentCode($locked))) {
                         // an earlier notice already issued it
@@ -73,7 +73,7 @@ class TitleDeedNotifier
         return $this->withNoticeLock($deed, function () use ($by, $deed, $channel) {
             $code = DB::transaction(function () use ($deed) {
                 $locked = $this->lockOpenDeed($deed);
-                if (! TitleDeedSetting::pinRequiredFor($locked->agency_id)) {
+                if (! TitleDeedPolicy::for($locked->agency_id)->pinUsed()) {
                     throw new TitleDeedException('This agency does not use a collection PIN.');
                 }
                 $this->assertNotLocked($locked);
@@ -98,7 +98,7 @@ class TitleDeedNotifier
         return $this->withNoticeLock($deed, function () use ($by, $deed) {
             $code = DB::transaction(function () use ($by, $deed) {
                 $locked = $this->lockOpenDeed($deed);
-                if (! TitleDeedSetting::pinRequiredFor($locked->agency_id)) {
+                if (! TitleDeedPolicy::for($locked->agency_id)->pinUsed()) {
                     throw new TitleDeedException('This agency does not use a collection PIN.');
                 }
                 $had = $locked->pin_version > 0;
@@ -190,6 +190,25 @@ class TitleDeedNotifier
         });
     }
 
+    /**
+     * "Not sending this one": the person decides the message will not be sent at all (opened or not). It leaves the waiting list and
+     * the history says who decided and when; the deed is never marked as notified by it.
+     *
+     * @throws TitleDeedException
+     */
+    public function dismissWhatsapp(User $by, TitleDeed $deed, TitleDeedEvent $event): void
+    {
+        DB::transaction(function () use ($by, $deed, $event) {
+            $row = $this->lockWhatsappRow($deed, $event);
+            if (in_array($row->status, [TitleDeedEvent::STATUS_NOT_SENT, TitleDeedEvent::STATUS_SENT], true)) {
+                return;   // already settled: absorbed
+            }
+            $row->forceFill(['status' => TitleDeedEvent::STATUS_NOT_SENT, 'user_id' => $by->id, 'payload_encrypted' => null])->save();
+            TitleDeedAuditLog::record($deed, TitleDeedAuditLog::EVENT_WHATSAPP_NOT_SENT,
+                'WhatsApp to ' . ($row->owner_name ?: 'owner') . ' not sent - cleared by ' . $by->name . '. (' . (TitleDeedEvent::KIND_LABELS[$row->kind] ?? $row->kind) . ', ' . $row->destination_masked . ')', null, ['kind' => $row->kind], $by);
+        });
+    }
+
     private function lockWhatsappRow(TitleDeed $deed, TitleDeedEvent $event): TitleDeedEvent
     {
         $row = TitleDeedEvent::query()->lockForUpdate()->find($event->id);
@@ -240,7 +259,7 @@ class TitleDeedNotifier
             }
             $text = $payloadText;
         } else {
-            $pin = TitleDeedSetting::pinRequiredFor($deed->agency_id) ? $this->pins->currentCode($deed) : null;
+            $pin = TitleDeedPolicy::for($deed->agency_id)->pinUsed() ? $this->pins->currentCode($deed) : null;
             $text = $this->noticeText($first, $deed->property_display, $agencyName, $pin, $event->kind === TitleDeedEvent::KIND_REMINDER);
         }
 
@@ -253,7 +272,7 @@ class TitleDeedNotifier
     public function sendReminder(TitleDeed $deed): array
     {
         $pin = null;
-        if (TitleDeedSetting::pinRequiredFor($deed->agency_id) && $this->pins->hasActivePin($deed) && ! $this->pins->isLocked($deed)) {
+        if (TitleDeedPolicy::for($deed->agency_id)->pinUsed() && $this->pins->hasActivePin($deed) && ! $this->pins->isLocked($deed)) {
             $pin = $this->pins->currentCode($deed);
         }
 

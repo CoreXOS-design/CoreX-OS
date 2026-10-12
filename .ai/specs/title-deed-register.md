@@ -306,3 +306,79 @@ CSRF (the token is the credential) and throttled; every dead link (expired, canc
 ### 14.11 Round-2 test files
 `TitleDeedRound2Test` (items 1-8), `TitleDeedSigningLinkTest` (item 10), the adapted round-1 files, and the real-browser check
 `scripts/verify-title-deed-signature.mjs` (item 9; also signs on the public page with `--sign-url`).
+
+## 15. Round 3 - the settings screen as sentences (AT-450, QA1)
+
+### 15.1 Why
+The first screen was eight bare ticks with noun labels that mixed three meanings (REQUIRED: PIN, signature, ID photo, authority letter;
+ALLOWED: representatives, phone consent, sign by link; DO THIS: tell the listing agent). Nobody could tell what a tick meant. Every setting
+is now a question with its own explicit answer, in sections, with a one-line plain consequence.
+
+### 15.2 The answers, and what each setting did before (carried over faithfully)
+Three-way (Required / Optional / Not used) - `pin_mode`, `signature_mode`, `collector_id_photo_mode`, `authority_letter_mode`:
+- **Required** = the deed cannot be handed over without it. **Optional** = offered, may be skipped; the record then says "Not captured".
+  **Not used** = not shown at all (anything posted anyway is ignored, never stored).
+- Before: `pin_required` on = a PIN was sent and was one way in (ID check stayed available), off = no PIN; `signature_required` off = the box was
+  offered "(optional)"; `collector_id_photo_required` off = the field was not shown; `authority_letter_required` off = a letter was still accepted
+  where it applied. Migration `2026_10_24_100000`: on -> Required; PIN off -> Not used, signature off -> Optional, photo off -> Not used, letter
+  off -> Optional; a NULL (never chosen) stays NULL and takes the new default. The four old columns are dropped after the copy.
+- Agency 1 on QA1 (Johan set every tick himself at 15:04 on 12 Oct to test, reminders 30 / 2) therefore became PIN Required, signature Required,
+  photo Required, letter Required - his choices, untouched.
+Yes / No: `representatives_allowed`, `phone_consent_allowed`, `sign_on_screen_enabled` (new, default Yes), `sign_by_link_enabled`, `notify_listing_agent`.
+One select kept: `rep_without_pin_mode` (Refuse / Ask the owner to confirm by link / Owner link or a signed authority letter).
+Six numbers, each with its unit and consequence: `pin_lock_attempts`, `consent_validity_minutes`, `reminder_days`, `max_reminders`,
+`signing_link_minutes`, `contact_changed_block_days`.
+Approved defaults (code, wizard and screen agree): PIN Required, signature Required, representatives Yes, rule "owner confirms by link", phone consent No,
+authority letter Optional (the old "off"), photo of ID Not used, sign on screen Yes, sign by link Yes, listing agent told Yes, 5 attempts, 60 / 30 minutes, 14 days, 3 reminders, 7 days.
+
+### 15.3 Effective rules (`TitleDeedPolicy`, the ONE place screens and server read)
+- PIN Required: the PIN is the only way to collect. The owner ID check and every "without the PIN" route are not offered (the server refuses them), the
+  "representative without the PIN" rule is hidden and effectively Refuse, phone consent is unavailable. To get those routes back, make the PIN Optional.
+- PIN Optional: the PIN is sent and may be used; staff may instead check the owner's ID, or take a representative by the rule below; the record says "PIN: Not captured".
+- PIN Not used: no PIN is issued or sent, the PIN tab and "PIN" buttons are not shown; ID check / representative routes apply.
+- Representatives = No: no representative route; the rule, phone consent and authority letter are ignored (letter effectively Not used).
+- Phone consent exists only where a representative can arrive without the PIN and the rule is not Refuse.
+- Authority letter: applies to EVERY representative handover (with the PIN, by consent, or alone). Required = must be uploaded; Optional = may be, and is the
+  alternative to the owner's confirmation under "owner link or a signed authority letter"; Not used = never asked (the rule then falls back to "owner link").
+- Signature Not used: no box, no signing link, "Ways to sign" ignored. Sign on our screen = No: no box on our screen (a Required signature must then come by link).
+- A skipped signature leaves `signed_at / typed name / ip / via` empty; the receipt keeps `proof_modes` (as they stood) so the record can say "Not captured".
+
+### 15.4 Combinations refused on save (plain messages; nothing is saved)
+1. Signature Required and both ways to sign are No -> "The signature is Required, so at least one way to sign must be Yes".
+2. Representatives allowed + PIN Not used + rule Refuse -> no representative could ever collect: pick another rule, or answer No to "May a representative collect?".
+3. Representatives allowed + PIN not Required + rule "Owner link or a signed authority letter" + letter Not used -> the rule needs the letter.
+Settings hidden by their parent (rule / phone consent / letter when representatives are No or the PIN is Required; the ways to sign when the signature is Not used; numbers that
+do not apply) are not posted and never an error. A post that never rendered a field leaves it alone (wizard subset rule).
+
+### 15.5 History
+`title_deed_setting_history`: one row per changed setting - who, from, to, when, source (screen / wizard) - shown at the bottom of the settings screen. Unchanged answers are not logged.
+
+### 15.6 Handover and record follow the values exactly
+Tabs are spelled as the counter: "The collector has the PIN" / "The owner is here without the PIN" / "Someone else is here without the PIN" (a tab the settings rule out is not shown;
+a single way shows a sentence instead of tabs). Under the chosen one a "What happens next" line lists the 3-4 steps that follow from the settings. PIN, signature and ID photo each
+proven Required / Optional / Not used in `TitleDeedRound3Test`.
+
+## 16. Round 3 - every screen says what happens
+
+### 16.1 List
+One labelled button for the row's next step ("Notify owners" for Received, "Hand over" for Owner notified, "Open" when there is none) and a labelled "More" button opening a
+panel of worded buttons (Open this title deed, Hand over, Send the PIN again, Issue a new PIN, Email the owners, Prepare a WhatsApp to the owners, Restore / Archive this title deed - Archive
+last and apart). No icon-only buttons in the module. Status is plain text; only "Archived" gets a neutral chip.
+
+### 16.2 WhatsApp waiting to be sent
+Each line says which message ("Collection notice with the PIN"), to whom, and since when. Buttons: "Open WhatsApp and send" -> "Mark as sent", and on EVERY line
+"Don't send - clear this" (confirmed in the app dialog). Clearing never deletes: the message row stays as `not_sent`, its text is dropped, the deed history gets
+"WhatsApp to <name> not sent - cleared by <user>", the record's message table shows "Not sent - cleared by <user> on <date>", the owner is not counted as told, and it leaves the waiting list.
+
+### 16.3 Create form
+Required fields say "(required)", optional ones "(optional)". The responsible-agent list shows only active people who are not assistants, each as "Name - Role, Branch". Under the Deal box,
+while no deal is picked: "Fills property, owners, agents and attorney." Remove buttons say "Remove".
+
+### 16.4 Record
+One solid primary action (the next step for the status: "Notify the owners" / "Hand over" / "Restore this title deed"); the rest are outlined; "Archive this title deed" is separated and
+confirmed in the app dialog. (Cause of Archive looking primary: the shared confirm button always added the solid primary class and a passed class was only appended; the component now
+takes `:plain="true"` to use the caller's class - default unchanged for every other module.) "Kept at" with no location reads "No storage location chosen" with a "Choose a location" link.
+
+### 16.5 Wording rule
+Every label says what happens, every button is a verb phrase, no control depends on a tooltip. Strings changed in round 3 are listed in the round-3 report.
+

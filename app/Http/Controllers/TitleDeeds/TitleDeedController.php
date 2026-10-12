@@ -69,7 +69,7 @@ class TitleDeedController extends Controller
             'total' => TitleDeed::query()->visibleTo($user)->count(),
             'statuses' => TitleDeed::STATUS_LABELS,
             'can' => $this->can($user),
-            'pinRequired' => TitleDeedSetting::pinRequiredFor((int) $user->effectiveAgencyId()),
+            'pinUsed' => \App\Services\TitleDeeds\TitleDeedPolicy::for((int) $user->effectiveAgencyId())->pinUsed(),
             'token' => fn (string $purpose, int $deedId) => app(TitleDeedFormGuard::class)->issue($user, $purpose, $deedId),
             'pendingWhatsapp' => $this->pendingWhatsapp($user),
         ]);
@@ -182,7 +182,7 @@ class TitleDeedController extends Controller
         $deed = $this->find($request, $id);
         $this->deeds->archive($request->user(), $deed);
 
-        return redirect()->route('title-deeds.index')->with('success', 'Title deed archived.');
+        return redirect($this->returnTo($request, route('title-deeds.index')))->with('success', 'Title deed archived.');
     }
 
     public function restore(Request $request, int $id): RedirectResponse
@@ -190,7 +190,7 @@ class TitleDeedController extends Controller
         $deed = $this->find($request, $id, withTrashed: true);
         $this->deeds->restore($request->user(), $deed);
 
-        return redirect()->route('title-deeds.show', $deed->id)->with('success', 'Title deed restored.');
+        return redirect($this->returnTo($request, route('title-deeds.show', $deed->id)))->with('success', 'Title deed restored.');
     }
 
     /* ═════════ Record ═════════ */
@@ -236,7 +236,7 @@ class TitleDeedController extends Controller
             ],
             'audit' => $deed->audit()->with('user:id,name')->limit(300)->get(),
             'settings' => [
-                'pin_required' => TitleDeedSetting::pinRequiredFor($deed->agency_id),
+                'pin_used' => \App\Services\TitleDeeds\TitleDeedPolicy::for($deed->agency_id)->pinUsed(),
                 'locked' => $deed->pin_locked_at !== null,
                 'pin_issued' => $deed->pin_version > 0 && $deed->pin_encrypted !== null,
             ],
@@ -371,6 +371,20 @@ class TitleDeedController extends Controller
         }
 
         return back()->with('success', 'Recorded as not sent.');
+    }
+
+    public function dismissWhatsapp(Request $request, int $id, int $event): RedirectResponse
+    {
+        $deed = $this->find($request, $id);
+        $row = TitleDeedEvent::query()->where('title_deed_id', $deed->id)->findOrFail($event);
+
+        try {
+            $this->notifier->dismissWhatsapp($request->user(), $deed, $row);
+        } catch (TitleDeedException $e) {
+            return redirect($this->returnTo($request, route('title-deeds.show', $deed->id)))->with('error', $e->getMessage());
+        }
+
+        return redirect($this->returnTo($request, route('title-deeds.show', $deed->id)))->with('success', 'Done - that WhatsApp will not be sent.');
     }
 
     /* ═════════ Pickers ═════════ */
@@ -592,16 +606,34 @@ class TitleDeedController extends Controller
         $query->orderBy('title_deeds.id');
     }
 
-    private function agentOptions(User $user, ?string $scope, $branchId)
+    /**
+     * People who can be the responsible agent: active and not an assistant. Each option says WHO in words
+     * ("Johan Reichel - Administrator, Shelly Beach") so two people with the same name can be told apart. $keepIds are always
+     * included (the deed's current agent must stay selectable on an edit even if they have since left).
+     */
+    private function agentOptions(User $user, ?string $scope, $branchId, array $keepIds = [])
     {
-        $q = User::query()->where('is_active', 1)->orderBy('name');
+        $q = User::query()->where(function ($w) use ($keepIds) {
+            $w->where(fn ($a) => $a->where('is_active', 1)->where('is_assistant', 0));
+            if ($keepIds) {
+                $w->orWhereIn('id', $keepIds);
+            }
+        })->orderBy('name');
         if ($scope !== 'all' && $user->effectiveBranchId()) {
             $q->where('branch_id', $user->effectiveBranchId());
         } elseif ($branchId) {
             $q->where('branch_id', $branchId);
         }
 
-        return $q->get(['id', 'name']);
+        $agencyId = (int) $user->effectiveAgencyId();
+        $roles = \App\Models\Role::allRoles($agencyId)->mapWithKeys(fn ($r) => [$r->name => ($r->label ?: ucwords(str_replace('_', ' ', $r->name)))]);
+        $branches = Branch::query()->pluck('name', 'id');
+
+        return $q->get(['id', 'name', 'role', 'branch_id'])->map(function (User $u) use ($roles, $branches) {
+            $u->label = $u->name . ' - ' . ($roles[$u->role] ?? ucwords(str_replace('_', ' ', (string) $u->role))) . ($u->branch_id && isset($branches[$u->branch_id]) ? ', ' . $branches[$u->branch_id] : '');
+
+            return $u;
+        });
     }
 
     private function formData(User $user, ?TitleDeed $deed): array
@@ -658,7 +690,7 @@ class TitleDeedController extends Controller
             'dealInit' => $dealPrefill,
             'listingInit' => $listingId ? ['id' => $listingId, 'name' => $names[$listingId] ?? 'User #' . $listingId] : null,
             'extraAgentsInit' => $extraIds->map(fn ($i) => ['id' => $i, 'name' => $names[$i] ?? 'User #' . $i])->values(),
-            'agents' => $this->agentOptions($user, $scope, null),
+            'agents' => $this->agentOptions($user, $scope, null, array_filter([(int) ($deed?->agent_id ?? 0)])),
             'branches' => $scope === 'all' ? Branch::query()->orderBy('name')->get(['id', 'name']) : Branch::query()->where('id', $user->effectiveBranchId())->get(['id', 'name']),
             'defaultAgentId' => (int) (session()->getOldInput('agent_id') ?: ($deed?->agent_id ?? $user->id)),
             'defaultBranchId' => $branchId,
