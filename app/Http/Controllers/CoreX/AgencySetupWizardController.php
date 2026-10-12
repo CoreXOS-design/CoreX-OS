@@ -816,6 +816,8 @@ class AgencySetupWizardController extends Controller
                 // user input — they come only from this file's own hardcoded
                 // control declarations in config/agency-onboarding-copy.php.
                 'rental_application' => \App\Models\RentalApplicationQualifyingSetting::{\Illuminate\Support\Str::camel($key) . 'For'}($agency->id),
+                // AT-450 - Title Deed Register: one named resolver per setting, same convention (keys are this file's own config, never user input).
+                'title_deeds' => \App\Models\TitleDeeds\TitleDeedSetting::{\Illuminate\Support\Str::camel($key) . 'For'}($agency->id),
                 // AT-395 — the outgoing-mail step reads the CURRENT ADMIN's own
                 // mailbox row, never any other agent's. Password is never
                 // resolved back (write-only, same rule as every mailbox screen).
