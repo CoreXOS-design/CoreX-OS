@@ -463,6 +463,12 @@ class Contact extends Model
         return 'complete';
     }
 
+    /** Quick Links W2 — the buyer pre-approval chip (pure; the row already holds amount + expiry). */
+    public function preapprovalQuickState(): array
+    {
+        return \App\Support\QuickLinks\PreapprovalState::resolve($this->preapproval_amount, $this->preapproval_expires_at);
+    }
+
     /**
      * Quick Links W1 (.ai/specs/quick-links.md §4) — the contact's FICA chip: where it stands and what the agent can do next.
      * Same rules the contact list uses (App\Support\Compliance\FicaQuickState); ficaStatus() above is unchanged.

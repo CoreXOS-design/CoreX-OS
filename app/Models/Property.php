@@ -3571,4 +3571,17 @@ class Property extends Model
             'communication_id'
         );
     }
+
+    /**
+     * Quick Links W2 — the mandate chip: type + days left, amber inside the agency's own mandate-expiry warning window
+     * (MandateExpiryPolicy, an agency setting). Null when there is no mandate to show. Pure apart from reading that one setting.
+     */
+    public function mandateQuickState(): ?array
+    {
+        return \App\Support\QuickLinks\MandateState::resolve(
+            $this->mandate_type,
+            $this->expiry_date,
+            \App\Services\Properties\MandateExpiryPolicy::warnDaysFor($this->agency_id),
+        );
+    }
 }

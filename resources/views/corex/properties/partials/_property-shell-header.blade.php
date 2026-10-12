@@ -84,6 +84,13 @@
                         </span>
                     @endforeach
                 @endif
+                {{-- Quick Links W2 (spec §5.2) — mandate type + days left, amber inside the agency's own warning window, red once expired.
+                     Click goes to the Info tab where the expiry is edited (the expiry lock still applies there). --}}
+                @if(!$isNew && ($__mandate = $property->mandateQuickState()))
+                    <x-quick-link :tone="$__mandate['tone']" :label="$__mandate['label']" :title="$__mandate['detail']"
+                                  :href="route('corex.properties.show', ['property' => $property, 'tab' => 'info'])"
+                                  data-mandate-chip="{{ $__mandate['key'] }}" />
+                @endif
                 @if(!$isNew)
                     <span class="text-sm font-bold ml-1" style="color:var(--brand-default);">{{ $property->formattedPrice() }}</span>
                 @endif
@@ -111,6 +118,16 @@
             <span class="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded" style="background:{{ $cmpPillBg }}; color:{{ $cmpPillFg }};">{{ $cmpLabel }}</span>
         </a>
         @endif
+
+        {{-- Quick Links W2 (spec §5.2) — book a viewing of THIS property: opens the calendar's new-viewing form with the property
+             already attached (same prefill the Matches tab uses per buyer; the agent picks the buyer there). --}}
+        @permission('command_center.calendar.view')
+        <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_class' => 'viewing', 'prefill_properties' => json_encode([['id' => $property->id, 'address' => $property->title ?: trim(($property->suburb ?? 'Property'))]])]) }}"
+           target="_blank" rel="noopener" class="prop-action-btn prop-action-btn-neutral no-underline" data-book-viewing-quick
+           title="Opens the calendar in a new tab with this property attached to a new viewing">
+            Book viewing
+        </a>
+        @endpermission
 
         {{-- Layer 3 — the approval tag and the "Send for approval" button, right
              beside Compliance Status because that is the moment they matter: the

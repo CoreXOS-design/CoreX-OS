@@ -30,4 +30,22 @@
     </span>
     {{-- Quick Links W1 — FICA status + Send/Resend (spec quick-links.md §4) --}}
     @include('corex.contacts._fica-quick-link')
+    {{-- Quick Links W2 (spec §5.1) — buyer chips. Pure reads of data the page already holds; each click goes to where it is fixed. --}}
+    @if($contact->is_buyer)
+        @php
+            $__pa = $contact->preapprovalQuickState();
+            $__pm = $contact->primaryMatch();
+            $__hasWish = $contact->hasCountableWishlist();
+        @endphp
+        <x-quick-link :tone="$__pa['tone']" :label="$__pa['label']" :title="$__pa['detail']"
+                      :href="route('corex.contacts.show', ['contact' => $contact, 'tab' => 'info']) . '#preapproval'"
+                      data-preapproval-chip="{{ $__pa['key'] }}" />
+        @if($__hasWish && $__pm)
+            <x-quick-link tone="info" label="Wishlist set" title="Open this buyer's matches"
+                          :href="route('corex.contacts.matches.results', ['contact' => $contact, 'match' => $__pm])" data-wishlist-chip="set" />
+        @else
+            <x-quick-link tone="warning" label="No wishlist" title="This buyer has no search criteria yet, so they match nothing — add one on the Properties tab."
+                          :href="route('corex.contacts.show', ['contact' => $contact, 'tab' => 'properties'])" data-wishlist-chip="none" />
+        @endif
+    @endif
 </div>

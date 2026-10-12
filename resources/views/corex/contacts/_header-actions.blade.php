@@ -49,6 +49,19 @@
     </a>
     @endif
 
+    {{-- Quick Links W2 (spec §5.1) — start a viewing pack for this buyer in one click (same POST the Buyer Hub uses). --}}
+    @if($contact->is_buyer)
+    @feature('viewing-packs')
+    @permission('viewing_packs.create')
+    <form method="POST" action="{{ route('corex.viewing-packs.store') }}" class="inline flex-shrink-0">
+        @csrf
+        <input type="hidden" name="contact_id" value="{{ $contact->id }}">
+        <button type="submit" class="corex-btn-outline text-xs" data-viewing-pack-quick title="Creates a draft viewing pack for this buyer and opens it">Viewing Pack</button>
+    </form>
+    @endpermission
+    @endfeature
+    @endif
+
     {{-- Create Listing from Contact (only if no linked properties).
          Agent chooses the Classic form (single-page) or the guided
          Upload Wizard — both pre-fill the contact's address and link
