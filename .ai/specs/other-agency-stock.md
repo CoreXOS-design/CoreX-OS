@@ -682,6 +682,12 @@ against an explicit allow-list) — before either is ever stored.
 
 ## 11. Chrome Web Store prep (no publishing)
 
+> **Staging (12 Oct 2026):** the store-prep items below — the separate `/extension/privacy` page, `.ai/specs/chrome-web-store-listing.md`,
+> `scripts/package-chrome-extension.sh` and the manifest `homepage_url` — were NOT carried to Staging. Andre's AT-449 already owns the
+> store paperwork (privacy policy §13 at `/privacy`, `scripts/build-extension-zip.sh`, `.ai/specs/at449-chrome-extension-store-restyle.md`).
+> What Staging keeps from this section: the version bump (extension **3.10.0**) and the new `scripting` permission, which AT-449's
+> permission-justification table must list before the store submission.
+
 - Public privacy-policy route + page for the extension.
 - `manifest.json` gains `homepage_url` and a `privacy_policy`-equivalent reference (the store
   wants the URL in the LISTING, not the manifest itself, which has no such field — the manifest
