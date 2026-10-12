@@ -219,6 +219,8 @@
             // is a different idea from Draft's "unfinished" pencil.
             'Awaiting approval' => '<circle cx="12" cy="12" r="9" fill="none"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 7.5V12l3 1.75"/>',
             'Rented Out'  => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>',
+            // AT-453 — Other agency: a building with a door (another agency's stock).
+            'Other agency' => '<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15v18M9 7.5h1.5M13.5 7.5H15M9 11.25h1.5M13.5 11.25H15M10.5 21v-4.5h3V21"/>',
         ];
         $kpiColors = [
             'Total'       => ['bg' => 'color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent)',  'fg' => 'var(--brand-icon, #0ea5e9)'],
@@ -260,6 +262,16 @@
             ['label' => 'Expired',     'value' => $stats['expired'] ?? 0, 'filter' => 'expired'],
         ]);
 
+        // AT-453 — Other Agency Stock is another agency's listing: its own tile, never inside
+        // Total / On Market. Shown only where the feature is on for this viewer.
+        if (($showOtherAgencyStock ?? false)) {
+            $kpiTiles[] = [
+                'label'  => 'Other agency',
+                'value'  => $stats['otherAgency'] ?? 0,
+                'filter' => \App\Models\Property::STATUS_OTHER_AGENCY_STOCK,
+            ];
+        }
+
         // Layer 3 — "Awaiting approval" (.ai/specs/syndication-approval-gate.md §7.1).
         // Only for an agency that switched the gate on, and only for someone who
         // can actually approve — for everyone else the tile does not exist.
@@ -298,7 +310,7 @@
          by definition) and "Sold" is only one of several statuses shown, so
          they're misleading rather than useful there. Andre, 2026-09-15. --}}
     @unless($importedStock ?? false)
-    <div class="grid grid-cols-2 sm:grid-cols-3 {{ count($kpiTiles) > 5 ? 'lg:grid-cols-6' : 'lg:grid-cols-5' }} gap-2 mt-3 flex-shrink-0" data-tour="re-properties-kpis">
+    <div class="grid grid-cols-2 sm:grid-cols-3 {{ count($kpiTiles) > 6 ? 'lg:grid-cols-7' : (count($kpiTiles) > 5 ? 'lg:grid-cols-6' : 'lg:grid-cols-5') }} gap-2 mt-3 flex-shrink-0" data-tour="re-properties-kpis">
         @foreach($kpiTiles as $kpi)
         @php
             // Most tiles drive `status=`; the layer-3 approval tile drives
@@ -453,6 +465,10 @@
                 {{-- AT-448 — Expired + the "Expiring soon" window (the popup's View all). --}}
                 <option value="expired" {{ $status === 'expired' ? 'selected' : '' }}>Expired</option>
                 <option value="expiring_soon" {{ $status === 'expiring_soon' ? 'selected' : '' }}>Expiring soon</option>
+                {{-- AT-453 — another agency's imported listing; filters with the existing status param. --}}
+                @if($showOtherAgencyStock ?? false)
+                <option value="{{ \App\Models\Property::STATUS_OTHER_AGENCY_STOCK }}" {{ $status === \App\Models\Property::STATUS_OTHER_AGENCY_STOCK ? 'selected' : '' }}>Other Agency Stock</option>
+                @endif
                 @endif
             </select>
 
@@ -950,6 +966,10 @@
             // it appears when the listing may be marketed AND reaches at least one
             // portal (own website / P24 / Private Property), and its tooltip names
             // them. Drives how much room the left-hand badge stack is given.
+            // AT-453 — the Other Agency Stock portal link. It is rendered OUTSIDE the photo link (a link
+            // inside a link is invalid HTML: the browser split the card and painted a second, pale photo
+            // box over the left of the image).
+            $oasPortalUrl = $property->isOtherAgencyStock() ? $property->externalSource?->listing_url : null;
             $showSynBtn = ($property->is_marketable ?? false)
                 && ($property->has_syndication ?? $property->isLiveOnAnyPortal());
         @endphp
@@ -995,7 +1015,7 @@
 
                 {{-- Glassmorphism status badges (left). right-12 clears the
                      syndication button when it renders so pills wrap cleanly. --}}
-                <div class="absolute top-2.5 left-2.5 {{ $showSynBtn ? 'right-12' : 'right-2.5' }} flex flex-row flex-wrap items-center gap-1.5">
+                <div class="absolute top-2.5 left-2.5 {{ ($showSynBtn || $oasPortalUrl) ? 'right-12' : 'right-2.5' }} flex flex-row flex-wrap items-center gap-1.5">
                     <span class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium">{{ $listingTypeLabel }}</span>
                     <span class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium inline-flex items-center gap-1.5">
                         @if($isLiveStatus)<span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style="background:#34D399;"></span><span style="color:#34D399;">{{ $statusLabel }}</span>
@@ -1023,10 +1043,6 @@
                         </span>
                         @endif
                     @endif
-                    {{-- .ai/specs/other-agency-stock.md §9 — small portal-link icon on the card. --}}
-                    @if($property->isOtherAgencyStock() && $property->externalSource?->listing_url)
-                    <a href="{{ $property->externalSource->listing_url }}" target="_blank" rel="noopener noreferrer" class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium" title="View on {{ $property->externalSource->portal === 'pp' ? 'Private Property' : 'Property24' }}" onclick="event.stopPropagation()">&#8599;</a>
-                    @endif
                     {{-- AT-422 — per property, not per page: a search on Properties also lists
                          imported off-market stock, and it must be tagged there too. --}}
                     @if($property->isImportedStock())
@@ -1049,7 +1065,12 @@
             {{-- Syndication viewer. Sits outside the thumbnail anchor so the
                  button is a real button, not a nested interactive element
                  inside a link. --}}
-            <div class="absolute top-2.5 right-2.5 z-10 flex items-center">
+            <div class="absolute top-2.5 right-2.5 z-10 flex items-center gap-1.5">
+                {{-- .ai/specs/other-agency-stock.md §9 — small portal-link icon on the card (AT-453: a sibling of
+                     the photo link, not nested inside it). --}}
+                @if($oasPortalUrl)
+                <a href="{{ $oasPortalUrl }}" target="_blank" rel="noopener noreferrer" class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium" data-oas-portal-link title="View on {{ $property->externalSource->portal === 'pp' ? 'Private Property' : 'Property24' }}">&#8599;</a>
+                @endif
                 @include('corex.properties.partials.syndication-button', ['property' => $property, 'variant' => 'card'])
             </div>
 

@@ -148,6 +148,7 @@ class PropertyHealthCalculator
                 $q->whereNull('status')
                   ->orWhereNotIn('status', Property::OFF_MARKET_STATUSES);
             })
+            ->ownStock() // AT-453 — no health score for another agency's listing
             ->chunk(100, function ($properties) use (&$count) {
                 foreach ($properties as $property) {
                     try {

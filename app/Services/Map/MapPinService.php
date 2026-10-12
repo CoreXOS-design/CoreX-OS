@@ -449,6 +449,11 @@ final class MapPinService
     private function hfcListings(MapBoundsRequest $req, int $limit): array
     {
         $q = $this->agencyStockBaseQuery($req);
+        // AT-453 — this is the agency's OWN stock layer; Other Agency Stock is another
+        // agency's listing and the map has no way to mark it as such, so it is excluded.
+        $q->where(function ($w) {
+            $w->whereNull('status')->orWhere('status', '!=', \App\Models\Property::STATUS_OTHER_AGENCY_STOCK);
+        });
 
         if (!empty($req->listingStatus)) {
             $this->applyStatusFilter($q, $req, 'status');

@@ -700,3 +700,46 @@ against an explicit allow-list) — before either is ever stored.
 See the build report for exactly what ran and what could not run pre-merge (the
 `verify-alpine-render.mjs`/real-browser QA1 gates require the change to already be live on
 `/corex-qa1`, which happens only after this branch is merged — Standard −1s/−1u).
+
+## 12a. Our own stock is never Other Agency Stock (AT-453, 2026-10-12, Johan)
+
+Other Agency Stock is **another agency's listing**. §2 keeps it out of `OFF_MARKET_STATUSES` on purpose — it must stay
+eligible for Core Matches and viewing packs / share links, and §5c says that is the ONLY use of it. That did not make it
+the agency's own stock, but every "on market" count and chase did treat it as such (found 12 Oct on QA1: the On Market
+tile counted it; 42 "Upload signed mandate / owner ID / proof of ownership" tasks had been minted for the 8 imported
+listings). Fix: one definition, used everywhere the agency's own stock is counted or worked on.
+
+**The definition.** `Property::scopeOwnStock()` / `Property::isOwnStock()` — every property whose status is not
+`other_agency_stock` (NULL-safe). Chain it wherever a figure or a chore means "OUR stock". Core Matches
+(`MatchingService`, the allow-list `coreMatchAllowedStatuses()`) and viewing packs deliberately do NOT use it.
+
+| Place | Rule now |
+|---|---|
+| Properties list — On Market tile and the `status=on_market` filter | own stock only (`PropertyController::index`) |
+| Properties list — Total tile | own stock only |
+| Properties list — **Other agency** tile (new) | its own count; shown only on the sale list, only where the viewer's role may see Other Agency Stock (§6) |
+| Properties list — status dropdown | **Other Agency Stock** option (`?status=other_agency_stock`), same visibility rule; chip reads "Status: Other Agency Stock"; Clear all clears it |
+| Agent "Listings" column (user admin) | own stock only (`UserManagementController`) |
+| Map pins — our listings layer | **excluded** (the map cannot mark a pin as another agency's, so it is left off; `MapPinService::hfcListings`) |
+| PPRA mandate register (both variants) | excluded — it is not our mandate (`PpraMandateRegisterService`) |
+| Command Centre "pending marketing", listing health score, calendar chase events, "needs attention" flag, overdue-document chase, property alerts | excluded (`CommandCentreService`, `PropertyHealthCalculator`, `AutoEventService` x2, `OverdueSnapshotService`, `ScanPropertyNotifications`) |
+| Presentation / Property Intelligence comparable stock | excluded from OUR comparables — it is competitor stock (`CompetitorStockMatchService::findComparableStock`) |
+| MIC "in stock" counts (per-suburb count, Work-tab total) | own stock only (`OnMarketStockService::countBySuburb/totalCount`). The identity match (is this portal ad already a CoreX property?) is unchanged, so the no-duplicate rule (§5b) and the hidden Pitch links (§5c) still work |
+| Deal property pickers | **kept selectable** (we bring the buyer to a deal on it) but labelled "Other Agency Stock" (amber badge in the deal capture search; label suffix in the eligible-properties list) |
+
+**The import creates no mandate tasks.** `OtherAgencyStockImportService` sets `Property::$skipNewListingAutomation`, so
+`AutoEventService::onPropertyCreated()` mints no "Upload signed mandate / owner ID / proof of ownership" tasks for another
+agency's listing. Existing tasks on already-imported listings are NOT removed here (Johan decides).
+
+**The card.** The portal-link "↗" is drawn beside the syndication button, never inside the photo link (a link inside a link
+is invalid HTML: the browser split the card and painted a second, pale photo box over the left of the photo).
+
+**"The feature is on"** has no switch of its own (§6: the only setting is which roles may see it, default every role), so the
+new option and tile follow `OtherAgencyStockVisibility::canSee()`.
+
+**Public pages (QA1 only, commit 72edadf12).** `PublicAgencyPropertiesController::index` and `SharedMatchController`'s two
+suggestion lists read `coreMatchAllowedStatuses()`, which includes Other Agency Stock, so another agency's listing can appear
+on a PUBLIC page — contradicting "never advertised". Those hunks stay OUT of the Staging batch (the plan already drops
+them); whether to remove them from QA1 as well is Johan's call (reported, not changed).
+
+Tests: `tests/Feature/Properties/OtherAgencyStockOwnStockTest.php`.

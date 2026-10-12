@@ -134,6 +134,31 @@ class Property extends Model
     }
 
     /**
+     * AT-453 — the ONE definition of "our own stock": every property that is not
+     * another agency's listing. Other Agency Stock stays on-market on purpose (it
+     * must remain eligible for Core Matches and viewing packs — spec §2) but it is
+     * NOT the agency's stock, so anything that COUNTS or WORKS ON the agency's own
+     * stock (tiles, agent listing counts, registers, chase tasks, alerts, health
+     * scores, map layers, the MIC "in stock" count) chains this scope. Core Matches
+     * and viewing packs deliberately do not. NULL-safe: a NULL status is own stock.
+     * .ai/specs/other-agency-stock.md §12a (AT-453).
+     */
+    public function scopeOwnStock($query)
+    {
+        $col = $query->qualifyColumn('status');
+
+        return $query->where(function ($q) use ($col) {
+            $q->whereNull($col)->orWhere($col, '!=', self::STATUS_OTHER_AGENCY_STOCK);
+        });
+    }
+
+    /** Instance twin of scopeOwnStock(). */
+    public function isOwnStock(): bool
+    {
+        return ! $this->isOtherAgencyStock();
+    }
+
+    /**
      * Other Agency Stock is another agency's advert, imported read-only (spec
      * other-agency-stock.md §5b). A copy of it would be a second, editable,
      * syndicate-able version of someone else's listing under our name — so it can
