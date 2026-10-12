@@ -105,7 +105,10 @@
                 </div>
             </div>
             <div class="flex items-center gap-2">
-                @if($sub->status === 'approved')
+                {{-- Johan 2026-10-12: never show a button the user cannot open. PDF and View both go into the Compliance module
+                     (access_compliance + the Compliance feature) — an agent who may only SEND a FICA sees the status, not a button that 403s. --}}
+                @php $__canOpenFica = feature('compliance') && auth()->user()?->hasPermission('access_compliance'); @endphp
+                @if($sub->status === 'approved' && $__canOpenFica)
                 <a href="{{ route('compliance.fica.pdf', $sub) }}" target="_blank"
                    class="text-xs font-semibold px-3 py-1.5 rounded-md transition-all"
                    style="color:var(--text-muted); border:1px solid var(--border);" title="Download PDF">
@@ -123,11 +126,13 @@
                         Review &mdash; your own FICA
                     </span>
                 @endif
-                <a href="{{ route('compliance.fica.show', $sub) }}"
+                @if($__canOpenFica)
+                <a href="{{ route('compliance.fica.show', $sub) }}" data-fica-view
                    class="text-xs font-semibold px-3 py-1.5 rounded-md transition-all"
                    style="color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent);">
                     View
                 </a>
+                @endif
             </div>
         </div>
         @endforeach
