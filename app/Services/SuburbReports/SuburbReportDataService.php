@@ -292,10 +292,13 @@ class SuburbReportDataService
         $activeStock = (clone $stockQuery)->where('status', 'active')->get(['id', 'price', 'listed_date', 'title_type']);
 
         $domToday = now();
-        $activeWithDom = $activeStock->filter(fn ($p) => $p->listed_date !== null)->map(fn ($p) => [
+        $domById = app(\App\Services\Properties\DaysOnMarket::class)->forMany(
+            \App\Models\Property::withoutGlobalScopes()->whereIn('id', $activeStock->pluck('id'))->get()
+        );
+        $activeWithDom = $activeStock->filter(fn ($p) => ($domById[$p->id] ?? null) !== null)->map(fn ($p) => [
             'property_id'    => $p->id,
             'price'          => $p->price,
-            'days_on_market' => (int) Carbon::parse($p->listed_date)->diffInDays($domToday),
+            'days_on_market' => (int) $domById[$p->id],
         ])->values();
 
         // DISTINCT on the exact tuple the report publishes — re-syncing the

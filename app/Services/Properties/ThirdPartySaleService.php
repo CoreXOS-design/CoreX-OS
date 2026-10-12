@@ -294,18 +294,13 @@ class ThirdPartySaleService
     }
 
     /**
-     * Prefer published_at (when it actually went live); fall back to listed_date,
-     * then created_at. Null when we have none of them — an unknown DOM is honest,
-     * a zero is a lie that skews the Loss Analysis average.
+     * The shared days-on-market calculation (counts from the date the advert went live).
+     * Null when unknown — an unknown DOM is honest, a zero is a lie that skews the Loss
+     * Analysis average.
      */
     private function daysOnMarket(Property $property): ?int
     {
-        $start = $property->published_at ?? $property->listed_date ?? $property->created_at;
-        if (! $start) {
-            return null;
-        }
-
-        return max(0, (int) $start->diffInDays(now()));
+        return \App\Services\Properties\DaysOnMarket::for($property);
     }
 
     /**

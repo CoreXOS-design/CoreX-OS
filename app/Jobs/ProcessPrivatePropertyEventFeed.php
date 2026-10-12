@@ -232,7 +232,7 @@ class ProcessPrivatePropertyEventFeed implements ShouldQueue
                         'pp_syndication_status' => 'active',
                         'pp_activated_at'       => now(),
                         'pp_last_error'         => null,
-                    ]);
+                    ] + $property->listedDateStampOnGoLive('pp'));   // standing rule: listed date = went live on the portals
                     Log::channel('private_property')->info("Event feed: property #{$property->id} Activated", [
                         'pp_ref' => $desc, 'pp_listing_feed_ref' => $feedRef,
                     ]);

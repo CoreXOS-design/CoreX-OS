@@ -21,7 +21,7 @@ Three principles:
 
 1. **The agency designs once, agents click forever.** Templates are crafted centrally with declarative metadata. Agents never configure fields, parties, or signatures — they fill in property/seller details and the system does the rest.
 
-2. **Every signature is legally defensible.** Audit trails are immutable. OTP verification is mandatory. Documents that cannot legally be e-signed (sale agreements) are physically blocked from the e-sign path, not just policy-blocked.
+2. **Every signature is legally defensible.** Audit trails are immutable. OTP verification is mandatory. E-sign eligibility is the template's own setting, respected as set, for every document type alike. There is no hard block. For the document types flagged `document_types.esign_warning_required` (sale agreement / OTP / deed) an admin must acknowledge a legal warning, in template setup only, when switching e-signing on; the acknowledgement is recorded (ESIGN-CANON.md §7, amended 2026-10-08, Johan's ruling and correction).
 
 3. **The system is the compliance officer's deputy.** FICA gates, mandate approval gates, document packs, and amendment cascades are enforced by the system. A compliance officer reviews flags; the system handles enforcement.
 
@@ -37,9 +37,9 @@ Section 2(1): *No alienation of land shall be of any force or effect unless it i
 
 ECTA Section 13(1) explicitly excludes alienation of immovable property from electronic signature equivalence with wet-ink signatures.
 
-**Implication for CoreX:** Sale agreements, Offers to Purchase (OTP), Deeds of Sale, Deeds of Alienation, and Agreements of Sale **cannot** be e-signed. They must use wet-ink delivery only.
+**Implication for CoreX:** South African law currently does not recognise an e-signed alienation of land (sale agreements, Offers to Purchase, Deeds of Sale/Alienation). CoreX does **not** hard-block it (Johan, 2026-10-08, with full knowledge of the law): *the guard is from template setup, and that is where it stays. If an agency chooses to do electronic sales agreements that is their call. We warn them, we do not hard block it. When the law changes it is a mere tick, not recoding.* E-sign eligibility is **the template's own setting** (`is_esign` / `allowed_delivery_modes`), respected as set. See ESIGN-CANON.md §7.
 
-**System enforcement:** `Template::isEsignBlocked()` must return true for any template falling into this category. Four-layer defence (see §5.3).
+**System behaviour:** the document types flagged `document_types.esign_warning_required` (data, not code) default to wet ink for every agency. An admin switches e-signing on in template setup and acknowledges a legal warning there, once; who/when/which template is written to `template_esign_acknowledgements`. Nothing is shown to an agent. See §5.
 
 ### 2.2 Electronic Communications and Transactions Act 25 of 2002
 
@@ -243,7 +243,7 @@ The 6-step flow agents follow to create and dispatch a document for signing:
 
 - Filter by category
 - Search by name
-- Templates flagged with `isEsignBlocked()` are visually marked and cannot be selected for e-sign delivery
+- A flagged-type template (sale agreement etc.) appears in the e-sign list only once an admin has switched e-signing on for it in template setup; there is no marking or wording for the agent
 - Document Packs appear as bundled options (Sales Mandate Pack, etc)
 
 **Step 2: Contact & property selection**
@@ -326,70 +326,33 @@ What the recipient (seller, buyer, witness) experiences:
 
 ---
 
-## 5. The Legal Block (Sale Agreements / OTPs)
+## 5. The E-Sign Guard (Sale Agreements / OTPs) — template setting + admin acknowledgement
 
-This is the most critical compliance feature. Four-layer defence.
+**Amended 2026-10-08 (Johan).** The earlier "Legal Block" (a four-layer hard block: `Template::isEsignBlocked()`, name regex, wizard UI block, server hard block) is **removed**. This section now states what the code does.
 
-### 5.1 Layer 1 — Document-type classification (`document_type_id` → `document_types.slug`)
+**The guard is the template's own e-sign setting (`is_esign`), for every document type alike.** The single addition for the flagged types is a recorded acknowledgement, given by the admin, in template setup.
 
-The canonical legal classification lives in `docuperfect_templates.document_type_id` (FK → `document_types`). Slugs that trigger the legal block:
+### 5.1 Which types — data, not code
 
-- `otp`
-- `offer_to_purchase` (legacy slug, kept blocked for safety — see §5.6)
-- `sale_agreement`
-- `deed_of_sale`
-- `deed_of_alienation`
+`document_types.esign_warning_required` (boolean). Flagged by migration for `otp`, `offer_to_purchase`, `sale_agreement`, `deed_of_sale`, `deed_of_alienation`. Flagged on create (never re-asserted) by `DocumentTypesCatalogueSeeder`. CoreX (owner-role) switches it per type on Document Types settings (`/docuperfect/settings/types`); when the law changes it is switched off there — a tick, not recoding. An unclassified template is matched to a document type by name (`DocumentTypeClassifier`) and then follows that type's flag.
 
-ES-1 migration adds the four missing slugs to `document_types` (only `offer_to_purchase` existed at audit time).
+### 5.2 Defaults — nothing flips by itself
 
-The free-form `template_type` string column is consulted as a fallback for templates that pre-date the slug catalogue:
+A template of a flagged type keeps its wet-ink default for every agency, existing and new. The model (`Template::booted()`) stores `is_esign = false` for a flagged template that carries no recorded acknowledgement, whoever the writer is (importer, wizard, seeder, migration). E-sign delivery (`allowsDeliveryMode('esign')`, `getEffectiveDeliveryModes()`, the e-sign wizard entry, `prepareSigning`, the signing page, web packs) is available for such a template only once an admin has switched it on. No existing template was changed by the migration.
 
-```php
-$slug = $this->document_type?->slug ?? $this->template_type ?? '';
-```
+### 5.3 The warning — admin, template setup, once
 
-### 5.2 Layer 2 — Name pattern fallback (the fix from ES-1)
+When an admin turns e-sign ON for a template whose (selected) document type is flagged, template setup (the PDF editor and the CDS builder) shows the warning and requires an explicit acknowledgement before the save goes through. The server enforces it: `EsignAcknowledgementService::resolveRequest()` refuses with `422 esign_ack_required` when it is missing. Permission: the existing `manage_templates`. Wording: `config/esign-acknowledgement.php` (versioned; draft pending Johan's approval).
 
-Templates without explicit `template_type` set fall to name-pattern matching. Patterns:
+**Shown nowhere an agent sees:** no note or line on the template list, send-for-signature screen, wizard, document, mail or signing page. When an agent hits a flagged template nobody has switched on, the refusal reads only that the template is not set up for e-signing. A test (`EsignAcknowledgementTest`) fails the build if any other view/script references the warning or the record.
 
-```php
-preg_match('/\b(otp|deed of alienation|agreement for sale|sale agreement|agreement of sale|deed of sale|offer to purchase)\b/i', $template->name)
-```
+### 5.4 Audit trail
 
-Word-boundary enforced — "Photoshop" does not match, "SB 2026 OTP" does.
+`template_esign_acknowledgements` (insert-only, `TemplateEsignAcknowledgement`): `template_id`, `template_name`, `document_type_slug`, `action` (`enabled`/`disabled`), `user_id`, `user_name`, `agency_id`, `wording_version`, `wording_snapshot` (the exact text acknowledged), `request_context`, `created_at`. The template also carries `esign_acknowledged_by_user_id/_by_name/_at`, shown to admins only inside template setup. Switching e-signing off clears the acknowledgement and writes a `disabled` row; switching on again needs a new acknowledgement; a copy of a template starts on the wet-ink default.
 
-### 5.3 Layer 3 — Wizard UI block
+### 5.5 `legal_block_audit_log`
 
-In the wizard Step 5 (delivery mode), if `Template::isEsignBlocked()` returns true:
-
-- E-sign mode option is disabled (greyed out)
-- Tooltip explains: "Sale agreements and offers to purchase cannot be e-signed under South African law. Please use wet-ink delivery."
-- Only wet-ink and download options selectable
-
-### 5.4 Layer 4 — Server hard block at dispatch
-
-In `ESignWizardController::prepareSigning()`, regardless of what the wizard JS sent:
-
-```php
-if ($template->isEsignBlocked() && $deliveryMode === 'esign') {
-    throw new \DomainException('E-sign blocked: this template requires wet-ink signature under SA law.');
-}
-```
-
-### 5.5 Layer 5 — Audit logging
-
-Every time `isEsignBlocked()` returns true, log to `legal_block_audit_log`:
-
-- `agency_id` (from acting user's `effectiveAgencyId()` — templates do not carry `agency_id` directly)
-- `template_id`, `template_name`, `document_type_slug`
-- `user_id`, `request_context` (JSON: route, IP, user_agent)
-- `block_reason` (`'document_type_match'` or `'name_pattern_match'`)
-- `matched_pattern` (what specifically matched)
-- `created_at` (immutable — insert-only table, no `updated_at`, no `deleted_at`)
-
-The model overrides `save()` to throw `DomainException` if `$this->exists` — log rows cannot be mutated once written.
-
-This creates a forensic trail proving the system actively prevented illegal e-signs. Defensible in dispute.
+The historical table and model stay (rows from the old block are retained) but nothing writes to it any more.
 
 ### 5.6 Data remediation
 
@@ -401,7 +364,7 @@ Run-once migration `2026_05_21_220002_classify_otp_templates.php`:
    - name matches `/\bdeed of alienation\b/i` → slug `deed_of_alienation`
    - name matches `/\b(agreement (for|of) sale|sale agreement)\b/i` → slug `sale_agreement`
    - name matches `/\bdeed of sale\b/i` → slug `deed_of_sale`
-3. Future `isEsignBlocked()` calls hit the fast slug `in_array` check before falling through to the regex.
+3. Classification is what attaches the e-sign warning (§5.1): a classified template follows its document type's `esign_warning_required` flag whatever it is later renamed.
 
 ---
 
@@ -715,10 +678,10 @@ condition_initials                   -- per-party initials on amended regions (i
 
 #### 7.5.11 Wet-Ink Path (OTPs, Sale Agreements)
 
-OTPs cannot be e-signed but **CAN** be created in DocuPerfect with full insertable conditions support:
+OTPs default to wet-ink (a flagged document type — §5; e-signing is each agency's own template setting) and **CAN** be created in DocuPerfect with full insertable conditions support:
 
 1. Agent prepares OTP with all insertable blocks filled
-2. Delivery mode = wet-ink (forced — system blocks e-sign per §5)
+2. Delivery mode = wet-ink by default (e-sign only if an admin has switched it on for the template — §5)
 3. Document is rendered as PDF with:
    - Conditions visible in their blocks
    - Two blank lines after the conditions for manual writing (Adobe-edit-compatible spacing)
@@ -1163,7 +1126,7 @@ Auto-filing works. No changes for V3.
 
 ## 17. Build Sequence — Phase 1 (Critical Hotfixes)
 
-### ES-1 — Legal Block Hotfix (CRITICAL)
+### ES-1 — Legal Block Hotfix (CRITICAL) — HISTORICAL, superseded by §5 (2026-10-08: the block was replaced by the template setting + admin acknowledgement)
 
 **Scope:** §5 — four-layer defence implementation
 

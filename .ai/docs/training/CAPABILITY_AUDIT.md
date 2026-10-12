@@ -857,7 +857,7 @@ The E-Sign Wizard is a 6-step flow with a two-panel layout (left = form, right =
    - Template groups collapsed by document type, each showing: name, page count, field count, render type badge (Web/PDF)
    - Web Packs and PDF Packs sections (if packs exist)
    - For mandates: select "Mandate to Sell", "Sole Mandate", "Authority to Let", etc.
-   - **Hard block:** Sale agreements / OTPs blocked from e-sign: "Sale agreements must be signed with wet ink per the Alienation of Land Act"
+   - Sale agreements / OTPs default to wet ink; an admin switches e-signing on per template in template setup (acknowledging a legal warning there). An agent on a template that is not set up for e-signing is told so plainly.
    - Click **"Next"**
 
 2. **Step 2 — Property Selection**

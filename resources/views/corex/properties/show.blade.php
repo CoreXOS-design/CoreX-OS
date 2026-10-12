@@ -1384,7 +1384,7 @@
                                 ?? $property->contacts->first();
                 $ownerLabel   = $owner ? ucfirst($owner->pivot->role ?: 'Linked Contact') : 'Owner';
                 $ownerName    = $owner ? (trim($owner->full_name ?? '') ?: trim(($owner->first_name ?? '') . ' ' . ($owner->last_name ?? '')) ?: ($owner->email ?: $owner->phone ?: 'Unnamed contact')) : null;
-                $daysOnMarket = $property->listed_date ? (int) $property->listed_date->diffInDays(now()) : null;
+                $daysOnMarket = \App\Services\Properties\DaysOnMarket::for($property);
                 $descPreview  = \Illuminate\Support\Str::limit(strip_tags($property->description ?? ''), 220);
                 $statusColor      = $statusColors[$property->status] ?? 'var(--text-muted)';
                 $statusBadgeClass = $statusBadgeVariants[$property->status] ?? 'ds-badge-default';
@@ -3330,7 +3330,7 @@
                                     $importedFields = ! $isNew && $property->isUntouchedImportedStock();
                                     $listedDateValue = $importedFields
                                         ? now()->format('Y-m-d')   // what a takeover will set; also the earliest expiry
-                                        : ($property->created_at?->format('Y-m-d') ?? now()->format('Y-m-d'));
+                                        : (($property->listed_date ?? $property->created_at)?->format('Y-m-d') ?? now()->format('Y-m-d'));
                                     $expiryInitial = $importedFields
                                         ? (string) old('expiry_date', '')
                                         : (string) old('expiry_date', $property->expiry_date?->format('Y-m-d'));
@@ -3357,6 +3357,10 @@
                                                class="prop-input prop-field-lifecycle"
                                                style="color-scheme: light dark; opacity:.75; cursor:not-allowed;"
                                                title="Listed Date is always the date the property was loaded">
+                                        @if(!$isNew)
+                                        <button type="button" class="text-xs underline mt-1" style="color:var(--brand-default);"
+                                                onclick="window.dispatchEvent(new CustomEvent('open-listed-date-fix'))">Correct listed date</button>
+                                        @endif
                                         @endif
                                     </div>
                                     <div x-data="{ qaOpen: false, picked: {{ $importedFields && $expiryInitial !== '' ? 'true' : 'false' }} }" @click.outside="qaOpen = false" class="relative" data-tour="prop-expiry">
@@ -3653,6 +3657,70 @@
                 </section>{{-- /Mandate section --}}
 
             </form>{{-- /prop-update-form --}}
+
+            @if(!$isNew)
+            {{-- Correct listed date — outside the update form (no nested forms). Reason is mandatory and lands in the notes. --}}
+            <div x-data="{ open: {{ $errors->has('reason') || $errors->has('listed_date') ? 'true' : 'false' }} }" @open-listed-date-fix.window="open = true" @keydown.escape.window="open = false">
+                <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,.5);">
+                    <form method="POST" action="{{ route('corex.properties.listed-date.update', $property) }}" @click.outside="open = false"
+                          class="w-full max-w-md rounded-lg p-5 space-y-3" style="background:var(--surface); border:1px solid var(--border);">
+                        @csrf @method('PUT')
+                        <h3 class="text-sm font-semibold" style="color:var(--text-primary);">Correct listed date</h3>
+                        <p class="text-xs" style="color:var(--text-secondary);">The listed date is the day the property went live on the portals. Say why you are changing it &mdash; the reason is saved in this property's notes.</p>
+                        <div>
+                            <label class="prop-label">New listed date</label>
+                            <div class="relative" x-data="{
+                                    cal: false,
+                                    value: '{{ old('listed_date', $property->listed_date?->toDateString()) }}',
+                                    max: '{{ now()->toDateString() }}',
+                                    y: 0, m: 0,
+                                    months: ['January','February','March','April','May','June','July','August','September','October','November','December'],
+                                    init() { const d = this.value ? new Date(this.value + 'T00:00:00') : new Date(); this.y = d.getFullYear(); this.m = d.getMonth(); },
+                                    pad(n) { return String(n).padStart(2, '0'); },
+                                    iso(d) { return this.y + '-' + this.pad(this.m + 1) + '-' + this.pad(d); },
+                                    get blanks() { return (new Date(this.y, this.m, 1).getDay() + 6) % 7; },
+                                    get days() { return new Date(this.y, this.m + 1, 0).getDate(); },
+                                    shift(n) { this.m += n; if (this.m < 0) { this.m = 11; this.y--; } if (this.m > 11) { this.m = 0; this.y++; } },
+                                    pick(d) { if (this.iso(d) > this.max) return; this.value = this.iso(d); this.cal = false; },
+                                    label() { if (!this.value) return 'Select a date'; const d = new Date(this.value + 'T00:00:00'); return d.getDate() + ' ' + this.months[d.getMonth()] + ' ' + d.getFullYear(); }
+                                 }" @click.outside="cal = false">
+                                <input type="hidden" name="listed_date" :value="value" required>
+                                <button type="button" @click="cal = !cal" class="prop-input text-left flex items-center justify-between" style="cursor:pointer;">
+                                    <span x-text="label()"></span><span aria-hidden="true">&#128197;</span>
+                                </button>
+                                <div x-show="cal" x-cloak class="absolute z-50 mt-1 p-3 rounded-md shadow-lg" style="background:var(--surface); border:1px solid var(--border); width:260px;">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <button type="button" @click="shift(-1)" class="px-2 py-1 text-sm" style="color:var(--text-primary);">&lsaquo;</button>
+                                        <span class="text-xs font-semibold" style="color:var(--text-primary);" x-text="months[m] + ' ' + y"></span>
+                                        <button type="button" @click="shift(1)" class="px-2 py-1 text-sm" style="color:var(--text-primary);">&rsaquo;</button>
+                                    </div>
+                                    <div class="grid grid-cols-7 gap-1 text-center text-xs" style="color:var(--text-secondary);">
+                                        <template x-for="h in ['Mo','Tu','We','Th','Fr','Sa','Su']"><span x-text="h"></span></template>
+                                        <template x-for="b in blanks"><span></span></template>
+                                        <template x-for="d in days" :key="d">
+                                            <button type="button" @click="pick(d)" :disabled="iso(d) > max"
+                                                    class="py-1 rounded text-xs"
+                                                    :style="iso(d) === value ? 'background:var(--brand-button); color:#fff;' : (iso(d) > max ? 'opacity:.3; cursor:not-allowed;' : 'color:var(--text-primary);')"
+                                                    x-text="d"></button>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+                            @error('listed_date')<p class="text-xs mt-1" style="color:var(--ds-red,#dc2626);">{{ $message }}</p>@enderror
+                        </div>
+                        <div>
+                            <label class="prop-label">Reason (required)</label>
+                            <textarea name="reason" required minlength="5" maxlength="2000" rows="3" class="prop-input" placeholder="e.g. Date on the Property24 listing page is 12 Mar 2026">{{ old('reason') }}</textarea>
+                            @error('reason')<p class="text-xs mt-1" style="color:var(--ds-red,#dc2626);">{{ $message }}</p>@enderror
+                        </div>
+                        <div class="flex justify-end gap-2">
+                            <button type="button" @click="open = false" class="px-4 py-2 rounded-md text-xs font-medium" style="color:var(--text-secondary);">Cancel</button>
+                            <button type="submit" class="px-4 py-2 rounded-md text-xs font-semibold text-white" style="background:var(--brand-button);">Save</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            @endif
 
             {{-- Save / Delete — outside the update form to prevent nesting --}}
             <div class="flex items-center justify-between pt-4">
@@ -10072,9 +10140,23 @@
                         </div>
                         <div>
                             <span style="color: var(--text-muted);">Unique viewings with feedback:</span>
-                            <span class="font-semibold ml-1" style="color: var(--text-primary);">{{ $feedbackRollup['total_viewings'] }}</span>
+                            <span class="font-semibold ml-1" style="color: var(--text-primary);">{{ $feedbackRollup['viewings_with_feedback'] }}</span>
                         </div>
                     </div>
+                    @if(($feedbackRollup['declined_on_arrival'] ?? 0) > 0)
+                        <div class="mt-3 text-xs">
+                            <span style="color: var(--text-muted);">Buyers who arrived but chose not to view (not counted as viewings):</span>
+                            <span class="font-semibold ml-1" style="color: var(--text-primary);">{{ $feedbackRollup['declined_on_arrival'] }}</span>
+                        </div>
+                    @endif
+                    @if(!empty($feedbackRollup['top_concern_labels']))
+                        <div class="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
+                            <span style="color: var(--text-muted);">Concerns raised:</span>
+                            @foreach($feedbackRollup['top_concern_labels'] as $concernLabel => $concernCount)
+                                <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold" style="background:rgba(245,158,11,.15); color:#b45309;">{{ $concernLabel }} ({{ $concernCount }})</span>
+                            @endforeach
+                        </div>
+                    @endif
                 </div>
 
                 {{-- Section: Recent Viewings & Feedback Detail --}}
@@ -10111,15 +10193,27 @@
                                     @if($rv['feedback']->isNotEmpty())
                                         @foreach($rv['feedback'] as $fb)
                                             <div class="mt-2 rounded px-2 py-1.5" style="background: var(--surface-2);">
+                                                @if(($fb['viewing_status'] ?? 'viewed') !== 'viewed')
+                                                    <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:rgba(239,68,68,.12); color:#b91c1c;">{{ $fb['status_label'] }}</span>
+                                                @endif
                                                 @if($fb['outcome_label'] ?? null)
                                                     <span class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:rgba(16,185,129,.15); color:#059669;">{{ $fb['outcome_label'] }}</span>
                                                 @endif
+                                                @foreach(($fb['concerns'] ?? []) as $concernLabel)
+                                                    <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded" style="background:rgba(245,158,11,.15); color:#b45309;">{{ $concernLabel }}</span>
+                                                @endforeach
                                                 @if($fb['seller_notes'] ?? null)
-                                                    <p class="text-xs mt-1" style="color: var(--text-secondary);">{{ $fb['seller_notes'] }}</p>
+                                                    <p class="text-xs mt-1" style="color: var(--text-secondary);"><span class="font-medium">Seller comment:</span> {{ $fb['seller_notes'] }}</p>
                                                 @endif
                                                 @if($fb['internal_notes'] ?? null)
-                                                    <p class="text-[11px] mt-1" style="color: var(--text-muted);"><span class="font-medium">Internal:</span> {{ $fb['internal_notes'] }}</p>
+                                                    <p class="text-[11px] mt-1" style="color: var(--text-muted);"><span class="font-medium">Internal comment:</span> {{ $fb['internal_notes'] }}</p>
                                                 @endif
+                                                <p class="text-[10px] mt-1" style="color: var(--text-muted);">
+                                                    Captured by {{ $fb['captured_by'] ?? 'unknown' }}@if($fb['captured_at']) · {{ $fb['captured_at']->format('j M Y, H:i') }}@endif
+                                                    @if($fb['last_edited_at'])
+                                                        · last edited by {{ $fb['last_edited_by'] ?? 'unknown' }} · {{ $fb['last_edited_at']->format('j M Y, H:i') }}
+                                                    @endif
+                                                </p>
                                             </div>
                                         @endforeach
                                     @else

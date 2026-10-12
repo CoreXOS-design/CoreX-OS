@@ -2120,6 +2120,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::patch('/calendar/{calendarEvent}/reschedule', [CommandCenterCalendarController::class, 'reschedule'])->name('command-center.calendar.reschedule');
         Route::get('/calendar/{calendarEvent}/feedback', [CommandCenterCalendarController::class, 'showFeedback'])->name('command-center.calendar.feedback.show');
         Route::post('/calendar/{calendarEvent}/feedback', [CommandCenterCalendarController::class, 'storeFeedback'])->name('command-center.calendar.feedback.store');
+        // Viewing feedback archive / restore (R8) - soft delete only, permission + scope enforced in the controller.
+        Route::post('/calendar/{calendarEvent}/feedback/{feedbackId}/archive', [CommandCenterCalendarController::class, 'archiveFeedback'])->whereNumber('feedbackId')->name('command-center.calendar.feedback.archive');
+        Route::post('/calendar/{calendarEvent}/feedback/{feedbackId}/restore', [CommandCenterCalendarController::class, 'restoreFeedback'])->whereNumber('feedbackId')->name('command-center.calendar.feedback.restore');
         Route::get('/calendar/search/attendees', [CommandCenterCalendarController::class, 'searchAttendees'])->name('command-center.calendar.search.attendees');
         Route::get('/calendar/properties/{property}/owners', [CommandCenterCalendarController::class, 'propertyOwners'])->name('command-center.calendar.property-owners');
 
@@ -4802,6 +4805,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // per Johan's build standard, without touching the large existing
         // update() method. Spec: .ai/specs/rentals-shared-screens.md §5.
         Route::put('/{property}/rental-details', [\App\Http\Controllers\CoreX\PropertyController::class, 'updateRentalDetails'])->name('rental-details.update');
+        // Listed date correction (reason required, recorded as a property note)
+        Route::put('/{property}/listed-date', [\App\Http\Controllers\CoreX\PropertyListedDateController::class, 'update'])->name('listed-date.update');
         // Notes
         Route::post('/{property}/notes',                [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'store'])->name('notes.store');
         Route::delete('/{property}/notes/{note}',       [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'destroy'])->name('notes.destroy');
@@ -5702,6 +5707,7 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::put('/settings/types/{id}', [\App\Http\Controllers\Docuperfect\DocumentTypeController::class, 'update'])->name('docuperfect.settings.types.update');
     Route::delete('/settings/types/{id}', [\App\Http\Controllers\Docuperfect\DocumentTypeController::class, 'destroy'])->name('docuperfect.settings.types.destroy');
     Route::post('/settings/types/{type}/restore', [\App\Http\Controllers\Docuperfect\DocumentTypeController::class, 'restore'])->name('docuperfect.settings.types.restore')->withTrashed();
+    Route::post('/settings/types/{id}/esign-warning', [\App\Http\Controllers\Docuperfect\DocumentTypeController::class, 'setEsignWarning'])->name('docuperfect.settings.types.esign-warning');
     Route::post('/settings/types/reorder', [\App\Http\Controllers\Docuperfect\DocumentTypeController::class, 'reorder'])->name('docuperfect.settings.types.reorder');
 
     // Named Fields settings (admin)

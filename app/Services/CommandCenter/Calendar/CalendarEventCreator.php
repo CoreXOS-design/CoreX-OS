@@ -148,6 +148,13 @@ class CalendarEventCreator
             $rolesToSync[] = CalendarEventLink::ROLE_RELATED_DEAL;
         }
 
+        // R9 (viewing feedback): remember which properties were on the appointment before this re-sync.
+        $propertyIdsBefore = in_array(CalendarEventLink::ROLE_SUBJECT_PROPERTY, $rolesToSync, true)
+            ? DB::table('calendar_event_links')->where('calendar_event_id', $event->id)
+                ->where('linkable_type', Property::class)->where('role', CalendarEventLink::ROLE_SUBJECT_PROPERTY)
+                ->pluck('linkable_id')->map(fn ($i) => (int) $i)->all()
+            : null;
+
         if (!empty($rolesToSync)) {
             DB::table('calendar_event_links')
                 ->where('calendar_event_id', $event->id)
@@ -277,6 +284,17 @@ class CalendarEventCreator
 
         if (!empty($links)) {
             DB::table('calendar_event_links')->insert($links);
+        }
+
+        // R9: a property taken off the appointment stops counting - its feedback is archived (restorable), not deleted.
+        if ($propertyIdsBefore !== null && in_array($event->category, \App\Services\Properties\PropertyViewings::VIEWING_CATEGORIES, true)) {
+            $propertyIdsAfter = DB::table('calendar_event_links')->where('calendar_event_id', $event->id)
+                ->where('linkable_type', Property::class)->where('role', CalendarEventLink::ROLE_SUBJECT_PROPERTY)
+                ->pluck('linkable_id')->map(fn ($i) => (int) $i)->all();
+            $removed = array_values(array_diff($propertyIdsBefore, $propertyIdsAfter));
+            if ($removed !== []) {
+                app(\App\Services\Properties\ViewingFeedbackService::class)->archiveForRemovedProperties($event, $removed, $user instanceof \App\Models\User ? $user : null);
+            }
         }
 
         // Create invitations for user attendees (agents)

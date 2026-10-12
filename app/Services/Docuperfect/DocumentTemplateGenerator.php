@@ -250,12 +250,10 @@ class DocumentTemplateGenerator
                     // which is the actual requirement.
                     'is_global' => false,
                     'agency_id' => $agencyId,
-                    // Was an unconditional `true` — for EVERY imported document, an Offer To
-                    // Purchase included. The importer cannot know whether a document may
-                    // lawfully be e-signed, so it must not assert that it can.
-                    // Template::booted() forces this to false for any alienation document
-                    // (ECTA §13(1)); this stops the importer claiming otherwise to begin with.
-                    'is_esign' => true,
+                    // E-signing is switched on for an imported document unless its document type
+                    // carries the legal warning (sale agreement, OTP, deed): those arrive on their
+                    // wet-ink default and only an admin switches e-signing on, in template setup.
+                    'is_esign' => ! app(EsignAcknowledgementService::class)->typeRequiresAcknowledgement($documentTypeId, $templateName),
                     'owner_id' => $ownerId,
                 ]);
 

@@ -69,7 +69,7 @@ class PresentationSnapshotController extends Controller
                         'captured_at' => now()->toIso8601String(),
                     ]),
                     'days_on_market_at_time' => $presentation->listing_id
-                        ? (int) now()->diffInDays(\App\Models\Property::withoutGlobalScopes()->find($presentation->listing_id)?->published_at ?? now())
+                        ? (($p = \App\Models\Property::withoutGlobalScopes()->find($presentation->listing_id)) ? \App\Services\Properties\DaysOnMarket::for($p) : null)
                         : null,
                     'created_at' => now(),
                     'updated_at' => now(),

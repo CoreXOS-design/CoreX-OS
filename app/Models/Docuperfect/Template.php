@@ -41,6 +41,9 @@ class Template extends Model
         'fields_json',
         'is_global',
         'is_esign',
+        'esign_acknowledged_by_user_id',
+        'esign_acknowledged_by_name',
+        'esign_acknowledged_at',
         'party_mode',
         'wizard_config',
         'sections',
@@ -70,6 +73,7 @@ class Template extends Model
         'insertable_blocks' => 'array',
         'is_global' => 'boolean',
         'is_esign' => 'boolean',
+        'esign_acknowledged_at' => 'datetime',
         'archived_at' => 'datetime',
     ];
 
@@ -530,153 +534,81 @@ class Template extends Model
     }
 
     /**
-     * THE LAST LINE — an alienation document can never be persisted as e-signable.
+     * E-sign eligibility is the template's own setting (Johan, 8 Oct 2026). There is no
+     * "this kind of document can never be e-signed" rule.
      *
-     * `is_esign` had SEVEN writers and no guard: the importer hardcoded `is_esign => true`
-     * on every document it created (the OTP included), TemplateController let a user flip the
-     * flag straight from the settings screen with no check, the wizard "repairs" templates by
-     * stamping it true, and migrations/seeders set it directly. Any one of them could mark a
-     * deed of alienation e-signable — and a sale e-signed under ECTA §13(1) is VOID. Not
-     * "flagged". Void. The deal does not exist.
-     *
-     * Guarding each writer is whack-a-mole and the next writer arrives unguarded. So the rule
-     * lives where the data does: if the law blocks this template, `is_esign` cannot be true
-     * when it hits the database — no matter who is writing, or how.
-     *
-     * This does not replace the wizard gate or the pack-eligibility computation; it is the
-     * floor beneath them.
+     * What remains is the acknowledgement step for the document types flagged
+     * `document_types.esign_warning_required` (sale agreements, offers to purchase, deeds): e-signing
+     * can only be switched ON for such a template together with a recorded acknowledgement
+     * (EsignAcknowledgementService). `is_esign` has many writers (importer, wizard, seeders,
+     * migrations), none of which can acknowledge a legal warning — so the rule lives where the
+     * data does: a flagged template with no recorded acknowledgement is stored with is_esign=false.
+     * That keeps the default (wet ink) for every agency, and nothing flips by itself.
      */
     protected static function booted(): void
     {
         static::saving(function (self $template): void {
-            // Only interesting when someone is trying to turn e-signing ON.
             if (! $template->is_esign) {
+                // Switched off: the acknowledgement no longer applies; a re-enable needs a new one.
+                if ($template->esign_acknowledged_at !== null) {
+                    $template->esign_acknowledged_by_user_id = null;
+                    $template->esign_acknowledged_by_name = null;
+                    $template->esign_acknowledged_at = null;
+                }
                 return;
             }
 
-            if ($template->isEsignBlocked()) {
+            // Only re-evaluate when e-sign or the document type is actually being changed.
+            if ($template->exists && ! $template->isDirty(['is_esign', 'document_type_id'])) {
+                return;
+            }
+
+            if ($template->esign_acknowledged_at === null && $template->requiresEsignAcknowledgement()) {
                 $template->is_esign = false;
 
-                Log::warning('ECTA §13(1): refused to persist is_esign=true on an alienation document', [
+                Log::notice('E-sign not switched on: document type carries the legal warning and it was not acknowledged', [
                     'template_id'   => $template->id,
                     'template_name' => $template->name,
-                    'template_type' => $template->template_type,
                 ]);
             }
         });
     }
 
     /**
-     * Check if this template type is legally blocked from e-signing.
-     * Sale agreements and OTPs must be signed with wet ink per Alienation of
-     * Land Act §2(1) + ECTA §13(1).
-     *
-     * Spec: .ai/specs/esign-v3-complete-spec.md §5
-     *
-     * Layered defence — with an honest note on what each layer really does:
-     *
-     *   Layer 1 — document_type slug (`document_types.slug`). **LIVE, and the strongest.**
-     *             Five live OTPs are blocked by it today. It is the only layer that survives a
-     *             RENAME, because it asks what the document IS, not what it is called.
-     *             (Correction: an earlier version of this docblock called Layer 1 dead. That was
-     *             wrong — it was read against `docuperfect_document_types`, a legacy table with
-     *             no slug. The FK points at `document_types`, which has slugs for all five
-     *             blocked types. The layer was never dead; nothing was ever CLASSIFIED.)
-     *   Layer 2 — template_type string. Effectively inert: the values in the wild are
-     *             `sales` / `rental` / `standard` / `general`, none of which is a blocked slug.
-     *   Layer 3 — name regex. The fallback for anything unclassified. Load-bearing precisely
-     *             because classification was missing — "Contract of Sale" is on live today and
-     *             the old pattern did NOT match it.
-     *   Layer 4 — the saving guard above: a blocked template cannot be STORED e-signable, by
-     *             any of the seven writers of `is_esign`.
-     *   Layer 5 — every trigger writes to legal_block_audit_log (insert-only).
-     *
-     * The real fix was never a longer regex — it was classifying documents at all.
-     * `DocumentTypeClassifier` now classifies on import, and a migration backfills the
-     * templates nobody ever classified. A classified sale stays blocked whatever it is renamed.
-     *
-     * A mandate (Authority to Sell / sole mandate) is NOT an alienation document and must stay
-     * e-signable: it authorises a sale, it does not effect one.
+     * Does this template's document type carry the legal e-sign warning? Data, not code: the flag
+     * on `document_types`. An unclassified template is matched to its type by name only.
      */
-    public function isEsignBlocked(): bool
+    public function requiresEsignAcknowledgement(): bool
     {
-        $blockedSlugs = [
-            'otp',
-            'sale_agreement',
-            'deed_of_sale',
-            'deed_of_alienation',
-            // offer_to_purchase is the pre-ES-1 slug that 6 templates already
-            // carry — keep it blocked so existing classifications stay safe.
-            'offer_to_purchase',
-        ];
-
-        // Layer 1 + 2 — slug or template_type string match
-        $slug = $this->documentType?->slug ?? $this->template_type ?? '';
-        if (in_array($slug, $blockedSlugs, true) && $slug !== '') {
-            $this->logBlockTrigger('document_type_match', $slug);
-            return true;
-        }
-
-        // Layer 3 — name regex with word boundaries. THE ONLY LIVE LAYER (see the docblock),
-        // so it must cover how these documents are really named in South Africa.
-        //
-        // "Contract of Sale - Serenity Hills Eco Estate" is on LIVE right now and was NOT
-        // matched by the old pattern — an alienation document one toggle away from being
-        // e-signed and void. "Purchase agreement", "agreement of purchase and sale" and
-        // "koopkontrak" are the same document under different names.
-        //
-        // What must NOT match, and this is the point of the word boundaries:
-        //   - a MANDATE. "Exclusive Authority To Sell", "sole mandate" — a mandate AUTHORISES
-        //     a sale, it does not EFFECT one. It is e-signable and blocking it would break the
-        //     launch document.
-        //   - "Photoshop" / "Photoshop Workflow" (the original reason for \b).
-        $pattern = '/\b('
-            . 'otp'
-            . '|offer to purchase'
-            . '|deed of (sale|alienation|transfer)'
-            . '|(sale|purchase) agreement'
-            . '|agreement (of|for) sale'
-            . '|agreement of purchase and sale'
-            . '|contract of sale'
-            . '|sale of immovable property'
-            . '|koopkontrak'
-            . ')\b/i';
-        if (preg_match($pattern, $this->name ?? '', $matches)) {
-            $this->logBlockTrigger('name_pattern_match', $matches[0]);
-            return true;
-        }
-
-        return false;
+        return app(\App\Services\Docuperfect\EsignAcknowledgementService::class)
+            ->typeRequiresAcknowledgement($this->document_type_id ? (int) $this->document_type_id : null, $this->name);
     }
 
     /**
-     * ES-1 — write an insert-only audit row for every legal-block trigger.
-     * Failure to write the log MUST NOT break the block — the block always
-     * stands regardless of audit-log persistence.
+     * A flagged template that nobody has switched e-signing on for yet (the default state of those
+     * types). E-sign delivery is not available for it until an admin turns the setting on in
+     * template setup. Always false for every other template — their behaviour is unchanged.
      */
-    private function logBlockTrigger(string $reason, ?string $matchedPattern): void
+    public function esignAwaitingAcknowledgement(): bool
     {
-        try {
-            \App\Models\LegalBlockAuditLog::create([
-                'agency_id'          => auth()->user()?->effectiveAgencyId(),
-                'template_id'        => $this->id,
-                'template_name'      => $this->name,
-                'document_type_slug' => $this->documentType?->slug,
-                'user_id'            => auth()->id(),
-                'block_reason'       => $reason,
-                'matched_pattern'    => $matchedPattern,
-                'request_context'    => [
-                    'route'      => request()->route()?->getName(),
-                    'ip'         => request()->ip(),
-                    'user_agent' => substr((string) request()->userAgent(), 0, 500),
-                ],
-            ]);
-        } catch (\Throwable $e) {
-            \Log::warning('Legal block audit log write failed: ' . $e->getMessage(), [
-                'template_id' => $this->id,
-                'reason'      => $reason,
-            ]);
+        if (! $this->requiresEsignAcknowledgement()) {
+            return false;
         }
+
+        return ! ($this->is_esign && $this->esign_acknowledged_at !== null);
+    }
+
+    /** Admin-only: who switched e-signing on for this template and when. Null when none recorded. */
+    public function esignAcknowledgementRecord(): ?string
+    {
+        if (! $this->is_esign || $this->esign_acknowledged_at === null) {
+            return null;
+        }
+
+        return strtr((string) config('esign-acknowledgement.record'), [
+            ':name' => (string) ($this->esign_acknowledged_by_name ?: 'an administrator'),
+            ':date' => $this->esign_acknowledged_at->format('d M Y'),
+        ]);
     }
 
     /**
@@ -693,20 +625,22 @@ class Template extends Model
      */
     public function allowsDeliveryMode(string $mode): bool
     {
-        // Sale agreements can NEVER use e-sign
-        if ($mode === 'esign' && $this->isEsignBlocked()) {
+        // A flagged template (sale agreement etc.) has e-sign delivery only once an admin has
+        // switched it on in template setup; every other template follows its delivery modes.
+        if ($mode === 'esign' && $this->esignAwaitingAcknowledgement()) {
             return false;
         }
         return in_array($mode, $this->getAllowedDeliveryModesArray());
     }
 
     /**
-     * Get effective delivery modes (enforcing legal restrictions).
+     * Get effective delivery modes. A flagged template nobody has switched e-signing on for keeps
+     * its wet-ink default.
      */
     public function getEffectiveDeliveryModes(): array
     {
         $modes = $this->getAllowedDeliveryModesArray();
-        if ($this->isEsignBlocked()) {
+        if ($this->esignAwaitingAcknowledgement()) {
             $modes = array_values(array_diff($modes, ['esign']));
             if (empty($modes)) {
                 $modes = ['wet_ink', 'download'];

@@ -443,6 +443,10 @@ class CommandCentreService
             ->limit(5)
             ->get(['id', DB::raw("COALESCE(title, CONCAT('Property #', id)) as title"), 'created_at']);
 
+        $domStale = app(\App\Services\Properties\DaysOnMarket::class)->forMany(
+            \App\Models\Property::withoutGlobalScopes()->whereIn('id', $stale->pluck('id'))->get()
+        );
+
         return [
             'card_id' => 'listings_attention',
             'title' => 'Listings Needing Attention',
@@ -452,7 +456,7 @@ class CommandCentreService
             'items' => $stale->map(fn($p) => [
                 'id' => $p->id,
                 'title' => $p->title,
-                'days_on_market' => \App\Support\HumanDiff::daysBetween($p->created_at),
+                'days_on_market' => $domStale[$p->id] ?? null,
             ])->toArray(),
             'view_all_url' => '/corex/command-center/properties',
         ];
@@ -767,6 +771,10 @@ class CommandCentreService
         $agentIds = $stale->pluck('agent_id')->filter()->toArray();
         $agents = !empty($agentIds) ? DB::table('users')->whereIn('id', $agentIds)->pluck('name', 'id') : collect();
 
+        $domStale = app(\App\Services\Properties\DaysOnMarket::class)->forMany(
+            \App\Models\Property::withoutGlobalScopes()->whereIn('id', $stale->pluck('id'))->get()
+        );
+
         return [
             'card_id' => 'branch_listings_review',
             'title' => 'Branch Listings Review',
@@ -776,7 +784,7 @@ class CommandCentreService
             'items' => $stale->map(fn($p) => [
                 'id' => $p->id,
                 'title' => $p->title,
-                'days_on_market' => \App\Support\HumanDiff::daysBetween($p->created_at),
+                'days_on_market' => $domStale[$p->id] ?? null,
                 'agent' => $agents[$p->agent_id] ?? 'Unassigned',
             ])->toArray(),
             'view_all_url' => '/corex/command-center/properties',

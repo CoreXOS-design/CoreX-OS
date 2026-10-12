@@ -1009,6 +1009,10 @@ class CalendarController extends Controller
             // directly off the appointment. Only surfaced when the caller may use
             // packs and (for launch) it's a viewing event.
             'viewing_pack' => $this->buildEventViewingPack($calendarEvent, $user),
+            // Captured viewing feedback per property (R2) - agent-side, carries internal comments.
+            'viewing_feedback' => in_array($calendarEvent->category, \App\Services\Properties\PropertyViewings::VIEWING_CATEGORIES, true)
+                ? app(\App\Services\Properties\ViewingFeedbackService::class)->panelData($calendarEvent, $user)
+                : null,
         ]);
     }
 
@@ -1100,6 +1104,11 @@ class CalendarController extends Controller
         $user = $request->user();
         if (!$this->visibilityResolver->canSee($calendarEvent, $user)) {
             abort(403);
+        }
+
+        // Viewing feedback has ONE store and ONE form shape (spec calendar-viewing-feedback.md).
+        if (in_array($calendarEvent->category, \App\Services\Properties\PropertyViewings::VIEWING_CATEGORIES, true)) {
+            return $this->showViewingFeedback($calendarEvent, $user);
         }
 
         $agencyId = $calendarEvent->agency_id;
@@ -1254,11 +1263,248 @@ class CalendarController extends Controller
         ]);
     }
 
+    /**
+     * Viewing feedback form data: one block per property still on the appointment, pre-filled from the ONE store
+     * (calendar_event_feedback columns) whichever older form wrote it. can_edit drives read-only vs editable.
+     */
+    private function showViewingFeedback(CalendarEvent $calendarEvent, $user)
+    {
+        $svc = app(\App\Services\Properties\ViewingFeedbackService::class);
+        $panel = $svc->panelData($calendarEvent, $user);
+        $agencyId = $calendarEvent->agency_id;
+
+        $options = fn (string $category) => \App\Models\CommandCenter\AgencyFeedbackOption::withoutGlobalScopes()
+            ->where('category', $category)->where('is_active', true)
+            ->where(fn ($q) => $q->whereNull('agency_id')->orWhere('agency_id', $agencyId))
+            ->orderBy('sort_order')->get(['id', 'label']);
+
+        $rows = \App\Models\CommandCenter\CalendarEventFeedback::withoutGlobalScopes()
+            ->where('calendar_event_id', $calendarEvent->id)->whereNull('deleted_at')->get()
+            ->map(fn ($r) => \App\Services\Properties\PropertyViewings::capture($r))->reject(fn ($c) => $c['blank']);
+        $single = count($panel['properties']) === 1;
+
+        $items = collect($panel['properties'])->map(function ($p) use ($rows, $single) {
+            $mine = $rows->filter(fn ($c) => $c['property_id'] === $p['property_id'] || ($single && $c['property_id'] === null))
+                ->sortByDesc(fn ($c) => [$c['sort_key'], $c['id']])->first();
+            $cap = $p['captures'][0] ?? null;
+
+            return [
+                'property_id'          => $p['property_id'],
+                'label'                => $p['label'],
+                'feedback_id'          => $mine['id'] ?? null,
+                'viewing_status'       => $mine['status'] ?? 'viewed',
+                'outcome_id'           => $mine['outcome_option_id'] ?? null,
+                'concern_ids'          => $mine['concern_ids'] ?? [],
+                'seller_visible_notes' => $mine['seller_comment'] ?? '',
+                'internal_notes'       => $mine['internal_comment'] ?? '',
+                'next_action_notes'    => $mine['next_action'] ?? '',
+                'captured_by'          => $cap['captured_by'] ?? null,
+                'captured_at'          => $cap['captured_at'] ?? null,
+                'last_edited_by'       => $cap['last_edited_by'] ?? null,
+                'last_edited_at'       => $cap['last_edited_at'] ?? null,
+            ];
+        })->values();
+
+        return response()->json([
+            'event' => [
+                'id'    => $calendarEvent->id,
+                'title' => $calendarEvent->title,
+                'date'  => $calendarEvent->event_date->format('D, j M Y H:i'),
+            ],
+            'feedback_mode' => 'per_property',
+            'feedback_kind' => 'viewing',
+            'can_edit'      => $panel['can_edit'],
+            'items'         => $items,
+            'outcomes'      => $options('outcome'),
+            'concerns'      => $options('concern'),
+            'statuses'      => collect(\App\Services\Properties\PropertyViewings::STATUS_LABELS)
+                ->map(fn ($label, $value) => ['value' => $value, 'label' => $label])->values(),
+            // All properties are on ONE form (no Save & Next stepper) - the server skips untouched ones.
+            'is_multi_property' => false,
+            'properties'    => $items->map(fn ($i) => ['id' => $i['property_id'], 'address' => $i['label']])->values(),
+            'contacts'      => [],
+            'lp_outcomes' => [], 'lp_mandate_types' => [], 'lp_concerns' => [],
+        ]);
+    }
+
+    /** Save viewing feedback (the ONE write path - see ViewingFeedbackService). */
+    private function storeViewingFeedback(Request $request, CalendarEvent $calendarEvent, $user)
+    {
+        $svc = app(\App\Services\Properties\ViewingFeedbackService::class);
+        abort_unless(
+            $svc->canEdit($user, $calendarEvent),
+            403,
+            'Only the agent who created this appointment, a branch manager or an admin can edit its feedback.'
+        );
+
+        $linkedIds = DB::table('calendar_event_links')
+            ->where('calendar_event_id', $calendarEvent->id)->where('linkable_type', Property::class)
+            ->where('role', 'subject_property')->whereNull('deleted_at')
+            ->pluck('linkable_id')->map(fn ($i) => (int) $i)->all();
+
+        // A single-property appointment's property is implied.
+        $payload = $request->all();
+        if (count($linkedIds) === 1 && is_array($payload['feedback'] ?? null)) {
+            foreach ($payload['feedback'] as $k => $row) {
+                if (is_array($row) && empty($row['property_id'])) {
+                    $payload['feedback'][$k]['property_id'] = $linkedIds[0];
+                }
+            }
+            $request->merge(['feedback' => $payload['feedback']]);
+        }
+
+        $data = $request->validate([
+            'feedback'                        => 'required|array|min:1',
+            'feedback.*.property_id'          => 'required|integer|exists:properties,id',
+            'feedback.*.viewing_status'       => 'nullable|in:' . implode(',', \App\Services\Properties\PropertyViewings::STATUSES),
+            'feedback.*.outcome_id'           => 'nullable|integer|exists:agency_feedback_options,id',
+            'feedback.*.concern_ids'          => 'nullable|array',
+            'feedback.*.concern_ids.*'        => 'integer|exists:agency_feedback_options,id',
+            'feedback.*.seller_visible_notes' => 'nullable|string|max:5000',
+            'feedback.*.internal_notes'       => 'nullable|string|max:5000',
+            'feedback.*.next_action_notes'    => 'nullable|string|max:2000',
+        ]);
+
+        // SECURITY - exists: does not respect AgencyScope; resolve through the scoped query, and the property must
+        // still be on THIS appointment.
+        foreach ($data['feedback'] as $row) {
+            abort_unless(Property::find($row['property_id']), 422, 'One or more properties could not be found.');
+            abort_unless(in_array((int) $row['property_id'], $linkedIds, true), 422, 'A property in this feedback is not on this appointment.');
+        }
+
+        $result = $svc->save($calendarEvent, $user, $data['feedback']);
+
+        if ($result['saved'] !== [] || $result['touched'] !== []) {
+            DB::transaction(function () use ($calendarEvent, $user, $result, $data) {
+                \App\Models\CommandCenter\CalendarEventAuditEntry::create([
+                    'calendar_event_id'    => $calendarEvent->id,
+                    'action'               => 'feedback_captured',
+                    'new_values'           => ['property_ids' => $result['touched'], 'contact_count' => count($result['saved'])],
+                    'performed_by_user_id' => $user->id,
+                    'performed_at'         => now(),
+                ]);
+
+                // Close any open missed-feedback tasks for this event.
+                \App\Models\CommandCenter\CommandTask::query()
+                    ->where('source_type', 'calendar:missed_feedback')
+                    ->where('calendar_event_id', $calendarEvent->id)
+                    ->whereIn('status', ['todo', 'in_progress', 'awaiting'])
+                    ->update(['status' => 'done', 'completed_at' => now()]);
+
+                if ($calendarEvent->status !== 'completed') {
+                    $calendarEvent->update(['status' => 'completed']);
+                }
+            });
+
+            $this->afterViewingFeedbackSaved($calendarEvent, $user, $result, $data['feedback']);
+        }
+
+        return response()->json(['success' => true, 'saved' => $result['saved'], 'skipped' => $result['skipped']]);
+    }
+
+    /** Buyer history + view counts + listing-agent notification for properties whose feedback really changed. */
+    private function afterViewingFeedbackSaved(CalendarEvent $calendarEvent, $user, array $result, array $rows): void
+    {
+        $buyerId = $this->eventBuyerContactId($calendarEvent);
+        $contact = $buyerId ? Contact::find($buyerId) : null;
+        $byProperty = collect($rows)->keyBy(fn ($r) => (int) $r['property_id']);
+
+        try {
+            if ($contact && $contact->is_buyer && $calendarEvent->agency_id) {
+                foreach ($result['touched'] as $pid) {
+                    $status = $byProperty[$pid]['viewing_status'] ?? 'viewed';
+                    \App\Models\BuyerActivityLog::create([
+                        'contact_id'          => $buyerId,
+                        'agency_id'           => $calendarEvent->agency_id,
+                        'activity_type'       => 'feedback_captured',
+                        'activity_date'       => now(),
+                        'related_event_id'    => $calendarEvent->id,
+                        'related_property_id' => $pid,
+                        'metadata'            => ['event_title' => $calendarEvent->title, 'outcome_id' => $byProperty[$pid]['outcome_id'] ?? null,
+                                                  'viewing_status' => $status, 'captured_by' => $user->name],
+                        'logged_by_user_id'   => $user->id,
+                    ]);
+                    // Only a property the buyer actually viewed adds to their view history.
+                    if ($status === 'viewed') {
+                        DB::table('buyer_property_views')->updateOrInsert(
+                            ['contact_id' => $buyerId, 'property_id' => $pid],
+                            [
+                                'agency_id'      => $calendarEvent->agency_id,
+                                'last_viewed_at' => $calendarEvent->event_date,
+                                'view_count'     => DB::raw('COALESCE(view_count, 0) + 1'),
+                                'updated_at'     => now(),
+                                'created_at'     => DB::raw('COALESCE(created_at, NOW())'),
+                            ]
+                        );
+                    }
+                }
+                $contact->updateQuietly(['last_activity_at' => now()]);
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Viewing feedback buyer-history write failed', ['event' => $calendarEvent->id, 'error' => $e->getMessage()]);
+        }
+
+        // Cross-agent notification: the listing agent hears about feedback on their own listing.
+        $dispatcher = app(\App\Services\CommandCenter\NotificationDispatcher::class);
+        $buyerName = $contact ? (trim($contact->first_name . ' ' . $contact->last_name) ?: null) : null;
+        foreach ($result['touched'] as $pid) {
+            try {
+                $property = Property::with('agent')->find($pid);
+                if (! $property || empty($property->agent_id) || (int) $property->agent_id === (int) $user->id || ! $property->agent) {
+                    continue;
+                }
+                $addr = trim((string) $property->address) !== '' ? $property->address : $property->buildDisplayAddress();
+                $addr = $addr ?: ($property->title ?: ('Property #' . $property->id));
+                $dispatcher->fire($property->agent, 'property.feedback_captured', $property, [
+                    'title'            => $user->name . ' captured viewing feedback',
+                    'body'             => $addr . ($buyerName ? ' - ' . $buyerName : ''),
+                    'action_url'       => route('corex.properties.show', $property->id) . '#recent-viewings-feedback',
+                    'severity'         => 'info',
+                    'threshold_hit_at' => now(),
+                ]);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('Cross-agent feedback notification failed', ['property' => $pid, 'capturer' => $user->id, 'error' => $e->getMessage()]);
+            }
+        }
+    }
+
+    public function archiveFeedback(Request $request, CalendarEvent $calendarEvent, int $feedbackId)
+    {
+        return $this->changeFeedbackArchive($request, $calendarEvent, $feedbackId, true);
+    }
+
+    public function restoreFeedback(Request $request, CalendarEvent $calendarEvent, int $feedbackId)
+    {
+        return $this->changeFeedbackArchive($request, $calendarEvent, $feedbackId, false);
+    }
+
+    private function changeFeedbackArchive(Request $request, CalendarEvent $calendarEvent, int $feedbackId, bool $archive)
+    {
+        $user = $request->user();
+        if (!$this->visibilityResolver->canSee($calendarEvent, $user)) {
+            abort(403);
+        }
+        $svc = app(\App\Services\Properties\ViewingFeedbackService::class);
+        abort_unless($svc->canEdit($user, $calendarEvent), 403, 'Only the agent who created this appointment, a branch manager or an admin can change its feedback.');
+
+        $fb = \App\Models\CommandCenter\CalendarEventFeedback::withoutGlobalScopes()->withTrashed()
+            ->where('calendar_event_id', $calendarEvent->id)->findOrFail($feedbackId);
+        $archive ? $svc->archive($fb, $user, trim((string) $request->input('reason', 'archived by agent')) ?: 'archived by agent') : $svc->restore($fb, $user);
+
+        return $request->expectsJson()
+            ? response()->json(['success' => true])
+            : back()->with('status', $archive ? 'Feedback archived.' : 'Feedback restored.');
+    }
+
     public function storeFeedback(Request $request, CalendarEvent $calendarEvent)
     {
         $user = $request->user();
         if (!$this->visibilityResolver->canSee($calendarEvent, $user)) {
             abort(403);
+        }
+
+        if (in_array($calendarEvent->category, \App\Services\Properties\PropertyViewings::VIEWING_CATEGORIES, true)) {
+            return $this->storeViewingFeedback($request, $calendarEvent, $user);
         }
 
         $feedbackKind = $request->input('feedback_kind', 'viewing');

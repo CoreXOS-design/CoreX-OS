@@ -22,7 +22,8 @@ use Illuminate\Support\Facades\DB;
  *   status              DR1 derived state ⇄ DR2 status enum (round-trip stable)
  *   commission_status   direct (Paid / Not Paid / Loss)
  *   price               DR1 sale_price ⇄ DR2 purchase_price
- *   commission total    DR1 total_commission (incl VAT) ⇄ DR2 commission_amount + commission_vat (15%)
+ *   commission total    DR1 total_commission (incl VAT) → DR2 commission_amount + commission_vat (15%) — ONE WAY ONLY:
+ *                       the real deal owns the money (see DealV2::money()), the twin never writes it back
  *   registration date   DR1 registration_date ⇄ DR2 actual_registration
  *   deal/offer date     DR1 deal_date ⇄ DR2 offer_date
  *   party names         DR2 contacts → DR1 seller_name/buyer_name/attorney_name (derive; one-way)
@@ -131,6 +132,22 @@ class DealSyncService
         $offer  = $v1->deal_date ?: ($v1->sale_date ?: $v1->created_at);
         $status = $this->v1StateToV2Status($v1);
 
+        // Two requests can reach this at once for the same deal; the unique index on
+        // deals_v2.legacy_deal_id lets exactly one win. The loser adopts the winner's row
+        // rather than failing — never a second twin.
+        try {
+            return $this->createTwin($v1, $listingAgentId, $status, $price, $amount, $vat, $offer);
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            $winner = DealV2::withoutGlobalScopes()->where('legacy_deal_id', $v1->id)->firstOrFail();
+            DB::table('deals')->where('id', $v1->id)->update(['deal_v2_id' => $winner->id]);
+            $v1->deal_v2_id = $winner->id;
+
+            return (int) $winner->id;
+        }
+    }
+
+    private function createTwin(Deal $v1, int $listingAgentId, string $status, $price, float $amount, float $vat, $offer): int
+    {
         return (int) DB::transaction(function () use ($v1, $listingAgentId, $status, $price, $amount, $vat, $offer) {
             $twin = new DealV2();
             $twin->forceFill([
@@ -214,10 +231,11 @@ class DealSyncService
                     $dirty['sale_price'] = (int) $v2->purchase_price;
                 }
 
-                $incl = round((float) $v2->commission_amount + (float) $v2->commission_vat, 2);
-                if ((float) $v1->total_commission !== $incl) {
-                    $dirty['total_commission'] = $incl;
-                }
+                // total_commission is deliberately NOT written back (2026-10-08, one source
+                // for a deal's money): the real deal owns the commission. The twin's own
+                // commission columns are a dormant copy of it; letting an old copy overwrite
+                // the real figure on any v2 save (a pipeline step, a RAG refresh) would change
+                // the money behind the deal's money lines without rebuilding them.
 
                 if ($v2->offer_date && $this->dateChanged($v1->deal_date, $v2->offer_date)) {
                     $dirty['deal_date'] = $v2->offer_date;

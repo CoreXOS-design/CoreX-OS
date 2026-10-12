@@ -9,6 +9,7 @@ use App\Models\DealV2\DealV2;
 use App\Models\DealV2\DealV2Settlement;
 use App\Models\PerformanceSetting;
 use App\Models\User;
+use App\Services\Finance\DealMoney;
 use Illuminate\Http\Request;
 
 class DealV2SettlementController extends Controller
@@ -17,10 +18,30 @@ class DealV2SettlementController extends Controller
     // the deals_v2.edit key). Pins an assistant to the assigned agent's own deals.
     use \App\Http\Controllers\Concerns\AuthorizesDealV2Access;
 
+    /**
+     * ONE SOURCE (2026-10-08). A v2 row linked to a real deal has no settlement of
+     * its own: the settlement, the print and the agent payslip for that deal live on
+     * the Deal Register (DR2) screens, which work from the real deal. A second
+     * settlement here would be a second copy of the money — it had no agents on any
+     * linked deal and showed our share doubled on 10 of them — and "Mark as Paid" here
+     * could flip the real deal to Paid without a real settlement behind it. So a
+     * linked deal is sent to the real screen; this controller only ever computes for a
+     * native v2 deal (no legacy_deal_id).
+     */
+    private function toRealSettlement(DealV2 $deal, string $route, array $extra = [], ?string $notice = null)
+    {
+        return redirect()->route($route, array_merge(['deal' => $deal->legacy_deal_id], $extra))
+            ->with('info', $notice ?? 'This deal is settled on the Deal Register — you are on its settlement now.');
+    }
+
     public function settle(DealV2 $deal)
     {
         abort_unless(auth()->user()?->hasPermission('deals_v2.edit'), 403);
         $this->authorizeDealV2($deal);
+
+        if ($deal->hasLegacyMoneySource()) {
+            return $this->toRealSettlement($deal, 'deals-dr2.settle');
+        }
 
         $deal->load(['agents', 'settlements', 'property', 'listingAgent', 'sellingAgent', 'branch']);
 
@@ -33,6 +54,11 @@ class DealV2SettlementController extends Controller
     {
         abort_unless(auth()->user()?->hasPermission('deals_v2.edit'), 403);
         $this->authorizeDealV2($deal);
+
+        if ($deal->hasLegacyMoneySource()) {
+            // Nothing is saved here for a linked deal — see toRealSettlement().
+            return $this->toRealSettlement($deal, 'deals-dr2.settle', [], 'Nothing was saved. This deal is settled on the Deal Register — make the change there.');
+        }
 
         if ($deal->isFinanciallyLocked()) {
             return back()->with('error', 'This deal is already marked as Paid and cannot be edited.');
@@ -157,6 +183,10 @@ class DealV2SettlementController extends Controller
         // revoked could still deep-link the settlement financials.
         abort_unless(auth()->user()?->hasPermission('access_deal_register_v2'), 403);
 
+        if ($deal->hasLegacyMoneySource()) {
+            return $this->toRealSettlement($deal, 'deals-dr2.settle.print');
+        }
+
         $deal->load(['agents', 'settlements', 'property', 'listingAgent', 'sellingAgent']);
         $summary = $this->buildSettlementSummary($deal);
         $companyName = $this->resolveCompanyName($deal);
@@ -187,6 +217,10 @@ class DealV2SettlementController extends Controller
     {
         // Same umbrella-access gate as printSettlement (see note there).
         abort_unless(auth()->user()?->hasPermission('access_deal_register_v2'), 403);
+
+        if ($deal->hasLegacyMoneySource()) {
+            return $this->toRealSettlement($deal, 'deals-dr2.settle.print.agent', ['user' => $user->id]);
+        }
 
         $deal->load(['agents', 'settlements', 'property']);
         $summary = $this->buildSettlementSummary($deal);
@@ -246,36 +280,27 @@ class DealV2SettlementController extends Controller
 
     private function buildSettlementSummary(DealV2 $deal): array
     {
-        $vatRatePercent = (float) \App\Models\PerformanceSetting::get('vat_rate', 15);
-        $vatRate = $vatRatePercent / 100;
-        $commIncVat = (float) ($deal->commission_amount + $deal->commission_vat);
-        $commExVat = $deal->commissionExVat();
-        $vatAmt = $commIncVat - $commExVat;
+        // Headline figures: exact cents from DealMoney (see DealV2::money()). The only
+        // float below is the final text → number hand-off the views still expect.
+        $money = $deal->money();
+        $vatRate = (float) ('0.' . str_pad((string) $money->vatRateHundredths, 4, '0', STR_PAD_LEFT)); // 1500 → 0.1500, text hand-off only
+        $commIncVat = DealMoney::toFloat($money->incVatCents);
+        $commExVat = DealMoney::toFloat($money->exVatCents());
+        $vatAmt = DealMoney::toFloat($money->vatCents());
 
-        $listingPool = $deal->listingPool();
-        $sellingPool = $deal->sellingPool();
+        $listingPool = DealMoney::toFloat($money->sidePoolCents('listing'));
+        $sellingPool = DealMoney::toFloat($money->sidePoolCents('selling'));
 
         // External payable per side (inc VAT)
-        $listingExternalPayable = 0;
-        $sellingExternalPayable = 0;
-        foreach (['listing', 'selling'] as $side) {
-            if ($deal->{$side . '_external'}) {
-                $sidePct = (float) ($deal->{$side . '_split_percent'} ?? 0);
-                $payable = $commIncVat * ($sidePct / 100.0);
-                if ($side === 'listing') {
-                    $listingExternalPayable = $payable;
-                } else {
-                    $sellingExternalPayable = $payable;
-                }
-            }
-        }
+        $listingExternalPayable = DealMoney::toFloat($money->externalPayableCents('listing'));
+        $sellingExternalPayable = DealMoney::toFloat($money->externalPayableCents('selling'));
 
         $settlements = $deal->settlements()
             ->get()
             ->groupBy(fn ($s) => $s->side . ':' . $s->user_id);
 
-        $listingRows = $deal->listing_external ? [] : $this->buildSettleRows($deal, 'listing', $listingPool, $settlements);
-        $sellingRows = $deal->selling_external ? [] : $this->buildSettleRows($deal, 'selling', $sellingPool, $settlements);
+        $listingRows = $money->isExternal('listing') ? [] : $this->buildSettleRows($deal, 'listing', $listingPool, $settlements);
+        $sellingRows = $money->isExternal('selling') ? [] : $this->buildSettleRows($deal, 'selling', $sellingPool, $settlements);
 
         // Agent summary (aggregated across both sides)
         $agentSummary = [];
@@ -310,8 +335,8 @@ class DealV2SettlementController extends Controller
             'external' => 0,
         ];
 
-        $externalPayableTotal = $listingExternalPayable + $sellingExternalPayable;
-        $totals['external'] = $externalPayableTotal > 0 ? ($externalPayableTotal / (1 + $vatRate)) : 0;
+        $externalPayableTotal = DealMoney::toFloat($money->externalPayableTotalCents());
+        $totals['external'] = DealMoney::toFloat($money->externalPayableExVatCents());
 
         $checksumTotal = $totals['net'] + $totals['paye'] + $totals['deductions'] + $totals['company'] + $totals['external'];
         $checksumOk = abs($checksumTotal - $commExVat) < 0.02;

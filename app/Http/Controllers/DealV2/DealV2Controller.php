@@ -641,7 +641,13 @@ class DealV2Controller extends Controller
         abort_unless(auth()->user()?->hasPermission('deals_v2.edit'), 403);
         $this->authorizeDealV2($deal);
 
-        $locked = $deal->isFinanciallyLocked();
+        // ONE SOURCE (2026-10-08): a v2 row linked to a real deal does not own its
+        // money — commission, splits, "other agency handled this side" and the agent
+        // allocation are edited on the real deal (Deal Register) and read from there.
+        // Treated exactly like a Paid deal here: the money fields are not editable and
+        // not written, so v2 can never create a second, diverging copy of them.
+        $linkedMoney = $deal->hasLegacyMoneySource();
+        $locked = $deal->isFinanciallyLocked() || $linkedMoney;
 
         // SECURITY (Bug 1a) — same agency-scoped exists idiom as store(); the
         // re-attach block below previously read *_agents straight off the raw
@@ -818,7 +824,9 @@ class DealV2Controller extends Controller
             'created_at' => now(),
         ]);
 
-        return redirect()->route('deals-v2.show', $deal)->with('status', 'Deal updated.');
+        return redirect()->route('deals-v2.show', $deal)->with('status', $linkedMoney
+            ? 'Notes and contacts saved. The commission and splits for this deal are changed on the Deal Register, not here.'
+            : 'Deal updated.');
     }
 
     public function destroy(DealV2 $deal)

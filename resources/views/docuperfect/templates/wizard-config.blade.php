@@ -215,24 +215,18 @@
         <div x-show="activeTab === 'delivery'" class="p-6 space-y-4">
             <p class="text-sm text-gray-500 mb-4">Select which delivery modes are allowed for this template.</p>
 
-            @php
-                $isBlocked = $template->isEsignBlocked();
-            @endphp
-
             <div class="space-y-3">
                 <label class="flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-all"
-                       :class="deliveryModes.includes('esign') ? 'border-blue-400 bg-blue-50' : 'border-gray-200'"
-                       @if($isBlocked) style="opacity:0.5; pointer-events:none;" @endif>
+                       :class="deliveryModes.includes('esign') ? 'border-blue-400 bg-blue-50' : 'border-gray-200'">
                     <input type="checkbox" value="esign"
                            :checked="deliveryModes.includes('esign')"
                            @change="toggleDeliveryMode('esign')"
-                           class="rounded border-gray-300 text-blue-600 mt-0.5"
-                           @if($isBlocked) disabled @endif>
+                           class="rounded border-gray-300 text-blue-600 mt-0.5">
                     <div>
                         <span class="text-sm font-semibold text-gray-800">E-Signature</span>
                         <p class="text-xs text-gray-500 mt-0.5">Sign electronically through the secure online portal</p>
-                        @if($isBlocked)
-                        <p class="text-xs text-amber-600 mt-1 font-medium">Disabled: Sale agreements must be signed with wet ink per the Alienation of Land Act.</p>
+                        @if($template->esignAwaitingAcknowledgement())
+                        <p class="text-xs text-gray-500 mt-1">E-signing is switched on for this template with "Eligible for E-Signature" in the template editor.</p>
                         @endif
                     </div>
                 </label>

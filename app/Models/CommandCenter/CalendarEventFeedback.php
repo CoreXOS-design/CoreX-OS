@@ -29,6 +29,8 @@ class CalendarEventFeedback extends Model
         'outcome_option_id', 'concern_option_ids',
         'seller_visible_notes', 'internal_notes', 'next_action_notes',
         'kind_specific_data',
+        'viewing_status', 'last_edited_by_user_id', 'last_edited_at',
+        'archived_by_user_id', 'archive_reason',
         'captured_by_user_id', 'captured_at',
         'agency_id', 'branch_id',
     ];
@@ -37,6 +39,7 @@ class CalendarEventFeedback extends Model
         'concern_option_ids'  => 'array',
         'kind_specific_data'  => 'array',
         'captured_at'         => 'datetime',
+        'last_edited_at'      => 'datetime',
     ];
 
     public function event(): BelongsTo
@@ -57,5 +60,10 @@ class CalendarEventFeedback extends Model
     public function capturer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'captured_by_user_id');
+    }
+
+    public function editor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'last_edited_by_user_id');
     }
 }
