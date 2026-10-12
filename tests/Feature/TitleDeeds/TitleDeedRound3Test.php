@@ -96,6 +96,15 @@ final class TitleDeedRound3Test extends TitleDeedTestCase
         $this->assertStringContainsString('until someone issues a new PIN', $html);
     }
 
+    public function test_the_settings_form_state_is_a_well_formed_object(): void
+    {
+        // A stray ")" here broke every dependent control in a real browser while all server-side checks stayed green.
+        $html = $this->actingAs($this->admin)->get(route('corex.settings.title-deeds.edit'))->assertOk()->getContent();
+        $this->assertSame(1, preg_match('/id="td-settings-form"\s+x-data="(\{.*?\})"/s', $html, $m), 'x-data is one closed object');
+        $this->assertSame(substr_count($m[1], '{'), substr_count($m[1], '}'));
+        $this->assertStringNotContainsString('})"', $m[0]);
+    }
+
     public function test_the_storage_locations_section_counts_them_and_warns_when_there_are_none(): void
     {
         $this->actingAs($this->admin)->get(route('corex.settings.title-deeds.edit'))->assertOk()->assertSee('1 active location', false)->assertDontSee('deeds cannot be logged', false);
