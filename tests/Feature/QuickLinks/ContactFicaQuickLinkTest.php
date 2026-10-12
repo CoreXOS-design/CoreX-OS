@@ -277,6 +277,70 @@ final class ContactFicaQuickLinkTest extends TestCase
         $this->assertLessThanOrEqual(2, $ficaQueries, 'FICA state for the whole page is batch-loaded, not one query per row');
     }
 
+    private function hub(Contact $buyer): string
+    {
+        return $this->actingAs($this->agent)->get(route('command-center.buyers.show', $buyer))->assertOk()->getContent();
+    }
+
+    public function test_buyer_hub_has_the_send_fica_button_between_schedule_viewing_and_build_viewing_pack(): void
+    {
+        $buyer = $this->makeContact($this->agent, ['is_buyer' => true, 'email' => 'buyer@example.co.za']);
+        $html = $this->hub($buyer);
+
+        $schedule = strpos($html, 'Schedule Viewing</button>');
+        // the attribute is followed by whitespace, not '>' — find the BUTTON (first bare data-fica-send), not data-fica-send-confirm
+        $send     = preg_match('/data-fica-send(?![-\w])/', $html, $mm, PREG_OFFSET_CAPTURE) ? $mm[0][1] : false;
+        $pack     = strpos($html, 'Build Viewing Pack</button>');
+        $this->assertNotFalse($schedule);
+        $this->assertNotFalse($send, 'the Send FICA form button is on the Buyer Hub');
+        $this->assertNotFalse($pack);
+        $this->assertTrue($schedule < $send && $send < $pack, 'Send FICA form sits between Schedule Viewing and Build Viewing Pack');
+        $this->assertStringContainsString('Send FICA form', $html);
+
+        // and it works: opens the pop-up that posts the existing store route back to the contact
+        $this->assertStringContainsString('action="' . route('compliance.fica.store') . '"', $html);
+    }
+
+    public function test_buyer_hub_hides_the_fica_button_once_the_fica_is_done_or_under_review(): void
+    {
+        $buyer = $this->makeContact($this->agent, ['is_buyer' => true, 'email' => 'buyer@example.co.za']);
+        $mk = fn (string $status, array $extra = []) => FicaSubmission::unguarded(fn () => FicaSubmission::create(array_merge([
+            'contact_id' => $buyer->id, 'agency_id' => $this->agency->id, 'requested_by' => $this->agent->id,
+            'status' => $status, 'token' => bin2hex(random_bytes(8)), 'token_expires_at' => now()->addDay(),
+        ], $extra)));
+
+        $done = $mk('approved', ['verified_at' => now()->subMonths(2)]);
+        $html = $this->hub($buyer);
+        $this->assertStringContainsString('data-fica-quick-link="approved"', $html, 'the status pill still shows');
+        $this->assertStringNotContainsString('data-fica-send', $html, 'FICA is done: no Send button');
+        $this->assertStringNotContainsString('data-fica-resend', $html, 'FICA is done: no Resend button');
+
+        $done->delete();
+        $mk('submitted');
+        $html = $this->hub($buyer);
+        $this->assertStringContainsString('data-fica-quick-link="in_review"', $html);
+        $this->assertStringNotContainsString('data-fica-send', $html);
+        $this->assertStringNotContainsString('data-fica-resend', $html);
+    }
+
+    public function test_buyer_hub_offers_resend_while_waiting_and_a_new_form_when_expiring_and_nothing_to_someone_who_cannot_send(): void
+    {
+        $buyer = $this->makeContact($this->agent, ['is_buyer' => true, 'email' => 'buyer@example.co.za']);
+        $this->send($this->agent, $buyer);
+        $html = $this->hub($buyer);
+        $this->assertStringContainsString('Resend FICA form', $html);
+        $this->assertStringContainsString('data-fica-resend', $html);
+
+        // a user who may not send FICA forms sees the pill but no button
+        DB::table('role_permissions')->where('agency_id', $this->agency->id)->where('role', 'agent')
+            ->where('permission_key', 'compliance.fica.send')->delete();
+        PermissionService::clearCache();
+        $html = $this->hub($buyer);
+        $this->assertStringContainsString('data-fica-quick-link', $html);
+        $this->assertStringNotContainsString('data-fica-resend', $html);
+        $this->assertStringNotContainsString('data-fica-send', $html);
+    }
+
     public function test_the_two_fica_settings_save_independently_and_reject_nonsense(): void
     {
         $this->actingAs($this->admin)->post(route('corex.settings.fica-request.save'), ['fica_link_days' => 21])->assertSessionHas('success');

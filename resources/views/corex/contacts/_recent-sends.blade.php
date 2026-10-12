@@ -10,9 +10,16 @@
      compiles independently and keeps the host file's own compile budget
      untouched. --}}
 @if($recentSends->isNotEmpty())
-<div x-data="{ openHistory: null, openResend: null }" class="rounded-md p-4" style="background:var(--surface-2); border:1px solid var(--border);">
-    <div class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">Recent Sends</div>
-    <div class="space-y-2">
+{{-- Johan 2026-10-12: a dropdown that is ALWAYS CLOSED on load, scrolls inside itself showing about 4 sends at a time, and has a
+     "Show all" option — otherwise a busy contact makes this a very long list. --}}
+<div x-data="{ openHistory: null, openResend: null, open: false, all: false }" class="rounded-md p-4" style="background:var(--surface-2); border:1px solid var(--border);" data-recent-sends>
+    <button type="button" @click="open = !open" :aria-expanded="open" data-recent-sends-toggle
+            class="w-full flex items-center justify-between gap-3 text-left">
+        <span class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Recent Sends <span class="font-semibold normal-case tracking-normal">({{ $recentSends->count() }})</span></span>
+        <svg :class="open ? 'rotate-180' : ''" class="w-4 h-4 transition-transform flex-shrink-0" style="color:var(--text-muted);" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+    </button>
+    <div x-show="open" x-cloak class="mt-3">
+    <div class="space-y-2" :class="all ? '' : 'overflow-y-auto pr-1'" :style="all ? '' : 'max-height:17.5rem;'" data-recent-sends-list>
         @foreach($recentSends as $send)
         @php
             $sendHistory = $sendAuditLog->filter(function ($row) use ($send) {
@@ -109,6 +116,12 @@
             @endif
         </div>
         @endforeach
+    </div>
+    @if($recentSends->count() > 4)
+    <button type="button" @click="all = !all" class="mt-2 text-xs font-semibold underline" style="color:var(--brand-icon, #0ea5e9);" data-recent-sends-all>
+        <span x-text="all ? 'Show less' : 'Show all {{ $recentSends->count() }}'"></span>
+    </button>
+    @endif
     </div>
 </div>
 @endif

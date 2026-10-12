@@ -137,6 +137,124 @@ final class BuyerAndPropertyQuickLinksTest extends TestCase
         $this->assertStringNotContainsString('data-viewing-pack-quick', $this->page($c));
     }
 
+    public function test_every_contact_action_lives_in_one_quick_links_dropdown(): void
+    {
+        $buyer = $this->contact(['birthday' => '1985-04-02']);
+        $html = $this->page($buyer, $this->admin);
+
+        $this->assertSame(1, substr_count($html, 'data-contact-quick-links'), 'exactly one dropdown');
+        $start  = strpos($html, 'data-contact-quick-links');
+        $delete = strpos($html, 'Delete Contact', $start);
+        $this->assertNotFalse($delete, 'Delete Contact is still on the page');
+
+        // every action sits between the dropdown's start and the (separate) Delete button
+        foreach (['Schedule Event', 'Send FICA form', 'Buyer Pipeline Profile', 'Viewing Pack', 'Create Listing', 'Remind me of birthday'] as $item) {
+            $pos = strpos($html, $item, $start);
+            $this->assertNotFalse($pos, "{$item} is in the dropdown");
+            $this->assertLessThan($delete, $pos, "{$item} comes before Delete Contact, i.e. inside the menu");
+        }
+        $this->assertStringContainsString('Quick Links', $html);
+        $this->assertStringNotContainsString('data-rental-application-quick', $html, 'the contact page no longer carries it');
+
+        // status chips stay in the header
+        $this->assertStringContainsString('data-preapproval-chip', $html);
+    }
+
+    public function test_the_fica_action_is_in_the_menu_and_the_header_pill_has_no_button_next_to_it(): void
+    {
+        $c = $this->contact();
+        $html = $this->page($c);
+
+        $menuStart = strpos($html, 'data-contact-quick-links');
+        $sendAt    = strpos($html, 'data-fica-send', $menuStart);
+        $this->assertNotFalse($sendAt, 'Send FICA form is in the Quick Links menu');
+        // the header pill comes BEFORE the menu and nothing action-like sits between it and the menu start
+        $pillAt = strpos($html, 'data-fica-quick-link="none"');
+        $this->assertNotFalse($pillAt);
+        $this->assertSame(false, strpos(substr($html, $pillAt, $menuStart - $pillAt), 'data-fica-send'), 'no Send button beside the header pill');
+    }
+
+    public function test_every_header_pill_is_the_same_size_font_and_colour(): void
+    {
+        $buyer = $this->contact(['preapproval_amount' => 900_000, 'preapproval_expires_at' => today()->addDays(9)]);
+        $html = $this->page($buyer);
+
+        preg_match_all('/<(?:a|span)\b[^>]*\bstyle="(display:inline-flex; align-items:center; gap:0\.375rem;[^"]*)"/', $html, $m);
+        $this->assertGreaterThanOrEqual(4, count($m[1]), 'communication, FICA, pre-approval and wishlist pills');
+        $this->assertCount(1, array_unique($m[1]), 'one single pill style for all of them: ' . implode(' | ', array_unique($m[1])));
+        $this->assertStringContainsString('height:1.5rem', $m[1][0]);
+        $this->assertStringContainsString('font-size:0.75rem', $m[1][0]);
+
+        // the old mixed treatments are gone from the header: no solid coloured badge, no separate FICA/pre-approval badge class
+        foreach (['data-fica-quick-link', 'data-preapproval-chip', 'data-wishlist-chip'] as $marker) {
+            $pos = strpos($html, $marker);
+            $tag = substr($html, strrpos(substr($html, 0, $pos), '<'), 400);
+            $this->assertStringNotContainsString('ds-badge', strstr($tag, '>', true) ?: $tag, "{$marker} pill must not use a ds-badge colour class");
+        }
+    }
+
+    public function test_a_buyer_on_the_pipeline_has_a_buyer_pipeline_profile_link_a_non_buyer_does_not(): void
+    {
+        $buyer = $this->contact(['buyer_state' => 'warm']);
+        $html = $this->page($buyer);
+        $this->assertStringContainsString('data-buyer-pipeline-profile', $html);
+        $this->assertStringContainsString(route('command-center.buyers.show', $buyer), $html);
+        $this->assertStringContainsString('Buyer Pipeline Profile', $html);
+        $this->assertStringContainsString('Warm buyer', $html);
+
+        $other = $this->contact(['is_buyer' => false]);
+        $this->assertStringNotContainsString('data-buyer-pipeline-profile', $this->page($other));
+    }
+
+    private function logSends(Contact $c, int $n): void
+    {
+        $logger = app(\App\Services\Communications\OutboundProvisionalLogger::class);
+        for ($i = 0; $i < $n; $i++) {
+            $logger->log($c, \App\Models\Communications\Communication::CHANNEL_WHATSAPP, null, 'Hi ' . $i, $this->agent->id);
+        }
+    }
+
+    public function test_recent_sends_is_a_closed_dropdown_that_scrolls_inside_and_offers_show_all(): void
+    {
+        $c = $this->contact();
+        $this->logSends($c, 6);
+        $html = $this->page($c);
+
+        $this->assertStringContainsString('data-recent-sends', $html);
+        $this->assertStringContainsString('Recent Sends', $html);
+        $this->assertStringContainsString('(6)', $html, 'the count shows even while it is closed');
+        // always closed on load
+        $this->assertStringContainsString('open: false, all: false', $html);
+        $this->assertStringContainsString('data-recent-sends-toggle', $html);
+        // ~4 rows tall with its own scroll, and an option to show everything
+        $this->assertStringContainsString("max-height:17.5rem;", $html);
+        $this->assertStringContainsString('overflow-y-auto', $html);
+        $this->assertStringContainsString('data-recent-sends-all', $html);
+        $this->assertStringContainsString('Show all 6', $html);
+    }
+
+    public function test_recent_sends_with_four_or_fewer_has_no_show_all_and_with_none_is_absent(): void
+    {
+        $few = $this->contact();
+        $this->logSends($few, 3);
+        $html = $this->page($few);
+        $this->assertStringContainsString('data-recent-sends-toggle', $html);
+        $this->assertStringNotContainsString('data-recent-sends-all', $html);
+
+        $this->assertStringNotContainsString('data-recent-sends', $this->page($this->contact()));
+    }
+
+    public function test_a_non_buyer_gets_a_shorter_dropdown_without_buyer_only_items(): void
+    {
+        $c = $this->contact(['is_buyer' => false]);
+        $html = $this->page($c, $this->admin);
+
+        $this->assertStringContainsString('data-contact-quick-links', $html);
+        $this->assertStringContainsString('Schedule Event', $html);
+        $this->assertStringNotContainsString(route('command-center.buyers.show', $c), $html);
+        $this->assertStringNotContainsString('data-viewing-pack-quick', $html);
+    }
+
     public function test_the_contacts_list_shows_the_pre_approval_chip_for_buyers_only(): void
     {
         $this->contact(['preapproval_amount' => 750_000, 'preapproval_expires_at' => today()->addDays(10)]);
@@ -191,9 +309,9 @@ final class BuyerAndPropertyQuickLinksTest extends TestCase
         $buyer = $this->contact(['first_name' => 'Thabo', 'last_name' => 'Prefill']);
         $rental = $this->property(['listing_type' => 'rental', 'title' => '5 Rental Lane', 'mandate_type' => null, 'expiry_date' => null]);
 
-        // the links exist on both pages for someone who may create applications
+        // the link is on the rental property's page (it was dropped from the contact page) for someone who may create applications
         $this->assertTrue($this->admin->hasPermission('rental_applications.create'));
-        $this->assertStringContainsString('data-rental-application-quick', $this->page($buyer, $this->admin));
+        $this->assertStringNotContainsString('data-rental-application-quick', $this->page($buyer, $this->admin), 'dropped from the contact page (Johan)');
         $this->assertStringContainsString('data-rental-application-quick', $this->actingAs($this->admin)->get(route('corex.properties.show', $rental))->getContent());
         // ...but not on a property that is not a rental
         $sale = $this->property(['title' => '9 Sale Street']);

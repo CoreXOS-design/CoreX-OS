@@ -10,26 +10,17 @@
      same root fix as the type-picker save hardening in ContactController.
 --}}
 <div class="flex items-center gap-2 flex-wrap {{ $justify ?? '' }}">
+    {{-- Every pill here is the one shared <x-pill> (same size, font, colour); only the small dot carries a state. --}}
     @forelse($contact->parentTypes as $pt)
-    <span class="text-[11px] px-2 py-0.5 rounded-md font-semibold"
-          style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">
-        {{ $pt->name }}
-    </span>
+    <x-pill :label="$pt->name" />
     @empty
     @if($contact->type)
-    <span class="text-[11px] px-2 py-0.5 rounded-md font-semibold"
-          style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">
-        {{ $contact->type->name }}
-    </span>
+    <x-pill :label="$contact->type->name" />
     @endif
     @endforelse
-    <span class="text-[11px] px-2 py-0.5 rounded-md font-semibold"
-          title="{{ $commMeta['title'] ?? '' }}"
-          style="background:{{ $commTint }}; color:#fff;">
-        {{ $commMeta['label'] }}
-    </span>
-    {{-- Quick Links W1 — FICA status + Send/Resend (spec quick-links.md §4) --}}
-    @include('corex.contacts._fica-quick-link')
+    <x-pill :label="$commMeta['label']" :title="$commMeta['title'] ?? ''" :dot="$commTint" />
+    {{-- Quick Links W1 — FICA status pill (the Send/Resend action lives in the Quick Links menu) --}}
+    @include('corex.contacts._fica-quick-link', ['showActions' => false])
     {{-- Quick Links W2 (spec §5.1) — buyer chips. Pure reads of data the page already holds; each click goes to where it is fixed. --}}
     @if($contact->is_buyer)
         @php

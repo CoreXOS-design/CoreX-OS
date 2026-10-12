@@ -478,6 +478,12 @@ class Contact extends Model
      */
     public function ficaQuickState(?\Illuminate\Support\Collection $submissions = null, $legacySignedAt = false): array
     {
+        // The contact page asks three times (header pill, Quick Links menu, FICA tab) — answer from one lookup per request.
+        $memoable = $submissions === null && $legacySignedAt === false;
+        if ($memoable && $this->ficaQuickStateMemo !== null) {
+            return $this->ficaQuickStateMemo;
+        }
+
         $submissions ??= $this->relationLoaded('ficaSubmissions') ? $this->ficaSubmissions : $this->ficaSubmissions()->get();
 
         if ($legacySignedAt === false) {
@@ -485,12 +491,21 @@ class Contact extends Model
             $legacySignedAt = $latest?->pivot?->signed_at ? \Carbon\Carbon::parse($latest->pivot->signed_at) : null;
         }
 
-        return \App\Support\Compliance\FicaQuickState::resolve(
+        $state = \App\Support\Compliance\FicaQuickState::resolve(
             $submissions,
             $legacySignedAt,
             \App\Models\Agency::ficaExpiringMonthsFor($this->agency_id),
         );
+
+        if ($memoable) {
+            $this->ficaQuickStateMemo = $state;
+        }
+
+        return $state;
     }
+
+    /** Per-instance, per-request memo for ficaQuickState() — never persisted. */
+    private ?array $ficaQuickStateMemo = null;
 
     /**
      * Quick Links W1 — the FICA chip state for a whole page of contacts in TWO queries (not 2 per row). Same rules as
