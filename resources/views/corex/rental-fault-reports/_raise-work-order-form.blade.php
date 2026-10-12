@@ -95,7 +95,6 @@
             {{-- §20 - shown the moment a contractor is chosen, before the agent confirms. No blocking. --}}
             @include('partials.contractor-inspect-choice', ['notices' => collect($contractorPicker)->mapWithKeys(fn ($c) => [(string) $c['id'] => ['name' => $c['name'], 'text' => $c['callout_notice'], 'status' => $c['callout_status']]])->all(), 'model' => 'picked'])
         </div>
-        </div>
 
         <div x-show="who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR }}'" x-cloak class="grid grid-cols-2 gap-3">
             <div>
