@@ -83,8 +83,9 @@ transferred to third parties. A public **privacy policy URL is mandatory** — s
 - **Unlisted vs Public** — Unlisted: agents install from a link, never searchable. Recommended.
 - **Privacy policy URL** — `/privacy` exists (platform policy) but does not mention the browser extension.
   Adding an extension section to a legal page is Johan's call; suggested wording is the §5 disclosure.
-- Store screenshots (1280×800) and the 440×280 promo tile need a real browser session to capture; not
-  produced in this ticket.
+- Store images are in `docs/chrome-web-store/`: four 1280×800 screenshots + a 440×280 promo tile (24-bit PNG, no
+  transparency). They are rendered from the real popup with neutral sample data ("Sample Street, Sample Suburb")
+  — no HFC data. They are NOT inside the extension folder, so they never ship in the store zip.
 
 ## 7. Acceptance criteria
 - Popup opens light every time; toggle flips light↔dark immediately; every state (not-on-portal, settings,
