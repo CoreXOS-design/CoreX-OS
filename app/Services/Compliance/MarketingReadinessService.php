@@ -221,6 +221,21 @@ class MarketingReadinessService
             return true;
         }
 
+        // 2026-09-30, Johan's ruling — Other Agency Stock must be shareable
+        // (Share button, client page, preview link, PDF, WhatsApp, email).
+        // statusFor()'s mandate/disclosure(MDF)/FICA gates are keyed to a
+        // linked seller contact, which OAS structurally can never have (the
+        // agency doesn't have, and will never be given, the other agency's
+        // seller details — see PropertyController::update() and
+        // .ai/specs/other-agency-stock.md §8b). Running the full compliance
+        // checklist against OAS would permanently block it from every share
+        // surface, not gate it — the same class of bug as the hard-coded
+        // status allow-lists on PublicAgencyPropertiesController and
+        // SharedMatchController.
+        if ($property->isOtherAgencyStock()) {
+            return true;
+        }
+
         return $this->statusFor($property)->ready;
     }
 
