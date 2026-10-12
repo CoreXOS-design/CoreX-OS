@@ -208,7 +208,12 @@ class TitleDeedController extends Controller
         ]);
 
         $events = $deed->events()->with(['user:id,name', 'openedBy:id,name'])->limit(150)->get();
-        $prepared = $events->filter(fn ($e) => $e->isPendingWhatsapp())->values();
+        // A WhatsApp still waiting for a person - but never for a deed already collected, and never the message for a signing link
+        // that is no longer live (used, cancelled or run out): there is nothing left to send.
+        $liveLink = \App\Models\TitleDeeds\TitleDeedSigningLink::query()->where('title_deed_id', $deed->id)->where('status', 'waiting')->where('expires_at', '>', now())->exists();
+        $prepared = $deed->isCollected() || $deed->trashed()
+            ? collect()
+            : $events->filter(fn ($e) => $e->isPendingWhatsapp() && ($e->kind !== TitleDeedEvent::KIND_SIGNING_LINK || $liveLink))->values();
         $user = $request->user();
         $guard = app(TitleDeedFormGuard::class);
         $dealVisible = $deed->deal_id ? Deal::query()->visibleTo($user)->whereKey($deed->deal_id)->first() : null;
@@ -500,6 +505,9 @@ class TitleDeedController extends Controller
         return TitleDeedEvent::query()
             ->where('channel', TitleDeedEvent::CHANNEL_WHATSAPP)->whereIn('status', [TitleDeedEvent::STATUS_PREPARED, TitleDeedEvent::STATUS_OPENED])
             ->whereIn('title_deed_id', TitleDeed::query()->visibleTo($user)->where('status', '!=', TitleDeed::STATUS_COLLECTED)->select('title_deeds.id'))
+            ->where(fn ($q) => $q->where('kind', '!=', TitleDeedEvent::KIND_SIGNING_LINK)->orWhereExists(
+                fn ($s) => $s->selectRaw('1')->from('title_deed_signing_links as l')->whereColumn('l.title_deed_id', 'title_deed_events.title_deed_id')
+                    ->where('l.status', 'waiting')->where('l.expires_at', '>', now())))
             ->with(['deed', 'openedBy:id,name'])->orderBy('id')->limit(20)->get();
     }
 
