@@ -18,9 +18,10 @@ which already call `TrackedPropertyMatchOrCreateService::matchOrCreate()` (non-n
 server-side change in this ticket.**
 
 ## 3. Scope (exactly this, nothing else)
-1. **Logo/icon** — toolbar + store icons (16/48/128) generated from `storage/images/CoreX logo.png`
-   (the source PNG is transparent with white lettering, so it is placed on a navy disc to stay legible on
-   a light Chrome toolbar). Same icon shown in the popup header.
+1. **Logo/icon** — toolbar + store icons (16/48/128) generated from the current CoreX logo, `CoreX Logo.png`
+   (repo root, added 2026-10-12). It is a square mark on a white background, so it is placed on a white
+   rounded tile that reads on both light and dark Chrome toolbars. Same icon shown in the popup header. The
+   older glowing-ring image `storage/images/CoreX logo.png` was unreferenced and is deleted.
 2. **Theme** — a small light/dark toggle in the popup header. The popup **always opens in light**. The
    choice applies to that popup session only (not persisted) — by design, per Johan.
 3. **Restyle** — popup restyled to the AT-336 neutral system (`.ai/DESIGN-SYSTEM.md`): slate neutrals,
