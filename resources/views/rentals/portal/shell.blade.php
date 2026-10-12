@@ -1399,7 +1399,10 @@ function rentalsPortal() {
             return { open: !!propertyId, step: 'form', property: propertyId || null, faultTypeId: '', ftype: null, showAid: false, lastTypeName: '', title: '', comment: '', description: '', photos: [], photoError: null, photoBusy: false, photoPending: 0, sending: false, progress: 0, error: null, key: this.uuid() };
         },
         async startLandlordFaultReport(propertyId) {
+            // the form lives on the Faults tab: pressing "Request work" on the Properties tab used to open it out of sight - take the owner to it
+            this.landlordTab = 'faults';
             this.landlordFaultWizard = this.blankLandlordWizard(propertyId);
+            this.$nextTick(() => { const el = document.querySelector('[data-landlord-fault-wizard]'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
             if (propertyId && !this.landlordFaultTypesByProperty[propertyId]) {
                 const r = await portalFetch('/api/v1/client/rentals/landlord/properties/' + propertyId + '/fault-types');
                 if (r.ok) {

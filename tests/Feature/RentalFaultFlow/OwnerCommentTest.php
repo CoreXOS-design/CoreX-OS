@@ -405,6 +405,7 @@ final class OwnerCommentTest extends TestCase
         $b = strpos($html, 'data-owner-faults', $a);
         $owner = substr($html, $a, $b - $a);
         $this->assertStringContainsString('Ask your agent to arrange work', $owner);
+        $this->assertStringContainsString("this.landlordTab = 'faults';", $html, 'Request work on the Properties tab takes the owner to the form');
         $this->assertStringContainsString('What needs doing', $owner);
         $this->assertStringContainsString('Details', $owner);
         $this->assertStringContainsString('Photos (optional)', $owner);
