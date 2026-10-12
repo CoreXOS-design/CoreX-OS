@@ -16,8 +16,8 @@
             <p class="text-sm text-slate-500">We will not release your title deed to them unless you approve.</p>
             <form method="POST" action="{{ route('title-deeds.consent.respond', $token) }}" class="grid grid-cols-2 gap-3">
                 @csrf
-                <button type="submit" name="decision" value="approve" class="rounded-lg bg-emerald-700 text-white font-semibold py-3 text-base">Approve</button>
-                <button type="submit" name="decision" value="decline" class="rounded-lg bg-white border border-slate-300 text-slate-800 font-semibold py-3 text-base">Decline</button>
+                <button type="submit" name="decision" value="approve" class="rounded-lg bg-emerald-700 text-white font-semibold py-3 text-base">Yes, let them collect</button>
+                <button type="submit" name="decision" value="decline" class="rounded-lg bg-white border border-slate-300 text-slate-800 font-semibold py-3 text-base">No, do not let them collect</button>
             </form>
         @else
             <h1 class="text-lg font-bold text-slate-900">

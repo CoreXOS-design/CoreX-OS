@@ -406,14 +406,14 @@ class TitleDeedRound2Test extends TitleDeedTestCase
         $collected->forceFill(['status' => TitleDeed::STATUS_COLLECTED])->save();
 
         $html = $this->actingAs($this->admin)->get(route('title-deeds.index'))->assertOk()->getContent();
-        $this->assertStringContainsString('Notify the owners of', $html);
-        $this->assertStringContainsString(route('title-deeds.handover', $received->id), $html);
-        $this->assertStringNotContainsString(route('title-deeds.handover', $collected->id), $html, 'a collected deed has no hand over action');
+        $this->assertStringContainsString('>Notify owners</button>', $html);
+        $this->assertSame(1, preg_match('#title-deeds\\\\*/' . $received->id . '\\\\*/handover#', $html), 'a deed waiting to be collected can be handed over');
+        $this->assertSame(0, preg_match('#title-deeds\\\\*/' . $collected->id . '\\\\*/handover#', $html), 'a collected deed has no hand over action');
 
         $viewer = $this->userWith(['access_title_deeds', 'title_deeds.view']);
         $viewerHtml = $this->actingAs($viewer)->get(route('title-deeds.index'))->assertOk()->getContent();
-        $this->assertStringNotContainsString('Notify the owners of', $viewerHtml);
-        $this->assertStringNotContainsString(route('title-deeds.handover', $received->id), $viewerHtml);
+        $this->assertStringNotContainsString('>Notify owners</button>', $viewerHtml);
+        $this->assertSame(0, preg_match('#title-deeds\\\\*/' . $received->id . '\\\\*/handover#', $viewerHtml));
     }
 
     public function test_a_row_action_returns_to_the_same_filtered_list_and_ignores_a_foreign_return_address(): void
@@ -461,7 +461,7 @@ class TitleDeedRound2Test extends TitleDeedTestCase
         $deed = $this->deed([$onlyPhone]);
         $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id), $this->tk('notify', $deed));
 
-        $this->actingAs($this->admin)->get(route('title-deeds.index'))->assertOk()->assertSee('WhatsApp waiting to be sent', false)->assertSee('Open WhatsApp and send', false);
+        $this->actingAs($this->admin)->get(route('title-deeds.index'))->assertOk()->assertSee('WhatsApp messages waiting for you to send', false)->assertSee('Open WhatsApp and send', false);
     }
 
     public function test_opening_whatsapp_is_audited_with_who_and_a_viewer_cannot_do_it(): void

@@ -59,21 +59,13 @@ class TitleDeedHandoverService
             }
         }
 
-        $pinRequired = TitleDeedSetting::pinRequiredFor($agencyId);
+        $policy = TitleDeedPolicy::for($agencyId);
 
         return [
             'owners' => $recipients,
-            'settings' => [
-                'pin_required' => $pinRequired,
-                'signature_required' => TitleDeedSetting::signatureRequiredFor($agencyId),
-                'representatives_allowed' => TitleDeedSetting::representativesAllowedFor($agencyId),
-                'rep_mode' => TitleDeedSetting::repWithoutPinModeFor($agencyId),
-                'phone_consent_allowed' => TitleDeedSetting::phoneConsentAllowedFor($agencyId),
-                'authority_letter_required' => TitleDeedSetting::authorityLetterRequiredFor($agencyId),
-                'collector_id_photo_required' => TitleDeedSetting::collectorIdPhotoRequiredFor($agencyId),
-            ],
+            'policy' => $policy,
             'pin' => [
-                'issued' => $pinRequired && $this->pins->hasActivePin($deed),
+                'issued' => $policy->pinUsed() && $this->pins->hasActivePin($deed),
                 'locked' => $this->pins->isLocked($deed),
                 'attempts' => (int) $deed->pin_failed_attempts,
                 'limit' => TitleDeedSetting::pinLockAttemptsFor($agencyId),
@@ -133,8 +125,9 @@ class TitleDeedHandoverService
         if (! in_array($method, ['pin', 'id_check', 'representative'], true)) {
             throw new TitleDeedException('Choose how the deed is being handed over.');
         }
-        if (! TitleDeedSetting::signByLinkEnabledFor($deed->agency_id)) {
-            throw new TitleDeedException('Signing by link is not switched on for this agency.');
+        $policy = TitleDeedPolicy::for($deed->agency_id);
+        if (! $policy->signByLink) {
+            throw new TitleDeedException($policy->signatureUsed() ? 'Signing on their own phone from a link is switched off for this agency.' : 'This agency does not collect a signature.');
         }
 
         $outcome = $this->transact('prepare', fn (array &$stored) => $this->run($by, $deed, $method, $in + ['_contact' => $contact], [], $stored, 'prepare'));
@@ -226,9 +219,17 @@ class TitleDeedHandoverService
         $collector = $this->resolveCollector($locked, $method, $in, $agencyId, $consent);
 
         // ── 2. What must be present (checked before anything is stored or the PIN is touched) ──
+        // Required = cannot hand over without it. Optional = offered, may be skipped. Not used = never asked for, and anything sent
+        // anyway is ignored (never stored).
+        $policy = TitleDeedPolicy::for($agencyId);
         $typedName = $mode === 'finish' ? trim((string) $link->signed_typed_name) : trim((string) ($in['typed_name'] ?? ''));
-        $image = $mode === 'screen' ? (string) ($in['signature_image'] ?? '') : '';
-        if ($mode === 'screen' && TitleDeedSetting::signatureRequiredFor($agencyId)) {
+        $image = ($mode === 'screen' && $policy->signOnScreen) ? (string) ($in['signature_image'] ?? '') : '';
+        if ($mode === 'screen' && $policy->signatureRequired()) {
+            if (! $policy->signOnScreen) {
+                throw new TitleDeedException($policy->signByLink
+                    ? 'Signing on this screen is switched off at this agency. Send the collector a signing link.'
+                    : 'The signature is Required but no way to sign is switched on. Ask an administrator to fix the Title Deed settings.');
+            }
             if (mb_strlen($typedName) < 2) {
                 throw new TitleDeedException("Type the collector's full name before they sign.");
             }
@@ -236,13 +237,13 @@ class TitleDeedHandoverService
                 throw new TitleDeedException('The collector needs to sign: draw in the signature box (nothing has been drawn yet).');
             }
         }
-        $photo = $in['collector_id_photo'] ?? null;
-        $photoDocId = (int) ($in['photo_document_id'] ?? 0);
-        if (TitleDeedSetting::collectorIdPhotoRequiredFor($agencyId) && ! $photo instanceof UploadedFile && ! $photoDocId) {
+        $photo = $policy->photoUsed() ? ($in['collector_id_photo'] ?? null) : null;
+        $photoDocId = $policy->photoUsed() ? (int) ($in['photo_document_id'] ?? 0) : 0;
+        if ($policy->photoRequired() && ! $photo instanceof UploadedFile && ! $photoDocId) {
             throw new TitleDeedException("Take a photo of the collector's ID.");
         }
-        $letter = $in['authority_letter'] ?? null;
-        $letterDocId = (int) ($in['letter_document_id'] ?? 0);
+        $letter = $policy->letterUsed() ? ($in['authority_letter'] ?? null) : null;
+        $letterDocId = $policy->letterUsed() ? (int) ($in['letter_document_id'] ?? 0) : 0;
         if ($collector['needs_letter'] && ! $letter instanceof UploadedFile && ! $letterDocId) {
             throw new TitleDeedException("Upload the owner's signed authority letter before handing the deed over.");
         }
@@ -329,11 +330,14 @@ class TitleDeedHandoverService
             'id_number_seen' => $collector['id_number_seen'],
             'consent_id' => $consent?->id,
             'signature_path' => $signaturePath,
-            'signed_typed_name' => mb_substr($typedName !== '' ? $typedName : $collector['name'], 0, 191),
-            'signed_at' => $mode === 'finish' ? $link->signed_at : now(),
-            'signed_ip' => $mode === 'finish' ? $link->signed_ip : (($evidence['ip'] ?? null) ? mb_substr((string) $evidence['ip'], 0, 45) : null),
-            'signed_user_agent' => $mode === 'finish' ? $link->signed_user_agent : (($evidence['user_agent'] ?? null) ? mb_substr((string) $evidence['user_agent'], 0, 500) : null),
-            'signed_via' => $mode === 'finish' ? 'link' : 'screen',
+            // Only when a signature was actually captured: a skipped (Optional) or unused signature leaves these empty, so the record
+            // can say "not captured" instead of implying one.
+            'signed_typed_name' => $signaturePath !== null ? mb_substr($typedName !== '' ? $typedName : $collector['name'], 0, 191) : null,
+            'signed_at' => $signaturePath === null ? null : ($mode === 'finish' ? $link->signed_at : now()),
+            'signed_ip' => $signaturePath === null ? null : ($mode === 'finish' ? $link->signed_ip : (($evidence['ip'] ?? null) ? mb_substr((string) $evidence['ip'], 0, 45) : null)),
+            'signed_user_agent' => $signaturePath === null ? null : ($mode === 'finish' ? $link->signed_user_agent : (($evidence['user_agent'] ?? null) ? mb_substr((string) $evidence['user_agent'], 0, 500) : null)),
+            'signed_via' => $signaturePath === null ? null : ($mode === 'finish' ? 'link' : 'screen'),
+            'proof_modes' => $policy->proofModes(),
             'signing_link_id' => $link?->id,
             'recorded_by_user_id' => $by->id,
             'authority_letter_document_id' => $letterDoc?->id,
@@ -369,8 +373,8 @@ class TitleDeedHandoverService
         }
         TitleDeedAuditLog::record($locked, TitleDeedAuditLog::EVENT_HANDOVER,
             'Handed over to ' . $collector['name'] . ' (' . ($collector['type'] === 'owner' ? 'owner' : 'representative: ' . $collector['relationship']) . ') - verified by '
-            . TitleDeed::METHOD_LABELS[$collector['method']] . '; signed ' . ($mode === 'finish' ? 'on their own phone from a link' : 'on the screen') . '.' . ($collector['note'] ? ' ' . $collector['note'] : ''),
-            null, ['method' => $collector['method'], 'signed' => $signaturePath !== null, 'signed_via' => $mode === 'finish' ? 'link' : 'screen'], $by);
+            . TitleDeed::METHOD_LABELS[$collector['method']] . '; ' . ($signaturePath === null ? 'no signature captured' : 'signed ' . ($mode === 'finish' ? 'on their own phone from a link' : 'on the screen')) . '.' . ($collector['note'] ? ' ' . $collector['note'] : ''),
+            null, ['method' => $collector['method'], 'signed' => $signaturePath !== null, 'signed_via' => $signaturePath === null ? null : ($mode === 'finish' ? 'link' : 'screen')], $by);
 
         return ['receipt' => $receipt];
     }
@@ -399,6 +403,11 @@ class TitleDeedHandoverService
             throw new TitleDeedException('This record has no owners, so there is no one to hand the deed to. Edit the record first.');
         }
 
+        $policy = TitleDeedPolicy::for($agencyId);
+        if ($method !== 'pin' && $policy->pinRequired()) {
+            throw new TitleDeedException("At this agency a title deed is only handed over against the owner's PIN. Ask the owner for it, or issue a new PIN.");
+        }
+
         if ($method === 'id_check') {
             $owner = $owners->get((int) ($in['collector_contact_id'] ?? 0));
             if (! $owner) {
@@ -417,13 +426,13 @@ class TitleDeedHandoverService
         }
 
         if ($method === 'pin') {
-            if (! TitleDeedSetting::pinRequiredFor($agencyId)) {
+            if (! $policy->pinUsed()) {
                 throw new TitleDeedException('This agency does not use a collection PIN.');
             }
             if (($in['collector_type'] ?? 'owner') === 'representative') {
                 $rep = $this->repFromInput($in, $agencyId);
 
-                return $rep + ['type' => 'representative', 'contact_id' => null, 'id_number_seen' => null, 'method' => TitleDeed::METHOD_PIN, 'needs_letter' => false, 'note' => null];
+                return $rep + ['type' => 'representative', 'contact_id' => null, 'id_number_seen' => null, 'method' => TitleDeed::METHOD_PIN, 'needs_letter' => $policy->letterRequired(), 'note' => null];
             }
             $owner = $owners->get((int) ($in['collector_contact_id'] ?? 0));
             if (! $owner) {
@@ -437,10 +446,10 @@ class TitleDeedHandoverService
         }
 
         // A representative WITHOUT the PIN.
-        if (! TitleDeedSetting::representativesAllowedFor($agencyId)) {
+        if (! $policy->repsAllowed) {
             throw new TitleDeedException('Representatives are not allowed to collect for this agency.');
         }
-        $mode = TitleDeedSetting::repWithoutPinModeFor($agencyId);
+        $mode = $policy->repRule;
         if ($mode === TitleDeedSetting::REP_REFUSE) {
             throw new TitleDeedException('A representative cannot collect without the PIN at this agency.');
         }
@@ -460,7 +469,7 @@ class TitleDeedHandoverService
         if (! $consent && ! $hasLetterInput) {
             throw new TitleDeedException('A representative without the PIN needs the owners\' consent or a signed authority letter.');
         }
-        $needsLetter = TitleDeedSetting::authorityLetterRequiredFor($agencyId) || ! $consent;
+        $needsLetter = $policy->letterRequired() || ! $consent;
 
         if ($consent) {
             $name = $consent->rep_name;
@@ -484,7 +493,7 @@ class TitleDeedHandoverService
     /** @return array{name:string, id_number:string, relationship:string} */
     private function repFromInput(array $in, int $agencyId): array
     {
-        if (! TitleDeedSetting::representativesAllowedFor($agencyId)) {
+        if (! TitleDeedPolicy::for($agencyId)->repsAllowed) {
             throw new TitleDeedException('Representatives are not allowed to collect for this agency.');
         }
         $name = trim((string) ($in['rep_name'] ?? ''));

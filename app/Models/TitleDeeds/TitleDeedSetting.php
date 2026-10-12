@@ -21,18 +21,33 @@ class TitleDeedSetting extends Model
     public const REP_CONSENT_OR_LETTER = 'consent_or_letter';
 
     public const REP_MODES = [
-        self::REP_REFUSE => 'Refuse - a representative cannot collect without the PIN',
-        self::REP_OWNER_CONSENT => 'Owner consent link',
-        self::REP_CONSENT_OR_LETTER => 'Owner consent link or authority letter',
+        self::REP_REFUSE => 'Refuse - they cannot collect',
+        self::REP_OWNER_CONSENT => 'Ask the owner to confirm by link',
+        self::REP_CONSENT_OR_LETTER => 'Owner link or a signed authority letter',
     ];
 
-    public const DEFAULT_PIN_REQUIRED = true;
-    public const DEFAULT_SIGNATURE_REQUIRED = true;
+    /** The three-way value of a proof: Required = cannot hand over without it; Optional = offered, may be skipped (the record then
+     *  says "not captured"); Not used = not shown at all. */
+    public const MODE_REQUIRED = 'required';
+    public const MODE_OPTIONAL = 'optional';
+    public const MODE_NOT_USED = 'not_used';
+
+    public const PROOF_MODES = [
+        self::MODE_REQUIRED => 'Required',
+        self::MODE_OPTIONAL => 'Optional',
+        self::MODE_NOT_USED => 'Not used',
+    ];
+
+    // The approved defaults (Johan): PIN required, signature required, representatives allowed, consent by phone off, authority letter
+    // not required (offered where it applies), photo of ID off, reminders every 14 days up to 3.
+    public const DEFAULT_PIN_MODE = self::MODE_REQUIRED;
+    public const DEFAULT_SIGNATURE_MODE = self::MODE_REQUIRED;
     public const DEFAULT_REPRESENTATIVES_ALLOWED = true;
     public const DEFAULT_REP_WITHOUT_PIN_MODE = self::REP_OWNER_CONSENT;
     public const DEFAULT_PHONE_CONSENT_ALLOWED = false;
-    public const DEFAULT_AUTHORITY_LETTER_REQUIRED = false;
-    public const DEFAULT_COLLECTOR_ID_PHOTO_REQUIRED = false;
+    public const DEFAULT_AUTHORITY_LETTER_MODE = self::MODE_OPTIONAL;
+    public const DEFAULT_COLLECTOR_ID_PHOTO_MODE = self::MODE_NOT_USED;
+    public const DEFAULT_SIGN_ON_SCREEN_ENABLED = true;
     public const DEFAULT_PIN_LOCK_ATTEMPTS = 5;
     public const DEFAULT_CONSENT_VALIDITY_MINUTES = 60;
     public const DEFAULT_REMINDER_DAYS = 14;
@@ -44,13 +59,14 @@ class TitleDeedSetting extends Model
 
     /** Every settable column, with its type — the one list the saver, the screen and the wizard read from. */
     public const FIELDS = [
-        'pin_required' => 'bool',
-        'signature_required' => 'bool',
+        'pin_mode' => 'proof',
+        'signature_mode' => 'proof',
+        'collector_id_photo_mode' => 'proof',
         'representatives_allowed' => 'bool',
         'rep_without_pin_mode' => 'mode',
         'phone_consent_allowed' => 'bool',
-        'authority_letter_required' => 'bool',
-        'collector_id_photo_required' => 'bool',
+        'authority_letter_mode' => 'proof',
+        'sign_on_screen_enabled' => 'bool',
         'pin_lock_attempts' => 'int',
         'consent_validity_minutes' => 'int',
         'reminder_days' => 'int',
@@ -60,6 +76,40 @@ class TitleDeedSetting extends Model
         'sign_by_link_enabled' => 'bool',
         'signing_link_minutes' => 'int',
     ];
+
+    /** The setting as the screen words it (also what the history shows). */
+    public const LABELS = [
+        'pin_mode' => 'Collection PIN from the owner',
+        'signature_mode' => 'Signature of the person collecting',
+        'collector_id_photo_mode' => "Photo of the collector's ID",
+        'representatives_allowed' => 'May a representative collect?',
+        'rep_without_pin_mode' => 'A representative who arrives without the PIN',
+        'phone_consent_allowed' => "Accept the owner's consent by phone call",
+        'authority_letter_mode' => 'Authority letter',
+        'sign_on_screen_enabled' => 'Sign on our screen',
+        'sign_by_link_enabled' => 'Sign on their own phone from a link or QR',
+        'notify_listing_agent' => "Tell the deal's listing agent when a deed is collected",
+        'pin_lock_attempts' => 'Wrong PIN attempts before the PIN locks',
+        'consent_validity_minutes' => "How long an owner's confirmation lasts (minutes)",
+        'reminder_days' => 'Remind the owners every (days)',
+        'max_reminders' => 'Most reminders for one deed',
+        'signing_link_minutes' => 'How long a signing link lasts (minutes)',
+        'contact_changed_block_days' => "Extra check after an owner's email or phone changed (days)",
+    ];
+
+    /** A stored value as a person reads it ("Required", "Yes", "Owner consent link", "30"). */
+    public static function displayValue(string $key, mixed $value): string
+    {
+        $type = self::FIELDS[$key] ?? 'int';
+
+        return match (true) {
+            $value === null => 'not set',
+            $type === 'bool' => ($value === true || $value === 1 || $value === '1' || $value === 'yes') ? 'Yes' : 'No',
+            $type === 'proof' => self::PROOF_MODES[$value] ?? (string) $value,
+            $type === 'mode' => self::REP_MODES[$value] ?? (string) $value,
+            default => (string) $value,
+        };
+    }
 
     /** Allowed range for each integer setting [min, max]. */
     public const INT_RANGES = [
@@ -73,19 +123,16 @@ class TitleDeedSetting extends Model
 
     protected $fillable = [
         'agency_id',
-        'pin_required', 'signature_required', 'representatives_allowed', 'rep_without_pin_mode',
-        'phone_consent_allowed', 'authority_letter_required', 'collector_id_photo_required',
+        'pin_mode', 'signature_mode', 'collector_id_photo_mode', 'authority_letter_mode', 'sign_on_screen_enabled',
+        'representatives_allowed', 'rep_without_pin_mode', 'phone_consent_allowed',
         'pin_lock_attempts', 'consent_validity_minutes', 'reminder_days', 'max_reminders', 'contact_changed_block_days',
         'notify_listing_agent', 'sign_by_link_enabled', 'signing_link_minutes',
     ];
 
     protected $casts = [
-        'pin_required' => 'boolean',
-        'signature_required' => 'boolean',
         'representatives_allowed' => 'boolean',
         'phone_consent_allowed' => 'boolean',
-        'authority_letter_required' => 'boolean',
-        'collector_id_photo_required' => 'boolean',
+        'sign_on_screen_enabled' => 'boolean',
         'notify_listing_agent' => 'boolean',
         'sign_by_link_enabled' => 'boolean',
         'signing_link_minutes' => 'integer',
@@ -113,14 +160,37 @@ class TitleDeedSetting extends Model
         return $row && $row->{$column} !== null ? $row->{$column} : $default;
     }
 
-    public static function pinRequiredFor(?int $agencyId): bool
+    private static function proof(?int $agencyId, string $column, string $default): string
     {
-        return (bool) static::value($agencyId, 'pin_required', self::DEFAULT_PIN_REQUIRED);
+        $mode = (string) static::value($agencyId, $column, $default);
+
+        return array_key_exists($mode, self::PROOF_MODES) ? $mode : $default;
     }
 
-    public static function signatureRequiredFor(?int $agencyId): bool
+    /** The saved choice for each proof, exactly as chosen (the screens and the wizard read these). */
+    public static function pinModeFor(?int $agencyId): string
     {
-        return (bool) static::value($agencyId, 'signature_required', self::DEFAULT_SIGNATURE_REQUIRED);
+        return static::proof($agencyId, 'pin_mode', self::DEFAULT_PIN_MODE);
+    }
+
+    public static function signatureModeFor(?int $agencyId): string
+    {
+        return static::proof($agencyId, 'signature_mode', self::DEFAULT_SIGNATURE_MODE);
+    }
+
+    public static function collectorIdPhotoModeFor(?int $agencyId): string
+    {
+        return static::proof($agencyId, 'collector_id_photo_mode', self::DEFAULT_COLLECTOR_ID_PHOTO_MODE);
+    }
+
+    public static function authorityLetterModeFor(?int $agencyId): string
+    {
+        return static::proof($agencyId, 'authority_letter_mode', self::DEFAULT_AUTHORITY_LETTER_MODE);
+    }
+
+    public static function signOnScreenEnabledFor(?int $agencyId): bool
+    {
+        return (bool) static::value($agencyId, 'sign_on_screen_enabled', self::DEFAULT_SIGN_ON_SCREEN_ENABLED);
     }
 
     public static function representativesAllowedFor(?int $agencyId): bool
@@ -138,16 +208,6 @@ class TitleDeedSetting extends Model
     public static function phoneConsentAllowedFor(?int $agencyId): bool
     {
         return (bool) static::value($agencyId, 'phone_consent_allowed', self::DEFAULT_PHONE_CONSENT_ALLOWED);
-    }
-
-    public static function authorityLetterRequiredFor(?int $agencyId): bool
-    {
-        return (bool) static::value($agencyId, 'authority_letter_required', self::DEFAULT_AUTHORITY_LETTER_REQUIRED);
-    }
-
-    public static function collectorIdPhotoRequiredFor(?int $agencyId): bool
-    {
-        return (bool) static::value($agencyId, 'collector_id_photo_required', self::DEFAULT_COLLECTOR_ID_PHOTO_REQUIRED);
     }
 
     public static function pinLockAttemptsFor(?int $agencyId): int

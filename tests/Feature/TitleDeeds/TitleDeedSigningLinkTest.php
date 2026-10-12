@@ -283,12 +283,12 @@ final class TitleDeedSigningLinkTest extends TitleDeedTestCase
         [$link, $token] = $this->ownerLink($deed, $pin);
         $this->actingAs($this->admin)->post(route('title-deeds.signing-link.whatsapp', [$deed->id, $link->id]), $this->tk('link_whatsapp', $deed))->assertSessionHas('success');
 
-        $this->actingAs($this->admin)->get(route('title-deeds.show', $deed->id))->assertSee('&middot; Signing link', false);
-        $this->actingAs($this->admin)->get(route('title-deeds.index'))->assertSee('&middot; Signing link', false);
+        $this->actingAs($this->admin)->get(route('title-deeds.show', $deed->id))->assertSee('Link to sign on their own phone</span>', false);
+        $this->actingAs($this->admin)->get(route('title-deeds.index'))->assertSee('Link to sign on their own phone</span>', false);
 
         app(TitleDeedHandoverService::class)->cancelLink($this->admin, $deed, $link);
-        $this->actingAs($this->admin)->get(route('title-deeds.show', $deed->id))->assertDontSee('&middot; Signing link', false);
-        $this->actingAs($this->admin)->get(route('title-deeds.index'))->assertDontSee('&middot; Signing link', false);
+        $this->actingAs($this->admin)->get(route('title-deeds.show', $deed->id))->assertDontSee('Link to sign on their own phone</span>', false);
+        $this->actingAs($this->admin)->get(route('title-deeds.index'))->assertDontSee('Link to sign on their own phone</span>', false);
     }
 
     public function test_the_handover_screen_shows_the_link_a_qr_code_and_the_signed_state(): void

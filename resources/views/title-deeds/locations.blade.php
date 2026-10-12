@@ -40,7 +40,7 @@
                 <label for="loc-sort" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Order</label>
                 <input id="loc-sort" type="number" name="sort_order" min="0" max="9999" class="w-20 {{ $input }}" style="{{ $inputStyle }}">
             </div>
-            <button type="submit" class="corex-btn-primary text-sm">Add</button>
+            <button type="submit" class="corex-btn-primary text-sm">Add the location</button>
         </form>
     </div>
 
@@ -48,14 +48,14 @@
         <form method="GET" class="flex flex-wrap items-center gap-3 p-3" style="border-bottom: 1px solid var(--border);">
             <input type="text" name="q" value="{{ $search }}" placeholder="Search locations" maxlength="100" class="flex-1 min-w-[160px] {{ $input }}" style="{{ $inputStyle }}">
             <label class="text-xs flex items-center gap-1" style="color: var(--text-secondary);"><input type="checkbox" name="archived" value="1" @checked($showArchived) onchange="this.form.submit()"> Archived</label>
-            <button type="submit" class="corex-btn-outline text-xs">Search</button>
+            <button type="submit" class="corex-btn-outline text-xs">Search the locations</button>
         </form>
         <table class="min-w-full text-sm">
             <thead><tr style="background: var(--surface-2);">
                 <th class="text-left px-4 py-2 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Location</th>
                 @if($branches->count() > 1)<th class="text-left px-4 py-2 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Branch</th>@endif
                 <th class="text-left px-4 py-2 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Order</th>
-                <th></th>
+                <th class="text-right px-4 py-2 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">What to do</th>
             </tr></thead>
             <tbody>
             @forelse($locations as $loc)
@@ -79,14 +79,14 @@
                                 </select>
                                 @endif
                                 <input type="number" name="sort_order" value="{{ $loc->sort_order }}" min="0" max="9999" class="w-20 {{ $input }}" style="{{ $inputStyle }}" aria-label="Order">
-                                <button type="submit" class="corex-btn-outline text-xs">Save</button>
+                                <button type="submit" class="corex-btn-outline text-xs">Save this location</button>
                             </form>
                         </td>
                     @endif
                     @unless($showArchived)
                     <td class="px-2 py-2 text-right whitespace-nowrap">
                         <form method="POST" action="{{ route('corex.settings.title-deeds.locations.destroy', $loc->id) }}">@csrf @method('DELETE')
-                            <x-confirm-submit title="Archive this location" message="It stops being offered for new deeds. Deeds kept there keep showing it, and you can restore it later." confirm-label="Archive" :danger="true" class="corex-btn-outline text-xs">Archive</x-confirm-submit>
+                            <x-confirm-submit :plain="true" title="Archive this location" message="It stops being offered for new deeds. Deeds kept there keep showing it, and you can restore it later." confirm-label="Archive" :danger="true" class="corex-btn-outline text-xs">Archive this location</x-confirm-submit>
                         </form>
                     </td>
                     @endunless

@@ -69,7 +69,7 @@ class TitleDeedHandoverController extends Controller
             'linkState' => $linkState,
             'linkQr' => $link && $link->isLive() ? $this->signing->qrDataUri($link) : null,
             'linkUrl' => $link && $link->isLive() ? $link->url() : null,
-            'signByLink' => TitleDeedSetting::signByLinkEnabledFor($deed->agency_id),
+            'signByLink' => $context['policy']->signByLink,
             'tokens' => [
                 'handover' => $guard->issue($user, 'handover', $deed->id),
                 'handover_link' => $guard->issue($user, 'handover_link', $deed->id),

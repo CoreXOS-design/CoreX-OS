@@ -5,9 +5,9 @@
 
     <x-confirm-submit title="Send to the owner" message="Send this to the owner now?" confirm-label="Send to owner" name="send_now" value="1">Save and send</x-confirm-submit>
 
-    Extra attributes (class, x-bind:disabled, data-*) go to the trigger button.
+    Extra attributes (class, x-bind:disabled, data-*) go to the trigger button. Pass :plain="true" to use your class instead of the default solid-primary one.
 --}}
-@props(['title' => 'Please confirm', 'message', 'confirmLabel' => 'Yes, continue', 'name' => null, 'value' => null, 'danger' => false])
+@props(['title' => 'Please confirm', 'message', 'confirmLabel' => 'Yes, continue', 'name' => null, 'value' => null, 'danger' => false, 'plain' => false])
 <span x-data="{
         open: false, sending: false, err: '',
         // J6 (Johan, 9 Oct 2026): the dialog opens only when the form is valid. Otherwise the browser's own message shows on the field AND the
@@ -24,7 +24,8 @@
             this.open = true;
         }
     }" x-on:keydown.escape.window="open = false" class="inline-block">
-    <button type="button" {{ $attributes->merge(['class' => 'corex-btn-primary text-xs']) }} x-on:click="ask()" data-confirm-trigger>{{ $slot }}</button>
+    {{-- plain: the caller's own class is used as given. By default the trigger is ALWAYS solid-primary, and a class passed in is only appended to it (so "corex-btn-outline" never won). --}}
+    <button type="button" {{ $plain ? $attributes : $attributes->merge(['class' => 'corex-btn-primary text-xs']) }} x-on:click="ask()" data-confirm-trigger>{{ $slot }}</button>
     <span class="block text-xs mt-1" style="color: var(--ds-crimson, #b3261e);" x-show="err" x-cloak x-text="err" data-confirm-error></span>
     <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(15, 23, 42, .5);"
          x-on:click.self="open = false" role="dialog" aria-modal="true" aria-label="{{ $title }}" data-confirm-modal>

@@ -32,6 +32,7 @@ final class TitleDeedConsentTest extends TitleDeedTestCase
     {
         parent::setUp();
         Storage::fake('local');
+        $this->settings(['pin_mode' => 'optional']);   // these tests are about the routes WITHOUT the PIN
     }
 
     private function request(TitleDeed $deed, array $rep = self::REP)
@@ -95,7 +96,7 @@ final class TitleDeedConsentTest extends TitleDeedTestCase
 
         auth()->logout();
         $this->get(route('title-deeds.consent.show', $token))->assertOk()
-            ->assertSee('Busisiwe Mkhize, ID ending 4321, is at', false)->assertSee('to collect your title deed for', false)->assertSee('Approve')->assertSee('Decline');
+            ->assertSee('Busisiwe Mkhize, ID ending 4321, is at', false)->assertSee('to collect your title deed for', false)->assertSee('Yes, let them collect')->assertSee('No, do not let them collect');
         $this->assertNotNull(TitleDeedConsentLink::first()->first_opened_at);
     }
 
@@ -183,7 +184,7 @@ final class TitleDeedConsentTest extends TitleDeedTestCase
 
     public function test_an_approval_runs_out_after_the_validity_and_the_handover_is_refused(): void
     {
-        TitleDeedSetting::create(['agency_id' => $this->agencyId, 'consent_validity_minutes' => 10]);
+        $this->settings(['consent_validity_minutes' => 10]);
         $deed = $this->deed();
         $this->request($deed);
         $this->post(route('title-deeds.consent.respond', $this->tokens()[0]), ['decision' => 'approve']);
@@ -260,7 +261,7 @@ final class TitleDeedConsentTest extends TitleDeedTestCase
 
     public function test_in_refuse_mode_a_representative_without_the_pin_cannot_even_ask(): void
     {
-        TitleDeedSetting::create(['agency_id' => $this->agencyId, 'rep_without_pin_mode' => 'refuse']);
+        $this->settings(['rep_without_pin_mode' => 'refuse']);
         $deed = $this->deed();
         $this->request($deed)->assertSessionHas('error');
         $this->handover($deed, self::REP + ['authority_letter' => UploadedFile::fake()->create('letter.pdf', 50, 'application/pdf')])->assertSessionHas('error');
@@ -277,7 +278,7 @@ final class TitleDeedConsentTest extends TitleDeedTestCase
 
     public function test_in_consent_or_letter_mode_a_signed_letter_alone_hands_the_deed_over(): void
     {
-        TitleDeedSetting::create(['agency_id' => $this->agencyId, 'rep_without_pin_mode' => 'consent_or_letter']);
+        $this->settings(['rep_without_pin_mode' => 'consent_or_letter']);
         $deed = $this->deed();
 
         $this->handover($deed, self::REP)->assertSessionHas('error');   // neither consent nor letter
@@ -293,7 +294,7 @@ final class TitleDeedConsentTest extends TitleDeedTestCase
 
     public function test_the_letter_can_be_required_on_top_of_the_consent(): void
     {
-        TitleDeedSetting::create(['agency_id' => $this->agencyId, 'authority_letter_required' => true]);
+        $this->settings(['authority_letter_mode' => 'required']);
         $deed = $this->deed();
         $this->request($deed);
         $this->post(route('title-deeds.consent.respond', $this->tokens()[0]), ['decision' => 'approve']);
@@ -309,7 +310,7 @@ final class TitleDeedConsentTest extends TitleDeedTestCase
 
     public function test_representatives_switched_off_refuses_every_representative_route(): void
     {
-        TitleDeedSetting::create(['agency_id' => $this->agencyId, 'representatives_allowed' => false]);
+        $this->settings(['representatives_allowed' => false]);
         $deed = $this->deed();
         $this->request($deed)->assertSessionHas('error');
         $this->handover($deed, self::REP)->assertSessionHas('error');
@@ -336,7 +337,7 @@ final class TitleDeedConsentTest extends TitleDeedTestCase
 
     public function test_phone_consent_records_a_stored_number_and_unlocks_the_handover_with_its_own_method(): void
     {
-        TitleDeedSetting::create(['agency_id' => $this->agencyId, 'phone_consent_allowed' => true]);
+        $this->settings(['phone_consent_allowed' => true]);
         $a = $this->contact('Thandi', 'Mkhize', phone: '0821234567');
         $deed = $this->deed([$a]);
         $phoneId = DB::table('contact_phones')->insertGetId([
@@ -362,7 +363,7 @@ final class TitleDeedConsentTest extends TitleDeedTestCase
 
     public function test_a_call_time_in_the_future_is_refused(): void
     {
-        TitleDeedSetting::create(['agency_id' => $this->agencyId, 'phone_consent_allowed' => true]);
+        $this->settings(['phone_consent_allowed' => true]);
         $deed = $this->deed([$this->contact('Thandi', 'Mkhize')]);
         $phoneId = DB::table('contact_phones')->insertGetId([
             'agency_id' => $this->agencyId, 'contact_id' => $deed->owners->first()->contact_id, 'phone' => '0821234567', 'dial_code' => '+27', 'is_primary' => 1,

@@ -18,6 +18,8 @@
         </div>
     </div>
 
+    @unless($isCollected)<p class="text-sm" style="color: var(--text-secondary);">Fields marked <span style="color: var(--ds-crimson);">(required)</span> must be filled in before the deed can be saved.</p>@endunless
+
     @if(session('error'))<div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">{{ session('error') }}</div>@endif
     @if(session('info'))<div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); color: var(--text-primary);">{{ session('info') }}</div>@endif
     @if($errors->any())
@@ -58,7 +60,7 @@
             <div class="space-y-2">
                 <div class="text-sm" style="color: var(--text-secondary);">This deed has been collected, so only the notes can change.</div>
                 <div>
-                    <label for="td-notes" class="{{ $lbl }}" style="color: var(--text-secondary);">Notes</label>
+                    <label for="td-notes" class="{{ $lbl }}" style="color: var(--text-secondary);">Notes<span class="font-normal" style="color: var(--text-muted);"> (optional)</span></label>
                     <textarea id="td-notes" name="notes" rows="4" maxlength="5000" class="{{ $input }}" style="{{ $inputStyle }}">{{ old('notes', $deed->notes) }}</textarea>
                 </div>
             </div>
@@ -67,12 +69,12 @@
         {{-- Deal (optional, new deeds only) --}}
         @if($canPickDeal)
         <div>
-            <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="td-deal-q">Deal (optional)</label>
+            <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="td-deal-q">Deal<span class="font-normal" style="color: var(--text-muted);"> (optional)</span></label>
             <input type="hidden" name="deal_id" :value="deal ? deal.id : ''">
             <template x-if="deal">
                 <div class="flex items-center justify-between gap-3 rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border);">
                     <a :href="deal.url" target="_blank" rel="noopener" class="no-underline hover:underline" style="color: var(--text-primary);" x-text="deal.label"></a>
-                    <button type="button" class="text-xs font-semibold" style="color: var(--brand-icon);" @click="clearDeal()">Remove</button>
+                    <button type="button" class="text-xs font-semibold" style="color: var(--brand-icon);" @click="clearDeal()">Remove the deal</button>
                 </div>
             </template>
             <div x-show="!deal" class="relative">
@@ -85,6 +87,7 @@
                 </div>
                 <div x-show="dEmpty" x-cloak class="text-xs mt-1" style="color: var(--text-muted);">No registered deal found for that.</div>
             </div>
+            <div x-show="!deal" class="text-xs mt-1" style="color: var(--text-muted);">Fills property, owners, agents and attorney.</div>
             <div x-show="dealHint" x-cloak class="text-xs mt-1" style="color: var(--text-secondary);" x-text="dealHint"></div>
         </div>
         @elseif($editing && $deed->deal_id)
@@ -93,12 +96,12 @@
 
         {{-- Property --}}
         <div>
-            <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="td-property-q">Property</label>
+            <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="td-property-q">Property<span class="font-normal" style="color: var(--ds-crimson);"> (required)</span></label>
             <input type="hidden" name="property_id" :value="property ? property.id : ''">
             <template x-if="property">
                 <div class="flex items-center justify-between gap-3 rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border);">
                     <span x-text="property.address" style="color: var(--text-primary);"></span>
-                    <button type="button" class="text-xs font-semibold" style="color: var(--brand-icon);" @click="clearProperty()">Change</button>
+                    <button type="button" class="text-xs font-semibold" style="color: var(--brand-icon);" @click="clearProperty()">Change the property</button>
                 </div>
             </template>
             <div x-show="!property" class="relative">
@@ -125,13 +128,13 @@
 
         {{-- Owners --}}
         <div>
-            <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="td-owner-q">Owner(s)</label>
+            <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="td-owner-q">Owner(s)<span class="font-normal" style="color: var(--ds-crimson);"> (required)</span></label>
             <div class="flex flex-wrap gap-2 mb-2" x-show="owners.length">
                 <template x-for="o in owners" :key="o.id">
                     <span class="inline-flex items-center gap-2 rounded-md px-2.5 py-1 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         <input type="hidden" name="owner_ids[]" :value="o.id">
                         <span x-text="o.name"></span>
-                        <button type="button" class="text-xs" style="color: var(--ds-crimson);" :aria-label="'Remove ' + o.name" @click="removeOwner(o.id)">&times;</button>
+                        <button type="button" class="text-xs" style="color: var(--ds-crimson);" :aria-label="'Remove ' + o.name" @click="removeOwner(o.id)">Remove</button>
                     </span>
                 </template>
             </div>
@@ -156,7 +159,7 @@
             <div>
                 <label for="td-agent" class="{{ $lbl }}" style="color: var(--text-secondary);">Responsible agent</label>
                 <select id="td-agent" name="agent_id" x-model="agentId" @change="touched('agentId')" class="{{ $input }}" :style="fieldStyle('agentId')" style="{{ $inputStyle }}">
-                    @foreach($agents as $a)<option value="{{ $a->id }}">{{ $a->name }}</option>@endforeach
+                    @foreach($agents as $a)<option value="{{ $a->id }}">{{ $a->label }}</option>@endforeach
                 </select>
                 <div x-show="notes.agentId" x-cloak class="text-xs mt-1" style="color: var(--text-secondary);" x-text="notes.agentId"></div>
             </div>
@@ -181,25 +184,25 @@
                         <span class="inline-flex items-center gap-2 rounded-md px-2.5 py-1 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                             <input type="hidden" name="additional_agent_ids[]" :value="a.id">
                             <span x-text="a.name"></span>
-                            <button type="button" class="text-xs" style="color: var(--ds-crimson);" :aria-label="'Remove ' + a.name" @click="extraAgents = extraAgents.filter(x => x.id !== a.id)">&times;</button>
+                            <button type="button" class="text-xs" style="color: var(--ds-crimson);" :aria-label="'Remove ' + a.name" @click="extraAgents = extraAgents.filter(x => x.id !== a.id)">Remove</button>
                         </span>
                     </template>
                 </div>
             </div>
 
             <div>
-                <label for="td-received" class="{{ $lbl }}" style="color: var(--text-secondary);">Date received</label>
+                <label for="td-received" class="{{ $lbl }}" style="color: var(--text-secondary);">Date received<span class="font-normal" style="color: var(--ds-crimson);"> (required)</span></label>
                 <input id="td-received" type="date" name="received_at" required max="{{ now()->toDateString() }}" value="{{ old('received_at', $deed?->received_at?->toDateString() ?? now()->toDateString()) }}" class="{{ $input }}" style="{{ $inputStyle }}">
             </div>
             <div>
-                <label for="td-attorney" class="{{ $lbl }}" style="color: var(--text-secondary);">Attorney firm</label>
+                <label for="td-attorney" class="{{ $lbl }}" style="color: var(--text-secondary);">Attorney firm<span class="font-normal" style="color: var(--text-muted);"> (optional)</span></label>
                 <input id="td-attorney" type="text" name="attorney_firm" maxlength="255" x-model="attorney" @input="touched('attorney')" class="{{ $input }}" :style="fieldStyle('attorney')" style="{{ $inputStyle }}">
                 <div x-show="notes.attorney" x-cloak class="text-xs mt-1" style="color: var(--text-secondary);" x-text="notes.attorney"></div>
             </div>
 
             {{-- Where it is kept: the agency's own list --}}
             <div class="md:col-span-2">
-                <label for="td-location" class="{{ $lbl }}" style="color: var(--text-secondary);">Where it is kept</label>
+                <label for="td-location" class="{{ $lbl }}" style="color: var(--text-secondary);">Where it is kept<span class="font-normal" style="color: var(--ds-crimson);"> (required)</span></label>
                 @if($noLocations)
                     <div class="rounded-md px-3 py-2 text-sm" style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 35%, transparent); color: var(--text-primary);">
                         This agency has no storage locations yet.
@@ -219,13 +222,13 @@
             </div>
 
             <div class="md:col-span-2">
-                <label for="td-notes" class="{{ $lbl }}" style="color: var(--text-secondary);">Notes</label>
+                <label for="td-notes" class="{{ $lbl }}" style="color: var(--text-secondary);">Notes<span class="font-normal" style="color: var(--text-muted);"> (optional)</span></label>
                 <textarea id="td-notes" name="notes" rows="3" maxlength="5000" class="{{ $input }}" style="{{ $inputStyle }}">{{ old('notes', $deed?->notes) }}</textarea>
             </div>
 
             @unless($editing)
             <div class="md:col-span-2">
-                <label for="td-scan" class="{{ $lbl }}" style="color: var(--text-secondary);">Scan of the title deed (optional)</label>
+                <label for="td-scan" class="{{ $lbl }}" style="color: var(--text-secondary);">Scan of the title deed<span class="font-normal" style="color: var(--text-muted);"> (optional)</span></label>
                 <input id="td-scan" type="file" name="scan" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic" class="block w-full text-sm" style="color: var(--text-secondary);">
             </div>
             @endunless

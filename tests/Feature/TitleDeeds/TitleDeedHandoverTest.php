@@ -56,6 +56,7 @@ final class TitleDeedHandoverTest extends TitleDeedTestCase
     {
         parent::setUp();
         Storage::fake('local');
+        $this->settings(['pin_mode' => 'optional']);   // the older tests cover every route in; the three-way PIN has its own tests
     }
 
     public function test_the_owner_collects_with_the_pin_and_signs(): void
@@ -140,7 +141,7 @@ final class TitleDeedHandoverTest extends TitleDeedTestCase
 
     public function test_the_pin_locks_after_the_agency_limit_and_a_new_pin_unlocks_it(): void
     {
-        TitleDeedSetting::create(['agency_id' => $this->agencyId, 'pin_lock_attempts' => 3]);
+        $this->settings(['pin_lock_attempts' => 3]);
         [$deed, $pin] = $this->notified();
         $wrong = $pin === '000000' ? '111111' : '000000';
 
@@ -186,7 +187,7 @@ final class TitleDeedHandoverTest extends TitleDeedTestCase
 
     public function test_representatives_can_be_switched_off_for_the_agency(): void
     {
-        TitleDeedSetting::create(['agency_id' => $this->agencyId, 'representatives_allowed' => false]);
+        $this->settings(['representatives_allowed' => false]);
         [$deed, $pin] = $this->notified();
 
         $this->submit($deed, $this->ownerBody($deed, $pin, ['collector_type' => 'representative', 'rep_name' => 'Busisiwe Mkhize', 'rep_id_number' => '9001015800087', 'rep_relationship' => 'Daughter']))
@@ -255,7 +256,7 @@ final class TitleDeedHandoverTest extends TitleDeedTestCase
 
     public function test_the_signature_can_be_switched_off(): void
     {
-        TitleDeedSetting::create(['agency_id' => $this->agencyId, 'signature_required' => false]);
+        $this->settings(['signature_mode' => 'optional']);
         [$deed, $pin] = $this->notified();
         $body = $this->ownerBody($deed, $pin);
         unset($body['signature_image'], $body['typed_name']);
@@ -263,7 +264,8 @@ final class TitleDeedHandoverTest extends TitleDeedTestCase
         $this->submit($deed, $body)->assertSessionHas('success');
         $receipt = TitleDeedReceipt::firstOrFail();
         $this->assertNull($receipt->signature_path);
-        $this->assertSame('Thandi Mkhize', $receipt->signed_typed_name, 'falls back to the collector name');
+        $this->assertNull($receipt->signed_typed_name, 'no signature captured, so nothing is recorded as signed');
+        $this->assertSame('Thandi Mkhize', $receipt->collector_name);
     }
 
     public function test_a_double_submit_collects_once(): void
@@ -304,8 +306,8 @@ final class TitleDeedHandoverTest extends TitleDeedTestCase
     public function test_the_handover_screen_renders_with_each_mode(): void
     {
         [$deed] = $this->notified();
-        $this->actingAs($this->admin)->get(route('title-deeds.handover', $deed->id))->assertOk()->assertSee('Hand over')->assertSee('Has the PIN');
-        TitleDeedSetting::create(['agency_id' => $this->agencyId, 'pin_required' => false, 'collector_id_photo_required' => true, 'phone_consent_allowed' => true]);
+        $this->actingAs($this->admin)->get(route('title-deeds.handover', $deed->id))->assertOk()->assertSee('Hand over')->assertSee('The collector has the PIN');
+        $this->settings(['pin_mode' => 'not_used', 'collector_id_photo_mode' => 'required', 'phone_consent_allowed' => true]);
         $this->actingAs($this->admin)->get(route('title-deeds.handover', $deed->id))->assertOk()->assertSee('Photo of the collector');
         $deed->forceFill(['status' => 'collected', 'collected_at' => now()])->save();
         $this->actingAs($this->admin)->get(route('title-deeds.handover', $deed->id))->assertRedirect(route('title-deeds.show', $deed->id));
@@ -355,7 +357,7 @@ final class TitleDeedHandoverTest extends TitleDeedTestCase
 
     public function test_the_contact_changed_window_can_be_switched_off(): void
     {
-        TitleDeedSetting::create(['agency_id' => $this->agencyId, 'contact_changed_block_days' => 0]);
+        $this->settings(['contact_changed_block_days' => 0]);
         $a = $this->contact('Thandi', 'Mkhize');
         [$deed, $pin] = $this->notified([$a]);
         $this->flagRecentlyChanged($a);   // AFTER the fixtures were aged
@@ -380,7 +382,7 @@ final class TitleDeedHandoverTest extends TitleDeedTestCase
 
     public function test_the_collector_id_photo_is_required_when_the_agency_asks_for_it(): void
     {
-        TitleDeedSetting::create(['agency_id' => $this->agencyId, 'collector_id_photo_required' => true]);
+        $this->settings(['collector_id_photo_mode' => 'required']);
         [$deed, $pin] = $this->notified();
 
         $this->submit($deed, $this->ownerBody($deed, $pin))->assertSessionHas('error');

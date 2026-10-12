@@ -142,6 +142,12 @@ abstract class TitleDeedTestCase extends TestCase
             'title_deeds.notify', 'title_deeds.handover', 'title_deeds.override', 'title_deeds.manage_settings'];
     }
 
+    /** Set (create or update) this agency's Title Deed settings, bypassing the screen. */
+    protected function settings(array $values): \App\Models\TitleDeeds\TitleDeedSetting
+    {
+        return \App\Models\TitleDeeds\TitleDeedSetting::withoutGlobalScopes()->updateOrCreate(['agency_id' => $this->agencyId], $values);
+    }
+
     /** A one-time form token for ($purpose, $deed), as a request body fragment. */
     protected function tk(string $purpose, ?TitleDeed $deed = null, ?User $user = null, array $extra = []): array
     {

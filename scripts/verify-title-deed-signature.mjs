@@ -10,7 +10,7 @@
  * Nothing is ever handed over or signed by default: every outgoing POST on the staff screen is aborted and the form's own
  * submit is cancelled after the field is read. Pass --submit with --sign-url to also complete the public phone page.
  *
- * Usage:
+ * Usage (the agency's PIN must not be Required, or the ID-check tab - the one this check drives - is not offered):
  *   node scripts/verify-title-deed-signature.mjs --base=https://qatesting1.corexos.co.za --app-root=/corex-qa1 --user-id=22 \
  *        --deed=<id of a deed that is waiting to be collected> [--sign-url=<public signing link> [--submit]]
  * Exit code 0 = every check passed, 1 = a check failed (the failing line says which).
@@ -78,7 +78,7 @@ async function staffScreen(label, viewport, how) {
       window.__sig = null;
       document.addEventListener('submit', e => { window.__sig = (document.getElementById('signature_image') || {}).value || ''; e.preventDefault(); });
     });
-    await page.evaluate(() => { [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Owner, ID check')?.click(); });
+    await page.evaluate(() => { [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'The owner is here without the PIN')?.click(); });
     await new Promise(r => setTimeout(r, 300));
     await page.type('#typed_name', 'Browser Check');
     await page.evaluate(() => { const o = document.querySelector('#id_number_seen'); if (o) { o.value = '8001015009087'; o.dispatchEvent(new Event('input')); } });

@@ -2053,6 +2053,7 @@ Route::middleware(['auth', 'permission:access_title_deeds', 'feature:title-deeds
     Route::post('/{id}/events/{event}/open', [$c, 'openWhatsapp'])->whereNumber(['id', 'event'])->middleware('permission:title_deeds.notify,title_deeds.handover')->name('events.open');
     Route::post('/{id}/events/{event}/confirm', [$c, 'confirmWhatsapp'])->whereNumber(['id', 'event'])->middleware('permission:title_deeds.notify,title_deeds.handover')->name('events.confirm');
     Route::post('/{id}/events/{event}/not-sent', [$c, 'declineWhatsapp'])->whereNumber(['id', 'event'])->middleware('permission:title_deeds.notify,title_deeds.handover')->name('events.not-sent');
+    Route::post('/{id}/events/{event}/dismiss', [$c, 'dismissWhatsapp'])->whereNumber(['id', 'event'])->middleware('permission:title_deeds.notify,title_deeds.handover')->name('events.dismiss');
 
     Route::get('/{id}/handover', [$h, 'show'])->whereNumber('id')->middleware('permission:title_deeds.handover')->name('handover');
     Route::post('/{id}/handover', [$h, 'submit'])->whereNumber('id')->middleware('permission:title_deeds.handover')->name('handover.submit');
