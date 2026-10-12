@@ -161,6 +161,19 @@ final class FeaturesPageTest extends TestCase
         // The Features page lights up the Settings group.
         $this->assertStringContainsString("'corex.features.*',", $sidebar);
         $this->assertStringContainsString('$activeGroup = \'settings\';', $sidebar);
+
+        // ...and the rule precedes the broad deals-v2.* one, else the service-types page (deals-v2.settings.*) never opens it.
+        $this->assertLessThan(
+            strpos($sidebar, "request()->routeIs('deals-v2.*')"),
+            strpos($sidebar, '$activeGroup = \'settings\';'),
+            'the settings active-group rule must come before the broad deals-v2.* rule'
+        );
+    }
+
+    public function test_ellies_navigation_atlas_knows_the_features_page(): void
+    {
+        $this->assertArrayHasKey('corex.features.index', config('corex-navigation-atlas'));
+        $this->assertTrue(\Illuminate\Support\Facades\Route::has('corex.features.index'));
     }
 
     public function test_saving_returns_to_the_new_page_and_the_page_shows_the_saved_state(): void

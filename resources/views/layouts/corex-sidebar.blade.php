@@ -260,6 +260,15 @@
     } elseif (request()->routeIs('admin.importer.*') || request()->routeIs('admin.pp.*')) {
         $activeGroup = 'importer';
     } elseif (request()->routeIs(
+        'corex.settings*',
+        'corex.features.*',
+        'admin.users*',
+        'admin.settings.document-types.*',
+        'admin.p24-suburbs.*',
+        'deals-v2.settings.service-types.*'
+    )) {
+        $activeGroup = 'settings';
+    } elseif (request()->routeIs(
         'deals-v2.suppliers.*',
         'deals-v2.pipeline.*',
         'admin.settings.deal-property-sync.*',
@@ -279,15 +288,6 @@
         'admin.billing.*'
     )) {
         $activeGroup = 'agency';
-    } elseif (request()->routeIs(
-        'corex.settings*',
-        'corex.features.*',
-        'admin.users*',
-        'admin.settings.document-types.*',
-        'admin.p24-suburbs.*',
-        'deals-v2.settings.service-types.*'
-    )) {
-        $activeGroup = 'settings';
     } elseif (request()->routeIs(
         'admin.company-settings*',
         'corex.role-manager*',
