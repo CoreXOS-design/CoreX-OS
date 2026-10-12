@@ -536,7 +536,7 @@ class ClientLandlordRentalsController extends Controller
         $fault->recordHistory(\App\Models\RentalFaultReportUpdate::TYPE_OWNER_QUERY, null, trim((string) ($contact->first_name . ' ' . $contact->last_name)) . ' (owner) asked: ' . trim($data['note']));
         $property = $fault->property()->withoutGlobalScopes()->first();
         if ($property) {
-            foreach (app(\App\Services\Rentals\LeaseAgentService::class)->faultRecipients($fault->lease, $property, (int) $fault->agency_id) as $user) {
+            foreach (app(\App\Services\Rentals\LeaseAgentService::class)->recipientsForEvent($fault->lease, $property, (int) $fault->agency_id) as $user) {
                 app(\App\Services\CommandCenter\NotificationDispatcher::class)->fire($user, 'rental_fault_report.owner_query', $fault, [
                     'title' => 'The owner has a question - ' . ($property->buildDisplayAddress() ?: $property->title),
                     'body' => $fault->ownerVersion()['title'] . ': ' . mb_substr(trim($data['note']), 0, 200),
