@@ -57,7 +57,7 @@
     }
     $more = ['title' => $name, 'items' => $items];
 @endphp
-<div class="inline-flex items-center gap-2">
+<div class="inline-flex flex-col items-stretch md:flex-row md:items-center gap-1.5 md:gap-2">
     @if($primary && isset($primary['ask']))
         <button type="button" class="corex-btn-primary text-xs" @click="openAsk(@js($primary['ask']))">{{ $primary['label'] }}</button>
     @elseif($primary)
