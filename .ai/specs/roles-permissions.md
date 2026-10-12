@@ -140,8 +140,15 @@ On agency creation, provision its role set. Use the events catalogue:
 - Subscribe a listener to the agency-created event (add `AgencyCreated` to the
   catalogue if absent — confirm before inventing).
 - Listener calls a `RoleProvisioningService::provisionForAgency(Agency)` that
-  clones the template non-owner roles + their `role_defaults` grants from
-  `config/corex-permissions.php` into the new agency.
+  clones the template non-owner ROLES into the new agency and grants each role its
+  `role_defaults` from `config/corex-permissions.php` (**amended 2026-10-12, Johan:**
+  grants come from the config, never from the template's `role_permissions` rows —
+  those had drifted far past the config. admin = every permission except the
+  platform-owner-only `exclude` list; every other role = exactly its minimal `include`
+  list; a role with no `role_defaults` entry = no grants. `.view` keys get their data
+  scope from `scope_defaults` ('all' for `shared_scope_modules`), exactly as
+  `corex:sync-permissions` does. A new agency stays at these defaults until its admin
+  changes them in Role Manager.)
 - Idempotent: re-running must not duplicate.
 
 `SyncPermissions` (`corex:sync-permissions`):
@@ -318,6 +325,6 @@ item is guarded, Role Manager queries are all agency-scoped. Findings and what w
 | 1 | Five keys enforced in code but undefined in `config/corex-permissions.php` (`shared_drive.drives.{create,create_restricted,manage}`, `branches.self_assign_managed`, typo `commercial_evaluations.edit` → `commercial_evals.edit`) — Role Manager could not grant them, so only the platform owner passed | **Fixed** in code; guarded by `EnforcedPermissionKeysAreDefinedTest` |
 | 2 | Extension capture endpoints had no permission/feature check; `presentation_id` accepted another agency's presentation | **Fixed** — see `at449-chrome-extension-store-restyle.md` §9 |
 | 3 | Three permission keys had invalid `type` values (`use_ellie_voice`, `use_property_image_ai` = `feature`; `billing.view` = `view`) — Role Manager already treated them as access-style, so behaviour is unchanged | **Fixed** (label only) |
-| 4 | Role grants far beyond `role_defaults`: `office_admin` ~312 live grants vs 6 in config (incl. Role Manager, payroll, impersonation), `agent` +120, `branch_manager` +61, `viewer` +7–10 — copied into every new agency from the global template | **OPEN — needs Johan.** `corex:reconcile-role-grants` would strip them, but ~half are keys the code still reads and HFC's office admin looks deliberately widened (AT-118), so a blanket run could lock real users out. What a *new* agency starts with is a business decision. |
+| 4 | Role grants far beyond `role_defaults`: `office_admin` ~312 live grants vs 6 in config (incl. Role Manager, payroll, impersonation), `agent` +120, `branch_manager` +61, `viewer` +7–10 — copied into every new agency from the global template | **Fixed for NEW agencies (Johan's ruling, 2026-10-12):** "each role should get bare minimum and admin should get all, and until an admin gives permissions they should stay like that." `RoleProvisioningService` now builds a new agency's grants from config `role_defaults` (§6 below), not from the template's drifted grant rows. **Existing agencies are deliberately untouched** — HFC's wider access looks intentional (AT-118) and ~half the extra keys are still read by code, so `corex:reconcile-role-grants` was NOT run; any clean-up of an existing agency is a separate decision for Johan. |
 | 5 | Global template roles (`agency_id` NULL) duplicated on 2026-09-27 (a "Fresh Agency No Template" debug session) → every template role and grant doubled; `roles_name_agency_unique` cannot prevent it because MySQL treats NULLs as distinct. `RoleProvisioningService` already de-duplicates, so new agencies were unaffected | Data clean-up pending DB approval (soft-delete the newer copies; reversible) |
 | 6 | QA2 DB behind: 3 pending migrations, `viewing_feedback_edit.view` not synced, 8 stale keys (`access_agencies`, `manage_agencies`, `access_importer`, `importer.import_agents`, `importer.import_listings`, `confirm_properties`, `send_agent_invites`, `ad_manager.all_agents`) with zero grants and no code references | Pending DB approval: `migrate`, then `corex:sync-permissions --prune --merge-defaults` |
