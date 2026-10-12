@@ -430,6 +430,10 @@ class ClientLandlordRentalsController extends Controller
             'self_resolved' => false,
             // item I - informed, not asked: the sentence, who, the amounts, the questions asked so far (null for every other fault)
             'arranged' => $this->arrangedFor($fault),
+            // section 22 - what an AGENT did on the owner's behalf (recorded their instruction): the sentence, the agent's note, "Query this"
+            'authorisation' => $this->authorisationFor($fault),
+            // section 22.4 - the contractor the agent proposes (and the call-out fee) while the owner is asked to authorise
+            'proposed' => $awaiting ? app(\App\Services\Rentals\FaultInspectionService::class)->proposedFor($fault) : null,
             // AT-452 round 2 (F-OWNER) - "Reported before on <date> ..." when the same kind of fault was on this property earlier.
             'reported_before' => $this->reportedBeforeFor($fault),
             'property' => $fault->property?->buildDisplayAddress(),
@@ -529,6 +533,25 @@ class ClientLandlordRentalsController extends Controller
     }
 
     /**
+     * Section 22.5 - the standing Decision 1 record an agent made on the owner's behalf, in the owner's own words (the same sentence they were emailed),
+     * the agent's note, and the questions the owner has put about it. Null when the owner decided on their own link or nothing was recorded.
+     *
+     * @return array<string,mixed>|null
+     */
+    private function authorisationFor(RentalFaultReport $fault): ?array
+    {
+        $payload = app(\App\Services\Rentals\RentalAuthorisationService::class)->ownerPayload($fault);
+        if (! $payload) {
+            return null;
+        }
+        $payload['title'] = $payload['outcome'] === \App\Models\RentalAuthorisation::OUTCOME_DECLINED ? 'Declined on your instruction' : 'Authorised on your instruction';
+        $payload['queries'] = $fault->updates()->where('update_type', \App\Models\RentalFaultReportUpdate::TYPE_OWNER_QUERY)->orderBy('id')->get(['note', 'created_at'])
+            ->map(fn ($u) => ['note' => $u->note, 'at' => $u->created_at?->toIso8601String()])->values()->all();
+
+        return $payload;
+    }
+
+    /**
      * AT-452 (§19.12) - "Ask my agent to have this repaired": the owner's request on a fault the tenant resolved themselves, with their own optional
      * comment. The tenant's report is never changed (this route writes only to the NEW request it raises).
      */
@@ -567,7 +590,7 @@ class ClientLandlordRentalsController extends Controller
         if (! $fault) {
             return response()->json(['message' => 'Fault report not found.'], 404);
         }
-        if (! $fault->isArrangedByAgent()) {
+        if (! $fault->isArrangedByAgent() && $this->authorisationFor($fault) === null) {
             return response()->json(['message' => 'There is nothing to query on this one.'], 422);
         }
         $data = $request->validate(['note' => 'required|string|min:3|max:1000']);
@@ -586,7 +609,7 @@ class ClientLandlordRentalsController extends Controller
             }
         }
 
-        return response()->json(['ok' => true, 'arranged' => $this->arrangedFor($fault->fresh())], 201);
+        return response()->json(['ok' => true, 'arranged' => $this->arrangedFor($fault->fresh()), 'authorisation' => $this->authorisationFor($fault->fresh())], 201);
     }
 
     /** "Reported before on <date> ..." for the owner's decision screen - linked only to an earlier report this owner can open themselves. */

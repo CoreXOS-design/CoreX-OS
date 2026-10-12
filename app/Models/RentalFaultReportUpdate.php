@@ -47,6 +47,11 @@ class RentalFaultReportUpdate extends Model
     public const TYPE_SENT_WITHOUT_CONTRACTOR = 'sent_without_contractor';
     // section 21.3 - the agent chose a first responder to look at the fault (nothing is sent by this alone)
     public const TYPE_FIRST_RESPONDER_CHOSEN = 'first_responder_chosen';
+    // section 22 - the authorisation record (Decision 1: who goes to look), the owner's decision taken by the agent, the tenant's confirmation
+    public const TYPE_AUTHORISATION_RECORDED = 'authorisation_recorded';
+    public const TYPE_AUTHORISATION_SUPERSEDED = 'authorisation_superseded';
+    public const TYPE_SENT_TO_OWNER_TO_AUTHORISE = 'sent_to_owner_to_authorise';
+    public const TYPE_TENANT_CONFIRMED = 'tenant_confirmed';
 
     protected $fillable = [
         'agency_id',

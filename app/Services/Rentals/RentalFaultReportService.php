@@ -64,11 +64,13 @@ class RentalFaultReportService
                 'approval_route' => RentalFaultReport::ROUTE_AGENCY_APPOINTS,
                 'reported_at' => now(),
             ]));
-            $fault->approvals()->create([
+            $approval = $fault->approvals()->create([
                 'agency_id' => $fault->agency_id, 'decision' => \App\Models\RentalApproval::DECISION_APPROVED, 'approval_route' => RentalFaultReport::ROUTE_AGENCY_APPOINTS,
                 'contractor_source' => \App\Models\RentalApproval::CONTRACTOR_AGENCY, 'evidence_type' => \App\Models\RentalApproval::EVIDENCE_PORTAL,
                 'evidence_text' => 'Requested by the owner: ' . $fault->title, 'decided_at' => now(), 'recorded_by_contact_id' => $owner->id,
             ]);
+            // Section 22: the owner's own instruction IS their Decision 1 authority - it leaves the same authorisation record as a press on their link
+            app(RentalAuthorisationService::class)->mirrorApproval($fault, $approval, $owner);
             $fault->recordHistory(\App\Models\RentalFaultReportUpdate::TYPE_OWNER_REPAIR_REQUEST, null,
                 $who . ' (owner) asked the agency to arrange this work. Their instruction is their authority to go to a quote - they are not asked to approve it again. A quote above this property\'s limit still goes to them.'
                 . ($text !== '' ? ' They wrote: ' . $text : ''));
@@ -170,29 +172,6 @@ class RentalFaultReportService
         $resolved->recordHistory(\App\Models\RentalFaultReportUpdate::TYPE_OWNER_REPAIR_REQUEST, null, $who . ' (owner) asked for a repair - request #' . $new->id . ($text !== '' ? ' - they wrote: ' . $text : '.'));
 
         return $new;
-    }
-
-    /**
-     * AT-452 round 2 (item I, Johan 12 Oct 2026: "any fault, even if it is in the repair limit, still needs to go to the owner") - the agent went
-     * ahead without waiting for the owner (an emergency, or a small job inside the property's no-approval limit). The owner is INFORMED, not
-     * asked: the fault appears in their portal as "Arranged by your agent" (never under "Needs your decision"), with the agent's prepared version, and
-     * they get the normal owner notice. Called right after the work order was created from the fault; the owner version must already be saved.
-     */
-    public function arrangeByAgent(RentalFaultReport $fault, \App\Models\User $by, bool $emergency): RentalFaultReport
-    {
-        $property = $fault->property()->withoutGlobalScopes()->first();
-        $limit = $property ? (float) \App\Models\RentalWorkOrderSetting::thresholdFor($property) : (float) \App\Models\RentalWorkOrderSetting::spendThresholdFor($fault->agency_id);
-        $fault->forceFill([
-            'arranged_by_agent_at' => now(),
-            'arranged_by_user_id' => $by->id,
-            'arranged_basis' => $emergency ? RentalFaultReport::ARRANGED_EMERGENCY : RentalFaultReport::ARRANGED_NO_APPROVAL_LIMIT,
-            'arranged_limit_amount' => $limit,
-        ])->save();
-        $fault->recordHistory(\App\Models\RentalFaultReportUpdate::TYPE_ARRANGED_BY_AGENT, $by,
-            'The agent approved this within their limit' . ($emergency ? ' as an emergency' : ' (R' . number_format($limit, 2, '.', ' ') . ')') . ' and the owner was told, not asked.');
-        app(RentalPortalNotificationService::class)->notifyLandlordInformed($fault->fresh());
-
-        return $fault->fresh();
     }
 
     /**

@@ -18,6 +18,7 @@ return [
     // Item I (AT-452 round 2) - the agent went ahead inside the no-approval limit / as an emergency: the owner was TOLD, not asked.
     'informed' => ['tenant' => 'Your agent is arranging the repair', 'owner' => 'Your agent told you', 'agent' => 'Owner informed'],
     'arranged_limit' => ['tenant' => 'Repair arranged', 'owner' => 'Arranged by your agent under your no-approval limit', 'agent' => 'Went ahead under the owner\'s no-approval limit'],
+    'arranged_inspect' => ['tenant' => 'Someone is coming to look', 'owner' => 'Your agent sent someone to look and quote', 'agent' => 'Sent to look and quote on your authority'],
     'arranged_emergency' => ['tenant' => 'Repair arranged', 'owner' => 'Arranged by your agent as an emergency', 'agent' => 'Went ahead as an emergency'],
     'owner_approved' => ['tenant' => 'Owner approved', 'owner' => 'You approved', 'agent' => 'Owner approved'],
     // The tenant NEVER sees the owner's reason or the agent's notes - only this neutral line.

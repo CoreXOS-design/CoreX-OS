@@ -1346,3 +1346,71 @@ First-responder rules are not a setting an agency configures in Setup Wizard ter
 
 ### 21.5 Tests
 `tests/Feature/Rentals/FirstResponderTest.php` (service resolution, override, per-type, skip inactive, max 3, no duplicates, agency isolation, property and owner screens save + change log, permission and scope), `tests/Feature/Rentals/SupplierKindTest.php` (default kind, list column/filter/search/sort/reactivate, add form), `tests/Feature/Rentals/FaultPageFirstResponderTest.php` (block, button, history line, picker order, no auto send).
+
+## 22. THE GOVERNING RULE: nothing is automatic - every job carries an AUTHORISATION RECORD at each of two decisions (AT-452, Johan 12 Oct 2026, QA1)
+
+**This section governs.** Where §15, §17.6, §19.10 (item I), §19.13, §20.7 or §21.3 say otherwise, this section wins (they are annotated below). It replaces the parked "round 3 / two limits" design.
+
+### 22.1 Principle
+Work proceeds only after an **authorisation record** exists. There are two decisions, in this order, and no amount is ever approved before an amount exists:
+- **Decision 1 - who goes to look.** Authority to send someone to inspect and quote (point `inspect`).
+- **Decision 2 - the cost.** Authority to spend an amount that now exists: a quote, or our own crew's work-order selling price, or an amount the agent types for a small known job (point `cost`).
+
+A record (table `rental_authorisations`, append-only; a newer one supersedes, nothing is edited or deleted) holds: the point, the outcome (`authorised` / `declined`), **who** authorised, **on what basis**, **at what stage**, **when**, the amount it covers (D2 "approved up to", D1 the call-out fee), the owner's words/proof when it is the owner's instruction, and whether the owner has been told.
+
+| Basis (`basis`) | Who | Reads (owner's own words) |
+|---|---|---|
+| `owner_link` | the owner pressed the button on their link | "Authorised by you on your link on <date time>." |
+| `owner_instruction` | an agent captured what the owner told them | "Authorised by your agent <name> on your instruction, given by <phone call> on <date time>." + the note |
+| `agent_no_callout_fee` | D1, the visit costs nothing (no call-out fee, or our own crew) | "Your agent <name> sent <contractor> to look at this and give a quote. <Contractor> charges no call-out fee, so the visit costs you nothing." |
+| `agent_callout_setting` | D1, the owner's call-out permission covers the fee | "Your agent <name> sent <contractor> to look at this and give a quote, under your call-out permission of R___. The call-out fee is R___." |
+| `agent_repair_limit` | D2, the amount is inside the owner's repair limit | "Authorised by agent <name> under the owner's repair limit of R___." |
+| `agent_emergency_limit` | D2, an emergency inside the owner's emergency limit | "...under the owner's emergency limit of R___." (with the agent's reason) |
+
+### 22.2 The owner's three settings are cc4's; we READ them through one resolver
+`App\Services\Rentals\OwnerAuthoritySettings` (the ONLY reader): `repairLimit(Property): float` (today the property's existing no-approval limit), `emergencyLimit(Property): ?float` and `calloutAllowance(Property): ?float` (null = **not set = ask the owner**). cc4 owns the three per-property owner settings, their storage, evidence, owner email and dispute; when cc4 lands it replaces the bodies of the two nullable readers and nothing else here changes. Until then every call-out and every emergency goes to the owner.
+
+### 22.3 The agent's fault page (top, in this order)
+1. **What the tenant reported** - read-only (their words, date, photos).
+2. **What the tenant says they checked** - the self-checks the tenant ticked when they reported (the "Try this first" steps are now tickable on the tenant's form; the ticks are stored with the report as a snapshot: step text + ticked or not). Fault types with no steps: "The tenant was shown no self-checks."
+3. **Confirmed with the tenant** - the agent records HOW (phone call / WhatsApp / email / in person), WHEN, and a NOTE. Saved with the agent's name; a later one is added, never overwrites (history lines keep every one).
+4. **Reported before** (§19.8, unchanged).
+
+### 22.4 Decision 1 - who goes to look
+The agent picks (one list, one rule): **Set for this property** (cc5), **Suits <type>**, **Other contractors** (each with cc4's call-out suffix), or **Our own crew**. With someone selected, exactly TWO equal buttons (the shared partial `partials/contractor-inspect-choice`, actions passed in; fees read only through `calloutFeeStatus()` / `calloutFeeAmount()`; cc5's `FirstResponderDispatcher` seam is replaced by `FaultInspectionService`):
+- **"Send <name> to inspect"** - allowed when the contractor has **no** call-out fee, or our own crew; or when there is a fee (a fee **not known is treated as a fee**) AND `calloutAllowance(property)` covers it (a fee not known can never be covered - it has no amount: the line then says so). Otherwise the button is disabled with: "<Name> charges a call-out fee of R750. The owner must authorise this first." (not known: "We don't know whether <Name> charges a call-out fee. The owner must authorise this first - or set the fee on the contractor's card."). On send, in ONE step: the authorisation record (basis `agent_no_callout_fee` / `agent_callout_setting`) -> the work order (contractor: the existing job email + secure link; crew: job card) -> the owner is told at once (who, why, the fee) -> the fault shows to the owner as "Arranged by your agent". **The owner version must be saved first** (the owner is told what they will read).
+- **"Send to owner to authorise"** - the fault goes to the owner on their link (the same send as "Save and send to owner"), carrying the proposed contractor and its call-out fee; the owner chooses **"Send someone to look and quote"** or **"Decline"**.
+- **"Record the owner's decision"** is available whenever the owner's answer is awaited (prepare and sent stages).
+- **"Approve within agent limit" is gone from the fault page** (and the early "Start a work order before the owner decides" path with it): approval against a limit exists only at Decision 2. A work order cannot be made from a fault without a Decision 1 authorisation (`RentalFaultReport::workOrderBlockReason()`).
+Buttons in every row are the same size and aligned (§19.13 stands).
+
+### 22.5 "Record the owner's decision" - one popup, both decisions (replaces the old Emergency approval form and the fault page's "Record decision on the owner's behalf"; old records and Void keep working)
+Fields: **Which owner** (the lease's / property's owners); **Decision** (D1: "Send someone to look and quote" / "Declined"; D2: "Approved" with **"Approved up to R___"** / "Declined"); **How the owner told us** (phone call / WhatsApp / email); **When**; **What the owner said** (required); **Proof** (optional upload). Saved with the agent's name; never edited; **replaceable by a newer record until the next stage has been acted on** (D1: until a work order exists; D2: until the work starts); the full history stays. The owner who disagrees presses **Query this**; the agent then records a newer decision. (An owner's own press on their link is final: an agent cannot replace it.) The owner's link/portal then reads "Authorised by your agent <name> on your instruction, given by <phone call> on <date time>" + the note + **"Query this"**, and the owner is **emailed the same sentence immediately** (to the owner's address; QA1's outbound guard holds it).
+
+### 22.6 Decision 2 - approve the cost (stage 2)
+The amount is a contractor quote; the **work-order selling price** when our own crew does it (the job card is internal cost and is never shown to the owner - the selling price is what is measured); or an amount the agent types for a small known job. A call-out fee already charged counts in the job total.
+- Within `repairLimit` -> the agent authorises (explicit press; record `agent_repair_limit`); the owner is told at once.
+- Over the limit, or no limit set -> the owner approves on their link, or the agent records the owner's decision (22.5). The work cannot start before.
+- **Emergency:** the agent ticks "This is an emergency" with a **required reason**; the agent may then authorise up to `emergencyLimit` (record `agent_emergency_limit`). Above it - emergency or not - the owner's authority is ALWAYS required first. A final invoice above what was authorised sends the difference to the owner.
+
+### 22.7 Stop this / Query this (stage 3)
+Every notice to the owner about an authorisation carries **"Stop this"** (pauses the job, alerts both lease agents; available until the contractor is on site / the work has started) and **"Query this"** (asks the agent, stops nothing).
+
+### 22.8 Who pays - a log only (stage 4)
+CoreX does no finances yet: **no charge is raised.** At report-back the agent records **What was found** and **Cause**, marks **Who pays** (Owner / Tenant / Shared / Insurance or body corporate) with a reason. The default is suggested from the fault type's self-check ruling (e.g. empty gas bottle, flat batteries -> Tenant; blocked drain: foreign object -> Tenant, roots / collapsed pipe -> Owner), shown beside the tenant's ticks and the agent's confirmation. The owner and the tenant are told the ruling. Same for own-crew job cards.
+
+### 22.9 What was already live and is changed by this section
+"Approve within agent limit" (§19.13) -> removed from the fault page (Decision 2 only). §19.10 item I ("Go ahead and tell the owner") -> becomes Decision 1 "Send <name> to inspect" (owner told, with the fee). The owner's fault decision buttons read "Send someone to look and quote" / "Decline" (§15 F3). The owner's own work request (§19.14) is the owner's own instruction: it is recorded as a Decision 1 authorisation with basis `owner_link`. Everything else in §19.12-19.14 stands.
+
+### 22.10 Multi-agency
+No HFC wording or ids. All wording is neutral; limits and permissions are per property (owner settings, cc4) and per agency; the resolver is the single read point; the records are `BelongsToAgency`.
+
+### 22.11 Tests
+`tests/Feature/RentalFaultFlow/AuthorityFlowTest.php` (records, bases, the call-out rule incl. unknown fee, the resolver default, the block on a work order without authority, replace-until-WO, the owner's sentence + email, scoping, tenant ticks, tenant confirmation) and later stages' files named in each stage's commit.
+
+### 22.12 Stage 1 as built (12 Oct 2026)
+- **Tables/columns** (migration `2026_10_27_100000`): `rental_authorisations` (append-only; `superseded_at` / `superseded_by_id`); on the fault `tenant_self_checks` (JSON snapshot), `tenant_confirmed_*`, `proposed_assignment|supplier|crew`.
+- **One writer:** `RentalFaultReport::recordApproval()` (the owner's link, the owner's own work request, an agent capturing the owner's words) calls `RentalAuthorisationService::mirrorApproval()`, so every Decision 1 leaves a record whichever door it came through. The agent's own send-to-inspect is `FaultInspectionService::sendToInspect()`: the record is written INSIDE the work-order transaction (`createFromFaultDecision(..., $authority)`); a fault nobody has authorised cannot get a work order (`workOrderBlockReason()`).
+- **Tenant ticks:** the tenant's "Try this first" steps are tickable; "Still a problem" / "That fixed it" send the snapshot; the agent reads it under "What the tenant says they checked".
+- **Replaced/removed:** cc5's `FirstResponderDispatcher` seam and record-only dispatcher; the fault page's "Approve within agent limit" (button, line, early "Start a work order before the owner decides"); the old "Record decision on the owner's behalf" form (the `approval.store` route stays for the API/legacy). The "go ahead" owner mail (`RentalLandlordInformedMail`) is replaced by `RentalAuthorisationToOwnerMail` (the same sentence the portal shows).
+- **Not in stage 1:** "Stop this" (stage 3) - the owner's notice carries "Query this" only; Decision 2, the emergency limit, the old Emergency approval form on the work order, Who pays.

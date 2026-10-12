@@ -55,7 +55,6 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         // section 21.3 of rentals-faults-work-orders.md - the one seam behind "Send <name> to inspect"; records only until the fault flow replaces it.
-        $this->app->bind(\App\Services\Rentals\FirstResponderDispatcher::class, \App\Services\Rentals\RecordOnlyFirstResponderDispatcher::class);
 
         // ─────────────────────────────────────────────────────────────────────────────
         // AT-261 — EVERY LISTENER WAS FIRING TWICE.

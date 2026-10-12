@@ -80,6 +80,9 @@ class RentalFaultReport extends Model
     /** AT-452 round 2 (F) - what staff read for a fault the tenant closed themselves with the suggested step. */
     public const ARRANGED_NO_APPROVAL_LIMIT = 'no_approval_limit';
     public const ARRANGED_EMERGENCY = 'emergency';
+    /** Section 22 (Decision 1) - the agent sent someone to look and quote on their own authority: no call-out fee / inside the owner's call-out permission. */
+    public const ARRANGED_INSPECT_NO_FEE = 'inspect_no_fee';
+    public const ARRANGED_INSPECT_CALLOUT = 'inspect_callout';
     public const SELF_RESOLVED_LABEL = 'Resolved by tenant - tried the suggested fix';
 
     protected $fillable = [
@@ -99,6 +102,15 @@ class RentalFaultReport extends Model
         'arranged_by_user_id',
         'arranged_basis',
         'arranged_limit_amount',
+        'tenant_self_checks',
+        'tenant_confirmed_via',
+        'tenant_confirmed_at',
+        'tenant_confirmed_note',
+        'tenant_confirmed_by_user_id',
+        'tenant_confirmed_recorded_at',
+        'proposed_assignment',
+        'proposed_supplier_id',
+        'proposed_crew_id',
         'reported_by_type',
         'reported_by_contact_id',
         'reported_by_user_id',
@@ -141,6 +153,9 @@ class RentalFaultReport extends Model
         'arranged_by_agent_at' => 'datetime',
         'owner_commented_at' => 'datetime',
         'arranged_limit_amount' => 'decimal:2',
+        'tenant_self_checks' => 'array',
+        'tenant_confirmed_at' => 'datetime',
+        'tenant_confirmed_recorded_at' => 'datetime',
     ];
 
     /** Deleted-related-record rule (.ai/BUILD_STANDARD.md §4) — see Lease::property(). */
@@ -319,6 +334,10 @@ class RentalFaultReport extends Model
                     RentalFaultReportUpdate::TYPE_PHOTO_NOTE_REMOVED => 'Photo note removed',
                     RentalFaultReportUpdate::TYPE_SENT_WITHOUT_CONTRACTOR => 'Sent to owner without a contractor',
                     RentalFaultReportUpdate::TYPE_FIRST_RESPONDER_CHOSEN => 'First to look at this chosen',
+                    RentalFaultReportUpdate::TYPE_AUTHORISATION_RECORDED => 'Authorisation recorded',
+                    RentalFaultReportUpdate::TYPE_AUTHORISATION_SUPERSEDED => 'Authorisation replaced',
+                    RentalFaultReportUpdate::TYPE_SENT_TO_OWNER_TO_AUTHORISE => 'Sent to the owner to authorise',
+                    RentalFaultReportUpdate::TYPE_TENANT_CONFIRMED => 'Confirmed with the tenant',
                     default => ucfirst(str_replace('_', ' ', $update->update_type)),
                 },
                 'from' => $update->from_status ? ucfirst(str_replace('_', ' ', $update->from_status)) : null,
@@ -674,17 +693,57 @@ class RentalFaultReport extends Model
         return $this->arranged_by_agent_at !== null && $this->decision() === null;
     }
 
-    /** The one sentence the owner reads about how this repair came to be arranged (item I). */
+    /** The one sentence the owner reads about how this repair came to be arranged (item I; section 22: from the authorisation record). */
     public function arrangedText(): ?string
     {
         if (! $this->isArrangedByAgent()) {
             return null;
+        }
+        $row = $this->authorisations()->where('point', RentalAuthorisation::POINT_INSPECT)->whereNull('superseded_at')->orderByDesc('id')->first();
+        if ($row) {
+            return app(\App\Services\Rentals\RentalAuthorisationService::class)->sentenceFor($row);
         }
         if ($this->arranged_basis === self::ARRANGED_EMERGENCY) {
             return 'Your agent arranged this repair as an emergency.';
         }
 
         return 'Your agent arranged this repair under your R' . number_format((float) $this->arranged_limit_amount, 2, '.', ' ') . ' no-approval limit.';
+    }
+
+    /** Section 22.3 - what the tenant ticked when they reported: [['text' => ..., 'ticked' => bool], ...]; empty when they were shown none. */
+    public function tenantSelfChecks(): array
+    {
+        return array_values(array_filter((array) $this->tenant_self_checks, fn ($c) => is_array($c) && trim((string) ($c['text'] ?? '')) !== ''));
+    }
+
+    /** Section 22.3 - "Confirmed with the tenant": how, when, the note and who recorded it - or null when the agent has not confirmed anything. */
+    public function tenantConfirmation(): ?array
+    {
+        if (! $this->tenant_confirmed_via) {
+            return null;
+        }
+
+        return [
+            'via' => $this->tenant_confirmed_via,
+            'via_label' => self::confirmedViaLabel($this->tenant_confirmed_via),
+            'at' => $this->tenant_confirmed_at,
+            'note' => $this->tenant_confirmed_note,
+            'by' => $this->tenant_confirmed_by_user_id ? User::withoutGlobalScopes()->find($this->tenant_confirmed_by_user_id)?->name : null,
+            'recorded_at' => $this->tenant_confirmed_recorded_at,
+        ];
+    }
+
+    public const CONFIRMED_VIAS = ['phone_call', 'whatsapp', 'email', 'in_person'];
+
+    public static function confirmedViaLabel(string $via): string
+    {
+        return match ($via) {
+            'phone_call' => 'phone call',
+            'whatsapp' => 'WhatsApp',
+            'email' => 'email',
+            'in_person' => 'in person',
+            default => $via,
+        };
     }
 
     /** The earlier report this one follows (the tenant-resolved one a "Report it again" / "Have this repaired anyway" came from). */
@@ -864,6 +923,10 @@ class RentalFaultReport extends Model
                 'recorded_by_user_id' => $recordedBy instanceof User ? $recordedBy->id : null,
                 'recorded_by_contact_id' => $recordedBy instanceof \App\Models\Contact ? $recordedBy->id : null,
             ]);
+
+            // Section 22: every Decision 1 - the owner on their link, the owner's own request, an agent capturing what the owner told them - leaves an
+            // authorisation record (who, on what basis, at what stage, when). Written here, with the decision, so no door can skip it.
+            app(\App\Services\Rentals\RentalAuthorisationService::class)->mirrorApproval($this, $approval, $recordedBy, isset($attributes['owner_contact_id']) ? (int) $attributes['owner_contact_id'] : null);
 
             $newStatus = match (true) {
                 $decision === self::APPROVAL_DECLINED => self::STATUS_DECLINED,
@@ -1085,7 +1148,7 @@ class RentalFaultReport extends Model
      * contractor or the internal crew - every approved fault gets a work order). Refused: declined (the owner said no),
      * work_order_raised, resolved, cancelled.
      */
-    public function workOrderBlockReason(): ?string
+    public function workOrderBlockReason(bool $authorityGivenNow = false): ?string
     {
         if ($this->hasLiveWorkOrder()) {
             return 'A work order has already been created for this fault report.';
@@ -1095,13 +1158,34 @@ class RentalFaultReport extends Model
             self::STATUS_DECLINED => 'The owner declined this repair, so a work order cannot be created from it.',
             self::STATUS_RESOLVED => 'This fault report is already resolved.',
             self::STATUS_CANCELLED => 'This fault report was cancelled.',
+            // Section 22: nothing is automatic - before the owner has decided, someone may only be sent once a Decision 1 authorisation exists
+            // (the agent's own, because the visit costs the owner nothing, or the owner's). `$authorityGivenNow` is the one caller that writes that
+            // record in the same step as the work order.
+            self::STATUS_REPORTED, self::STATUS_UNDER_REVIEW, self::STATUS_AWAITING_APPROVAL => ($authorityGivenNow || $this->hasInspectionAuthority())
+                ? null
+                : 'No one has been authorised to look at this yet. Send a contractor to inspect (when the visit costs the owner nothing), or have the owner authorise it.',
             // W1/W5 (8 Oct 2026): every approved fault gets a work order - whoever does the work, including the owner's own contractor.
-            // AT-452 round 2 (item I): `under_review` is where the owner version has been prepared - exactly when "Go ahead and tell the owner" is offered.
-            self::STATUS_APPROVED, self::STATUS_OWNER_HANDLING, self::STATUS_REPORTED, self::STATUS_UNDER_REVIEW, self::STATUS_AWAITING_APPROVAL => null,
+            self::STATUS_APPROVED, self::STATUS_OWNER_HANDLING => null,
             // Its work order was cancelled (and nothing live replaced it): the repair still has to happen, so a new one may be created.
             self::STATUS_WORK_ORDER_RAISED => null,
             default => 'A work order cannot be created from this fault report in its current state.',
         };
+    }
+
+    /** Section 22 - Decision 1: is there a standing authorisation to send someone to look at this (the owner's, or the agent's own where the visit costs nothing)? */
+    public function hasInspectionAuthority(): bool
+    {
+        if ($this->owner_approval_status === self::APPROVAL_APPROVED) {
+            return true;
+        }
+        $row = $this->authorisations()->where('point', RentalAuthorisation::POINT_INSPECT)->whereNull('superseded_at')->orderByDesc('id')->first();
+
+        return $row !== null && $row->isAuthorised();
+    }
+
+    public function authorisations(): HasMany
+    {
+        return $this->hasMany(RentalAuthorisation::class, 'rental_fault_report_id')->withoutGlobalScopes()->orderBy('id');
     }
 
     /** A work order that is still in play for this fault - a CANCELLED one does not count (the fault must not be stuck behind it). */

@@ -4219,9 +4219,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{rentalFaultReport}/pdf', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'pdf'])->name('corex.rental-fault-reports.pdf');
         Route::put('/{rentalFaultReport}', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'update'])
             ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.update');
-        // section 21.3 - the two buttons of the "First to look at this" block (nothing is sent by this alone; see FirstResponderDispatcher).
-        Route::post('/{rentalFaultReport}/first-responder', \App\Http\Controllers\CoreX\RentalFaultFirstResponderController::class)
-            ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.first-responder');
+        // Section 22 (Decision 1): the two buttons once someone is picked to look, the owner's decision taken by the agent, and the tenant confirmation.
+        Route::post('/{rentalFaultReport}/send-to-inspect', [\App\Http\Controllers\CoreX\RentalFaultAuthorityController::class, 'inspect'])
+            ->middleware('permission:rental_fault_reports.raise_work_order')->name('corex.rental-fault-reports.send-to-inspect');
+        Route::post('/{rentalFaultReport}/send-to-owner-to-authorise', [\App\Http\Controllers\CoreX\RentalFaultAuthorityController::class, 'sendToOwner'])
+            ->middleware('permission:rental_fault_reports.send_to_owner')->name('corex.rental-fault-reports.send-to-owner-to-authorise');
+        Route::post('/{rentalFaultReport}/owner-decision', [\App\Http\Controllers\CoreX\RentalFaultAuthorityController::class, 'recordOwnerDecision'])
+            ->middleware('permission:rental_fault_reports.record_approval')->name('corex.rental-fault-reports.owner-decision.store');
+        Route::post('/{rentalFaultReport}/tenant-confirmation', [\App\Http\Controllers\CoreX\RentalFaultAuthorityController::class, 'confirmWithTenant'])
+            ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.tenant-confirmation');
         Route::post('/{rentalFaultReport}/repair-anyway', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'repairAnyway'])
             ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.repair-anyway');
         Route::post('/{rentalFaultReport}/cancel', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'cancel'])

@@ -313,46 +313,54 @@ final class FirstResponderTest extends TestCase
         $this->assertStringContainsString(e("Owner's handyman (Owner's own maintenance team)"), $html); // "Then: ..."
         // the two buttons are the same size: the same utility classes on both
         $this->assertSame(2, preg_match_all('/class="corex-btn-(?:primary|outline) text-xs w-full"[^>]*data-(?:send-to-inspect|send-to-owner-to-authorise)/', $html));
-        $this->assertStringContainsString('first-look-form', $html);
+        $this->assertStringContainsString('decision-one-form', $html, 'section 22: the buttons act through Decision 1 (cc5\'s seam is replaced)');
     }
 
-    public function test_the_block_is_absent_without_a_first_responder_and_once_a_work_order_or_the_owner_stage_is_reached(): void
+    public function test_decision_one_is_there_without_a_first_responder_and_goes_once_a_work_order_exists(): void
     {
         $fault = $this->fault();
-        $this->assertStringNotContainsString('data-first-look-block', $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $fault))->getContent());
+        $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $fault))->getContent();
+        $this->assertStringNotContainsString('data-first-look-block', $html, 'the "First to look at this" line needs a first responder');
+        $this->assertStringContainsString('data-decision-one', $html, 'but the agent can always pick who goes to look');
 
         $this->svc()->save($this->property, [$this->row($this->caretaker)], $this->agent);
         $this->assertStringContainsString('data-first-look-block', $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $fault))->getContent());
 
-        $fault->forceFill(['status' => RentalFaultReport::STATUS_AWAITING_APPROVAL, 'owner_approval_status' => RentalFaultReport::APPROVAL_PENDING])->save();
-        $this->assertStringNotContainsString('data-first-look-block', $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $fault))->getContent());
+        // sent to the owner and waiting: Decision 1 stays (record their answer; send someone at no cost to them)
+        $fault->forceFill(['status' => RentalFaultReport::STATUS_AWAITING_APPROVAL, 'owner_approval_status' => RentalFaultReport::APPROVAL_PENDING, 'sent_to_owner_at' => now()])->save();
+        $this->assertStringContainsString('data-decision-one', $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $fault))->getContent());
+
+        // approved by the owner: the appoint step takes over
+        $fault->forceFill(['status' => RentalFaultReport::STATUS_APPROVED, 'owner_approval_status' => RentalFaultReport::APPROVAL_APPROVED, 'approval_route' => 'agency_appoints'])->save();
+        $this->assertStringNotContainsString('data-decision-one', $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $fault))->getContent());
     }
 
-    public function test_pressing_either_button_only_records_the_choice_and_sends_nothing(): void
+    public function test_the_buttons_act_through_decision_one_and_the_old_seam_is_gone(): void
     {
         $this->svc()->save($this->property, [$this->row($this->caretaker)], $this->agent);
         $fault = $this->fault();
-        $before = $fault->fresh()->only(['status', 'owner_approval_status', 'approval_route', 'sent_to_owner_at']);
+        $this->assertFalse(\Illuminate\Support\Facades\Route::has('corex.rental-fault-reports.first-responder'), 'the record-only seam is gone');
+        $this->assertFalse(interface_exists(\App\Services\Rentals\FirstResponderDispatcher::class));
 
-        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.first-responder', $fault), ['supplier_id' => $this->caretaker->id, 'choice' => 'inspect'])->assertRedirect();
-        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.first-responder', $fault), ['supplier_id' => $this->caretaker->id, 'choice' => 'owner_authorise'])->assertRedirect();
-
-        $notes = RentalFaultReportUpdate::withoutGlobalScopes()->where('rental_fault_report_id', $fault->id)->where('update_type', RentalFaultReportUpdate::TYPE_FIRST_RESPONDER_CHOSEN)->orderBy('id')->pluck('note')->all();
-        $this->assertCount(2, $notes);
-        $this->assertStringContainsString('chose to send Pieter the caretaker (Caretaker / complex manager) to inspect - not sent yet', $notes[0]);
-        $this->assertStringContainsString('chose to send this to the owner to authorise', $notes[1]);
-        $this->assertSame($before, $fault->fresh()->only(['status', 'owner_approval_status', 'approval_route', 'sent_to_owner_at']));
-        Mail::assertNothingSent();
+        // the caretaker's call-out fee is not known: it is treated as a fee, so "Send to inspect" is refused and nothing goes out
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.send-to-inspect', $fault), ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $this->caretaker->id])
+            ->assertSessionHasErrors('rental_fault_report');
+        $this->assertNull($fault->fresh()->rental_work_order_id);
         Mail::assertNothingQueued();
+
+        // "Send to owner to authorise" sends the fault to the owner with the caretaker proposed
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.send-to-owner-to-authorise', $fault), ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $this->caretaker->id])->assertRedirect();
+        $f = $fault->fresh();
+        $this->assertSame(RentalFaultReport::STATUS_AWAITING_APPROVAL, $f->status);
+        $this->assertSame($this->caretaker->id, $f->proposed_supplier_id);
     }
 
-    public function test_a_supplier_who_is_not_the_first_responder_cannot_be_chosen_by_typing_an_id(): void
+    public function test_an_unknown_supplier_or_a_made_up_choice_is_refused(): void
     {
-        $this->svc()->save($this->property, [$this->row($this->caretaker)], $this->agent);
         $fault = $this->fault();
-        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.first-responder', $fault), ['supplier_id' => $this->plumber->id, 'choice' => 'inspect'])->assertStatus(422);
-        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.first-responder', $fault), ['supplier_id' => $this->caretaker->id, 'choice' => 'delete-everything'])->assertSessionHasErrors('choice');
-        $this->assertSame(0, RentalFaultReportUpdate::withoutGlobalScopes()->where('update_type', RentalFaultReportUpdate::TYPE_FIRST_RESPONDER_CHOSEN)->count());
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.send-to-inspect', $fault), ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => 999999])->assertSessionHasErrors('rental_fault_report');
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.send-to-inspect', $fault), ['assignment_type' => 'delete-everything'])->assertSessionHasErrors('assignment_type');
+        $this->assertNull($fault->fresh()->rental_work_order_id);
     }
 
     public function test_the_contractor_picker_lists_the_first_responders_on_top_under_set_for_this_property(): void

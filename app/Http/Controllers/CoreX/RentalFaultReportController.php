@@ -452,6 +452,14 @@ class RentalFaultReportController extends Controller
             'firstResponders' => $rentalFaultReport->property ? $rentalFaultReport->property->firstRespondersFor($rentalFaultReport->rental_fault_type_id) : collect(),
             // the agency's active crews, for the optional "which crew" pick on the internal-crew route
             'crewPicker' => \App\Models\RentalCrew::query()->active()->with('members')->orderBy('name')->get(),
+            // section 22 - Decision 1: for each choosable contractor, may the agent send them on their own authority (call-out rule), and the authorisation records so far
+            'inspectNotices' => app(\App\Services\Rentals\FaultInspectionService::class)->noticeMapFor(
+                $rentalFaultReport, app(\App\Services\Rentals\RentalFaultContractorService::class)->pickerFor($rentalFaultReport)
+            ),
+            'inspectBlock' => app(\App\Services\Rentals\FaultInspectionService::class)->blockReason($rentalFaultReport),
+            'authorisations' => app(\App\Services\Rentals\RentalAuthorisationService::class)->rowsFor($rentalFaultReport),
+            'authorityOwners' => app(\App\Services\Rentals\RentalAuthorisationService::class)->ownersFor($rentalFaultReport),
+            'recordBlock' => app(\App\Services\Rentals\RentalAuthorisationService::class)->recordBlockReason($rentalFaultReport),
         ]);
     }
 
@@ -705,20 +713,10 @@ class RentalFaultReportController extends Controller
             'contractor_phone' => ['nullable', 'string', 'max:40'],
             // the internal crew to put on the job card (optional; checked against the agency's active crews by the service)
             'rental_crew_id' => ['nullable', 'integer'],
-            'emergency' => ['nullable', 'boolean'],
         ]);
         // A chosen contractor with no explicit "who" means the agency's contractor; nothing at all keeps the old default (internal crew).
         $validated['assignment_type'] = $validated['assignment_type']
             ?? (! empty($validated['agency_service_provider_id']) ? \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER : \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL);
-
-        // AT-452 round 2 (item I) - "Go ahead and tell the owner": the agent starts BEFORE the owner has been sent the fault (an emergency, or a small job
-        // inside the no-approval limit). The owner is informed, not asked - so the owner version must have been prepared (what they will read), and the
-        // moment the work order exists the fault is arranged-by-agent and the owner is told.
-        $goAhead = in_array($rentalFaultReport->status, [RentalFaultReport::STATUS_REPORTED, RentalFaultReport::STATUS_UNDER_REVIEW], true) && $rentalFaultReport->decision() === null
-            && ($validated['assignment_type'] ?? null) !== \App\Models\RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR;
-        if ($goAhead && $rentalFaultReport->owner_version_saved_at === null) {
-            return back()->withErrors(['rental_fault_report' => 'Prepare the owner version first (check the wording and photos the owner will see) - the owner is told straight away when you approve within your limit.']);
-        }
 
         try {
             $made = $service->createFromFaultDecision($rentalFaultReport, $request->user(), $validated);
@@ -735,17 +733,11 @@ class RentalFaultReportController extends Controller
             return back()->withErrors(['rental_fault_report' => $e->getMessage()])->withInput();
         }
 
-        $told = '';
-        if ($goAhead) {
-            app(RentalFaultReportService::class)->arrangeByAgent($rentalFaultReport->fresh(), $request->user(), (bool) ($validated['emergency'] ?? false));
-            $told = ' The owner has been told.';
-        }
-
         if ($made['job_card']) {
-            return redirect()->route('corex.rental-job-cards.show', $made['job_card'])->with('success', 'Work order created - job card ready for the crew.' . $told);
+            return redirect()->route('corex.rental-job-cards.show', $made['job_card'])->with('success', 'Work order created - job card ready for the crew.');
         }
 
-        return redirect()->route('corex.rental-work-orders.show', $made['work_order'])->with('success', 'Work order created.' . $told);
+        return redirect()->route('corex.rental-work-orders.show', $made['work_order'])->with('success', 'Work order created.');
     }
 
     /** AT-452 round 2 (F-OWNER) - "Have this repaired anyway": a linked new report through the existing flow; the resolved one stays resolved. */

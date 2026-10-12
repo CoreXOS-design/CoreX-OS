@@ -79,7 +79,11 @@ class RentalFaultProgressService
         if ($declined) {
             $push('owner_decided', 'not_approved', $decidedAt);
         } elseif ($arranged) {
-            $push('owner_decided', $fault->arranged_basis === RentalFaultReport::ARRANGED_EMERGENCY ? 'arranged_emergency' : 'arranged_limit', $fault->arranged_by_agent_at);
+            $push('owner_decided', match ($fault->arranged_basis) {
+                RentalFaultReport::ARRANGED_EMERGENCY => 'arranged_emergency',
+                RentalFaultReport::ARRANGED_INSPECT_NO_FEE, RentalFaultReport::ARRANGED_INSPECT_CALLOUT => 'arranged_inspect',   // section 22: someone sent to look and quote
+                default => 'arranged_limit',
+            }, $fault->arranged_by_agent_at);
         } else {
             $push('owner_decided', 'owner_approved', $decidedAt);
         }

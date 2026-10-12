@@ -249,7 +249,7 @@ final class OwnerCommentTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('#name="owner_agent_note"[^>]*>[^<]*Do it before the weekend#', $html);
     }
 
-    public function test_the_agent_page_has_three_equal_buttons_in_one_row_and_one_short_line(): void
+    public function test_the_owner_version_row_is_two_equal_buttons_and_approve_within_limit_is_gone(): void
     {
         $f = app(RentalFaultReportService::class)->report($this->property, ['lease_id' => $this->lease->id, 'reported_by_type' => 'tenant', 'reported_channel' => 'app', 'rental_fault_type_id' => $this->type->id, 'title' => 'Tap', 'description' => 'drip']);
         $f->saveOwnerVersion(['owner_title' => 'Tap dripping', 'owner_description' => 'A tap drips.', 'owner_agent_note' => 'x'], $this->ownerAgent);
@@ -257,35 +257,22 @@ final class OwnerCommentTest extends TestCase
 
         $this->assertStringContainsString('cx-equal-btns', $html);
         $row = substr($html, strpos($html, 'data-owner-version-actions'));
-        $row = substr($row, 0, strpos($row, 'data-agent-limit-line') + 400);
+        $row = substr($row, 0, strpos($row, '</form>'));
         $this->assertStringContainsString('Save draft', $row);
         $this->assertStringContainsString('Save and send to owner', $row);
-        $this->assertStringContainsString('Approve within agent limit', $row);
-        $this->assertStringContainsString('data-go-ahead-toggle', $row);
-        $this->assertStringContainsString("For a repair inside this property's agent limit (R1,000.00). The owner is told, not asked.", $html);
+        // section 22: approval against a limit exists only at Decision 2 (the cost) - never on the fault page
+        $this->assertStringNotContainsString('Approve within agent limit', $html);
+        $this->assertStringNotContainsString('data-go-ahead-toggle', $html);
+        $this->assertStringNotContainsString('data-agent-limit-line', $html);
         $this->assertStringNotContainsString('Go ahead now and tell the owner', $html);
-        $this->assertStringNotContainsString('only for an emergency, or a small job inside', $html, 'the long paragraph is gone');
-        $this->assertStringContainsString('aria-label="Approve within agent limit"', $html, 'the confirm step is titled Approve within agent limit');
     }
 
-    public function test_the_button_waits_for_the_owner_version_to_be_saved(): void
+    public function test_sending_someone_waits_for_the_owner_version_to_be_saved(): void
     {
         $f = app(RentalFaultReportService::class)->report($this->property, ['lease_id' => $this->lease->id, 'reported_by_type' => 'tenant', 'reported_channel' => 'app', 'rental_fault_type_id' => $this->type->id, 'title' => 'Tap', 'description' => 'drip']);
         $html = $this->actingAs($this->ownerAgent)->get(route('corex.rental-fault-reports.show', $f))->assertOk()->getContent();
-        $this->assertMatchesRegularExpression('#data-go-ahead-toggle[^>]*disabled#', $html);
-        $this->assertStringContainsString('data-go-ahead-needs-version', $html);
-    }
-
-    public function test_approving_within_the_limit_uses_the_new_name_in_the_history(): void
-    {
-        $f = app(RentalFaultReportService::class)->report($this->property, ['lease_id' => $this->lease->id, 'reported_by_type' => 'tenant', 'reported_channel' => 'app', 'rental_fault_type_id' => $this->type->id, 'title' => 'Tap', 'description' => 'drip']);
-        $f->saveOwnerVersion(['owner_title' => 'Tap dripping', 'owner_description' => 'A tap drips.', 'owner_agent_note' => 'x'], $this->ownerAgent);
-        $crew = \App\Models\RentalCrew::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'name' => 'Team', 'is_active' => true]);
-        $this->actingAs($this->ownerAgent)->post(route('corex.rental-fault-reports.raise-work-order', $f), ['assignment_type' => 'internal', 'rental_crew_id' => $crew->id])->assertRedirect();
-        $note = $f->fresh()->updates()->where('update_type', 'arranged_by_agent')->value('note');
-        $this->assertStringContainsString('The agent approved this within their limit (R1 000.00) and the owner was told, not asked.', $note);
-        $html = $this->actingAs($this->ownerAgent)->get(route('corex.rental-fault-reports.show', $f->fresh()))->getContent();
-        $this->assertStringContainsString('Approved within agent limit - owner told', $html);
+        $this->assertStringContainsString('data-inspect-block-line', $html);
+        $this->assertStringContainsString('Save the owner version first - it is what the owner will read.', $html);
     }
 
     // ───────────────────────── the owner portal screens ─────────────────────────

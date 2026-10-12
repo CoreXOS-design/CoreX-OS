@@ -1,5 +1,5 @@
-{{-- The "Create work order" form of a fault (Johan, 8 Oct 2026: the agent only chooses WHO does the work). Included twice, never together:
-     as the PRIMARY step once the owner has approved (appoint contractor), and as the confirmed SECONDARY step before the owner has decided.
+{{-- The "Create work order" form of a fault (Johan, 8 Oct 2026: the agent only chooses WHO does the work). Section 22: it is the step AFTER the owner has authorised
+     (appoint the contractor). Before that, someone is sent only through Decision 1 ("Send <name> to inspect") in the fault page's own block.
      Expects the fault screen's variables: $faultReport, $latestDecision, $prefillSupplier, $prefillOwner, $decisionSummary, $contractorPicker. --}}
 @php
     $ownersOwnContractor = $prefillOwner !== null || ($latestDecision && $latestDecision->decision === \App\Models\RentalApproval::DECISION_APPROVED && $faultReport->approval_route === \App\Models\RentalFaultReport::ROUTE_OWNER_HANDLES);
@@ -7,7 +7,7 @@
     $defaultWho = $agencyAppoints ? \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER : \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL;
 @endphp
 <form id="raise-work-order-form" data-raise-work-order method="POST" action="{{ route('corex.rental-fault-reports.raise-work-order', $faultReport) }}"
-      class="{{ ($secondary ?? false) ? 'hidden' : '' }} space-y-3 pt-2"
+      class="space-y-3 pt-2"
       x-data="{ q: '', who: '{{ $defaultWho }}', picked: '{{ $prefillSupplier?->id }}', busy: false, crewQ: '', crew: '{{ ($crewPicker ?? collect())->count() === 1 ? $crewPicker->first()->id : '' }}' }" x-on:submit="busy = true">
     @csrf
     <p class="text-xs" style="color: var(--text-muted);">The work order is made from this fault - the title, description and photos the owner saw, the property and the tenant. You only choose who does the work.</p>
@@ -26,9 +26,6 @@
         <input type="hidden" name="rental_crew_id" x-bind:value="who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL }}' ? crew : ''">
         <div class="space-y-2">
             <label class="flex items-center gap-2 text-sm"><input type="radio" value="{{ \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL }}" x-model="who" data-who-internal> Our own maintenance crew <span class="text-xs" style="color: var(--text-muted);">(also makes the job card)</span></label>
-            @if(! $decisionSummary)
-                <label class="flex items-center gap-2 text-sm"><input type="radio" value="{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR }}" x-model="who"> The owner's own contractor <span class="text-xs" style="color: var(--text-muted);">(no owner decision recorded yet)</span></label>
-            @endif
             <label class="flex items-center gap-2 text-sm"><input type="radio" value="{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER }}" x-model="who" data-who-contractor> One of the agency's contractors</label>
         </div>
 
@@ -54,44 +51,8 @@
             @endif
         </div>
 
-        <div x-show="who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER }}'" x-cloak class="space-y-2" data-contractor-picker data-refresh-on-contractor-change="fault-picker-{{ ($secondary ?? false) ? 'secondary' : 'primary' }}">
-            <input type="search" x-model="q" placeholder="Search contractors by name, trade or phone" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
-            {{-- AT-452 round 2 (C) - ONE rule (RentalFaultContractorService::classify): the contractors that suit this type of work first, the rest below
-                 (still selectable - an agency may use a general handyman); when none suit, say so and offer the two add paths. --}}
-            @php($cls = $contractorClassify ?? null)
-            @if($cls && $cls['category'] && $cls['suits']->isEmpty())
-                @php($typeName = $cls['type'] ?: $cls['category'])
-                <div class="text-xs" data-no-contractor-suits>
-                    <p class="font-semibold">No contractor loaded for {{ $typeName }}.@if($cls['mapping_gap']) <span class="font-normal">Your trade list has no &ldquo;{{ $cls['category'] }}&rdquo; yet &mdash; add it under Settings &rarr; COC / Service Types, then tick it on the contractor who does this work.</span>@endif</p>
-                    @if(!empty($canManageContractors))
-                        <button type="button" class="underline" data-contractor-popup="add" data-fault-id="{{ $faultReport->id }}" data-type="{{ $typeName }}" data-trade-code="{{ $tradeCode ?? '' }}">Add a contractor</button> &middot;
-                        <button type="button" class="underline" data-contractor-popup="types" data-fault-id="{{ $faultReport->id }}" data-type="{{ $typeName }}">Add {{ $typeName }} to an existing contractor</button>
-                    @endif
-                </div>
-            @endif
-            @forelse(collect($contractorPicker)->groupBy(fn ($c) => ($c['first_responder'] ?? false) ? 'set' : ($cls && $cls['category'] ? ($c['suits'] ? 'suits' : 'others') : 'all')) as $groupKey => $groupRows)
-                @if($groupKey === 'set')
-                    {{-- section 21.3 - the people set up to look at this fault first, in their order --}}
-                    <div class="text-xs font-semibold pt-1" data-contractor-group="set">Set for this property</div>
-                @elseif($cls && $cls['category'])
-                    <div class="text-xs font-semibold pt-1" data-contractor-group="{{ $groupKey }}">{{ $groupKey === 'suits' ? 'Suits ' . ($cls['type'] ?: $cls['category']) : 'Other contractors' }}</div>
-                @endif
-                @foreach($groupRows as $c)
-                    <label class="flex flex-wrap items-center gap-2 text-sm rounded-md px-2 py-1" style="border: 1px solid var(--border);" data-contractor-row="{{ $c['id'] }}"
-                           data-search="{{ mb_strtolower($c['name'] . ' ' . $c['trades'] . ' ' . $c['phone']) }}"
-                           x-show="q === '' || $el.dataset.search.indexOf(q.toLowerCase()) !== -1">
-                        <input type="radio" name="contractor_pick" value="{{ $c['id'] }}" x-model="picked">
-                        <span class="font-medium">{{ $c['name'] }}</span>
-                        @if(($c['kind'] ?? 'contractor') !== 'contractor')<span class="ds-badge ds-badge-muted" data-contractor-kind="{{ $c['kind'] }}">{{ $c['kind_label'] }}</span>@endif
-                        @if($c['trades'])<span class="text-xs" style="color: var(--text-muted);">{{ $c['trades'] }}</span>@endif
-                        @if($c['phone'])<span class="text-xs" style="color: var(--text-muted);">{{ $c['phone'] }}</span>@endif
-                        @if(! ($c['has_contact'] ?? true))<span class="ds-badge ds-badge-danger" data-no-contact-details>no contact details</span>@endif
-                        @if(isset($c['callout']))<span class="text-xs" style="color: var(--text-muted);" data-callout-suffix="{{ $c['callout_status'] }}">- {{ $c['callout'] }}</span>@endif
-                    </label>
-                @endforeach
-            @empty
-                <p class="text-xs" style="color: var(--text-muted);">No contractors are set up yet. Add one under Suppliers, or use the internal crew.</p>
-            @endforelse
+        <div x-show="who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER }}'" x-cloak class="space-y-2" data-contractor-picker data-refresh-on-contractor-change="fault-picker-primary">
+            @include('corex.rental-fault-reports._contractor-rows')
             {{-- §20 - shown the moment a contractor is chosen, before the agent confirms. No blocking. --}}
             @include('partials.contractor-inspect-choice', ['notices' => collect($contractorPicker)->mapWithKeys(fn ($c) => [(string) $c['id'] => ['name' => $c['name'], 'text' => $c['callout_notice'], 'status' => $c['callout_status']]])->all(), 'model' => 'picked'])
         </div>
@@ -108,25 +69,10 @@
         </div>
     @endif
 
-    @if(($secondary ?? false) && ($goAhead ?? false))
-        {{-- AT-452 round 2 (item I): before the owner has been sent the fault - the agent approves within their limit and the owner is TOLD, in one step --}}
-        <label class="flex items-center gap-2 text-sm" data-emergency-row><input type="checkbox" name="emergency" value="1"> This is an emergency</label>
-        <x-confirm-submit title="Approve within agent limit"
-            message="Approve this repair within your agent limit (R{{ number_format($noApprovalLimit, 2) }}) without waiting for the owner? The owner is told straight away what you arranged - told, not asked. Anything above the limit still needs the owner's approval before work starts."
-            confirm-label="Approve within agent limit" data-raise-submit data-go-ahead-submit
-            x-bind:disabled="!!(who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER }}' && !picked)">Approve within agent limit</x-confirm-submit>
-    @elseif($secondary ?? false)
-        {{-- before the owner has decided: a deliberate, confirmed step --}}
-        <x-confirm-submit title="Create a work order before the owner has decided?"
-            message="Only do this for an emergency, or for a small job inside this property's no-approval spend limit (R{{ number_format($noApprovalLimit, 2) }}). Anything above the limit still needs the owner's approval before work starts, and emergency work needs the owner's agreement recorded on the work order."
-            confirm-label="Create work order" data-raise-submit
-            x-bind:disabled="!!(who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER }}' && !picked)">Create work order</x-confirm-submit>
-    @else
-        <button type="submit" class="corex-btn-primary text-xs" data-raise-submit
-                x-bind:disabled="!!(busy || (who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER }}' && !picked))"
-                x-text="busy ? 'Creating...' : '{{ $ownersOwnContractor ? 'Confirm and create work order' : 'Create work order' }}'">{{ $ownersOwnContractor ? 'Confirm and create work order' : 'Create work order' }}</button>
-    @endif
+    <button type="submit" class="corex-btn-primary text-xs" data-raise-submit
+            x-bind:disabled="!!(busy || (who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER }}' && !picked))"
+            x-text="busy ? 'Creating...' : '{{ $ownersOwnContractor ? 'Confirm and create work order' : 'Create work order' }}'">{{ $ownersOwnContractor ? 'Confirm and create work order' : 'Create work order' }}</button>
 </form>
-@if(! ($secondary ?? false) && request()->boolean('create_work_order'))
+@if(request()->boolean('create_work_order'))
     <script>document.addEventListener('DOMContentLoaded', function () { var f = document.getElementById('raise-work-order-form'); if (f && f.scrollIntoView) { f.scrollIntoView({ block: 'center' }); } });</script>
 @endif

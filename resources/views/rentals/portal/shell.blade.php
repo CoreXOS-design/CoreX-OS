@@ -1203,7 +1203,7 @@ function rentalsPortal() {
             q.busy = true; q.error = null; q.sent = false;
             const r = await portalFetch('/api/v1/client/rentals/landlord/fault-reports/' + f.id + '/query', { method: 'POST', body: JSON.stringify({ note: q.note }), key: 'query-' + f.id + '-' + q.note.length + '-' + Date.now() });
             q.busy = false;
-            if (r.ok) { f.arranged = r.data.arranged; q.note = ''; q.sent = true; } else { q.error = r.data?.message || (r.data?.errors ? Object.values(r.data.errors)[0][0] : 'Could not send. Please try again.'); }
+            if (r.ok) { f.arranged = r.data.arranged; if (r.data.authorisation !== undefined) f.authorisation = r.data.authorisation; q.note = ''; q.sent = true; } else { q.error = r.data?.message || (r.data?.errors ? Object.values(r.data.errors)[0][0] : 'Could not send. Please try again.'); }
         },
         // AT-452 round 2 (F-OWNER) - "Have this repaired anyway": the owner's existing Request-work flow, pre-filled from the resolved report and linked to it.
         // AT-452 (§19.12) - "Have this repaired anyway": shows the tenant's report READ-ONLY, then the owner's own comment box; "Ask my agent to have this repaired"
@@ -1242,6 +1242,7 @@ function rentalsPortal() {
             const t = types.find(t => String(t.id) === String(w.faultTypeId));
             w.ftype = t || null;
             w.error = null;
+            w.checks = {};   // the ticks belong to THIS type's steps
             if (!t) { w.step = 'pick'; return; }
             const hasAid = !!(String(t.first_aid_steps || '').trim() || (t.photos || []).length || (t.documents || []).length);
             w.step = hasAid ? 'aid' : 'form';
@@ -1262,6 +1263,9 @@ function rentalsPortal() {
             form.append('title', w.title || 'Fault reported');
             form.append('description', w.description || '');
             form.append('submission_key', w.key);
+            // section 22.3 - what the tenant ticked: every step they were shown, ticked or not (the agent reads it as "what the tenant says they checked")
+            const shown = (w.ftype && Array.isArray(w.ftype.steps)) ? w.ftype.steps : [];
+            if (shown.length) form.append('self_checks', JSON.stringify(shown.map((text, i) => ({ text: String(text), ticked: !!(w.checks && w.checks[i]) }))));
             if (w.followsFaultId) form.append('follows_fault_report_id', w.followsFaultId);
             if (resolution === 'still_a_problem') w.photos.forEach(p => form.append('photos[]', p.file, p.file.name));
             w.sending = true;
@@ -1398,7 +1402,7 @@ function rentalsPortal() {
             if (r.ok) this.landlordFaults = r.data.fault_reports;
         },
         blankLandlordWizard(propertyId) {
-            return { open: !!propertyId, step: 'form', property: propertyId || null, faultTypeId: '', ftype: null, showAid: false, lastTypeName: '', title: '', comment: '', description: '', photos: [], photoError: null, photoBusy: false, photoPending: 0, sending: false, progress: 0, error: null, key: this.uuid() };
+            return { open: !!propertyId, step: 'form', property: propertyId || null, faultTypeId: '', ftype: null, showAid: false, lastTypeName: '', checks: {}, title: '', comment: '', description: '', photos: [], photoError: null, photoBusy: false, photoPending: 0, sending: false, progress: 0, error: null, key: this.uuid() };
         },
         async startLandlordFaultReport(propertyId) {
             // the form lives on the Faults tab: pressing "Request work" on the Properties tab used to open it out of sight - take the owner to it
@@ -1437,6 +1441,9 @@ function rentalsPortal() {
             form.append('description', w.description || '');
             if ((w.comment || '').trim()) form.append('comment', w.comment.trim());
             form.append('submission_key', w.key);
+            // section 22.3 - what the tenant ticked: every step they were shown, ticked or not (the agent reads it as "what the tenant says they checked")
+            const shown = (w.ftype && Array.isArray(w.ftype.steps)) ? w.ftype.steps : [];
+            if (shown.length) form.append('self_checks', JSON.stringify(shown.map((text, i) => ({ text: String(text), ticked: !!(w.checks && w.checks[i]) }))));
             if (w.followsFaultId) form.append('follows_fault_report_id', w.followsFaultId);
             w.photos.forEach(p => form.append('photos[]', p.file, p.file.name));
             w.sending = true;

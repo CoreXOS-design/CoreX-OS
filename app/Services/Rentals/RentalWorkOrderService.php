@@ -125,17 +125,24 @@ class RentalWorkOrderService
      * photos, history - is written in ONE transaction, so a double click, two agents, or a failure half-way leave exactly one complete work
      * order or none.
      *
+     * $authority: the Decision 1 step (section 22) that writes the authorisation record inside the transaction; without it a fault that nobody
+     * has authorised cannot get a work order (RentalFaultReport::workOrderBlockReason()).
+     *
      * @param array<string, mixed> $choice
      * @return array{work_order: RentalWorkOrder, job_card: ?\App\Models\RentalJobCard}
      *
      * @throws \LogicException with a plain sentence when it cannot be done (already created, declined, closed, wrong route)
      */
-    public function createFromFaultDecision(RentalFaultReport $fault, User $by, array $choice): array
+    public function createFromFaultDecision(RentalFaultReport $fault, User $by, array $choice, ?callable $authority = null): array
     {
-        $result = \Illuminate\Support\Facades\DB::transaction(function () use ($fault, $by, $choice) {
+        $result = \Illuminate\Support\Facades\DB::transaction(function () use ($fault, $by, $choice, $authority) {
             $locked = RentalFaultReport::withoutGlobalScopes()->lockForUpdate()->findOrFail($fault->id);
-            if ($reason = $locked->workOrderBlockReason()) {
+            if ($reason = $locked->workOrderBlockReason($authority !== null)) {
                 throw new \LogicException($reason);
+            }
+            // Section 22: the authorisation record is written in THIS transaction, before the work order exists - no record, no work order.
+            if ($authority !== null) {
+                $authority($locked);
             }
 
             $draft = $locked->workOrderDraft();

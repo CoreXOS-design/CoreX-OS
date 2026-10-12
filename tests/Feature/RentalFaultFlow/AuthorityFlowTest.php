@@ -1,0 +1,493 @@
+<?php
+
+namespace Tests\Feature\RentalFaultFlow;
+
+use App\Mail\Rentals\RentalAuthorisationToOwnerMail;
+use App\Models\Agency;
+use App\Models\Branch;
+use App\Models\ClientUser;
+use App\Models\Contact;
+use App\Models\DealV2\AgencyServiceProvider;
+use App\Models\Lease;
+use App\Models\LeaseTenant;
+use App\Models\Property;
+use App\Models\RentalAuthorisation;
+use App\Models\RentalCrew;
+use App\Models\RentalFaultReport;
+use App\Models\RentalFaultReportPhoto;
+use App\Models\RentalFaultType;
+use App\Models\RentalWorkOrder;
+use App\Models\Scopes\AgencyScope;
+use App\Models\User;
+use App\Services\Rentals\FaultInspectionService;
+use App\Services\Rentals\OwnerAuthoritySettings;
+use App\Services\Rentals\RentalAuthorisationService;
+use App\Services\Rentals\RentalMailDispatcher;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
+use Laravel\Sanctum\Sanctum;
+use Tests\TestCase;
+
+/**
+ * AT-452 - .ai/specs/rentals-faults-work-orders.md section 22, stage 1: nothing is automatic. Every job carries an AUTHORISATION RECORD at Decision 1 (who goes
+ * to look); the agent sends someone to inspect only when the visit costs the owner nothing; otherwise the owner authorises on their link, or the agent records the
+ * owner's decision; the owner is told in one sentence, by email, at once. The tenant's ticks and the agent's confirmation sit at the top of the fault page.
+ */
+final class AuthorityFlowTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private Agency $agency;
+    private Branch $branch;
+    private User $agent;
+    private Property $property;
+    private Lease $lease;
+    private Contact $tenant;
+    private Contact $landlord;
+    private RentalFaultType $faultType;
+    /** @var array<int, array{0:?string,1:object}> */
+    private array $sent = [];
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Mail::fake();
+        Storage::fake('local');
+        $self = $this;
+        $this->app->instance(RentalMailDispatcher::class, new class($self) extends RentalMailDispatcher {
+            public function __construct(private $t) {}
+            public function send(?string $recipientEmail, \App\Mail\Signatures\BaseSignatureMail $mail): void { $this->t->recordMail($recipientEmail, $mail); }
+        });
+        $this->agency = Agency::create(['name' => 'Authority Agency', 'slug' => 'au-' . uniqid()]);
+        $this->branch = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Main', 'code' => 'M-' . $this->agency->id, 'is_active' => true]);
+        $this->agent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin', 'name' => 'Agnes Agent']);
+        $this->property = Property::forceCreate(['agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id, 'title' => 'AU Unit', 'status' => 'active', 'listing_type' => 'rental', 'rental_no_approval_spend_threshold' => 1500]);
+        $this->lease = Lease::withoutGlobalScopes()->create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id, 'status' => 'active', 'rental_amount' => 9000, 'deposit_amount' => 9000,
+            'start_date' => now()->subMonth(), 'is_month_to_month' => true, 'lease_type' => 'residential', 'source' => 'manual',
+        ]);
+        $this->tenant = Contact::withoutGlobalScope(AgencyScope::class)->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'first_name' => 'Tina', 'last_name' => 'Tenant', 'email' => 'tina+' . uniqid() . '@example.invalid']);
+        LeaseTenant::create(['lease_id' => $this->lease->id, 'contact_id' => $this->tenant->id, 'is_primary' => true]);
+        $this->landlord = Contact::withoutGlobalScope(AgencyScope::class)->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'first_name' => 'Lenny', 'last_name' => 'Landlord', 'email' => 'lenny+' . uniqid() . '@example.invalid']);
+        $this->property->contacts()->attach($this->landlord->id, ['role' => 'landlord']);
+        $this->faultType = RentalFaultType::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'name' => 'Leaking tap', 'category' => 'Plumbing', 'urgency' => 'routine', 'first_aid_steps' => 'Close the valve.', 'is_default' => false, 'sort_order' => 1, 'is_active' => true]);
+    }
+
+    public function recordMail(?string $to, object $mail): void
+    {
+        $this->sent[] = [$to, $mail];
+    }
+
+    private function login(Contact $c): ClientUser
+    {
+        $cu = ClientUser::firstOrCreate(['email' => $c->email], ['current_agency_id' => $c->agency_id]);
+        $c->forceFill(['client_user_id' => $cu->id])->saveQuietly();
+
+        return $cu;
+    }
+
+    private function fault(bool $saveVersion = true, array $over = []): RentalFaultReport
+    {
+        $fault = RentalFaultReport::withoutGlobalScopes()->create(array_merge([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id, 'lease_id' => $this->lease->id,
+            'rental_fault_type_id' => $this->faultType->id, 'reported_by_type' => 'tenant', 'reported_by_contact_id' => $this->tenant->id, 'reported_channel' => 'app',
+            'title' => 'TENANT WORDS: tap', 'description' => 'TENANT ORIGINAL: the kitchen tap drips all night', 'status' => RentalFaultReport::STATUS_REPORTED,
+            'owner_approval_status' => RentalFaultReport::APPROVAL_NOT_REQUIRED, 'reported_at' => now(), 'created_by_user_id' => $this->agent->id,
+        ], $over));
+        $photo = RentalFaultReportPhoto::create(['agency_id' => $this->agency->id, 'rental_fault_report_id' => $fault->id, 'storage_path' => '/storage/au/tap.jpg', 'uploaded_by_user_id' => null]);
+        if ($saveVersion) {
+            $fault->saveOwnerVersion(['owner_title' => 'Kitchen tap leaking', 'owner_description' => 'A tap drips.', 'owner_agent_note' => 'Plumber suggested', 'owner_photo_ids' => [$photo->id]], $this->agent);
+        }
+
+        return $fault->fresh();
+    }
+
+    private function supplier(string $name, string $mode = 'unknown', ?float $amount = null, array $over = []): AgencyServiceProvider
+    {
+        return AgencyServiceProvider::withoutGlobalScopes()->create(array_merge([
+            'agency_id' => $this->agency->id, 'name' => $name, 'email' => strtolower(preg_replace('/\W+/', '', $name)) . '@example.invalid', 'is_active' => true, 'specialty' => 'other',
+            'callout_fee_mode' => $mode, 'callout_fee_amount' => $amount,
+        ], $over));
+    }
+
+    private function allowance(?float $amount): void
+    {
+        $this->app->bind(OwnerAuthoritySettings::class, fn () => new class($amount) extends OwnerAuthoritySettings {
+            public function __construct(private ?float $a) {}
+            public function calloutAllowance(\App\Models\Property $property): ?float { return $this->a; }
+        });
+    }
+
+    private function inspect(RentalFaultReport $f, AgencyServiceProvider $p)
+    {
+        return $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.send-to-inspect', $f), ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $p->id]);
+    }
+
+    // ── the owner's settings are read through ONE resolver ───────────────────
+
+    public function test_the_resolver_reads_the_existing_limit_and_treats_the_unbuilt_settings_as_ask_the_owner(): void
+    {
+        $r = app(OwnerAuthoritySettings::class);
+        $this->assertSame(1500.0, $r->repairLimit($this->property));
+        $this->assertNull($r->emergencyLimit($this->property), 'not set = ask the owner');
+        $this->assertNull($r->calloutAllowance($this->property), 'not set = ask the owner');
+    }
+
+    // ── the call-out rule ────────────────────────────────────────────────────
+
+    public function test_the_call_out_rule_for_every_fee_state_and_boundary(): void
+    {
+        $svc = app(FaultInspectionService::class);
+        $none = $svc->evaluate($this->property, 'Sam Plumbing', 'no', null);
+        $this->assertTrue($none['allowed']);
+        $this->assertSame(RentalAuthorisation::BASIS_AGENT_NO_CALLOUT_FEE, $none['basis']);
+
+        // a fee and no owner permission set -> the owner must authorise first (Johan's line, word for word)
+        $fee = $svc->evaluate($this->property, 'Sam Plumbing', 'yes', 750.0);
+        $this->assertFalse($fee['allowed']);
+        $this->assertSame('Sam Plumbing charges a call-out fee of R750. The owner must authorise this first.', $fee['line']);
+
+        // a fee NOT KNOWN is treated as a fee, and can never be covered
+        $unknown = $svc->evaluate($this->property, 'Sam Plumbing', 'unknown', null);
+        $this->assertFalse($unknown['allowed']);
+        $this->assertStringContainsString("We don't know whether Sam Plumbing charges a call-out fee. The owner must authorise this first", $unknown['line']);
+
+        // the owner's permission covers it (boundary: equal is covered, one rand over is not)
+        $this->allowance(1000.0);
+        $svc = app(FaultInspectionService::class);
+        $this->assertTrue($svc->evaluate($this->property, 'Sam', 'yes', 750.0)['allowed']);
+        $this->assertSame(RentalAuthorisation::BASIS_AGENT_CALLOUT_SETTING, $svc->evaluate($this->property, 'Sam', 'yes', 1000.0)['basis']);
+        $this->assertFalse($svc->evaluate($this->property, 'Sam', 'yes', 1001.0)['allowed']);
+        $this->assertFalse($svc->evaluate($this->property, 'Sam', 'unknown', null)['allowed'], 'even with a permission, a fee that is not known cannot be covered');
+    }
+
+    // ── Send <name> to inspect ───────────────────────────────────────────────
+
+    public function test_sending_a_no_fee_contractor_writes_the_record_makes_the_work_order_and_tells_the_owner(): void
+    {
+        $f = $this->fault();
+        $p = $this->supplier('Free Visit Plumbing', 'no');
+        $this->inspect($f, $p)->assertRedirect();
+        $f = $f->fresh();
+
+        $this->assertNotNull($f->rental_work_order_id, 'the work order exists');
+        $row = RentalAuthorisation::withoutGlobalScopes()->where('rental_fault_report_id', $f->id)->sole();
+        $this->assertSame('inspect', $row->point);
+        $this->assertSame('authorised', $row->outcome);
+        $this->assertSame(RentalAuthorisation::BASIS_AGENT_NO_CALLOUT_FEE, $row->basis);
+        $this->assertSame($this->agent->id, $row->by_user_id);
+        $this->assertSame('Free Visit Plumbing', $row->inspector_label);
+        $this->assertSame('under_review', $row->stage, 'at what stage it was given');
+        $this->assertNotNull($row->told_at);
+        $this->assertNotNull($row->owner_told_at, 'the owner was told');
+        $this->assertSame(RentalFaultReport::ARRANGED_INSPECT_NO_FEE, $f->arranged_basis);
+        $this->assertSame(RentalFaultReport::APPROVAL_NOT_REQUIRED, $f->owner_approval_status, 'nothing is put to the owner to approve');
+
+        // the contractor got the job email + their link (existing round 2 behaviour)
+        $this->assertNotEmpty(array_filter($this->sent, fn ($m) => $m[0] === $p->email), 'the contractor is told');
+        // the owner was told at once: the sentence, who, why
+        Mail::assertQueued(RentalAuthorisationToOwnerMail::class, 1);
+        Mail::assertQueued(RentalAuthorisationToOwnerMail::class, fn ($m) => $m->hasTo($this->landlord->email)
+            && str_contains($m->sentence, 'Your agent Agnes Agent sent Free Visit Plumbing to look at this and give a quote.') && str_contains($m->sentence, 'charges no call-out fee'));
+        $this->assertContains('authorisation_recorded', $f->updates()->pluck('update_type')->all());
+    }
+
+    public function test_a_contractor_with_a_fee_or_an_unknown_fee_cannot_be_sent_without_the_owner(): void
+    {
+        $f = $this->fault();
+        $fee = $this->supplier('Fee Plumbing', 'yes', 750);
+        $unknown = $this->supplier('Mystery Plumbing');
+
+        $this->inspect($f, $fee)->assertSessionHasErrors(['rental_fault_report' => 'Fee Plumbing charges a call-out fee of R750. The owner must authorise this first.']);
+        $this->inspect($f, $unknown)->assertSessionHasErrors('rental_fault_report');
+        $f = $f->fresh();
+        $this->assertNull($f->rental_work_order_id, 'no work order');
+        $this->assertSame(0, RentalAuthorisation::withoutGlobalScopes()->where('rental_fault_report_id', $f->id)->count(), 'no record');
+        $this->assertEmpty($this->sent, 'nobody was emailed');
+        Mail::assertNothingQueued();
+    }
+
+    public function test_the_owners_permission_covers_a_fee_inside_it_and_the_record_says_so(): void
+    {
+        $this->allowance(1000.0);
+        $f = $this->fault();
+        $p = $this->supplier('Covered Plumbing', 'yes', 750);
+        $this->inspect($f, $p)->assertRedirect();
+        $row = RentalAuthorisation::withoutGlobalScopes()->where('rental_fault_report_id', $f->id)->sole();
+        $this->assertSame(RentalAuthorisation::BASIS_AGENT_CALLOUT_SETTING, $row->basis);
+        $this->assertEquals(750.0, (float) $row->callout_fee);
+        $this->assertEquals(1000.0, (float) $row->limit_amount);
+        $this->assertSame(RentalFaultReport::ARRANGED_INSPECT_CALLOUT, $f->fresh()->arranged_basis);
+        Mail::assertQueued(RentalAuthorisationToOwnerMail::class, fn ($m) => str_contains($m->sentence, 'under your call-out permission of R1 000.00. The call-out fee is R750.00.'));
+
+        // over the permission: refused
+        $g = $this->fault();
+        $this->inspect($g, $this->supplier('Dear Plumbing', 'yes', 1200))->assertSessionHasErrors('rental_fault_report');
+        $this->assertNull($g->fresh()->rental_work_order_id);
+    }
+
+    public function test_our_own_crew_has_no_call_out_fee_and_gets_a_job_card(): void
+    {
+        $f = $this->fault();
+        $crew = RentalCrew::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'name' => 'Team Maintenance', 'is_active' => true]);
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.send-to-inspect', $f), ['assignment_type' => 'internal', 'rental_crew_id' => $crew->id])->assertRedirect();
+        $f = $f->fresh();
+        $this->assertNotNull($f->rental_work_order_id);
+        $row = RentalAuthorisation::withoutGlobalScopes()->where('rental_fault_report_id', $f->id)->sole();
+        $this->assertSame(RentalAuthorisation::BASIS_AGENT_NO_CALLOUT_FEE, $row->basis);
+        $this->assertSame('our own maintenance crew', $row->inspector_label);
+        $this->assertSame(1, \App\Models\RentalJobCard::withoutGlobalScopes()->where('rental_work_order_id', $f->rental_work_order_id)->count());
+    }
+
+    public function test_the_owner_version_must_be_saved_first_and_there_is_no_work_order_without_authority(): void
+    {
+        $f = $this->fault(false);
+        $p = $this->supplier('Free Visit Plumbing', 'no');
+        $this->inspect($f, $p)->assertSessionHasErrors(['rental_fault_report' => 'Save the owner version first - it is what the owner will read.']);
+        $this->assertNull($f->fresh()->rental_work_order_id);
+
+        // the ordinary "Create work order" form cannot make one for a fault nobody has authorised
+        $g = $this->fault();
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.raise-work-order', $g), ['assignment_type' => 'internal'])
+            ->assertSessionHasErrors(['rental_fault_report' => 'No one has been authorised to look at this yet. Send a contractor to inspect (when the visit costs the owner nothing), or have the owner authorise it.']);
+        $this->assertNull($g->fresh()->rental_work_order_id);
+        $this->assertNotNull($g->workOrderBlockReason());
+        $this->assertNull($g->workOrderBlockReason(true), 'only the Decision 1 step that writes the record may pass');
+    }
+
+    // ── Send to owner to authorise ───────────────────────────────────────────
+
+    public function test_send_to_owner_carries_the_proposed_contractor_and_fee_to_the_owner(): void
+    {
+        $f = $this->fault();
+        $p = $this->supplier('Fee Plumbing', 'yes', 750, []);
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.send-to-owner-to-authorise', $f), ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $p->id])->assertRedirect();
+        $f = $f->fresh();
+        $this->assertSame(RentalFaultReport::STATUS_AWAITING_APPROVAL, $f->status);
+        $this->assertNotNull($f->sent_to_owner_at);
+        $this->assertSame($p->id, $f->proposed_supplier_id);
+        $this->assertNull($f->rental_work_order_id, 'nothing is sent to the contractor yet');
+        $this->assertSame(0, RentalAuthorisation::withoutGlobalScopes()->where('rental_fault_report_id', $f->id)->count(), 'no authorisation until the owner (or the agent for them) decides');
+        $this->assertContains('sent_to_owner_to_authorise', $f->updates()->pluck('update_type')->all());
+
+        Sanctum::actingAs($this->login($this->landlord), ['client']);
+        $show = $this->getJson("/api/v1/client/rentals/landlord/fault-reports/{$f->id}")->assertOk()->json('fault_report');
+        $this->assertTrue($show['awaiting_decision']);
+        $this->assertSame('Fee Plumbing', $show['proposed']['name']);
+        $this->assertSame('Call-out fee: R750', $show['proposed']['callout'], "the owner sees the fee BEFORE they choose");
+
+        // a second press is refused
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.send-to-owner-to-authorise', $f), ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $p->id])
+            ->assertSessionHasErrors('rental_fault_report');
+    }
+
+    // ── the owner on their link / the owner's own request ────────────────────
+
+    public function test_the_owners_press_on_their_link_leaves_an_owner_link_record(): void
+    {
+        $f = $this->fault();
+        $f->requestApproval($this->agent);
+        Sanctum::actingAs($this->login($this->landlord), ['client']);
+        $this->postJson("/api/v1/client/rentals/landlord/fault-reports/{$f->id}/decision", ['decision' => 'approve', 'handled_by' => 'agency'])->assertOk();
+        $row = RentalAuthorisation::withoutGlobalScopes()->where('rental_fault_report_id', $f->id)->sole();
+        $this->assertSame(RentalAuthorisation::BASIS_OWNER_LINK, $row->basis);
+        $this->assertSame('authorised', $row->outcome);
+        $this->assertSame($this->landlord->id, $row->by_contact_id);
+        $this->assertSame($this->landlord->id, $row->owner_contact_id);
+        $this->assertSame('awaiting_approval', $row->stage);
+        $this->assertNull($row->by_user_id);
+        $this->assertTrue($f->fresh()->hasInspectionAuthority());
+        // the owner's own press is NOT presented as "your agent recorded" - they pressed it
+        $this->assertNull($this->getJson("/api/v1/client/rentals/landlord/fault-reports/{$f->id}")->json('fault_report.authorisation'));
+    }
+
+    public function test_the_owners_own_work_request_is_their_decision_one_authority(): void
+    {
+        $svc = app(\App\Services\Rentals\RentalFaultReportService::class);
+        $fault = $svc->reportOwnerRequest($this->property, $this->landlord, ['lease_id' => $this->lease->id, 'rental_fault_type_id' => $this->faultType->id, 'title' => 'Leaking tap', 'description' => 'Please fix the tap'], 'Use your usual plumber');
+        $row = RentalAuthorisation::withoutGlobalScopes()->where('rental_fault_report_id', $fault->id)->sole();
+        $this->assertSame(RentalAuthorisation::BASIS_OWNER_LINK, $row->basis);
+        $this->assertSame('authorised', $row->outcome);
+        $this->assertTrue($fault->hasInspectionAuthority());
+    }
+
+    // ── Record the owner's decision (Decision 1) ─────────────────────────────
+
+    private function record(RentalFaultReport $f, array $over = [])
+    {
+        return $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.owner-decision.store', $f), array_merge([
+            'owner_contact_id' => $this->landlord->id, 'decision' => 'authorise', 'told_via' => 'phone_call', 'told_at' => now()->subHour()->format('Y-m-d\TH:i'), 'note' => 'Lenny phoned: send a plumber to look.',
+        ], $over));
+    }
+
+    public function test_recording_the_owners_decision_saves_it_under_the_agents_name_and_tells_the_owner_the_same_sentence(): void
+    {
+        $f = $this->fault();
+        $f->requestApproval($this->agent);
+        $this->record($f, ['proof' => UploadedFile::fake()->image('whatsapp.png')])->assertRedirect()->assertSessionHasNoErrors();
+        $f = $f->fresh();
+
+        $this->assertSame(RentalFaultReport::STATUS_APPROVED, $f->status);
+        $this->assertSame('agency_appoints', $f->approval_route);
+        $row = RentalAuthorisation::withoutGlobalScopes()->where('rental_fault_report_id', $f->id)->sole();
+        $this->assertSame(RentalAuthorisation::BASIS_OWNER_INSTRUCTION, $row->basis);
+        $this->assertSame('phone_call', $row->told_via);
+        $this->assertSame($this->agent->id, $row->by_user_id);
+        $this->assertSame($this->landlord->id, $row->owner_contact_id);
+        $this->assertSame('Lenny phoned: send a plumber to look.', $row->note);
+        $this->assertNotNull($row->proof_path, 'the optional proof was kept');
+        $this->assertNotNull($row->owner_told_at);
+
+        $sentence = app(RentalAuthorisationService::class)->sentenceFor($row->load(['byUser']));
+        $this->assertMatchesRegularExpression('/^Authorised by your agent Agnes Agent on your instruction, given by phone call on \d{1,2} \w{3} \d{4} \d{2}:\d{2}\.$/', $sentence);
+        Mail::assertQueued(RentalAuthorisationToOwnerMail::class, fn ($m) => $m->hasTo($this->landlord->email) && $m->sentence === $sentence && $m->note === 'Lenny phoned: send a plumber to look.');
+
+        // the owner's portal shows the same sentence, the note and a way to query it
+        Sanctum::actingAs($this->login($this->landlord), ['client']);
+        $auth = $this->getJson("/api/v1/client/rentals/landlord/fault-reports/{$f->id}")->assertOk()->json('fault_report.authorisation');
+        $this->assertSame($sentence, $auth['sentence']);
+        $this->assertSame('Lenny phoned: send a plumber to look.', $auth['note']);
+        $this->postJson("/api/v1/client/rentals/landlord/fault-reports/{$f->id}/query", ['note' => 'I did not say that'])->assertCreated()->assertJsonPath('authorisation.queries.0.note', fn ($n) => str_contains($n, 'I did not say that'));
+        $this->assertSame(RentalFaultReport::STATUS_APPROVED, $f->fresh()->status, 'a query stops nothing');
+    }
+
+    public function test_the_record_has_its_required_fields_and_a_declined_one_closes_the_fault(): void
+    {
+        $f = $this->fault();
+        $this->record($f, ['note' => ''])->assertSessionHasErrors('note');
+        $this->record($f, ['told_via' => 'carrier_pigeon'])->assertSessionHasErrors('told_via');
+        $this->record($f, ['owner_contact_id' => 999999])->assertSessionHasErrors('owner_decision');
+        $this->record($f, ['told_at' => now()->addDay()->format('Y-m-d\TH:i')])->assertSessionHasErrors('owner_decision');
+        $this->assertSame(0, RentalAuthorisation::withoutGlobalScopes()->where('rental_fault_report_id', $f->id)->count());
+
+        $this->record($f, ['decision' => 'declined', 'note' => 'Lenny does not want it done'])->assertSessionHasNoErrors();
+        $f = $f->fresh();
+        $this->assertSame(RentalFaultReport::STATUS_DECLINED, $f->status);
+        $this->assertSame('declined', RentalAuthorisation::withoutGlobalScopes()->where('rental_fault_report_id', $f->id)->sole()->outcome);
+    }
+
+    public function test_a_captured_decision_is_replaced_by_a_newer_one_until_a_work_order_exists_and_the_history_stays(): void
+    {
+        $f = $this->fault();
+        $this->record($f, ['decision' => 'declined', 'note' => 'No thanks'])->assertSessionHasNoErrors();
+        $this->assertSame(RentalFaultReport::STATUS_DECLINED, $f->fresh()->status);
+
+        // the owner changed their mind
+        $this->record($f, ['note' => 'Lenny called back: yes, go ahead'])->assertSessionHasNoErrors();
+        $f = $f->fresh();
+        $this->assertSame(RentalFaultReport::STATUS_APPROVED, $f->status);
+        $this->assertNull($f->outcome, 'the automatic "owner declined" outcome was taken back');
+        $rows = RentalAuthorisation::withoutGlobalScopes()->where('rental_fault_report_id', $f->id)->orderBy('id')->get();
+        $this->assertCount(2, $rows, 'full history');
+        $this->assertNotNull($rows[0]->superseded_at);
+        $this->assertSame($rows[1]->id, $rows[0]->superseded_by_id);
+        $this->assertNull($rows[1]->superseded_at);
+        $this->assertContains('authorisation_superseded', $f->updates()->pluck('update_type')->all());
+
+        // once a work order exists it is locked
+        app(\App\Services\Rentals\RentalWorkOrderService::class)->createFromFaultDecision($f, $this->agent, ['assignment_type' => 'internal']);
+        $this->record($f->fresh(), ['note' => 'Changed my mind again'])->assertSessionHasErrors('owner_decision');
+        $this->assertCount(2, RentalAuthorisation::withoutGlobalScopes()->where('rental_fault_report_id', $f->id)->get());
+    }
+
+    public function test_an_agent_cannot_replace_a_decision_the_owner_pressed_on_their_own_link(): void
+    {
+        $f = $this->fault();
+        $f->requestApproval($this->agent);
+        Sanctum::actingAs($this->login($this->landlord), ['client']);
+        $this->postJson("/api/v1/client/rentals/landlord/fault-reports/{$f->id}/decision", ['decision' => 'decline', 'note' => 'No'])->assertOk();
+        $this->record($f->fresh())->assertSessionHasErrors(['owner_decision' => 'The owner has already decided on their own link.']);
+    }
+
+    public function test_the_record_is_scoped_to_the_agency_and_needs_the_permission(): void
+    {
+        $f = $this->fault();
+        $otherAgency = Agency::create(['name' => 'Other', 'slug' => 'ot-' . uniqid()]);
+        $otherBranch = Branch::create(['agency_id' => $otherAgency->id, 'name' => 'Main', 'code' => 'O-' . $otherAgency->id, 'is_active' => true]);
+        $stranger = User::factory()->create(['agency_id' => $otherAgency->id, 'branch_id' => $otherBranch->id, 'role' => 'admin']);
+        $this->actingAs($stranger)->post(route('corex.rental-fault-reports.owner-decision.store', $f), ['owner_contact_id' => $this->landlord->id, 'decision' => 'authorise', 'told_via' => 'email', 'note' => 'x'])->assertStatus(404);
+        $this->actingAs($stranger)->post(route('corex.rental-fault-reports.send-to-inspect', $f), ['assignment_type' => 'internal'])->assertStatus(404);
+        $this->actingAs($stranger)->post(route('corex.rental-fault-reports.tenant-confirmation', $f), ['via' => 'email', 'at' => now()->format('Y-m-d\TH:i'), 'note' => 'x'])->assertStatus(404);
+        $this->assertSame(0, RentalAuthorisation::withoutGlobalScopes()->count());
+    }
+
+    // ── the top of the agent's fault page ────────────────────────────────────
+
+    public function test_the_tenant_picture_shows_the_report_the_ticks_and_the_agents_confirmation_in_order(): void
+    {
+        $f = $this->fault(true, ['tenant_self_checks' => [['text' => 'Close the main valve', 'ticked' => true], ['text' => 'Check the washer', 'ticked' => false]]]);
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.tenant-confirmation', $f), ['via' => 'whatsapp', 'at' => now()->subMinutes(30)->format('Y-m-d\TH:i'), 'note' => 'Tina says it still drips after the valve is shut'])
+            ->assertRedirect()->assertSessionHasNoErrors();
+        $f = $f->fresh();
+        $this->assertSame('whatsapp', $f->tenant_confirmed_via);
+        $this->assertSame($this->agent->id, $f->tenant_confirmed_by_user_id);
+        $this->assertContains('tenant_confirmed', $f->updates()->pluck('update_type')->all());
+
+        $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $f))->assertOk()->getContent();
+        $iReported = strpos($html, 'What the tenant reported');
+        $iChecked = strpos($html, 'What the tenant says they checked');
+        $iConfirmed = strpos($html, 'Confirmed with the tenant');
+        $this->assertNotFalse($iReported);
+        $this->assertTrue($iReported < $iChecked && $iChecked < $iConfirmed, 'the blocks are in the ruled order');
+        $this->assertStringContainsString('TENANT ORIGINAL: the kitchen tap drips all night', $html);
+        $this->assertStringContainsString('data-self-check="ticked"', $html);
+        $this->assertStringContainsString('data-self-check="not-ticked"', $html);
+        $this->assertStringContainsString('By WhatsApp on', $html);
+        $this->assertStringContainsString('Tina says it still drips after the valve is shut', $html);
+
+        // the tenant's original is read-only here: no edit form carries it
+        $this->assertStringNotContainsString('name="description"', $html);
+    }
+
+    public function test_confirmation_needs_how_when_and_a_note_and_a_newer_one_keeps_the_old_in_the_history(): void
+    {
+        $f = $this->fault();
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.tenant-confirmation', $f), ['via' => 'telepathy', 'at' => now()->format('Y-m-d\TH:i'), 'note' => 'x'])->assertSessionHasErrors('via');
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.tenant-confirmation', $f), ['via' => 'email', 'at' => now()->format('Y-m-d\TH:i'), 'note' => ''])->assertSessionHasErrors('note');
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.tenant-confirmation', $f), ['via' => 'email', 'at' => now()->addDay()->format('Y-m-d\TH:i'), 'note' => 'x'])->assertSessionHasErrors('tenant_confirmation');
+        $this->assertNull($f->fresh()->tenant_confirmed_via);
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.tenant-confirmation', $f), ['via' => 'phone_call', 'at' => now()->subHour()->format('Y-m-d\TH:i'), 'note' => 'First call'])->assertSessionHasNoErrors();
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.tenant-confirmation', $f), ['via' => 'in_person', 'at' => now()->format('Y-m-d\TH:i'), 'note' => 'Second visit'])->assertSessionHasNoErrors();
+        $this->assertSame('in_person', $f->fresh()->tenant_confirmed_via);
+        $notes = $f->updates()->where('update_type', 'tenant_confirmed')->pluck('note')->implode(' | ');
+        $this->assertStringContainsString('First call', $notes);
+        $this->assertStringContainsString('Second visit', $notes);
+    }
+
+    public function test_the_fault_page_has_decision_one_with_two_buttons_and_no_approve_within_limit(): void
+    {
+        $f = $this->fault();
+        $this->supplier('Free Visit Plumbing', 'no');
+        $this->supplier('Fee Plumbing', 'yes', 750);
+        $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $f))->assertOk()->getContent();
+
+        $this->assertStringContainsString('data-decision-one', $html);
+        $this->assertStringContainsString('data-send-to-inspect', $html);
+        $this->assertStringContainsString('data-send-to-owner-to-authorise', $html);
+        $this->assertStringContainsString('Send to owner to authorise', $html);
+        $this->assertStringContainsString("data-owner-decision-open", $html);
+        $this->assertStringContainsString('Our own crew', $html);
+        $this->assertStringContainsString('inspect_allowed', $html, 'the page knows which contractors may be sent on the agent\'s own authority');
+        $this->assertStringContainsString('Fee Plumbing charges a call-out fee of R750. The owner must authorise this first.', $html);
+        $this->assertStringNotContainsString('Approve within agent limit', $html, 'approval against a limit exists only at Decision 2');
+        $this->assertStringNotContainsString('data-go-ahead-toggle', $html);
+        $this->assertStringNotContainsString('data-early-work-order', $html);
+    }
+
+    // ── the tenant's ticks reach the agent ───────────────────────────────────
+
+    public function test_the_tenant_portal_stores_the_ticks_cleaned(): void
+    {
+        $cu = $this->login($this->tenant);
+        Sanctum::actingAs($cu, ['client']);
+        $payload = json_encode([['text' => 'Close the valve', 'ticked' => true], ['text' => '<b>Check</b> the washer', 'ticked' => false], ['text' => '', 'ticked' => true], 'junk']);
+        $res = $this->postJson("/api/v1/client/rentals/properties/{$this->property->id}/fault-reports", [
+            'rental_fault_type_id' => $this->faultType->id, 'resolution' => 'still_a_problem', 'title' => 'Tap', 'description' => 'Drips', 'self_checks' => $payload,
+        ]);
+        $res->assertStatus(201);
+        $fault = RentalFaultReport::withoutGlobalScopes()->latest('id')->first();
+        $this->assertSame([['text' => 'Close the valve', 'ticked' => true], ['text' => 'Check the washer', 'ticked' => false]], $fault->tenant_self_checks);
+    }
+}

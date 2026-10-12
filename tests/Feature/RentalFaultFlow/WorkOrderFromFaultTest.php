@@ -320,7 +320,7 @@ final class WorkOrderFromFaultTest extends TestCase
 
     // ── 4. the fault screen shows what fits its stage ────────────────────────
 
-    public function test_a_just_reported_fault_offers_the_owner_version_and_a_secondary_early_path_only(): void
+    public function test_a_just_reported_fault_offers_the_owner_version_and_decision_one_only(): void
     {
         $fault = $this->fault();
 
@@ -331,9 +331,10 @@ final class WorkOrderFromFaultTest extends TestCase
         $this->assertStringNotContainsString('id="owner-decision-card"', $html, 'no Record decision yet');
         $this->assertStringNotContainsString('record-approval-form', $html);
         $this->assertStringNotContainsString('Save outcome', $html, 'no Outcome yet');
-        $this->assertStringContainsString('data-early-work-order', $html);
-        $this->assertStringContainsString('Approve within agent limit', $html, 'AT-452 item I: the early path tells the owner');
-        $this->assertStringContainsString('agent limit (R500.00)', $html);
+        // section 22: the only way to get someone to look before the owner decides is Decision 1 - never a limit-based early work order
+        $this->assertStringContainsString('data-decision-one', $html);
+        $this->assertStringNotContainsString('data-early-work-order', $html);
+        $this->assertStringNotContainsString('Approve within agent limit', $html);
         $this->assertStringNotContainsString('name="title"', $html);
         $this->assertStringNotContainsString('name="description"', $html);
     }
@@ -346,7 +347,7 @@ final class WorkOrderFromFaultTest extends TestCase
         $sent->fresh()->requestApproval($this->agent);
         $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $sent))->assertOk()->getContent();
         $this->assertStringContainsString('data-waiting-for-owner', $html);
-        $this->assertStringContainsString('record-approval-form', $html);
+        $this->assertStringContainsString('data-owner-decision-open', $html, "section 22: 'Record the owner's decision' is there while the owner's answer is awaited");
         $this->assertStringNotContainsString('data-appoint-contractor', $html);
         $this->assertStringNotContainsString('Save outcome', $html);
 
@@ -396,7 +397,7 @@ final class WorkOrderFromFaultTest extends TestCase
         $this->assertStringContainsString('Archive this fault report?', $html);
         $source = (string) file_get_contents(base_path('resources/views/corex/rental-fault-reports/show.blade.php'));
         $this->assertStringNotContainsString('confirm(', $source);
-        $this->assertStringContainsString('<x-confirm-submit title="Record the owner\'s decision"', $source);
+        $this->assertStringContainsString('<x-confirm-submit title="Record the owner\'s decision"', (string) file_get_contents(base_path('resources/views/corex/rental-fault-reports/_record-owner-decision.blade.php')));
         $this->assertStringContainsString('<x-confirm-submit title="Record the outcome"', $source);
     }
 
@@ -418,9 +419,9 @@ final class WorkOrderFromFaultTest extends TestCase
         $this->assertSame(['Ramsgate Plumbing', 'Sparky Electrical'], $svc->pickerFor($typeless)->pluck('name')->sort()->values()->all());
         $this->assertTrue($svc->isOption($typeless, (int) $svc->optionsFor($typeless)->first()['id']));
 
-        // the agent's Record decision screen lists them too, searchable
+        // Decision 1's picker lists them too, searchable
         $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $this->sentFault($typeless)))->assertOk()->getContent();
-        $this->assertStringContainsString('data-decision-contractor-search', $html);
+        $this->assertStringContainsString('Search contractors by name, trade or phone', $html);
         $this->assertStringContainsString('Ramsgate Plumbing', $html);
         $this->assertStringNotContainsString('Jafta Incorporated', $html);
         $this->assertStringNotContainsString('No suppliers are set up', $html);
@@ -505,7 +506,7 @@ final class WorkOrderFromFaultTest extends TestCase
         $this->assertSame(RentalFaultReport::STATUS_OWNER_HANDLING, $own->fresh()->status);
         $early = $this->fault();
         $early->saveOwnerVersion(['owner_title' => 'Early', 'owner_description' => 'x'], $this->agent);   // AT-452 item I: going ahead needs the owner version (the owner is told)
-        $this->raise($early->fresh(), ['assignment_type' => 'internal']);
+        app(\App\Services\Rentals\FaultInspectionService::class)->sendToInspect($early->fresh(), $this->agent, ['assignment_type' => 'internal']);   // Decision 1: our own crew (no call-out fee)
         $early->fresh()->workOrder->cancel($this->agent, 'x');
         $this->assertSame(RentalFaultReport::STATUS_REPORTED, $early->fresh()->status);
     }

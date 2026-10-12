@@ -57,12 +57,17 @@
                 <p style="margin:0 0 6px;" x-show="faultDetail.arranged.amount !== null && faultDetail.arranged.amount !== undefined" data-arranged-amount><strong x-text="(faultDetail.arranged.final_cost !== null ? 'Quoted / approved: ' : 'Quoted / approved: ') + 'R ' + Number(faultDetail.arranged.amount || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})"></strong></p>
                 <p style="margin:0 0 6px;" x-show="faultDetail.arranged.final_cost !== null" data-arranged-final><strong x-text="'Final cost: R ' + Number(faultDetail.arranged.final_cost || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})"></strong></p>
                 <p class="error" style="margin:0 0 6px;" x-show="faultDetail.arranged.needs_owner_approval" data-arranged-over-limit>This has gone over your no-approval limit, so it needs your approval before the work goes ahead &mdash; open the work order below.</p>
-                <template x-for="(q, qi) in (faultDetail.arranged.queries || [])" :key="qi"><p class="muted" style="margin:0 0 4px;" x-text="'You asked ' + fmtDay(q.at) + ': ' + q.note"></p></template>
-                <label style="margin-top:8px;">Query this</label>
-                <textarea rows="2" maxlength="1000" x-model="queryForm.note" placeholder="Ask your agent a question about this repair" data-query-note></textarea>
-                <p class="error" x-show="queryForm.error" x-text="queryForm.error"></p>
-                <p class="muted" x-show="queryForm.sent" data-query-sent>Sent &mdash; your agent has been told.</p>
-                <button class="btn btn-outline" :disabled="!!(queryForm.busy || queryForm.note.trim().length < 3)" @click="sendQuery()" data-query-send>Send my question</button>
+                @include('rentals.portal._query-this', ['queries' => 'faultDetail.arranged.queries'])
+            </section>
+        </template>
+
+        {{-- section 22.5 - the agent recorded what the owner told them: the same sentence they were emailed, the agent's note, and "Query this" --}}
+        <template x-if="faultDetail.authorisation">
+            <section class="sec" data-fault-section="authorisation">
+                <h3 x-text="faultDetail.authorisation.title"></h3>
+                <p style="margin:0 0 6px;" data-authorisation-sentence x-text="faultDetail.authorisation.sentence"></p>
+                <p class="muted" style="margin:0 0 6px;" x-show="faultDetail.authorisation.note" data-authorisation-note x-text="'What your agent wrote down: &quot;' + faultDetail.authorisation.note + '&quot;'"></p>
+                @include('rentals.portal._query-this', ['queries' => 'faultDetail.authorisation.queries'])
             </section>
         </template>
 
@@ -117,7 +122,7 @@
                 <h3>Your decision</h3>
                 <template x-if="faultDetail.decision">
                     <div>
-                        <p><strong x-text="faultDetail.decision.decision === 'approved' ? 'You approved this repair.' : 'This repair was declined.'"></strong></p>
+                        <p><strong x-text="faultDetail.decision.decision === 'approved' ? (faultDetail.decision.via_link ? 'You asked for someone to look and quote.' : 'Someone is to look and quote, on your instruction.') : 'This repair was declined.'"></strong></p>
                         <p class="muted" x-show="faultDetail.decision.reason" x-text="'Reason: ' + faultDetail.decision.reason"></p>
                         <p class="muted" x-show="faultDetail.decision.contractor" x-text="faultDetail.decision.contractor"></p>
                         <p class="muted" x-text="faultDetail.decision.how + ' · ' + new Date(faultDetail.decision.at).toLocaleString()"></p>
@@ -126,15 +131,19 @@
                 </template>
                 <template x-if="faultDetail.awaiting_decision">
                     <div>
-                        <label style="margin-top:0;">Approve or decline?</label>
-                        <select x-model="faultForm.decision">
+                        {{-- section 22.4 - who the agent would send, and what the visit costs, BEFORE the owner chooses --}}
+                        <template x-if="faultDetail.proposed">
+                            <p data-proposed-inspector style="margin:0 0 8px;"><strong>Your agent suggests:</strong> <span x-text="faultDetail.proposed.name"></span><span x-show="faultDetail.proposed.callout" x-text="' - ' + (faultDetail.proposed.callout || '')" data-proposed-callout></span><span x-show="!faultDetail.proposed.callout"> - no call-out fee is known.</span></p>
+                        </template>
+                        <label style="margin-top:0;">What would you like to do?</label>
+                        <select x-model="faultForm.decision" data-owner-decision-select>
                             <option value="">Choose…</option>
-                            <option value="approve">Approve</option>
+                            <option value="approve">Send someone to look and quote</option>
                             <option value="decline">Decline</option>
                         </select>
                         <template x-if="faultForm.decision === 'approve'">
                             <div>
-                                <label>Who should handle the repair?</label>
+                                <label>Who should look and quote?</label>
                                 <select x-model="faultForm.handled_by">
                                     <option value="">Choose…</option>
                                     <option value="own">My own contractor</option>

@@ -240,6 +240,8 @@ class ClientTenantRentalsController extends Controller
             'description' => 'nullable|string|max:5000',
             'photos' => 'nullable|array|max:10',
             'photos.*' => 'file|image|max:15360',
+            // section 22.3 - what the tenant ticked: JSON [{text, ticked}] (a snapshot of the steps they were shown)
+            'self_checks' => 'nullable|string|max:20000',
         ]);
 
         $faultType = RentalFaultType::withoutGlobalScopes()
@@ -260,6 +262,7 @@ class ClientTenantRentalsController extends Controller
             'reported_channel' => RentalFaultReport::CHANNEL_APP,
             'title' => $data['title'],
             'description' => $data['description'] ?? '',
+            'tenant_self_checks' => $this->selfChecksFrom($data['self_checks'] ?? null),
         ];
         // "Still a problem? Report it again" on a fault the tenant fixed themselves: the new report is linked back to it (their own, on this property).
         if (! empty($data['follows_fault_report_id'])) {
@@ -285,6 +288,27 @@ class ClientTenantRentalsController extends Controller
         }
 
         return response()->json(['fault_report' => $this->faultReportSummary($faultReport->refresh())], 201);
+    }
+
+    /** Section 22.3 - the tenant's ticks, cleaned: at most 30 steps, plain text, ticked true/false. Anything that is not that shape is dropped. */
+    private function selfChecksFrom(?string $json): ?array
+    {
+        if ($json === null || trim($json) === '') {
+            return null;
+        }
+        $rows = json_decode($json, true);
+        if (! is_array($rows)) {
+            return null;
+        }
+        $out = [];
+        foreach (array_slice($rows, 0, 30) as $r) {
+            $text = is_array($r) ? trim(strip_tags((string) ($r['text'] ?? ''))) : '';
+            if ($text !== '') {
+                $out[] = ['text' => mb_substr($text, 0, 500), 'ticked' => (bool) ($r['ticked'] ?? false)];
+            }
+        }
+
+        return $out === [] ? null : $out;
     }
 
     public function workOrderShow(Request $request, int $workOrder): JsonResponse

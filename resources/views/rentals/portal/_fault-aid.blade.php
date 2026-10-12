@@ -12,8 +12,10 @@
             <p x-text="{{ $w }}.ftype ? {{ $w }}.ftype.safety_line : ''"></p>
         </div>
         <h2 class="aid-h">Try this first</h2>
+        {{-- section 22.3 - the tenant ticks what they have done: the ticks travel with the report so the agent sees "what the tenant says they checked" --}}
+        <p class="muted" style="font-size:13px;margin:0 0 6px;" x-show="{{ $w }}.ftype && {{ $w }}.ftype.steps && {{ $w }}.ftype.steps.length" data-fault-aid-tick-help>Tick each step you have done - it helps your agent.</p>
         <ol class="aid-list" x-show="{{ $w }}.ftype && {{ $w }}.ftype.steps && {{ $w }}.ftype.steps.length" data-fault-aid-steps>
-            <template x-for="(st, i) in ({{ $w }}.ftype && {{ $w }}.ftype.steps ? {{ $w }}.ftype.steps : [])" :key="i"><li x-text="st"></li></template>
+            <template x-for="(st, i) in ({{ $w }}.ftype && {{ $w }}.ftype.steps ? {{ $w }}.ftype.steps : [])" :key="i"><li><label style="display:flex;gap:8px;align-items:flex-start;margin:0;font-weight:inherit;"><input type="checkbox" style="width:auto;margin-top:3px;flex:none;" x-model="{{ $w }}.checks[i]" data-fault-aid-tick><span x-text="st"></span></label></li></template>
         </ol>
     @else
         <p class="aid-steps" x-text="{{ $w }}.ftype ? {{ $w }}.ftype.first_aid_steps : ''"></p>

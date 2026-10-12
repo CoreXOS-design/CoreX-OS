@@ -40,28 +40,6 @@ class RentalPortalNotificationService
         }
     }
 
-    /**
-     * AT-452 round 2 (item I) - the owner is INFORMED that the agent arranged a repair (inside their no-approval limit, or an emergency). The same
-     * channel and the same on/off setting as the "decision needed" notice (no new setting); the button opens THAT fault in the owner view, where the
-     * only thing they can do is ask a question ("Query this"). The completion notice with the final amount is the existing final statement.
-     */
-    public function notifyLandlordInformed(RentalFaultReport $fault): void
-    {
-        if (! RentalPortalSetting::notifyLandlordOnDecisionNeededFor($fault->agency_id)) {
-            return;
-        }
-        $lease = $fault->lease;
-        $landlords = $lease ? $lease->landlordContacts() : collect();
-        if ($landlords->isEmpty() && $fault->property) {
-            $landlords = $fault->property->contactsForRole('landlord')->merge($fault->property->contactsForRole('lessor'))->unique('id');
-        }
-        foreach ($landlords as $landlord) {
-            if ($landlord->email) {
-                Mail::to($landlord->email)->send(new \App\Mail\Rentals\RentalLandlordInformedMail($fault, $landlord->first_name ?? '', $landlord->email, $landlord));
-            }
-        }
-    }
-
     /** The steps the tenant is told about (Johan, 8 Oct 2026) - the appointment has its own mail; "work completed - please check" is the completion-check mail. */
     public const TENANT_STEPS = ['sent_to_owner', 'owner_approved', 'not_approved', 'completed'];
 

@@ -9,11 +9,16 @@
      Optional - the buttons appear ONLY when the caller supplies what they do (this partial never decides behaviour; the fault flow does):
        $inspectAttrs   = HTML attributes for the "Send <name> to inspect" button   (e.g. '@click="..."' or 'formaction="..." formmethod="post"')
        $authoriseAttrs = HTML attributes for the "Send to owner to authorise" button
-       $buttonsDisabled = Alpine expression that disables both (default: nothing chosen). --}}
+       $buttonsDisabled = Alpine expression that disables both (default: nothing chosen).
+       $inspectExtraDisabled / $authoriseExtraDisabled = Alpine expressions that disable only that button (default false).
+     A notice entry may carry `inspect_allowed: false` (section 22: the call-out fee is not covered by the owner's permission, or not known): that disables ONLY the
+     "Send <name> to inspect" button - its text then says "The owner must authorise this first." - while "Send to owner to authorise" stays available. --}}
 @php
     $inspectAttrs = $inspectAttrs ?? null;
     $authoriseAttrs = $authoriseAttrs ?? null;
     $buttonsDisabled = $buttonsDisabled ?? '!' . $model;
+    $inspectExtraDisabled = $inspectExtraDisabled ?? 'false';     // Alpine expression: a reason ONLY the inspect button is off (e.g. no permission)
+    $authoriseExtraDisabled = $authoriseExtraDisabled ?? 'false'; // ... ONLY the "to owner" button is off (e.g. already sent)
     $hasButtons = $inspectAttrs !== null && $authoriseAttrs !== null;
 @endphp
 <div x-data="{ notices: @js($notices) }" x-show="notices[String({{ $model }})]" x-cloak class="space-y-2" data-callout-block>
@@ -23,9 +28,9 @@
        x-text="notices[String({{ $model }})] && notices[String({{ $model }})].text ? notices[String({{ $model }})].text : ''"></p>
     @if($hasButtons)
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2" data-inspect-choice>
-            <button type="button" class="corex-btn-primary text-xs w-full" :disabled="{{ $buttonsDisabled }}" data-send-to-inspect {!! $inspectAttrs !!}
+            <button type="button" class="corex-btn-primary text-xs w-full" :disabled="!!({{ $buttonsDisabled }} || {{ $inspectExtraDisabled }} || (notices[String({{ $model }})] && notices[String({{ $model }})].inspect_allowed === false))" data-send-to-inspect {!! $inspectAttrs !!}
                     x-text="'Send ' + (notices[String({{ $model }})] ? notices[String({{ $model }})].name : '') + ' to inspect'"></button>
-            <button type="button" class="corex-btn-outline text-xs w-full" :disabled="{{ $buttonsDisabled }}" data-send-to-owner-to-authorise {!! $authoriseAttrs !!}>Send to owner to authorise</button>
+            <button type="button" class="corex-btn-outline text-xs w-full" :disabled="!!({{ $buttonsDisabled }} || {{ $authoriseExtraDisabled }})" data-send-to-owner-to-authorise {!! $authoriseAttrs !!}>Send to owner to authorise</button>
         </div>
     @endif
 </div>
