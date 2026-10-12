@@ -161,6 +161,8 @@ return Application::configure(basePath: dirname(__DIR__))
             // Agency Timeline public page: the 48-char token is the credential and the tick is
             // idempotent (an expired session would otherwise bounce the agency to the CoreX login).
             'agency-timeline/*/steps/*',
+            // AT-450 — a collector signing a title deed receipt from their one-time link (token is the credential, no session).
+            'title-deed-sign/*/submit',
         ]);
 
     })

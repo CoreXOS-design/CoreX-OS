@@ -26,12 +26,30 @@ class DownloadPortalPropertyImages implements ShouldQueue
      * @param int    $propertyId     CoreX property ID
      * @param int    $firstImageId   First P24 image ID (sequential)
      * @param int    $imageCount     Total number of images
+     * @param int[]  $imageIds       The gallery's real image ids in the portal's own order.
+     *                               When given they are downloaded as-is and firstImageId /
+     *                               imageCount are not used to guess ids: P24 ids are NOT
+     *                               consecutive (checked against six saved pages — gaps, a
+     *                               later image with a LOWER id, a second batch weeks later),
+     *                               so first+1, first+2 … fetched other listings' photos.
+     *                               Empty = the old sequential guess (Pull, older extension).
      */
     public function __construct(
         public int $propertyId,
         public int $firstImageId,
         public int $imageCount,
-    ) {}
+        public array $imageIds = [],
+    ) {
+        // 2026-09-30 demo-reliability fix: this job had NO queue assignment
+        // at all (defaulted to `default`), so a live import's photos could
+        // sit behind whatever else was already queued there — confirmed
+        // live: a 6-7 minute RegenerateBuyerMatchesJob blocked a real
+        // property's images for minutes on QA1. Same dedicated queue
+        // DownloadOtherAgencyStockGalleryJob already uses, which now also
+        // has its own dedicated worker (corex-qa1-queue-images.service) —
+        // never sharing a process with a long-running unrelated job again.
+        $this->onQueue('p24images');
+    }
 
     public function handle(): void
     {
@@ -40,7 +58,7 @@ class DownloadPortalPropertyImages implements ShouldQueue
             return;
         }
 
-        $total = $this->imageCount;
+        $total = ! empty($this->imageIds) ? count($this->imageIds) : $this->imageCount;
         $cacheKey = "property_pull_images:{$this->propertyId}";
         $dir = "properties/{$this->propertyId}";
 
@@ -51,7 +69,7 @@ class DownloadPortalPropertyImages implements ShouldQueue
         // Build all image URLs: sequential IDs from firstImageId
         $imageUrls = [];
         for ($i = 0; $i < $total; $i++) {
-            $imageId = $this->firstImageId + $i;
+            $imageId = ! empty($this->imageIds) ? (int) $this->imageIds[$i] : $this->firstImageId + $i;
             $imageUrls[] = "https://images.prop24.com/{$imageId}/Ensure1280x720";
         }
 
@@ -59,6 +77,20 @@ class DownloadPortalPropertyImages implements ShouldQueue
         $failed = 0;
         $contentHashes = [];
         $chunks = array_chunk($imageUrls, self::BATCH_SIZE);
+        // 2026-09-30 URGENT REGRESSION FIX (property #21098): every filename
+        // this job writes includes a fresh Str::random(8) suffix, so a
+        // second dispatch for the SAME property (a reimport, or simply this
+        // job running twice) never overwrites the first run's files —
+        // merging against $property->gallery_images_json (the DB's CURRENT
+        // value, which still has the previous run's entries) just kept
+        // appending forever. Confirmed live: 3 accumulated rounds, 69
+        // entries for a genuinely 23-photo property. Track only what THIS
+        // run has stored and REPLACE gallery_images_json with exactly that
+        // — matches the contract PropertyPullController's own reimport path
+        // already assumes ("Clear old images — the new pull will
+        // re-download them"), just enforced here in the job itself so every
+        // caller gets it, not only the one that remembered to clear first.
+        $storedThisRun = [];
 
         foreach ($chunks as $chunk) {
             $responses = Http::pool(function ($pool) use ($chunk) {
@@ -126,9 +158,9 @@ class DownloadPortalPropertyImages implements ShouldQueue
             }
 
             if (count($batchStored) > 0) {
+                $storedThisRun = array_merge($storedThisRun, $batchStored);
                 $property->refresh();
-                $existing = $property->gallery_images_json ?? [];
-                $property->gallery_images_json = array_merge($existing, $batchStored);
+                $property->gallery_images_json = $storedThisRun;
                 $property->saveQuietly();
                 // File the newly-added photos into gallery_categories_json —
                 // every writer of gallery_images_json must, or the mobile app's

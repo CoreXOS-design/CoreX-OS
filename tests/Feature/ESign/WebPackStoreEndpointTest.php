@@ -146,13 +146,13 @@ final class WebPackStoreEndpointTest extends TestCase
         $this->assertSame($before, Flow::count(), 'A refused send must not leave a half-built ceremony behind.');
     }
 
-    /** The legal refusal reaches the browser flagged as legal, so the wizard can say why. */
-    public function test_an_alienation_document_returns_the_esign_blocked_flag(): void
+    /** A sale document nobody switched e-signing on for is refused plainly — no legal wording for the agent. */
+    public function test_a_sale_document_without_esign_switched_on_is_refused_plainly(): void
     {
         $pack = WebPack::create([
             'name' => 'Bad Pack', 'agency_id' => $this->agency->id, 'created_by' => $this->user->id,
         ]);
-        $otp = $this->template('Offer to Purchase');
+        $otp = $this->template('Offer to Purchase', false);
         WebPackItem::create(['web_pack_id' => $pack->id, 'template_id' => $otp->id, 'sort_order' => 0, 'slot_type' => 'required']);
 
         $before = Flow::count();
@@ -163,7 +163,8 @@ final class WebPackStoreEndpointTest extends TestCase
             'resolved_template_ids' => null,
         ])
             ->assertStatus(422)
-            ->assertJsonPath('esign_blocked', true);
+            ->assertJsonMissingPath('esign_blocked')
+            ->assertJsonPath('error', fn ($e) => str_contains((string) $e, 'not enabled for e-signing') && ! str_contains(strtolower((string) $e), 'ecta'));
 
         $this->assertSame($before, Flow::count());
     }

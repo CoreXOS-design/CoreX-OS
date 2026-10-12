@@ -257,22 +257,24 @@ final class WebPackSlotResolutionTest extends TestCase
     }
 
     /**
-     * Hole 3 — THE LEGAL ONE. The single-template path hard-blocks alienation documents; the pack
-     * path never did. A sale e-signed under ECTA §13(1) is void, so the deal does not exist.
+     * Hole 3 — whether a document may be e-signed is the template's own setting. A sale
+     * document nobody switched e-signing on for (the default) is not sendable by e-sign; the
+     * agent is told plainly, with no legal wording (that is shown to the admin in setup only).
      */
-    public function test_an_alienation_document_in_a_pack_is_refused_as_esign_blocked(): void
+    public function test_a_sale_document_nobody_switched_on_is_not_sendable_in_a_pack(): void
     {
         $pack = $this->pack();
         $this->item($pack, $this->template('Sole Mandate'), sortOrder: 0);
-        $otp = $this->template('Offer to Purchase');   // name-regex layer blocks this
+        $otp = $this->template('Offer to Purchase', isEsign: false);
         $this->item($pack, $otp, sortOrder: 10);
 
         try {
             $this->resolver->resolve($pack, null);
-            $this->fail('A sale agreement inside a web pack must never resolve as sendable.');
+            $this->fail('A template e-signing is not switched on for must never resolve as sendable.');
         } catch (WebPackSlotException $e) {
-            $this->assertTrue($e->esignBlocked, 'The refusal must be marked as the LEGAL one, not a slot mistake.');
-            $this->assertStringContainsString('wet ink', $e->getMessage());
+            $this->assertStringContainsString('not enabled for e-signing', $e->getMessage());
+            $this->assertStringNotContainsStringIgnoringCase('ecta', $e->getMessage());
+            $this->assertStringNotContainsStringIgnoringCase('wet ink', $e->getMessage());
         }
     }
 

@@ -437,6 +437,23 @@ Route::middleware('auth')->group(function () {
 
         Route::get('/branding',        [\App\Http\Controllers\Api\V1\BrandingController::class, 'show'])->name('branding.show');
 
+        // Auctions — live bid feed (AT-432 Phase 4, .ai/specs/auctions.md
+        // §11.2/§11.4/§14.3) — THE one catalogued bid-feed route, polled by
+        // the hybrid Sale Room today and, in Phase 5, the public lot page.
+        // Registered here, not in routes/api.php: bootstrap/app.php strips
+        // Sanctum's EnsureFrontendRequestsAreStateful from the `api` group
+        // (see the syndication-panel route above), so a cookie-authed
+        // browser fetch from the Sale Room would 401 there. The URI still
+        // starts with api/, so it appears in the Admin → API catalogue
+        // (NN #7). AuctionLot's BelongsToAgency global scope enforces
+        // agency scoping on the route-model binding itself.
+        Route::get('/auctions/lots/{lot}/feed', [\App\Http\Controllers\Api\V1\Auctions\AuctionLotFeedController::class, 'show'])
+            ->middleware(['permission:access_auctions', 'agency.required', 'feature:auctions'])->name('auctions.lots.feed');
+
+        // Auctions — property typeahead for "Attach a Property" (address / title search).
+        Route::get('/auctions/{auction}/property-search', [\App\Http\Controllers\Api\V1\Auctions\AuctionPropertySearchController::class, 'index'])
+            ->middleware(['permission:auctions.create', 'agency.required', 'feature:auctions'])->name('auctions.property-search');
+
         // ── Agency Access Authorization (cross-agency consent flow) ──
         // See .ai/specs/agency-access-authorization-spec.md
         Route::prefix('agency-access')->name('agency-access.')->group(function () {
@@ -1913,6 +1930,82 @@ Route::middleware(['auth', 'permission:access_filing_register', 'feature:filing-
     Route::get('/filing-register/search/property/{property}/suggestions', [\App\Http\Controllers\DocumentFilingController::class, 'propertySuggestions'])->name('filing-register.search.property-suggestions');
 });
 
+// ===== TITLE DEED REGISTER (AT-450) — .ai/specs/title-deed-register.md =====
+// A sibling of the Filing Register. Every route resolves the deed through TitleDeed::visibleTo() (OWN / BRANCH / AGENCY) in its
+// controller; the permission here is the first gate, not the only one.
+Route::middleware(['auth', 'permission:access_title_deeds', 'feature:title-deeds'])->prefix('title-deeds')->name('title-deeds.')->group(function () {
+    $c = \App\Http\Controllers\TitleDeeds\TitleDeedController::class;
+    $h = \App\Http\Controllers\TitleDeeds\TitleDeedHandoverController::class;
+
+    Route::get('/', [$c, 'index'])->middleware('permission:title_deeds.view')->name('index');
+    Route::get('/export', [$c, 'export'])->middleware('permission:title_deeds.view')->name('export');
+    Route::get('/create', [$c, 'create'])->middleware('permission:title_deeds.create')->name('create');
+    Route::post('/', [$c, 'store'])->middleware('permission:title_deeds.create')->name('store');
+
+    // The record's own pickers (own gate: never the deal or filing endpoints).
+    Route::get('/search/properties', [$c, 'searchProperties'])->middleware('permission:title_deeds.create,title_deeds.edit')->name('search.properties');
+    Route::get('/search/property/{property}/suggestions', [$c, 'propertySuggestions'])->whereNumber('property')->middleware('permission:title_deeds.create,title_deeds.edit')->name('search.property-suggestions');
+    Route::get('/search/contacts', [$c, 'searchContacts'])->middleware('permission:title_deeds.create,title_deeds.edit')->name('search.contacts');
+    Route::get('/search/deals', [$c, 'searchDeals'])->middleware('permission:title_deeds.create')->name('search.deals');
+    Route::get('/search/deal/{deal}/prefill', [$c, 'dealPrefill'])->whereNumber('deal')->middleware('permission:title_deeds.create')->name('search.deal-prefill');
+
+    Route::get('/{id}', [$c, 'show'])->whereNumber('id')->middleware('permission:title_deeds.view')->name('show');
+    Route::get('/{id}/edit', [$c, 'edit'])->whereNumber('id')->middleware('permission:title_deeds.edit')->name('edit');
+    Route::put('/{id}', [$c, 'update'])->whereNumber('id')->middleware('permission:title_deeds.edit')->name('update');
+    Route::delete('/{id}', [$c, 'destroy'])->whereNumber('id')->middleware('permission:title_deeds.archive')->name('destroy');
+    Route::post('/{id}/restore', [$c, 'restore'])->whereNumber('id')->middleware('permission:title_deeds.archive')->name('restore');
+
+    Route::post('/{id}/scan', [$c, 'uploadScan'])->whereNumber('id')->middleware('permission:title_deeds.edit')->name('scan.upload');
+    Route::get('/{id}/scan', [$c, 'downloadScan'])->whereNumber('id')->middleware('permission:title_deeds.view')->name('scan.download');
+    Route::get('/{id}/scan/{document}', [$c, 'downloadEarlierScan'])->whereNumber(['id', 'document'])->middleware('permission:title_deeds.view')->name('scan.earlier');
+    Route::get('/{id}/receipt-file/{kind}', [$c, 'receiptFile'])->whereNumber('id')->middleware('permission:title_deeds.view')->name('receipt.file');
+
+    Route::post('/{id}/notify', [$c, 'notify'])->whereNumber('id')->middleware('permission:title_deeds.notify')->name('notify');
+    Route::post('/{id}/pin/resend', [$c, 'resendPin'])->whereNumber('id')->middleware('permission:title_deeds.notify')->name('pin.resend');
+    Route::post('/{id}/pin/new', [$c, 'newPin'])->whereNumber('id')->middleware('permission:title_deeds.notify')->name('pin.new');
+    // WhatsApp is ONE honest sequence: "Open WhatsApp and send" (records who opened it, then redirects to wa.me) -> only then
+    // "Mark as sent" or "Not sent". Confirm / not-sent are refused by the server for a message nobody opened.
+    Route::post('/{id}/events/{event}/open', [$c, 'openWhatsapp'])->whereNumber(['id', 'event'])->middleware('permission:title_deeds.notify,title_deeds.handover')->name('events.open');
+    Route::post('/{id}/events/{event}/confirm', [$c, 'confirmWhatsapp'])->whereNumber(['id', 'event'])->middleware('permission:title_deeds.notify,title_deeds.handover')->name('events.confirm');
+    Route::post('/{id}/events/{event}/not-sent', [$c, 'declineWhatsapp'])->whereNumber(['id', 'event'])->middleware('permission:title_deeds.notify,title_deeds.handover')->name('events.not-sent');
+    Route::post('/{id}/events/{event}/dismiss', [$c, 'dismissWhatsapp'])->whereNumber(['id', 'event'])->middleware('permission:title_deeds.notify,title_deeds.handover')->name('events.dismiss');
+
+    Route::get('/{id}/handover', [$h, 'show'])->whereNumber('id')->middleware('permission:title_deeds.handover')->name('handover');
+    Route::post('/{id}/handover', [$h, 'submit'])->whereNumber('id')->middleware('permission:title_deeds.handover')->name('handover.submit');
+    Route::post('/{id}/consent', [$h, 'requestConsent'])->whereNumber('id')->middleware('permission:title_deeds.handover')->name('consent.request');
+    Route::post('/{id}/consent/phone', [$h, 'phoneConsent'])->whereNumber('id')->middleware('permission:title_deeds.handover')->name('consent.phone');
+    Route::post('/{id}/consent/{consent}/cancel', [$h, 'cancelConsent'])->whereNumber(['id', 'consent'])->middleware('permission:title_deeds.handover')->name('consent.cancel');
+
+    // Sign by link (spec section 14.10): every gate is passed at the counter first; then a one-time link for the named collector.
+    Route::post('/{id}/signing-link', [$h, 'generateLink'])->whereNumber('id')->middleware('permission:title_deeds.handover')->name('signing-link.generate');
+    Route::post('/{id}/signing-link/{link}/email', [$h, 'emailLink'])->whereNumber(['id', 'link'])->middleware('permission:title_deeds.handover')->name('signing-link.email');
+    Route::post('/{id}/signing-link/{link}/whatsapp', [$h, 'whatsappLink'])->whereNumber(['id', 'link'])->middleware('permission:title_deeds.handover')->name('signing-link.whatsapp');
+    Route::post('/{id}/signing-link/{link}/cancel', [$h, 'cancelLink'])->whereNumber(['id', 'link'])->middleware('permission:title_deeds.handover')->name('signing-link.cancel');
+});
+
+// What the handover screen polls while it waits for an owner. Under /api/v1 so it is listed in the Admin API catalogue.
+Route::middleware(['auth', 'permission:title_deeds.handover', 'feature:title-deeds'])
+    ->get('/api/v1/title-deeds/{id}/consent-status', [\App\Http\Controllers\TitleDeeds\TitleDeedHandoverController::class, 'consentStatus'])
+    ->whereNumber('id')->name('api.v1.title-deeds.consent-status');
+
+Route::middleware(['auth', 'permission:title_deeds.handover', 'feature:title-deeds'])
+    ->get('/api/v1/title-deeds/{id}/signing-status', [\App\Http\Controllers\TitleDeeds\TitleDeedHandoverController::class, 'signingStatus'])
+    ->whereNumber('id')->name('api.v1.title-deeds.signing-status');
+
+// A collector's one-time signing link: public, no login, the token is the credential (hashed, single use, expiring).
+Route::prefix('title-deed-sign')->group(function () {
+    Route::get('/{token}', [\App\Http\Controllers\TitleDeeds\TitleDeedSignPublicController::class, 'show'])->middleware('throttle:60,1')->name('title-deeds.sign.show');
+    Route::post('/{token}/submit', [\App\Http\Controllers\TitleDeeds\TitleDeedSignPublicController::class, 'submit'])->middleware('throttle:10,1')->name('title-deeds.sign.submit');
+});
+
+// An owner's personal consent link: public, no login, the token is the credential (stored hashed, single use, expiring).
+Route::prefix('title-deed-consent')->group(function () {
+    Route::get('/{token}', [\App\Http\Controllers\TitleDeeds\TitleDeedConsentPublicController::class, 'show'])
+        ->middleware('throttle:30,1')->name('title-deeds.consent.show');
+    Route::post('/{token}', [\App\Http\Controllers\TitleDeeds\TitleDeedConsentPublicController::class, 'respond'])
+        ->middleware('throttle:10,1')->name('title-deeds.consent.respond');
+});
+
 // ===== NEXUS OS ROUTES =====
 use App\Http\Controllers\CoreX\PlaceholderController as CoreXPlaceholderController;
 use App\Http\Controllers\CommandCenter\DashboardController as CommandCenterDashboardController;
@@ -2478,21 +2571,23 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('deny_assistant')->name('revenue-share.calculator');
 
     // ── Training (LMS) ──
-    Route::get('/training', [\App\Http\Controllers\Training\TrainingController::class, 'index'])->name('training.index');
-    Route::get('/training/manage', [\App\Http\Controllers\Training\TrainingController::class, 'manage'])->name('training.manage');
-    Route::get('/training/manage/create', [\App\Http\Controllers\Training\TrainingController::class, 'createCourse'])->name('training.create-course');
-    Route::post('/training/manage', [\App\Http\Controllers\Training\TrainingController::class, 'storeCourse'])->name('training.store-course');
-    Route::get('/training/manage/{course}/edit', [\App\Http\Controllers\Training\TrainingController::class, 'editCourse'])->name('training.edit-course');
-    Route::put('/training/manage/{course}', [\App\Http\Controllers\Training\TrainingController::class, 'updateCourse'])->name('training.update-course');
-    Route::get('/training/manage/{course}/lessons/create', [\App\Http\Controllers\Training\TrainingController::class, 'createLesson'])->name('training.create-lesson');
-    Route::post('/training/manage/{course}/lessons', [\App\Http\Controllers\Training\TrainingController::class, 'storeLesson'])->name('training.store-lesson');
-    Route::get('/training/manage/lessons/{lesson}/edit', [\App\Http\Controllers\Training\TrainingController::class, 'editLesson'])->name('training.edit-lesson');
-    Route::put('/training/manage/lessons/{lesson}', [\App\Http\Controllers\Training\TrainingController::class, 'updateLesson'])->name('training.update-lesson');
-    Route::get('/training/{course}', [\App\Http\Controllers\Training\TrainingController::class, 'show'])->name('training.show');
-    Route::get('/training/lesson/{lesson}/document', [\App\Http\Controllers\Training\TrainingController::class, 'downloadLessonDocument'])->name('training.lesson-document');
-    Route::post('/training/lesson/{lesson}/start', [\App\Http\Controllers\Training\TrainingController::class, 'startLesson'])->name('training.start-lesson');
-    Route::post('/training/lesson/{lesson}/complete', [\App\Http\Controllers\Training\TrainingController::class, 'completeLesson'])->name('training.complete-lesson');
-    Route::post('/training/{course}/acknowledge', [\App\Http\Controllers\Training\TrainingController::class, 'acknowledgeCourse'])->name('training.acknowledge');
+    Route::middleware('feature:training')->group(function () {
+        Route::get('/training', [\App\Http\Controllers\Training\TrainingController::class, 'index'])->name('training.index');
+        Route::get('/training/manage', [\App\Http\Controllers\Training\TrainingController::class, 'manage'])->name('training.manage');
+        Route::get('/training/manage/create', [\App\Http\Controllers\Training\TrainingController::class, 'createCourse'])->name('training.create-course');
+        Route::post('/training/manage', [\App\Http\Controllers\Training\TrainingController::class, 'storeCourse'])->name('training.store-course');
+        Route::get('/training/manage/{course}/edit', [\App\Http\Controllers\Training\TrainingController::class, 'editCourse'])->name('training.edit-course');
+        Route::put('/training/manage/{course}', [\App\Http\Controllers\Training\TrainingController::class, 'updateCourse'])->name('training.update-course');
+        Route::get('/training/manage/{course}/lessons/create', [\App\Http\Controllers\Training\TrainingController::class, 'createLesson'])->name('training.create-lesson');
+        Route::post('/training/manage/{course}/lessons', [\App\Http\Controllers\Training\TrainingController::class, 'storeLesson'])->name('training.store-lesson');
+        Route::get('/training/manage/lessons/{lesson}/edit', [\App\Http\Controllers\Training\TrainingController::class, 'editLesson'])->name('training.edit-lesson');
+        Route::put('/training/manage/lessons/{lesson}', [\App\Http\Controllers\Training\TrainingController::class, 'updateLesson'])->name('training.update-lesson');
+        Route::get('/training/{course}', [\App\Http\Controllers\Training\TrainingController::class, 'show'])->name('training.show');
+        Route::get('/training/lesson/{lesson}/document', [\App\Http\Controllers\Training\TrainingController::class, 'downloadLessonDocument'])->name('training.lesson-document');
+        Route::post('/training/lesson/{lesson}/start', [\App\Http\Controllers\Training\TrainingController::class, 'startLesson'])->name('training.start-lesson');
+        Route::post('/training/lesson/{lesson}/complete', [\App\Http\Controllers\Training\TrainingController::class, 'completeLesson'])->name('training.complete-lesson');
+        Route::post('/training/{course}/acknowledge', [\App\Http\Controllers\Training\TrainingController::class, 'acknowledgeCourse'])->name('training.acknowledge');
+    });
 
     // ── Training Help (in-app training docs) ──
     Route::prefix('training-help')->middleware('feature:training')->name('training-help.')->group(function () {
@@ -2632,6 +2727,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/', [\App\Http\Controllers\Compliance\FicaController::class, 'store'])->name('store');
     });
 
+    // Quick Links W1 (Johan 2026-10-12, quick-links.md §8-1): whoever may SEND a FICA form may also RESEND one, so an agent is
+    // not blind after sending. Compliance staff keep it via access_compliance. FicaController@resend still applies
+    // authorizeAgency() — own/branch/agency scope — so a sender can only resend within their own visibility.
+    Route::middleware(['permission:compliance.fica.send,access_compliance', 'agency.required', 'feature:compliance'])->prefix('compliance/fica')->name('compliance.fica.')->group(function () {
+        Route::post('/{submission}/resend', [\App\Http\Controllers\Compliance\FicaController::class, 'resend'])->name('resend');
+    });
+
     Route::middleware(['permission:access_compliance', 'agency.required', 'feature:compliance'])->prefix('compliance/fica')->name('compliance.fica.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\FicaController::class, 'index'])->name('index');
         Route::get('/create', [\App\Http\Controllers\Compliance\FicaController::class, 'create'])->name('create');
@@ -2658,7 +2760,6 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{submission}/return-to-referrer', [\App\Http\Controllers\Compliance\FicaController::class, 'returnToReferrer'])->name('return-to-referrer');
         Route::post('/{submission}/reject', [\App\Http\Controllers\Compliance\FicaController::class, 'reject'])->name('reject');
         Route::post('/{submission}/request-corrections', [\App\Http\Controllers\Compliance\FicaController::class, 'requestCorrections'])->name('request-corrections');
-        Route::post('/{submission}/resend', [\App\Http\Controllers\Compliance\FicaController::class, 'resend'])->name('resend');
         Route::post('/{submission}/cancel', [\App\Http\Controllers\Compliance\FicaController::class, 'cancel'])->name('cancel');
         Route::post('/{submission}/resubmit-corrections', [\App\Http\Controllers\Compliance\FicaController::class, 'resubmitCorrections'])->name('resubmit-corrections');
         Route::post('/{submission}/reopen', [\App\Http\Controllers\Compliance\FicaController::class, 'reopenRejected'])->name('reopen');
@@ -3046,6 +3147,20 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.edit');
     Route::post('/settings/rental-applications', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'update'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.update');
+    // AT-450 — Title Deed Register settings (also saved by the Setup Wizard through the same saver).
+    Route::get('/settings/title-deeds', [\App\Http\Controllers\TitleDeeds\TitleDeedSettingsController::class, 'edit'])
+        ->middleware(['permission:title_deeds.manage_settings', 'agency.required'])->name('corex.settings.title-deeds.edit');
+    Route::post('/settings/title-deeds', [\App\Http\Controllers\TitleDeeds\TitleDeedSettingsController::class, 'update'])
+        ->middleware(['permission:title_deeds.manage_settings', 'agency.required'])->name('corex.settings.title-deeds.update');
+    // AT-450 round 2 - the agency's own list of title deed storage locations (full CRUD, soft delete only).
+    Route::prefix('/settings/title-deeds/locations')->middleware(['permission:title_deeds.manage_settings', 'agency.required'])->group(function () {
+        $l = \App\Http\Controllers\TitleDeeds\TitleDeedLocationController::class;
+        Route::get('/', [$l, 'index'])->name('corex.settings.title-deeds.locations');
+        Route::post('/', [$l, 'store'])->name('corex.settings.title-deeds.locations.store');
+        Route::put('/{id}', [$l, 'update'])->whereNumber('id')->name('corex.settings.title-deeds.locations.update');
+        Route::delete('/{id}', [$l, 'destroy'])->whereNumber('id')->name('corex.settings.title-deeds.locations.destroy');
+        Route::post('/{id}/restore', [$l, 'restore'])->whereNumber('id')->name('corex.settings.title-deeds.locations.restore');
+    });
     // .ai/specs/leases.md §5.2 — expiry-notice window, agency-configurable, default 60 days.
     Route::get('/settings/leases', [\App\Http\Controllers\CoreX\LeaseSettingsController::class, 'edit'])
         ->middleware('permission:leases.manage_settings')->name('corex.settings.leases.edit');
@@ -3270,7 +3385,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/syndication-portals', [CoreXSettingsController::class, 'updateSyndicationPortals'])->middleware('permission:access_settings')->name('corex.settings.syndication-portals');
     // AT-448 — Mandate Expiry (warn-days + expiry lock). Spec: at448-property-expiry.md §5.1.
     Route::post('/settings/mandate-expiry', [CoreXSettingsController::class, 'updateMandateExpiry'])->middleware('permission:access_settings')->name('corex.settings.mandate-expiry');
-    // Feature Registry — Settings → Features (module on/off). Spec: corex-feature-registry.md §6.4.
+    // Feature Registry — the Features page (module on/off), its own page since 2026-10-12. Specs: features-page.md,
+    // corex-feature-registry.md §6.4. The saver keeps its original route name/URL (the wizard and tests use it).
+    Route::get('/features', [\App\Http\Controllers\CoreX\FeaturePageController::class, 'index'])->middleware(['permission:agency_features.manage', 'agency.required'])->name('corex.features.index');
     Route::post('/settings/features', [\App\Http\Controllers\CoreX\FeatureSettingsController::class, 'update'])->middleware('permission:agency_features.manage')->name('corex.settings.features.update');
     // AT-392 authoriser flow, 2026-09-08 — RO/CO decision actions. A
     // separate prefix/controller, gated on RO/CO tier membership
@@ -4002,6 +4119,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:manage_compliance_officer')->name('corex.settings.fica-officers.mlros');
     Route::post('/settings/fica-officers/{appointment}/end', [\App\Http\Controllers\Compliance\FicaOfficerAppointmentsController::class, 'endAppointment'])
         ->middleware('permission:manage_compliance_officer')->name('corex.settings.fica-officers.end');
+    // Quick Links W1 — FICA request link life + "expiring" threshold (agency settings; also in the Setup Wizard's Compliance step).
+    Route::post('/settings/fica-request', [\App\Http\Controllers\Compliance\FicaOfficerAppointmentsController::class, 'saveRequestSettings'])
+        ->middleware('permission:manage_compliance_officer')->name('corex.settings.fica-request.save');
     Route::post('/settings/fica-referral', [\App\Http\Controllers\Compliance\FicaOfficerAppointmentsController::class, 'saveReferralSettings'])
         ->middleware('permission:manage_compliance_officer')->name('corex.settings.fica-referral.save');
 
@@ -4017,6 +4137,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Split Branches toggle (Agency Settings tab)
     Route::put('/settings/agency/split-branches', [CoreXSettingsController::class, 'updateSplitBranches'])
         ->middleware('permission:manage_performance_settings')->name('corex.settings.split-branches');
+
+    // Other Agency Stock — role visibility + consent wording (.ai/specs/other-agency-stock.md §6/§3a)
+    Route::put('/settings/agency/other-agency-stock', [CoreXSettingsController::class, 'updateOtherAgencyStock'])
+        ->middleware('permission:manage_performance_settings')->name('corex.settings.other-agency-stock');
 
     // AI background removal (agent photos) toggle (Feature Settings → Properties tab) — ad-manager.md §15.2
     Route::put('/settings/agency/ad-bg-removal-api', [CoreXSettingsController::class, 'updateAdBgRemovalApiEnabled'])
@@ -4808,6 +4932,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/contacts/create-link', [\App\Http\Controllers\CoreX\PropertyContactController::class, 'createAndLink'])->name('contacts.createAndLink');
         Route::put('/{property}/contacts/{contact}/role', [\App\Http\Controllers\CoreX\PropertyContactController::class, 'updateRole'])->name('contacts.updateRole');
         Route::delete('/{property}/contacts/{contact}', [\App\Http\Controllers\CoreX\PropertyContactController::class, 'unlink'])->name('contacts.unlink');
+        // Other Agency Stock — request/approve/decline/re-lock (.ai/specs/other-agency-stock.md §8a)
+        Route::post('/{property}/other-agency-stock/request-edit', [\App\Http\Controllers\CoreX\OtherAgencyStockUnlockController::class, 'request'])->name('other-agency-stock.request');
+        Route::post('/{property}/other-agency-stock/unlocks/{unlock}/decide', [\App\Http\Controllers\CoreX\OtherAgencyStockUnlockController::class, 'decide'])->name('other-agency-stock.decide');
+        Route::post('/{property}/other-agency-stock/relock', [\App\Http\Controllers\CoreX\OtherAgencyStockUnlockController::class, 'relock'])->name('other-agency-stock.relock');
         // Marketing
         Route::get('/{property}/marketing',              [\App\Http\Controllers\PropertyMarketingController::class, 'index'])->name('marketing.index');
         Route::post('/{property}/marketing/generate-copy', [\App\Http\Controllers\PropertyMarketingController::class, 'generateCopy'])->name('marketing.generateCopy');
@@ -4868,6 +4996,93 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware(['permission:access_properties', 'agency.required'])
         ->name('corex.rentals.properties.index');
 
+    // AT-432 (.ai/specs/auctions.md §7 screen 1, §8.2) — Auctions → Properties.
+    // Same PropertyController::index() as corex.properties.index, detected by
+    // route NAME, forcing sale_method='auction' after the query string is
+    // read — the exact AT-401 lens mechanism above, on the OTHER axis
+    // (sale_method, not listing_type) per §2's governing rule.
+    Route::get('/auctions/properties', [\App\Http\Controllers\CoreX\PropertyController::class, 'index'])
+        ->middleware(['permission:access_properties', 'agency.required', 'feature:auctions'])
+        ->name('corex.auctions.properties.index');
+
+    // AT-432 — Auction Diary, the catalogue builder, and lot-level actions.
+    // §21 Phase 1 scope only: no bidder/bid routes yet (Phase 2/3).
+    Route::prefix('auctions')->middleware(['permission:access_auctions', 'agency.required', 'feature:auctions'])->name('corex.auctions.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'index'])->name('index');
+        Route::get('/create', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'create'])->middleware('permission:auctions.create')->name('create');
+        Route::post('/', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'store'])->middleware('permission:auctions.create')->name('store');
+
+        // AT-432 Phase 3 (.ai/specs/auctions.md §7 screen 8, §8.4) — Results.
+        // MUST be registered before the '/{auction}' wildcard below — Laravel
+        // matches routes in registration order, so '/results' would otherwise
+        // be swallowed by '/{auction}' (confirmed: it resolved to
+        // corex.auctions.show with $auction bound to the literal string
+        // "results" until this was moved above the wildcard).
+        Route::get('/results', [\App\Http\Controllers\CoreX\Auctions\AuctionResultController::class, 'index'])->middleware('permission:auctions.results.view')->name('results');
+        Route::get('/results/export', [\App\Http\Controllers\CoreX\Auctions\AuctionResultController::class, 'export'])->middleware('permission:auctions.results.export')->name('results.export');
+
+        Route::get('/{auction}', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'show'])->name('show');
+        Route::get('/{auction}/documents/{kind}', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'document'])->whereIn('kind', ['rules', 'conditions'])->middleware('permission:auctions.view')->name('document');
+        Route::get('/{auction}/edit', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'edit'])->middleware('permission:auctions.edit')->name('edit');
+        Route::put('/{auction}', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'update'])->middleware('permission:auctions.edit')->name('update');
+        Route::delete('/{auction}', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'archive'])->middleware('permission:auctions.archive')->name('archive');
+        Route::post('/{auction}/restore', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'restore'])->middleware('permission:auctions.archive')->name('restore');
+        Route::post('/{auction}/lots', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'addLot'])->middleware('permission:auctions.create')->name('lots.add');
+        Route::delete('/{auction}/lots/{lot}', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'removeLot'])->middleware('permission:auctions.edit')->name('lots.remove');
+        Route::post('/{auction}/publish', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'publish'])->middleware('permission:auctions.publish')->name('publish');
+
+        Route::get('/lots/{lot}', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'show'])->name('lots.show');
+        Route::put('/lots/{lot}/prices', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'updatePrices'])->middleware('permission:auctions.edit')->name('lots.prices.update');
+        Route::post('/lots/{lot}/open-for-bids', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'openForBids'])->middleware('permission:auctions.edit')->name('lots.open');
+        Route::post('/lots/{lot}/start-hammer', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'startHammer'])->middleware('permission:auctions.hammer')->name('lots.hammer.start');
+        Route::post('/lots/{lot}/record-hammer', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'recordHammer'])->middleware('permission:auctions.hammer')->name('lots.hammer.record');
+        Route::post('/lots/{lot}/record-result', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'recordResult'])->middleware('permission:auctions.edit')->name('lots.record-result');
+        Route::post('/lots/{lot}/confirm', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'confirm'])->middleware('permission:auctions.edit')->name('lots.confirm');
+        Route::post('/lots/{lot}/decline', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'decline'])->middleware('permission:auctions.edit')->name('lots.decline');
+        Route::post('/lots/{lot}/passed-in', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'passedIn'])->middleware('permission:auctions.edit')->name('lots.passed-in');
+        Route::post('/lots/{lot}/withdraw', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'withdraw'])->middleware('permission:auctions.edit')->name('lots.withdraw');
+        // AT-432 Phase 3 (.ai/specs/auctions.md §12.2) — manual retry for CreateDealOnLotSold.
+        Route::post('/lots/{lot}/open-deal', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'openDeal'])->middleware('permission:auctions.edit')->name('lots.open-deal');
+
+        // AT-432 Phase 5 (.ai/specs/auctions.md §5.6) — viewing windows.
+        Route::post('/lots/{lot}/viewings', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'addViewing'])->middleware('permission:auctions.edit')->name('lots.viewings.store');
+        Route::delete('/lots/{lot}/viewings/{viewing}', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'removeViewing'])->middleware('permission:auctions.edit')->name('lots.viewings.destroy');
+
+        // AT-432 Phase 2 (.ai/specs/auctions.md §7 screens 5-6, §10.2) — the
+        // Bidder Register and staff-side registration/approval. The register
+        // is always OF an auction (§8.3), so it's nested under {auction}.
+        Route::prefix('{auction}/bidders')->middleware(['permission:auctions.bidders.view', \App\Http\Middleware\EnsureAuctionRunMode::class])->name('bidders.')->group(function () {
+            Route::get('/', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'index'])->name('index');
+            Route::get('/create', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'create'])->middleware('permission:auctions.bidders.approve')->name('create');
+            Route::post('/', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'store'])->middleware('permission:auctions.bidders.approve')->name('store');
+        });
+        Route::get('/bidders/{bidder}', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'show'])->middleware(['permission:auctions.bidders.view', \App\Http\Middleware\EnsureAuctionRunMode::class])->name('bidders.show');
+        Route::post('/bidders/{bidder}/verify-fica', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'verifyFica'])->middleware(['permission:auctions.bidders.verify_fica', \App\Http\Middleware\EnsureAuctionRunMode::class])->name('bidders.verify-fica');
+        Route::post('/bidders/{bidder}/deposit', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'recordDeposit'])->middleware(['permission:auctions.bidders.deposits', \App\Http\Middleware\EnsureAuctionRunMode::class])->name('bidders.deposit');
+        Route::post('/bidders/{bidder}/deposit/refund', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'refundDeposit'])->middleware(['permission:auctions.bidders.deposits', \App\Http\Middleware\EnsureAuctionRunMode::class])->name('bidders.deposit.refund');
+        Route::post('/bidders/{bidder}/rules-signed', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'markRulesSigned'])->middleware(['permission:auctions.bidders.approve', \App\Http\Middleware\EnsureAuctionRunMode::class])->name('bidders.rules-signed');
+        Route::post('/bidders/{bidder}/approve', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'approve'])->middleware(['permission:auctions.bidders.approve', \App\Http\Middleware\EnsureAuctionRunMode::class])->name('bidders.approve');
+        Route::post('/bidders/{bidder}/decline', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'decline'])->middleware(['permission:auctions.bidders.approve', \App\Http\Middleware\EnsureAuctionRunMode::class])->name('bidders.decline');
+        Route::post('/bidders/{bidder}/withdraw', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'withdraw'])->middleware(['permission:auctions.bidders.approve', \App\Http\Middleware\EnsureAuctionRunMode::class])->name('bidders.withdraw');
+
+        // AT-432 Phase 3 (.ai/specs/auctions.md §7 screen 7, §11.1) — the Sale Room.
+        Route::prefix('{auction}/room')->middleware(['permission:auctions.room.operate', \App\Http\Middleware\EnsureAuctionRunMode::class])->name('room.')->group(function () {
+            Route::get('/', [\App\Http\Controllers\CoreX\Auctions\SaleRoomController::class, 'show'])->name('show');
+            Route::post('/lots/{lot}/open', [\App\Http\Controllers\CoreX\Auctions\SaleRoomController::class, 'openForBids'])->name('open');
+            Route::post('/lots/{lot}/hammer/start', [\App\Http\Controllers\CoreX\Auctions\SaleRoomController::class, 'startHammer'])->name('hammer.start');
+            Route::post('/lots/{lot}/bid', [\App\Http\Controllers\CoreX\Auctions\SaleRoomController::class, 'placeBid'])->middleware('permission:auctions.bid.record')->name('bid');
+            Route::post('/lots/{lot}/bid/retract', [\App\Http\Controllers\CoreX\Auctions\SaleRoomController::class, 'retractBid'])->middleware('permission:auctions.bid.retract')->name('bid.retract');
+            Route::post('/lots/{lot}/hammer/knock-down', [\App\Http\Controllers\CoreX\Auctions\SaleRoomController::class, 'knockDown'])->middleware('permission:auctions.hammer')->name('hammer.knock-down');
+            Route::post('/lots/{lot}/hammer/pass-in', [\App\Http\Controllers\CoreX\Auctions\SaleRoomController::class, 'passIn'])->middleware('permission:auctions.hammer')->name('hammer.pass-in');
+        });
+    });
+
+    // AT-432 (.ai/specs/auctions.md §7 screen 13) — Settings → Auctions.
+    Route::prefix('settings/auctions')->middleware(['permission:auctions.manage_settings', 'agency.required', 'feature:auctions'])->name('corex.settings.auctions.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\Auctions\AuctionSettingsController::class, 'show'])->name('show');
+        Route::post('/', [\App\Http\Controllers\CoreX\Auctions\AuctionSettingsController::class, 'update'])->name('update');
+    });
+
     // AT-401 — Rentals → Rental Pipeline. Same BuyerPipelineController::index()
     // as command-center.buyers.pipeline, detected by route name, forcing
     // lead_type='rental' after the query string is read — same lock
@@ -4917,7 +5132,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // Core Matches (top-level index)
     Route::get('/core-matches', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'index'])
-        ->middleware('permission:access_contacts')
+        ->middleware(['permission:access_contacts', 'feature:core-matches'])
         ->name('corex.core-matches.index');
 
     // Core Matches — All View (agency / branch oversight for managers & admins)
@@ -5603,6 +5818,7 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::put('/settings/types/{id}', [\App\Http\Controllers\Docuperfect\DocumentTypeController::class, 'update'])->name('docuperfect.settings.types.update');
     Route::delete('/settings/types/{id}', [\App\Http\Controllers\Docuperfect\DocumentTypeController::class, 'destroy'])->name('docuperfect.settings.types.destroy');
     Route::post('/settings/types/{type}/restore', [\App\Http\Controllers\Docuperfect\DocumentTypeController::class, 'restore'])->name('docuperfect.settings.types.restore')->withTrashed();
+    Route::post('/settings/types/{id}/esign-warning', [\App\Http\Controllers\Docuperfect\DocumentTypeController::class, 'setEsignWarning'])->name('docuperfect.settings.types.esign-warning');
     Route::post('/settings/types/reorder', [\App\Http\Controllers\Docuperfect\DocumentTypeController::class, 'reorder'])->name('docuperfect.settings.types.reorder');
 
     // Named Fields settings (admin)
@@ -6066,6 +6282,33 @@ Route::prefix('rental-inspection-report')->group(function () {
 Route::prefix('rental-inventory-report')->group(function () {
     Route::get('/{token}', [\App\Http\Controllers\RentalInventoryPublicController::class, 'show'])
         ->middleware('throttle:rental-inventory-public-show')->name('rental-inventories.public.show');
+});
+
+// ===== AT-432 AUCTION BIDDER REGISTRATION (public, no auth) =====
+// .ai/specs/auctions.md §10.1/§14.4 — "Register to Bid as a real online
+// flow, not a phone number." No token: this is a fresh public form keyed
+// by the auction's own id (already public once its catalogue is
+// published — see Auction::isCataloguePublished()), not a per-recipient
+// prefilled link like rental-application above, so there's nothing to
+// protect by obscurity — only the submit action is throttled.
+Route::prefix('register-to-bid')->group(function () {
+    Route::get('/{auction}', [\App\Http\Controllers\Public\AuctionRegistrationController::class, 'show'])->name('public.auctions.register.show');
+    Route::post('/{auction}', [\App\Http\Controllers\Public\AuctionRegistrationController::class, 'store'])->middleware('throttle:auction-registration-submit')->name('public.auctions.register.store');
+    Route::get('/{auction}/thanks', [\App\Http\Controllers\Public\AuctionRegistrationController::class, 'thanks'])->name('public.auctions.register.thanks');
+});
+
+// ===== AT-432 PUBLIC AUCTION ADVERT (no auth) =====
+// .ai/specs/auctions-advertising-mode.md §4 — the public page for a published
+// auction catalogue, each lot, the Rules/Conditions PDFs, and the enquiry form.
+// Keyed by the auction's id like register-to-bid above (public once published);
+// every action is throttled. The enquiry limit carries its own counter name —
+// unnamed, it shares one counter with the page views above it and a buyer who
+// browses a few lots is refused when they enquire.
+Route::prefix('auction-catalogue')->middleware('throttle:60,1')->group(function () {
+    Route::get('/{auction}', [\App\Http\Controllers\Public\AuctionPublicController::class, 'show'])->name('public.auctions.show');
+    Route::get('/{auction}/lots/{lot}', [\App\Http\Controllers\Public\AuctionPublicController::class, 'lotPage'])->name('public.auctions.lot');
+    Route::get('/{auction}/documents/{kind}', [\App\Http\Controllers\Public\AuctionPublicController::class, 'document'])->name('public.auctions.document');
+    Route::post('/{auction}/lots/{lot}/enquire', [\App\Http\Controllers\Public\AuctionPublicController::class, 'enquire'])->middleware('throttle:10,1,auction-enquiry')->name('public.auctions.enquire');
 });
 
 // ===== SALES DOCUMENT RETURN (public, no auth, token-based) =====
@@ -6587,7 +6830,8 @@ Route::prefix('fica')->middleware('throttle:30,1')->group(function () {
 
 // Portal capture ingest endpoint (outside presentation prefix — extension posts here)
 // Uses auth.portal_capture: session auth OR bearer token (for Chrome extension)
-Route::middleware(['auth.portal_capture'])->post('/portal-captures/ingest', [\App\Http\Controllers\Presentation\PortalCaptureController::class, 'ingest'])
+// AT-449 audit: same permission + feature as the presentation Portal Captures screens it feeds.
+Route::middleware(['auth.portal_capture', 'permission:access_presentations', 'feature:presentations'])->post('/portal-captures/ingest', [\App\Http\Controllers\Presentation\PortalCaptureController::class, 'ingest'])
     ->name('portal-captures.ingest');
 
 // WhatsApp capture ingest (AT-34). Per-device Bearer token (auth.wa_capture).

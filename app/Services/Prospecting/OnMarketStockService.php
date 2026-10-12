@@ -402,6 +402,7 @@ class OnMarketStockService
         if (!array_key_exists($agencyId, self::$suburbCountCache)) {
             self::$suburbCountCache[$agencyId] = Property::withoutGlobalScopes()
                 ->onMarket()
+                ->ownStock() // AT-453 — another agency's listing is not "in stock" for us
                 ->where('agency_id', $agencyId)
                 ->whereNull('deleted_at')
                 ->whereNotNull('suburb')
@@ -425,6 +426,7 @@ class OnMarketStockService
     {
         return Property::withoutGlobalScopes()
             ->onMarket()
+            ->ownStock() // AT-453 — another agency's listing is not "in stock" for us
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
             ->when(

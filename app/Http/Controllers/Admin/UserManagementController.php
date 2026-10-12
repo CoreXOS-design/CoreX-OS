@@ -85,7 +85,7 @@ class UserManagementController extends Controller
         // AT-422 (Ledger) — the two columns the table adds: one grouped query each, never one
         // per row. Listings = the agent's ON-MARKET properties; last seen = latest login.
         $userIds = $users->pluck('id');
-        $listingCounts = \App\Models\Property::query()->onMarket()
+        $listingCounts = \App\Models\Property::query()->onMarket()->ownStock() // AT-453 — not another agency's listing
             ->whereIn('agent_id', $userIds)
             ->selectRaw('agent_id, COUNT(*) as c')->groupBy('agent_id')
             ->pluck('c', 'agent_id');

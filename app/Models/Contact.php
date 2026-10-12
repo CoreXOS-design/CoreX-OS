@@ -441,7 +441,7 @@ class Contact extends Model
 
         if ($approvedSubmission) {
             $verifiedAt = $approvedSubmission->verified_at;
-            if ($verifiedAt && $verifiedAt->diffInMonths(now()) >= 11) {
+            if ($verifiedAt && $verifiedAt->diffInMonths(now()) >= \App\Models\Agency::ficaExpiringMonthsFor($this->agency_id)) {
                 return 'expiring';
             }
             return 'complete';
@@ -455,12 +455,105 @@ class Contact extends Model
         $latest = $ficaDocs->sortByDesc('pivot.signed_at')->first();
         if ($latest && $latest->pivot->signed_at) {
             $signedAt = \Carbon\Carbon::parse($latest->pivot->signed_at);
-            if ($signedAt->diffInMonths(now()) >= 11) {
+            if ($signedAt->diffInMonths(now()) >= \App\Models\Agency::ficaExpiringMonthsFor($this->agency_id)) {
                 return 'expiring';
             }
             return 'complete';
         }
         return 'complete';
+    }
+
+    /** Quick Links W2 — the buyer pre-approval chip (pure; the row already holds amount + expiry). */
+    public function preapprovalQuickState(): array
+    {
+        return \App\Support\QuickLinks\PreapprovalState::resolve($this->preapproval_amount, $this->preapproval_expires_at);
+    }
+
+    /**
+     * Quick Links W1 (.ai/specs/quick-links.md §4) — the contact's FICA chip: where it stands and what the agent can do next.
+     * Same rules the contact list uses (App\Support\Compliance\FicaQuickState); ficaStatus() above is unchanged.
+     *
+     * @param \Illuminate\Support\Collection|null $submissions pre-loaded submissions, newest first (list pages batch-load)
+     * @param \Carbon\CarbonInterface|null|false   $legacySignedAt pre-loaded latest legacy signed date; false = look it up
+     */
+    public function ficaQuickState(?\Illuminate\Support\Collection $submissions = null, $legacySignedAt = false): array
+    {
+        // The contact page asks three times (header pill, Quick Links menu, FICA tab) — answer from one lookup per request.
+        $memoable = $submissions === null && $legacySignedAt === false;
+        if ($memoable && $this->ficaQuickStateMemo !== null) {
+            return $this->ficaQuickStateMemo;
+        }
+
+        $submissions ??= $this->relationLoaded('ficaSubmissions') ? $this->ficaSubmissions : $this->ficaSubmissions()->get();
+
+        if ($legacySignedAt === false) {
+            $latest = $submissions->contains('status', 'approved') ? null : $this->ficaDocuments()->get()->sortByDesc('pivot.signed_at')->first();
+            $legacySignedAt = $latest?->pivot?->signed_at ? \Carbon\Carbon::parse($latest->pivot->signed_at) : null;
+        }
+
+        $state = \App\Support\Compliance\FicaQuickState::resolve(
+            $submissions,
+            $legacySignedAt,
+            \App\Models\Agency::ficaExpiringMonthsFor($this->agency_id),
+        );
+
+        if ($memoable) {
+            $this->ficaQuickStateMemo = $state;
+        }
+
+        return $state;
+    }
+
+    /** Per-instance, per-request memo for ficaQuickState() — never persisted. */
+    private ?array $ficaQuickStateMemo = null;
+
+    /**
+     * Quick Links W1 — the FICA chip state for a whole page of contacts in TWO queries (not 2 per row). Same rules as
+     * ficaQuickState() (both go through App\Support\Compliance\FicaQuickState). Returns [contact_id => state].
+     *
+     * @param iterable<Contact> $contacts
+     */
+    public static function ficaQuickStatesFor(iterable $contacts): array
+    {
+        $contacts = collect($contacts)->values();
+        $ids = $contacts->pluck('id')->all();
+        if ($ids === []) {
+            return [];
+        }
+
+        $subs = \App\Models\FicaSubmission::whereIn('contact_id', $ids)
+            ->orderByDesc('id')
+            ->get(['id', 'contact_id', 'status', 'created_at', 'updated_at', 'verified_at', 'token_expires_at'])
+            ->groupBy('contact_id');
+
+        // Legacy e-sign FICA: latest signed date per contact, only for contacts with no approved submission (same as ficaStatus()).
+        $needLegacy = collect($ids)->reject(fn ($id) => ($subs[$id] ?? collect())->contains('status', 'approved'))->all();
+        $legacy = [];
+        if ($needLegacy !== []) {
+            $docModel = new \App\Models\Docuperfect\Document();
+            $q = \Illuminate\Support\Facades\DB::table('document_contact')
+                ->join($docModel->getTable() . ' as d', 'd.id', '=', 'document_contact.document_id')
+                ->whereIn('document_contact.contact_id', $needLegacy)
+                ->where('document_contact.document_type', 'fica')
+                ->where('document_contact.is_signed', true);
+            if (in_array(\Illuminate\Database\Eloquent\SoftDeletes::class, class_uses_recursive($docModel), true)) {
+                $q->whereNull('d.deleted_at');
+            }
+            foreach ($q->groupBy('document_contact.contact_id')->selectRaw('document_contact.contact_id as cid, MAX(document_contact.signed_at) as signed_at')->get() as $row) {
+                $legacy[$row->cid] = $row->signed_at ? \Carbon\Carbon::parse($row->signed_at) : null;
+            }
+        }
+
+        $out = [];
+        foreach ($contacts as $c) {
+            $out[$c->id] = \App\Support\Compliance\FicaQuickState::resolve(
+                $subs[$c->id] ?? collect(),
+                $legacy[$c->id] ?? null,
+                \App\Models\Agency::ficaExpiringMonthsFor($c->agency_id),
+            );
+        }
+
+        return $out;
     }
 
     public function matches(): HasMany

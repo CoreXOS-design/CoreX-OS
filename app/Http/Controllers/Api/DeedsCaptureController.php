@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AgentActivityEvent;
 use App\Models\Contact;
 use App\Models\Prospecting\TrackedProperty;
 use App\Models\Prospecting\TrackedPropertyOwner;
@@ -158,6 +159,301 @@ final class DeedsCaptureController extends Controller
         }
 
         return response()->json(['ok' => true, 'results' => $results]);
+    }
+
+    /**
+     * Deeds-capture pre-check (.ai/specs/deeds-capture.md §9) — called by the
+     * CMA Info content script BEFORE it reveals any owner ID (the R3-per-ID
+     * paid step on CMA Info's own side), using only what's free on the panel:
+     * the Property Information fields, plus owner NAME(s) (never masked —
+     * only Owner's ID is). Side-effect-free: wraps
+     * TrackedPropertyMatchOrCreateService::findExistingMatch() (no writes,
+     * no events) and, for item 2 of the spec, ::findPossibleOwnerMatches().
+     *
+     * A hit in another agency is never visible — $agencyId is resolved from
+     * the authenticated token exactly like store() above, and every query
+     * inside the matcher is filtered to that one agency_id; there is no
+     * broader lookup to opt out of.
+     */
+    public function checkDuplicate(Request $request, TrackedPropertyMatchOrCreateService $matcher): JsonResponse
+    {
+        $validated = $request->validate([
+            'source_ref'                       => 'nullable|string|max:200',
+            // nullable, not required — an agent may press Capture when NOTHING
+            // free identifies the property yet (e.g. only Owner/Title Deed
+            // rendered so far); that must return 'not_found' gracefully, never
+            // a 422 (BUILD_STANDARD.md §2, optional-and-empty).
+            'property'                         => 'nullable|array',
+            'property.deeds_office'            => 'nullable|string|max:100',
+            'property.scheme_name'             => 'nullable|string|max:200',
+            'property.scheme_number'           => 'nullable|string|max:100',
+            'property.section_number'          => 'nullable|string|max:50',
+            'property.erf_number'              => 'nullable|string|max:100',
+            'property.lpi_code'                => 'nullable|string|max:40',
+            'property.cma_street_number'       => 'nullable|string|max:50',
+            'property.situated_at'             => 'nullable|string|max:200',
+            'property.estate'                  => 'nullable|string|max:200',
+            'property.address'                 => 'nullable|string|max:255',
+            'property.street_number'           => 'nullable|string|max:50',
+            'property.street_name'             => 'nullable|string|max:200',
+            'property.unit_number'             => 'nullable|string|max:50',
+            'property.complex_name'            => 'nullable|string|max:200',
+            'property.suburb'                  => 'nullable|string|max:100',
+            'property.municipality'            => 'nullable|string|max:100',
+            'property.province'                => 'nullable|string|max:100',
+            'property.latitude'                => 'nullable|numeric',
+            'property.longitude'               => 'nullable|numeric',
+            'property.title_deed_number'       => 'nullable|string|max:100',
+            'owners'                           => 'nullable|array|max:20',
+            'owners.*.name'                    => 'nullable|string|max:255',
+            'owners.*.id_type'                 => 'nullable|in:sa_id,company_reg',
+        ]);
+
+        $user = $request->user();
+        $agencyId = $user?->effectiveAgencyId() ?? $user?->agency_id;
+        abort_if($agencyId === null, 403, 'No agency context for this token.');
+        $agencyId = (int) $agencyId;
+
+        $facts = $this->buildFreePropertyFacts($validated['property'] ?? []);
+        // LPI from the source_ref ("cmainfo:<lpi>") when the property block does not carry it (every build to date).
+        if (empty($facts['lpi_code'])) {
+            $lpiFromRef = \App\Services\Address\LpiCode::parse($validated['source_ref'] ?? null);
+            if ($lpiFromRef !== null) {
+                $facts['lpi_code'] = $lpiFromRef['code'];
+            }
+        }
+        $source = [
+            'type'    => 'deeds_capture',
+            'ref'     => $validated['source_ref'] ?? null,
+            'payload' => ['source' => 'cmainfo'],
+        ];
+
+        $matches = [];
+        $structural = $matcher->findExistingMatch($agencyId, $facts, $source);
+        $looseHitExcluded = null;
+        if ($structural !== null) {
+            $desc = $matcher->describeLastMatch($facts, $structural);
+            $loose = str_starts_with((string) ($desc['strategy'] ?? ''), '5_');
+
+            if ($loose && $matcher->factsHaveStreetNumber($facts) && ! $matcher->streetNumberConfirmed($facts, $structural)) {
+                // 2026-10-07 (Johan's first pre-check test): a loose street-text hit whose
+                // street NUMBER is not confirmed — a different number, or none on file —
+                // is NOT the property that was clicked. It is reported only as "other
+                // property on this street" (same_street, below) and never as a duplicate.
+                $looseHitExcluded = $structural;
+                $structural = null;
+            } else {
+                $matches[] = $this->formatMatch(
+                    $structural,
+                    $desc['label'] ?? null,
+                    $desc['reason'] ?? 'Matched automatically.',
+                    'structural',
+                    // a loose street-text hit that DOES agree on the street number is as good as
+                    // the exact-address strategy; only an untiebroken tie stays unconfident.
+                    ($desc['confident'] ?? true),
+                    ['structural'],
+                    // additive evidence (structured address matching): which columns agreed — old builds ignore it
+                    array_filter(['tier' => ($desc['confident'] ?? true) ? 'exact' : 'possible', 'matched_on' => $desc['matched_on'] ?? null, 'columns' => $desc['columns'] ?? null], fn ($v) => $v !== null),
+                );
+            }
+        }
+
+        // Second source — agency stock (properties), which the tracked-property
+        // matcher never reads. A property the viewer's data scope hides is still
+        // reported (so a duplicate is never silently missed) but without its address.
+        $stockIds = [];
+        foreach ($matcher->findExistingStock($agencyId, $facts) as $hit) {
+            $stockIds[] = (int) $hit['property']->id;
+            $matches[] = $this->formatStockMatch($hit['property'], $hit['reason'], $hit['confident'], $hit['matched_fields'], $user, [
+                'tier' => $hit['tier'] ?? ($hit['confident'] ? 'exact' : 'possible'),
+                'matched_on' => $hit['matched_on'] ?? [],
+                'columns' => $hit['columns'] ?? [],
+                'score' => $hit['score'] ?? 0,
+            ]);
+        }
+
+        // Tracked properties that are only a POSSIBLE match (a neighbouring suburb, a different street type, a missing
+        // unit/portion) — never "already in CoreX", shown to the agent to confirm (spec structured-address-matching.md §7).
+        foreach ($matcher->findPossibleTrackedMatches($agencyId, $facts, array_values(array_filter([$structural?->id, $looseHitExcluded?->id]))) as $pm) {
+            $matches[] = $this->formatMatch($pm['tracked_property'], null, $pm['reason'], 'structural', false, $pm['matched_fields'], [
+                'tier' => 'possible', 'matched_on' => $pm['matched_on'], 'columns' => $pm['columns'], 'score' => $pm['score'] ?? 0,
+            ]);
+        }
+
+        foreach (($validated['owners'] ?? []) as $owner) {
+            $name = trim((string) ($owner['name'] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+            foreach ($matcher->findPossibleOwnerMatches($agencyId, $name, $facts, $owner['id_type'] ?? null) as $found) {
+                $tp = $found['tracked_property'];
+                if ($structural !== null && $tp->id === $structural->id) {
+                    continue; // already reported as the structural match above
+                }
+                $matches[] = $this->formatMatch($tp, null, $found['reason'], 'owner_name', false, $found['matched_fields']);
+            }
+        }
+
+        // Rank EVERY candidate (spec deeds-capture.md §9.12): exact unit + scheme first, then owner-surname-confirmed, then the
+        // weaker ones, the "same address, no unit number" record last. The owner SURNAME only confirms a candidate the
+        // address matcher already found — it never creates one. The extension's banner shows the whole ranked list.
+        $captureHasUnit = ! empty($facts['section_number']) || ! empty($facts['unit_number']);
+        $matches = app(\App\Services\Prospecting\DeedsCapturePreCheckRanker::class)
+            ->rank($agencyId, $matches, $validated['owners'] ?? [], $captureHasUnit);
+
+        $confidentHit = collect($matches)->contains(fn ($m) => $m['match_type'] !== 'owner_name' && $m['confident']);
+        $status = $confidentHit ? 'exists' : (count($matches) > 0 ? 'possible_match' : 'not_found');
+
+        // Informational only — never part of $status, never blocks or skips a capture.
+        $sameStreet = $matcher->findSameStreetOthers(
+            $agencyId,
+            $facts,
+            array_values(array_filter([$structural?->id])) ,
+            $stockIds,
+        );
+
+        $firstStock = $stockIds[0] ?? null;
+        AgentActivityEvent::create([
+            'agency_id'   => $agencyId,
+            'user_id'     => $user?->id,
+            'event_type'  => 'deeds_capture.precheck.' . $status,
+            'subject_type' => $structural ? TrackedProperty::class : ($firstStock ? \App\Models\Property::class : null),
+            'subject_id'  => $structural?->id ?? $firstStock,
+            'payload'     => [
+                'source_ref'        => $source['ref'],
+                'match_count'       => count($matches),
+                'same_street_count' => count($sameStreet),
+                'loose_hit_ignored' => $looseHitExcluded?->id,
+            ],
+            'occurred_at' => now(),
+            'created_at'  => now(),
+        ]);
+
+        return response()->json(['status' => $status, 'match_count' => count($matches), 'matches' => $matches, 'same_street' => $sameStreet]);
+    }
+
+    /**
+     * Logs the agent's decision after seeing the pre-check banner — the two
+     * outcomes checkDuplicate() itself cannot know (they happen in the
+     * browser, after the response above): the agent pressed "Pull anyway"
+     * past a found/possible-match warning, or "Cancel"/closed it. Logging
+     * only, no matching, no writes to tracked_properties. Per
+     * .ai/specs/deeds-capture.md §9 item 6 — lets the avoided-reveal saving
+     * be reported later from agent_activity_events.
+     */
+    public function logPrecheckDecision(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'decision'            => 'required|in:pulled_anyway,cancelled,confirmed_same',
+            'source_ref'          => 'nullable|string|max:200',
+            'tracked_property_id' => 'nullable|integer',
+        ]);
+
+        $user = $request->user();
+        $agencyId = $user?->effectiveAgencyId() ?? $user?->agency_id;
+        abort_if($agencyId === null, 403, 'No agency context for this token.');
+
+        AgentActivityEvent::create([
+            'agency_id'    => (int) $agencyId,
+            'user_id'      => $user?->id,
+            'event_type'   => 'deeds_capture.precheck.' . $validated['decision'],
+            'subject_type' => ($validated['tracked_property_id'] ?? null) ? TrackedProperty::class : null,
+            'subject_id'   => $validated['tracked_property_id'] ?? null,
+            'payload'      => ['source_ref' => $validated['source_ref'] ?? null],
+            'occurred_at'  => now(),
+            'created_at'   => now(),
+        ]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Mirrors ingestOne()'s own property->$facts mapping (below, in the
+     * existing, audited ingest path) for the subset available BEFORE the
+     * paid ID reveal — deliberately a separate, duplicated mapping rather
+     * than a shared extraction, so this new pre-check endpoint never risks
+     * changing ingestOne()'s own behaviour. Keep the two in sync if either
+     * changes; see .ai/specs/deeds-capture.md §9.
+     */
+    private function buildFreePropertyFacts(array $p): array
+    {
+        return array_filter([
+            'street_number'     => $p['street_number'] ?? null,
+            'street_name'       => $p['street_name'] ?? null,
+            'unit_number'       => $p['unit_number'] ?? null,
+            'section_number'    => $p['section_number'] ?? null,
+            'complex_name'      => $p['complex_name'] ?? null,
+            'address'           => $p['address'] ?? null,
+            'suburb'            => $p['suburb'] ?? null,
+            'town'              => $p['municipality'] ?? null,
+            'province'          => $p['province'] ?? null,
+            'latitude'          => $p['latitude'] ?? null,
+            'longitude'         => $p['longitude'] ?? null,
+            'erf_number'        => $p['erf_number'] ?? null,
+            'lpi_code'          => $p['lpi_code'] ?? null,
+            'cma_street_number' => $p['cma_street_number'] ?? null,
+            'title_deed_number' => $p['title_deed_number'] ?? null,
+            'property_type'     => $p['property_type'] ?? null,
+            'deeds_office'      => $p['deeds_office'] ?? null,
+            'scheme_name'       => $p['scheme_name'] ?? null,
+            'scheme_number'     => $p['scheme_number'] ?? null,
+        ], static fn ($v) => $v !== null && $v !== '');
+    }
+
+    /**
+     * A pre-check hit on the agency-stock `properties` table. The address and the
+     * deep link are only given to a viewer whose own/branch/agency data scope (and
+     * the Other Agency Stock role gate) lets them open that property — otherwise the
+     * duplicate is still reported, without leaking whose it is.
+     */
+    private function formatStockMatch(\App\Models\Property $p, string $reason, bool $confident, array $matchedFields, $viewer, array $extra = []): array
+    {
+        $visible = $viewer !== null
+            && \App\Models\Property::query()->visibleTo($viewer)->visibleOtherAgencyStock($viewer)->whereKey($p->id)->exists();
+
+        $address = trim(implode(' ', array_filter([$p->street_number, $p->street_name])))
+            . ($p->suburb ? ', ' . $p->suburb : '');
+        // "Unit 6, Du Bantry, Colin Street, Uvongo Beach" — the street alone would not tell two units of one scheme apart
+        $display = trim((string) $p->buildDisplayAddress());
+        if ($display !== '') {
+            $address = $display . (($p->suburb && stripos($display, (string) $p->suburb) === false) ? ', ' . $p->suburb : '');
+        }
+        $status = $p->status_label ?: $p->status;
+
+        return $extra + [
+            'source'               => 'property',
+            'property_id'          => $p->id,
+            'tracked_property_id'  => null,
+            'address'              => $visible ? $address : 'A property already held in your agency',
+            'summary'              => $visible
+                ? 'On CoreX as a property' . ($status ? ' (' . $status . ')' : '') . '. ' . $reason
+                : 'This property is already held in your agency by another agent. ' . $reason,
+            'captured_by'          => null,
+            'captured_at'          => null,
+            'captured_at_human'    => null,
+            'reason'               => $reason,
+            'match_type'           => 'property',
+            'confident'            => $confident,
+            'matched_fields'       => $matchedFields,
+            'deeplink'             => $visible ? route('corex.properties.show', $p->id) : null,
+        ];
+    }
+
+    private function formatMatch(TrackedProperty $tp, ?string $label, string $reason, string $matchType, bool $confident, array $matchedFields, array $extra = []): array
+    {
+        return $extra + [
+            'source'               => 'tracked_property',
+            'tracked_property_id' => $tp->id,
+            'address'              => $label ?? trim(($tp->street_number ?? '') . ' ' . ($tp->street_name ?? '')) . ($tp->suburb ? ', ' . $tp->suburb : ''),
+            'captured_by'          => $tp->deedsCapturedBy?->name,
+            'captured_at'          => $tp->deeds_captured_at?->toIso8601String(),
+            'captured_at_human'    => $tp->deeds_captured_at?->diffForHumans(),
+            'reason'               => $reason,
+            'match_type'           => $matchType,
+            'confident'            => $confident,
+            'matched_fields'       => $matchedFields,
+            'deeplink'             => route('corex.deeds-capture.index', ['scope' => 'all', 'open' => 'tp-' . $tp->id]),
+        ];
     }
 
     /**

@@ -205,6 +205,40 @@ class SignedDocumentDistributionService
     }
 
     /**
+     * §24 ruling (2026-09-29) — a generic per-mailbox-with-fallback send for
+     * a Mailable that is NOT part of the SignedDocumentDistributable
+     * contract (Inventory's buyer-acceptance request: there is no
+     * `distributionRecipients()` row for a buyer — they are not a party the
+     * inventory itself requires a signature from). SAME mail.non_production_redirect
+     * safety rail and SAME dispatch() as every other send this class makes
+     * — reused, not duplicated, so that rail can never drift. Deliberately
+     * writes no SignedDocumentDistributionLog row — that log is specific to
+     * a document's own primary distribution history.
+     *
+     * @return array{status:string, message_id:?string, error:?string}
+     */
+    public function sendGenericMail(string $toEmail, BaseSignatureMail $mail, ?User $agent = null): array
+    {
+        $testOverride = ! \App\Support\OutboundMailGuard::isSendingConfirmed(); // real production only (flag + env + host), not merely APP_ENV=production
+        $testRecipient = (string) config('mail.non_production_redirect');
+
+        if ($testOverride && $testRecipient === '') {
+            // No redirect target configured outside production: never
+            // reach a real inbox — suppress and log as not sent.
+            return ['status' => 'failed', 'message_id' => null, 'error' => 'Suppressed: non-production and mail.non_production_redirect is not set'];
+        }
+
+        $resolvedTo = $testOverride ? $testRecipient : $toEmail;
+
+        $mail->fromAgent($agent);
+        if ($agent?->outward_email) {
+            $mail->cc($testOverride ? $testRecipient : $agent->outward_email);
+        }
+
+        return $this->dispatch($resolvedTo, $mail);
+    }
+
+    /**
      * The actual send — copied from SignatureService::dispatchSigningMail()
      * (AT-395), the proven per-mailbox-with-fallback pattern, adapted to
      * return a result array instead of throwing, since this caller sends

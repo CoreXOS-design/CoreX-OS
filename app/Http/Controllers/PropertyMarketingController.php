@@ -32,6 +32,7 @@ class PropertyMarketingController extends Controller
     public function index(Property $property)
     {
         $this->authorizeProperty($property);
+        \App\Services\Properties\OtherAgencyStockActionRules::assertAllowed('market_property', $property);
 
         /** @var \App\Models\User $user */
         $user = auth()->user();
@@ -60,6 +61,7 @@ class PropertyMarketingController extends Controller
     public function generateCopy(Request $request, Property $property): JsonResponse
     {
         $this->authorizeProperty($property);
+        \App\Services\Properties\OtherAgencyStockActionRules::assertAllowed('market_property', $property);
 
         $data = $request->validate([
             'platform' => 'required|in:facebook,instagram',
@@ -84,6 +86,16 @@ class PropertyMarketingController extends Controller
     public function publish(Request $request, Property $property): JsonResponse
     {
         $this->authorizeProperty($property);
+        \App\Services\Properties\OtherAgencyStockActionRules::assertAllowed('market_property', $property);
+        // .ai/specs/other-agency-stock.md §2 — this call was missing entirely
+        // (every other syndication controller — P24, PP, Website — already
+        // calls it). Without it, Other Agency Stock (and, incidentally, any
+        // other off-market listing) could be published straight to Facebook/
+        // Instagram with no status check at all; the Ad Manager picker above
+        // filters it out of the builder UI, but publish() itself never
+        // re-verified. Added here, not as a separate fix, because closing this
+        // exact gap for Other Agency Stock IS the requirement.
+        $this->enforceListingNotDraft($property, 'Facebook/Instagram');
         $this->enforceMarketingReadiness($property);
 
         $validated = $request->validate([

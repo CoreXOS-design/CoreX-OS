@@ -63,6 +63,26 @@ class PrivatePropertySyndicationService
      */
     public function submitListing(Property $property, bool $confirmAgentSwitch = false): array
     {
+        // .ai/specs/other-agency-stock.md §2 — defense in depth. The controller
+        // already refuses this via EnforcesMarketingReadiness; this service is
+        // the real chokepoint every PP submission path funnels through, so a
+        // queued job or any future caller that skips the controller is still
+        // refused here.
+        if ($property->isOtherAgencyStock()) {
+            $message = 'Blocked — this is Other Agency Stock (imported from another agency\'s listing) and can never be submitted to Private Property.';
+
+            $property->update([
+                'pp_syndication_status' => 'error',
+                'pp_last_error'         => $message,
+            ]);
+
+            Log::channel('private_property')->warning('PP submit blocked — Other Agency Stock', [
+                'property_id' => $property->id,
+            ]);
+
+            return ['success' => false, 'message' => $message];
+        }
+
         // Layer 3 (syndication approval) backstop — every non-controller caller
         // (console commands, remediation, jobs) funnels through here.
         // refusalForUpdate: an already-live listing keeps receiving edits after a

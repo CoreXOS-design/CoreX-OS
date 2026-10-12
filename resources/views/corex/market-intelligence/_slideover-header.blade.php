@@ -98,11 +98,13 @@
     <div x-data="{ noteOpen: false }" style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px;">
         @if($canPitch)
             @if($h['in_stock'])
+                @if(empty($h['matched_is_oas']))
                 <a href="{{ route('seller-outreach.entry.from-property', $h['matched_property_id']) }}"
                    data-tour="mic-pitch"
                    style="{{ $actionPrimary }}">
                     Pitch
                 </a>
+                @endif
             @else
                 {{-- fresh=1 (2026-08-19) — marks this as a genuine fresh entry so the
                      controller runs collision detection; a later browser refresh of

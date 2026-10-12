@@ -317,17 +317,23 @@ final class RoleManagerFunctionalTest extends TestCase
     public function test_copy_permissions_overwrites_target_with_source(): void
     {
         [$agency, $admin] = $this->provisionedAgency();
-        $adminCount = RolePermission::where('agency_id', $agency->id)->where('role', 'admin')->count();
-
         Auth::login($admin);
+
+        // Features page spec §4: permissions of a feature this agency has switched OFF (Auctions is off by default)
+        // are frozen — Role Manager does not show them, so a copy neither copies nor overwrites them. The target
+        // therefore ends up with the source's VISIBLE set, plus any frozen grants it already held.
+        $blocked      = app(\App\Services\Features\AgencyFeatureService::class)->blockedPermissionKeys();
+        $adminVisible = RolePermission::where('agency_id', $agency->id)->where('role', 'admin')->whereNotIn('permission_key', $blocked)->count();
+        $agentFrozen  = RolePermission::where('agency_id', $agency->id)->where('role', 'agent')->whereIn('permission_key', $blocked)->count();
+
         $this->rm->copyPermissions(Request::create('/x', 'POST', [
             'source_role' => 'admin', 'target_roles' => ['agent'],
         ]));
 
         $this->assertSame(
-            $adminCount,
+            $adminVisible + $agentFrozen,
             RolePermission::where('agency_id', $agency->id)->where('role', 'agent')->count(),
-            'the target role must end up with exactly the source role\'s permission set'
+            'the target role must end up with exactly the source role\'s visible permission set (plus its own frozen grants)'
         );
     }
 

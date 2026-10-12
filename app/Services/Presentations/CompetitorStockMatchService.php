@@ -447,6 +447,7 @@ final class CompetitorStockMatchService
             ->where('id', '!=', $subject->id)          // never the subject itself
             ->whereNull('deleted_at')
             ->onMarket()                               // AT-288 — LIVE stock only (the missing gate)
+            ->ownStock()                               // AT-453 — another agency's listing is competitor stock, never ours
             // Same listing type as the subject — a rental is never a comp for a sale.
             ->where(function ($q) use ($subjectType) {
                 $q->where('listing_type', $subjectType);

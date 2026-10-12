@@ -357,6 +357,27 @@ Route::prefix('v1/webinars')
     });
 
 // ════════════════════════════════════════════════════════════════
+// Other Agency Stock — Chrome extension import (.ai/specs/other-agency-stock.md §4)
+//
+// 2026-09-29 URGENT FIX — found live: this was WRONGLY built on
+// auth.portal_capture (checks users.api_token, a separate hashed column)
+// on the assumption that was "the same mechanism" the extension's other
+// calls use. It is NOT. Pull Property / healthCheck / logged-user all sit
+// inside the auth:sanctum group below and authenticate via a REAL Sanctum
+// personal access token (confirmed live: user 22 has an active
+// personal_access_tokens row named "corex-extension", last_used_at
+// matching the exact minute of his working Pull-Property calls) — a
+// completely different credential from users.api_token. The extension
+// sends the SAME bearer token to every endpoint; this route family
+// rejected the only token it actually has ("Invalid API token" — every
+// single time, confirmed via nginx access log + Johan's screenshots).
+// Moved inside auth:sanctum + app_access to match every other route the
+// extension successfully calls. deny_assistant_property_write mirrors
+// /prospecting/import (AT-267) — an assistant may never bring a property
+// onto the books by any path, imported-from-another-agency included.
+// ════════════════════════════════════════════════════════════════
+
+// ════════════════════════════════════════════════════════════════
 // Authenticated (sanctum) — canonical v1 routes
 // ════════════════════════════════════════════════════════════════
 // app_access: mobile "Delete my account" (Apple 5.1.1(v)) — rejects an
@@ -369,6 +390,16 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
     // Canonical /api/v1/* surface
     // ─────────────────────────────────────────────────────────────
     Route::prefix('v1')->group(function () {
+
+        // Other Agency Stock — Chrome extension import (see the
+        // 2026-09-29 URGENT FIX comment above this group for why this
+        // lives here and not on auth.portal_capture).
+        Route::middleware('deny_assistant_property_write')->group(function () {
+            Route::get('/other-agency-stock/consent-wording', [\App\Http\Controllers\Api\OtherAgencyStockImportController::class, 'consentWording'])
+                ->name('v1.other-agency-stock.consent-wording');
+            Route::post('/other-agency-stock/import', [\App\Http\Controllers\Api\OtherAgencyStockImportController::class, 'import'])
+                ->name('v1.other-agency-stock.import');
+        });
 
         // AT-366 — interactive agency Performance & ROI report backend (read-only, agency-scoped).
         Route::get('/performance/deal-breakdown', [\App\Http\Controllers\Api\V1\PerformanceDrilldownController::class, 'dealBreakdown'])
@@ -471,14 +502,23 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
         Route::get('/prospecting/check-search', [ProspectingApiController::class, 'checkSearch'])->name('v1.prospecting.check-search');
 
         // ── CMA / deeds capture (phase 1) — mirrors the portal-capture ingest. ──
-        Route::post('/deeds-capture', [\App\Http\Controllers\Api\DeedsCaptureController::class, 'store'])->name('v1.deeds-capture');
+        // AT-449 audit: the Chrome extension posts to these three with only a valid token — no permission check.
+        // They now require the same key as the Deeds Capture screen they feed (deeds_capture.access), so a user
+        // who cannot open that screen cannot push records into it.
+        Route::post('/deeds-capture', [\App\Http\Controllers\Api\DeedsCaptureController::class, 'store'])->middleware('permission:deeds_capture.access')->name('v1.deeds-capture');
+
+        // Pre-check (.ai/specs/deeds-capture.md §9) — called BEFORE the extension
+        // reveals an owner ID (CMA Info's paid, R3-per-ID step). Read-only; mirrors
+        // the check-search precedent above.
+        Route::post('/deeds-capture/check-duplicate', [\App\Http\Controllers\Api\DeedsCaptureController::class, 'checkDuplicate'])->name('v1.deeds-capture.check-duplicate');
+        Route::post('/deeds-capture/check-duplicate/decision', [\App\Http\Controllers\Api\DeedsCaptureController::class, 'logPrecheckDecision'])->name('v1.deeds-capture.check-duplicate.decision');
 
         // ── TVA (The Virtual Agent) contact capture — mirrors deeds-capture. ──
-        Route::post('/tva-contact-capture', [\App\Http\Controllers\Api\TvaContactCaptureController::class, 'store'])->name('v1.tva-contact-capture');
+        Route::post('/tva-contact-capture', [\App\Http\Controllers\Api\TvaContactCaptureController::class, 'store'])->middleware('permission:deeds_capture.access')->name('v1.tva-contact-capture');
 
         // ── TVA company DIRECTORSHIP capture — directors → natural-person
         //    contacts linked to the company entity contact (representatives). ──
-        Route::post('/tva-company-directors', [\App\Http\Controllers\Api\TvaCompanyDirectorsController::class, 'store'])->name('v1.tva-company-directors');
+        Route::post('/tva-company-directors', [\App\Http\Controllers\Api\TvaCompanyDirectorsController::class, 'store'])->middleware('permission:deeds_capture.access')->name('v1.tva-company-directors');
 
         // ── Properties — portal pull ───────────────────────────────
         // AT-267 — pulls a listing off a portal INTO a property. Same rule, same reason: no
@@ -899,3 +939,4 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
     Route::get('/me/agent-qr', [\App\Http\Controllers\Api\V1\AgentQrController::class, 'mine'])
         ->name('legacy.me.agent-qr');
 });
+

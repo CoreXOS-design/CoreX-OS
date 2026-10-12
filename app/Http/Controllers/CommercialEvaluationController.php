@@ -760,7 +760,7 @@ class CommercialEvaluationController extends Controller
 
     public function restore($id)
     {
-        abort_unless(auth()->user()->hasPermission('commercial_evaluations.edit'), 403);
+        abort_unless(auth()->user()->hasPermission('commercial_evals.edit'), 403);
         $record = CommercialEvaluation::onlyTrashed()->findOrFail($id);
         $record->restore();
         return redirect()->back()->with('success', 'Record restored.');

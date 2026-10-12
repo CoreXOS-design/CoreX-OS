@@ -1282,7 +1282,16 @@
                 init() {
                     let remembered = null;
                     try { remembered = sessionStorage.getItem(this.storageKey); } catch (e) {}
-                    this.selected = (remembered && this.ids.includes(remembered)) ? remembered : (this.ids[0] ?? null);
+                    // Deeds-capture pre-check deep link (.ai/specs/deeds-capture.md §9 item 4)
+                    // — 'Open in CoreX' on the extension's duplicate banner links here with
+                    // ?open=tp-<id>. Wins over the remembered row so a deliberate link always
+                    // lands where it points; falls back exactly as before when absent/not on
+                    // this page (e.g. a different page/filter/pagination — a known limit, not
+                    // solved here).
+                    const requested = new URLSearchParams(location.search).get('open');
+                    this.selected = (requested && this.ids.includes(requested)) ? requested
+                        : (remembered && this.ids.includes(remembered)) ? remembered
+                        : (this.ids[0] ?? null);
                     this.$watch('selected', v => { try { sessionStorage.setItem(this.storageKey, v); } catch (e) {} });
                 },
                 pick(id) { this.selected = id; },

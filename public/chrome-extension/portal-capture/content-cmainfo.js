@@ -42,6 +42,23 @@
  *     button messages background.js directly, which owns auth token
  *     handling (chrome.storage.local) and the actual POST — same
  *     separation of concerns as handlePullProperty() in background.js.
+ *   - v3.8.0 (2026-10-05, .ai/specs/deeds-capture.md §9) — PRE-CHECK GATE.
+ *     CMA Info charges R3 per owner ID, at the moment it's revealed
+ *     (revealOwnerIdIfNeeded() below). onCaptureClick() now reads only the
+ *     FREE fields first (Property Information + Owner name/Title Deed —
+ *     neither is masked, only Owner's ID is), asks CoreX whether it
+ *     already has this property (POST /api/v1/deeds-capture/check-duplicate,
+ *     background.js's handleCheckDeedsDuplicate()), and shows a banner if
+ *     CoreX says yes or "possibly". The reveal only ever happens after a
+ *     "not found" result or the agent's explicit "Pull anyway". See
+ *     onCaptureClick()'s own docblock below for the exact sequencing.
+ *   - v3.11.0 (2026-10-12, .ai/specs/deeds-capture.md §9.12) — RANKED PRE-CHECK.
+ *     The server now returns EVERY match ranked (exact unit + scheme first,
+ *     then owner-surname-confirmed, then weaker; the "Same address, no unit
+ *     number - may be a different unit" record last) and the banner shows the
+ *     whole list with a count instead of only matches[0]. The payload is
+ *     unchanged: the CMA SECTION number and the flat/unit number were already
+ *     both sent, the owner NAME carries the surname the server compares.
  */
 
 (function () {
@@ -810,6 +827,67 @@
     return extractByLabelMap(SALE_INFORMATION_LABELS, panel || undefined);
   }
 
+  // ══════════════════════════════════════════════════════════
+  // ── PRE-CHECK (.ai/specs/deeds-capture.md §9) ──────────────
+  // ══════════════════════════════════════════════════════════
+  // Owner (name) and Title Deed are READ, not masked — only Owner's ID is
+  // (revealOwnerIdIfNeeded() above). This reader is a deliberate SEPARATE
+  // function from extractSaleInformation(), not a reuse of it, for exactly
+  // one reason: extractSaleInformation()'s first line IS the reveal call —
+  // calling it here would defeat the whole point of a free, pre-reveal read.
+  const FREE_SALE_LABELS = [
+    ['owner',      'Owner'],
+    ['title_deed', 'Title Deed'],
+  ];
+
+  async function extractFreeSaleFields() {
+    const panel = findSectionPanel(findSectionHeader('Sale Information'));
+    return extractByLabelMap(FREE_SALE_LABELS, panel || undefined);
+  }
+
+  /**
+   * Builds the pre-check request body from data read BEFORE the paid
+   * reveal: the free Property Information fields (same mapping
+   * buildDeedsCapturePayload() below uses for its own `property` object —
+   * kept in sync by hand, see that function's own docblock) plus owner
+   * NAME(s) split off the free Owner cell. No owner ID anywhere in this
+   * payload — it doesn't exist yet at this point in the flow.
+   */
+  function buildPreCheckPayload(property, freeSale) {
+    const street = splitStreetAddress(property.address);
+    const gps = parseGps(property.gps);
+    const { ref: sourceRef } = buildSourceRef({ property_information: property }, detectPropertyType(property));
+
+    return {
+      source_ref: sourceRef,
+      property: {
+        deeds_office:      property.deeds_office,
+        scheme_name:       property.scheme_name,
+        scheme_number:     property.scheme_no,
+        section_number:    property.section_number,
+        erf_number:        property.erf_no || null,
+        // v3.9.0 (structured address matching) — read by label on the CMA page since 3.4, never sent until now.
+        // The LPI code carries the erf + portion + township; the server reads them out of it.
+        lpi_code:          property.lpi_code || null,
+        cma_street_number: property.cma_street_number || null,
+        situated_at:       property.situated_at || null,
+        estate:            property.estate || null,
+        address:           property.address || property.situated_at || null,
+        street_number:     street.number,
+        street_name:       street.name,
+        unit_number:       property.flat_number,
+        complex_name:      property.scheme_name,
+        suburb:            property.suburb,
+        municipality:      property.municipality,
+        province:          property.province,
+        latitude:          gps.lat,
+        longitude:         gps.lng,
+        title_deed_number: freeSale.title_deed,
+      },
+      owners: splitOwnerField(freeSale.owner).map((name) => ({ name: name })),
+    };
+  }
+
   /**
    * Sectional-title schemes carry one owner per SECTION — capture is
    * per-loaded-section (Johan's call), keyed on whatever "Section number"
@@ -1536,6 +1614,11 @@
         scheme_number:     p.scheme_no,
         section_number:    p.section_number,
         erf_number:        p.erf_no || null,
+        // v3.9.0 — same four fields as the pre-check payload above (kept in sync by hand).
+        lpi_code:          p.lpi_code || null,
+        cma_street_number: p.cma_street_number || null,
+        situated_at:       p.situated_at || null,
+        estate:            p.estate || null,
         address:           p.address || p.situated_at || null,
         street_number:     street.number,
         street_name:       street.name,
@@ -1600,6 +1683,7 @@
 
   const BUTTON_ID = 'corex-deeds-capture-btn';
   const STATUS_ID = 'corex-deeds-capture-status';
+  const BANNER_ID = 'corex-deeds-precheck-banner';
 
   function injectStyles() {
     if (document.getElementById('corex-deeds-capture-style')) return;
@@ -1641,8 +1725,321 @@
         padding: 6px 10px !important;
         max-width: 280px !important;
       }
+      #${BANNER_ID} {
+        all: initial !important;
+        display: block !important;
+        position: fixed !important;
+        top: 50px !important;
+        right: 12px !important;
+        z-index: 2147483647 !important;
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif !important;
+        font-size: 12px !important;
+        color: #ffffff !important;
+        background: #111827 !important;
+        border: 1px solid #0ea5e9 !important;
+        border-radius: 8px !important;
+        padding: 12px !important;
+        max-width: 320px !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.35) !important;
+      }
+      #${BANNER_ID} .corex-deeds-banner-title { display: block !important; font-weight: 700 !important; font-size: 13px !important; margin-bottom: 4px !important; }
+      #${BANNER_ID} .corex-deeds-banner-body { display: block !important; margin-bottom: 10px !important; line-height: 1.4 !important; }
+      #${BANNER_ID} .corex-deeds-banner-actions { display: flex !important; gap: 6px !important; flex-wrap: wrap !important; }
+      #${BANNER_ID} .corex-deeds-banner-list { display: block !important; margin: 0 0 10px 0 !important; padding: 8px 0 0 0 !important; border-top: 1px solid #374151 !important; }
+      #${BANNER_ID} .corex-deeds-banner-row { display: block !important; margin-bottom: 8px !important; line-height: 1.35 !important; }
+      #${BANNER_ID} .corex-deeds-banner-weak { color: #fbbf24 !important; }
+      #${BANNER_ID} button, #${BANNER_ID} a {
+        all: unset !important;
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif !important;
+        font-size: 12px !important;
+        font-weight: 600 !important;
+        cursor: pointer !important;
+        padding: 6px 10px !important;
+        border-radius: 5px !important;
+        background: #0b2a4a !important;
+        border: 1px solid #0ea5e9 !important;
+        color: #ffffff !important;
+      }
+      #${BANNER_ID} button:hover, #${BANNER_ID} a:hover { background: #0ea5e9 !important; }
     `;
     document.head.appendChild(style);
+  }
+
+  function removePrecheckBanner() {
+    const el = document.getElementById(BANNER_ID);
+    if (el) el.remove();
+  }
+
+  /**
+   * "Already in CoreX" / "Possible match" banner — gates the paid reveal.
+   * Resolves true ("Pull anyway") or false ("Cancel"). Mirrors the existing
+   * duplicateWarning pattern from the P24/Private Property popup flow
+   * (popup.js, Confirm/Cancel around startCapture()) — same decision shape,
+   * applied here because this flow has no popup to put it in.
+   */
+  /**
+   * v3.8.1 — "other property on this street" note. The pre-check answers
+   * `same_street` with properties on the clicked street that carry a DIFFERENT
+   * street number (or none on file). It is information only: it never opens the
+   * duplicate banner, never blocks and never skips the capture — a different
+   * number is a different property. Returns '' when there is nothing to say.
+   */
+  function describeSameStreet(precheck) {
+    const list = precheck && Array.isArray(precheck.same_street) ? precheck.same_street : [];
+    if (list.length === 0) return '';
+    const names = list.slice(0, 3).map((o) => o.address).filter(Boolean);
+    if (names.length === 0) return '';
+    return 'Other property on this street in CoreX (different number): ' + names.join('; ');
+  }
+
+  // v3.9.0 — plain words for the columns the server's scorer reports (structured address matching, spec §7).
+  const COLUMN_WORDS = { lpi: 'LPI code', erf: 'erf', portion: 'portion', scheme: 'scheme', unit: 'unit', suburb: 'suburb', street: 'street', number: 'street number', type: 'street type', gps: 'GPS' };
+
+  /** "street number, street, suburb" from the scorer's matched_on list; '' when the server sent none (older server). */
+  function describeMatchedOn(match) {
+    const list = match && Array.isArray(match.matched_on) ? match.matched_on : [];
+    const words = list.map((c) => COLUMN_WORDS[c]).filter(Boolean);
+    return words.length ? 'Matched on: ' + words.join(', ') : '';
+  }
+
+  /** "✓ street number · ✓ street · ≈ suburb (neighbouring)" — one verdict per column the server compared. */
+  function describeColumns(match) {
+    const cols = match && match.columns && typeof match.columns === 'object' ? match.columns : null;
+    if (!cols) return '';
+    const parts = [];
+    ['lpi', 'erf', 'portion', 'scheme', 'unit', 'number', 'street', 'type', 'suburb'].forEach((key) => {
+      const verdict = cols[key];
+      if (!verdict || (verdict === 'missing' && key !== 'suburb')) return;
+      let mark = '–';
+      if (verdict === 'agree') mark = '✓';
+      else if (verdict === 'differ' || verdict === 'differ_number' || verdict === 'differ_scheme_number') mark = '≠';
+      else if (verdict === 'neighbour' || verdict === 'partial' || verdict === 'compatible' || verdict === 'one_side') mark = '≈';
+      parts.push(mark + ' ' + COLUMN_WORDS[key] + (key === 'suburb' && verdict === 'neighbour' ? ' (neighbouring suburb)' : '') + (key === 'unit' && verdict === 'one_side' ? ' (unit on one side only)' : ''));
+    });
+    return parts.join(' · ');
+  }
+
+  // v3.11.0 — the pre-check now returns EVERY match, ranked (rank / rank_label / owner_surname_match), and the banner shows the
+  // whole list with a count instead of only matches[0]. Pure helpers, so the node harness can test them.
+  const BANNER_MAX_ROWS = 5;
+
+  /** one plain row of the ranked list: { n, address, label, weak, deeplink } */
+  function describeRankedRow(match, index) {
+    const label = (match && (match.rank_label || match.reason)) || '';
+    return {
+      n: (match && match.rank) || index + 1,
+      address: (match && match.address) || 'A property in CoreX',
+      label: String(label),
+      // "Same address, no unit number - may be a different unit" and plain possibles are the weaker rows
+      weak: !!(match && match.rank_group && match.rank_group !== 'exact'),
+      deeplink: (match && match.deeplink) || null,
+    };
+  }
+
+  /** the rows after the best one, capped, plus how many were cut off */
+  function rankedOtherRows(precheck) {
+    const list = precheck && Array.isArray(precheck.matches) ? precheck.matches : [];
+    const others = list.slice(1);
+    return {
+      total: list.length,
+      rows: others.slice(0, BANNER_MAX_ROWS - 1).map((m, i) => describeRankedRow(m, i + 1)),
+      more: Math.max(0, others.length - (BANNER_MAX_ROWS - 1)),
+    };
+  }
+
+  /** " — 3 matches, best first" when there is more than one match; '' for one */
+  function describeMatchCount(precheck) {
+    const total = precheck && Array.isArray(precheck.matches) ? precheck.matches.length : 0;
+    return total > 1 ? (' — ' + total + ' matches, best first') : '';
+  }
+
+  function showDuplicateBanner(precheck) {
+    return new Promise((resolve) => {
+      injectStyles();
+      removePrecheckBanner();
+
+      const match = (precheck.matches && precheck.matches[0]) || null;
+      const confident = precheck.status === 'exists';
+      // An ADDRESS-based possible match carries the scorer's per-column verdicts; an owner-name possible match does not
+      // and keeps the plain 3.8 banner (Pull anyway / Cancel).
+      const addressPossible = !confident && !!(match && match.columns && typeof match.columns === 'object');
+
+      const el = document.createElement('div');
+      el.id = BANNER_ID;
+
+      const title = document.createElement('span');
+      title.className = 'corex-deeds-banner-title';
+      title.textContent = (confident ? 'Already in CoreX' : (addressPossible ? 'Possible match — is this the same property?' : 'Possible match in CoreX')) + describeMatchCount(precheck);
+      el.appendChild(title);
+
+      const body = document.createElement('span');
+      body.className = 'corex-deeds-banner-body';
+      if (match && match.summary) {
+        // v3.8.1 — the server words matches that are not earlier deeds captures
+        // (a property already on CoreX's books): "On CoreX as a property (Active). ..."
+        body.textContent = (match.address || 'This property') + '. ' + match.summary;
+      } else if (match) {
+        const who = match.captured_by ? ('Captured by ' + match.captured_by) : 'Captured earlier';
+        const when = match.captured_at_human ? (' ' + match.captured_at_human) : '';
+        body.textContent = (match.address || 'This property') + '. ' + who + when + '. ' + (match.reason || '');
+      } else {
+        body.textContent = 'A similar property may already be in CoreX.';
+      }
+      el.appendChild(body);
+
+      // v3.9.0 — exact: say what it was matched on; possible: show each compared column with its verdict.
+      const detail = confident ? describeMatchedOn(match) : (addressPossible ? describeColumns(match) : '');
+      if (detail) {
+        const detailEl = document.createElement('span');
+        detailEl.className = 'corex-deeds-banner-body';
+        detailEl.textContent = detail;
+        el.appendChild(detailEl);
+      }
+
+      // v3.11.0 — how strong the best match is, in words (e.g. "Same address, no unit number - may be a different unit").
+      if (match && match.rank_label) {
+        const rankEl = document.createElement('span');
+        rankEl.className = 'corex-deeds-banner-body' + (match.rank_group && match.rank_group !== 'exact' ? ' corex-deeds-banner-weak' : '');
+        rankEl.textContent = match.rank_label + (match.owner_surname_evidence && String(match.rank_label).indexOf('surname') === -1 ? '. ' + match.owner_surname_evidence : '');
+        el.appendChild(rankEl);
+      }
+
+      // v3.11.0 — the rest of the ranked list, with a count.
+      const others = rankedOtherRows(precheck);
+      if (others.rows.length) {
+        const listEl = document.createElement('div');
+        listEl.className = 'corex-deeds-banner-list';
+        others.rows.forEach((row) => {
+          const rowEl = document.createElement('span');
+          rowEl.className = 'corex-deeds-banner-row' + (row.weak ? ' corex-deeds-banner-weak' : '');
+          rowEl.textContent = row.n + '. ' + row.address + (row.label ? ' — ' + row.label : '');
+          listEl.appendChild(rowEl);
+        });
+        if (others.more > 0) {
+          const moreEl = document.createElement('span');
+          moreEl.className = 'corex-deeds-banner-row';
+          moreEl.textContent = '+ ' + others.more + ' more';
+          listEl.appendChild(moreEl);
+        }
+        el.appendChild(listEl);
+      }
+
+      const actions = document.createElement('div');
+      actions.className = 'corex-deeds-banner-actions';
+
+      if (addressPossible) {
+        // "Yes, same — open it" opens the record and does NOT capture (no R3 spent); "No, different — continue the
+        // capture" carries on exactly like Pull anyway. Both are logged (confirmed_same / pulled_anyway).
+        const yes = match.deeplink ? document.createElement('a') : document.createElement('button');
+        yes.textContent = 'Yes, same — open it';
+        if (match.deeplink) {
+          yes.href = match.deeplink;
+          yes.target = '_blank';
+          yes.rel = 'noopener';
+        } else {
+          yes.type = 'button';
+        }
+        yes.addEventListener('click', () => { removePrecheckBanner(); resolve('same'); });
+        actions.appendChild(yes);
+
+        const no = document.createElement('button');
+        no.type = 'button';
+        no.textContent = 'No, different — continue the capture';
+        no.addEventListener('click', () => { removePrecheckBanner(); resolve(true); });
+        actions.appendChild(no);
+      } else {
+        if (match && match.deeplink) {
+          const openLink = document.createElement('a');
+          openLink.textContent = 'Open in CoreX';
+          openLink.href = match.deeplink;
+          openLink.target = '_blank';
+          openLink.rel = 'noopener';
+          actions.appendChild(openLink);
+        }
+
+        const pullBtn = document.createElement('button');
+        pullBtn.type = 'button';
+        pullBtn.textContent = 'Pull anyway';
+        pullBtn.addEventListener('click', () => { removePrecheckBanner(); resolve(true); });
+        actions.appendChild(pullBtn);
+      }
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.addEventListener('click', () => { removePrecheckBanner(); resolve(false); });
+      actions.appendChild(cancelBtn);
+
+      el.appendChild(actions);
+      document.body.appendChild(el);
+    });
+  }
+
+  /**
+   * Shown when the pre-check request itself fails or times out — e.g. the
+   * agent is offline, or CoreX is unreachable. Per spec: never reveal in
+   * this case either. Resolves 'retry' (caller re-sends the pre-check),
+   * true ("Pull anyway" — proceed to the paid reveal without a pre-check
+   * result), or false is never offered here deliberately — the agent either
+   * retries or explicitly accepts the risk; there is no silent "do nothing"
+   * state for a failed check.
+   */
+  function showPrecheckFailedBanner() {
+    return new Promise((resolve) => {
+      injectStyles();
+      removePrecheckBanner();
+
+      const el = document.createElement('div');
+      el.id = BANNER_ID;
+
+      const title = document.createElement('span');
+      title.className = 'corex-deeds-banner-title';
+      title.textContent = 'Could not check CoreX';
+      el.appendChild(title);
+
+      const body = document.createElement('span');
+      body.className = 'corex-deeds-banner-body';
+      body.textContent = 'Could not reach CoreX to check for an existing capture.';
+      el.appendChild(body);
+
+      const actions = document.createElement('div');
+      actions.className = 'corex-deeds-banner-actions';
+
+      const retryBtn = document.createElement('button');
+      retryBtn.type = 'button';
+      retryBtn.textContent = 'Try again';
+      retryBtn.addEventListener('click', () => { removePrecheckBanner(); resolve('retry'); });
+      actions.appendChild(retryBtn);
+
+      const pullBtn = document.createElement('button');
+      pullBtn.type = 'button';
+      pullBtn.textContent = 'Pull anyway';
+      pullBtn.addEventListener('click', () => { removePrecheckBanner(); resolve(true); });
+      actions.appendChild(pullBtn);
+
+      el.appendChild(actions);
+      document.body.appendChild(el);
+    });
+  }
+
+  /**
+   * Best-effort, fire-and-forget — logs the agent's decision after a
+   * found/possible-match banner (.ai/specs/deeds-capture.md §9 item 6).
+   * Never blocks or fails the capture flow itself; a logging failure here
+   * must never stop or delay the actual capture.
+   */
+  function logPrecheckDecision(sourceRef, precheck, decision) {
+    try {
+      const match = (precheck.matches && precheck.matches[0]) || null;
+      chrome.runtime.sendMessage({
+        action: 'logDeedsPrecheckDecision',
+        payload: {
+          decision: decision,
+          source_ref: sourceRef || null,
+          tracked_property_id: match ? match.tracked_property_id : null,
+        },
+      }).catch(() => {});
+    } catch (e) { /* best-effort only */ }
   }
 
   function setStatus(text, isError) {
@@ -1657,9 +2054,84 @@
     el.style.background = isError ? '#7f1d1d' : '#111827';
   }
 
+  /**
+   * .ai/specs/deeds-capture.md §9 — the paid step (CMA Info charges R3 per
+   * owner ID, at the moment it's revealed) now happens ONLY after this
+   * function has read everything free (Property Information + Owner name/
+   * Title Deed from Sale Information, neither masked), asked CoreX whether
+   * it already has this property, and — if CoreX said yes or "possibly" —
+   * the agent explicitly chose "Pull anyway" on the banner. A "not found"
+   * result, or a "Pull anyway"/accepted-risk choice, proceeds straight into
+   * the EXISTING extractDeed() -> revealOwnerIdIfNeeded() -> buildDeedsCapturePayload()
+   * -> POST /api/v1/deeds-capture path below, UNCHANGED from before this
+   * spec — only the decision of WHETHER to reach that path moved earlier.
+   */
   async function onCaptureClick() {
     const btn = document.getElementById(BUTTON_ID);
-    if (btn) { btn.disabled = true; btn.textContent = 'Capturing…'; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+    setStatus('Reading property information…', false);
+
+    let property, freeSale;
+    try {
+      await ensureSectionExpanded('Property Information');
+      const rawProperty = await extractPropertyInformation();
+      const type = detectPropertyType(rawProperty);
+      if (!type) {
+        throw new Error('cmainfo panel is not showing a recognisable property — no LPI Code/Erf no (freehold) and no Scheme no + Section number (sectional) were visible, or both were. Capture refused rather than guessed.');
+      }
+      property = applyTypeCoherence(rawProperty, type);
+
+      await ensureSectionExpanded('Sale Information');
+      freeSale = await extractFreeSaleFields();
+    } catch (e) {
+      setStatus('Failed: ' + (e && e.message ? e.message : 'unknown error'), true);
+      if (btn) { btn.disabled = false; btn.textContent = 'Capture to CoreX'; }
+      return;
+    }
+
+    setStatus('Checking CoreX for an existing capture…', false);
+    const preCheckPayload = buildPreCheckPayload(property, freeSale);
+
+    let proceed = false;
+    let sameStreetNote = '';
+    for (;;) {
+      let precheck = null;
+      let checkFailed = false;
+      try {
+        precheck = await chrome.runtime.sendMessage({ action: 'checkDeedsDuplicate', payload: preCheckPayload });
+        if (!precheck || precheck.error) checkFailed = true;
+      } catch (e) {
+        checkFailed = true;
+      }
+
+      if (checkFailed) {
+        setStatus(null);
+        const outcome = await showPrecheckFailedBanner();
+        if (outcome === 'retry') { setStatus('Checking CoreX for an existing capture…', false); continue; }
+        proceed = outcome === true; // "Pull anyway" only other option this banner offers
+        break;
+      }
+
+      if (precheck.status === 'exists' || precheck.status === 'possible_match') {
+        setStatus(null);
+        const outcome = await showDuplicateBanner(precheck);
+        proceed = outcome === true;
+        // 'same' = the agent confirmed it is the property CoreX already holds: no capture, no R3 spent.
+        logPrecheckDecision(preCheckPayload.source_ref, precheck, outcome === 'same' ? 'confirmed_same' : (proceed ? 'pulled_anyway' : 'cancelled'));
+      } else {
+        proceed = true; // not_found — already logged server-side in checkDuplicate(); nothing to confirm
+        sameStreetNote = describeSameStreet(precheck);
+      }
+      break;
+    }
+
+    if (!proceed) {
+      setStatus(null);
+      if (btn) { btn.disabled = false; btn.textContent = 'Capture to CoreX'; }
+      return;
+    }
+
+    if (btn) { btn.textContent = 'Capturing…'; }
     setStatus('Reading property + sale information…', false);
 
     try {
@@ -1703,8 +2175,8 @@
           if (row.blocked_companies && row.blocked_companies.length > 0) {
             window.alert('Company scraping is not allowed at this time — coming soon.\n\nSkipped: ' + row.blocked_companies.join(', '));
           }
-          setStatus((row.created ? 'Captured ✓ (new)' : 'Captured ✓ (enriched existing)'), false);
-          setTimeout(() => setStatus(null), 4000);
+          setStatus((row.created ? 'Captured ✓ (new)' : 'Captured ✓ (enriched existing)') + (sameStreetNote ? ' — ' + sameStreetNote : ''), false);
+          setTimeout(() => setStatus(null), sameStreetNote ? 9000 : 4000);
         } else {
           // Unexpected shape — surface it rather than claim silent success.
           setStatus('Sent, but response shape was unexpected — check CoreX.', true);

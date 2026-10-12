@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\DealPropertySyncSettingsController;
 use App\Http\Controllers\Admin\ProformaSettingsController;
 use App\Http\Controllers\Commission\CommissionSettingsController;
 use App\Http\Controllers\Compliance\FicaOfficerAppointmentsController;
+use App\Http\Controllers\CoreX\Auctions\AuctionSettingsController;
 use App\Http\Controllers\CoreX\FeatureSettingsController;
 use App\Http\Controllers\CoreX\LeaseSettingsController;
 use App\Http\Controllers\CoreX\RentalInspectionSettingsController;
@@ -12,6 +13,7 @@ use App\Http\Controllers\CoreX\RentalInventorySettingsController;
 use App\Http\Controllers\CoreX\RentalWorkOrderSettingsController;
 use App\Http\Controllers\CoreX\SettingsController;
 use App\Http\Controllers\Settings\Prospecting\StaleRulesController;
+use App\Http\Controllers\TitleDeeds\TitleDeedSettingsController;
 
 /**
  * Agency Onboarding Setup Wizard — content + control map (single source of truth).
@@ -621,6 +623,48 @@ return [
         ],
     ],
 
+    // AT-432 — Auctions. Gated on the `auctions` feature (AgencyOnboardingSetup::
+    // stepGates), so an agency that does not auction never sees it. Posts a
+    // SUBSET of the settings page, so its saver (updateWizard) guards every write
+    // with $request->has() — spec §6.1. The deeper auction settings (fees,
+    // bidding rules, deposits) stay on Settings → Auctions: see the spec's
+    // "Deliberately NOT in the wizard" list.
+    'auctions' => [
+        'title' => 'Auctions',
+        'intro' => 'Tell CoreX how your agency uses Auctions — most agencies only need to advertise their auction properties.',
+        'what' => [
+            'title' => 'What Auctions is',
+            'body'  => 'Auctions is where you advertise properties that are being sold at auction. Each auction gets its own '
+                . 'public page showing the date, venue, who is running the sale, the guide price, viewing times and the '
+                . 'Rules of Auction, plus an "I\'m interested" form that sends the enquiry straight to the listing agent. '
+                . 'After the sale you record the result and the advert shows Sold or Passed in. If you also want CoreX to run '
+                . 'the sale itself — register bidders, take bids, bang the hammer — you can switch that on below.',
+        ],
+        'savers' => [
+            ['controller' => AuctionSettingsController::class, 'method' => 'updateWizard'],
+        ],
+        'controls' => [
+            ['key' => 'auction_advertising_only', 'source' => 'auction', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Advertising only',
+             'explain' => 'On means CoreX is used to advertise auction properties, and the auction itself is run somewhere else — by an outside auction house or on the day without CoreX. Off means CoreX also runs the sale: bidder registration, the Sale Room and recording bids.',
+             'affects' => 'What this changes: when on, the Sale Room and Bidder Register disappear and "Register to bid" sends buyers to the auctioneer\'s own link; when off, they appear and buyers can register on CoreX.'],
+            ['key' => 'auction_auctioneer_mode', 'source' => 'auction', 'type' => 'select', 'default' => 'both',
+             'options' => ['internal' => 'Our own auctioneer', 'external' => 'An outside auction house', 'both' => 'Either — ask each time'],
+             'label' => 'Who conducts your auctions',
+             'explain' => 'Whether the auctioneer is someone at your agency or an outside auction house. An outside auction house\'s name and licence number are printed on the public advert.',
+             'affects' => 'What the New Auction form asks for, and what buyers see under "Conducted by" on the public page. An agency auctioneer must hold a valid Fidelity Fund Certificate before the auction can be published.'],
+            ['key' => 'auction_reserve_visibility', 'source' => 'auction', 'type' => 'select', 'default' => 'private',
+             'options' => ['private' => 'Never show the reserve amount', 'disclosed_on_the_day' => 'Reveal on the day', 'published' => 'Show it on the advert'],
+             'label' => 'Reserve price on the advert',
+             'explain' => 'Every advert must say whether a lot is subject to a reserve — that is the law. This only decides whether the reserve AMOUNT is shown too.',
+             'affects' => 'Whether buyers see the actual reserve figure on the public lot page, or only "Subject to a reserve price".'],
+            ['key' => 'auction_guide_price_enabled', 'source' => 'auction', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Show a guide price',
+             'explain' => 'A guide price is the range you expect the lot to sell for. It is shown to buyers as an indication, not a promise.',
+             'affects' => 'Whether the public advert and the portal listings show a guide price on each lot.'],
+        ],
+    ],
+
     'properties' => [
         'title' => 'Properties & listings',
         // Marketing and portal syndication are switched on in the Capabilities
@@ -632,7 +676,10 @@ return [
             'body'  => 'Whether CoreX markets your listings, and whether it publishes them to Property24 and '
                 . 'Private Property, you already chose back in the Capabilities step. Here you set how the '
                 . 'Properties list itself behaves — how much of your stock an agent sees at a time when they '
-                . 'open the page in the field or at a desk.',
+                . 'open the page in the field or at a desk. It also covers Other Agency Stock — a listing from '
+                . 'another agency that your agent imports so they can take their own buyers to view it — '
+                . 'who in your agency can see those listings and the consent sentence an agent agrees to when '
+                . 'they import one.',
         ],
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'updatePropertiesPerPage'],
@@ -648,7 +695,16 @@ return [
             // always post a hidden "0" companion (wizard.blade.php), so this
             // step can never partially-post and silently flip one off.
             ['controller' => DealPropertySyncSettingsController::class, 'method' => 'update'],
+            // Other Agency Stock — .ai/specs/other-agency-stock.md §6/§3a. Same saver as
+            // Company Settings → Other Agency Stock. Both fields are has()-guarded
+            // inside it (the roles via their `_submitted` marker), so a post that
+            // never rendered them leaves the saved values alone (§6.1).
+            ['controller' => SettingsController::class, 'method' => 'updateOtherAgencyStock'],
+            // AT-450 — Title Deed Register. Same saver as Settings -> Title Deeds; every field is has()-guarded (§6.1).
+            ['controller' => TitleDeedSettingsController::class, 'method' => 'save'],
         ],
+        // AT-450 round 2 - the agency's own list of title deed storage locations (a list editor, so it sits outside the form).
+        'aux_partial' => 'agency-setup.steps.title-deed-locations',
         'controls' => [
             ['key' => 'properties_per_page', 'source' => 'perf', 'type' => 'number', 'default' => 24, 'min' => 1, 'max' => 200,
              'label' => 'Properties per page',
@@ -688,6 +744,109 @@ return [
              'label' => 'Revert the property when a deal is declined or lapses',
              'explain' => 'If a deal on an Under Offer property falls through, CoreX can automatically put the property back to the on-market status it held before — the safety companion to the toggle above.',
              'affects' => 'Whether a property that was auto-flagged Under Offer returns to its previous status on its own when the deal dies, or stays stuck as Under Offer until someone fixes it manually.'],
+
+            // Other Agency Stock — .ai/specs/other-agency-stock.md §6/§3a/§10.
+            // Roles: a live list of THIS agency's own roles (control type `role_multiselect`,
+            // posts the `_submitted` marker the saver keys on). All ticked = visible to
+            // everyone = the stored default (NULL).
+            ['key' => 'other_agency_stock_visible_roles', 'source' => 'other_agency_stock', 'type' => 'role_multiselect',
+             'heading' => 'Other Agency Stock',
+             'label' => 'Who can see Other Agency Stock',
+             'explain' => 'Other Agency Stock is a listing that belongs to another agency, which your agent has imported from Property24 or Private Property so they can show it to their own buyers. Every role is ticked as standard, so everyone in your agency sees it; untick a role to hide these listings from that role. Buyers always see them in viewing packs like any other property, whatever you choose here.',
+             'affects' => 'Which of your own staff see Other Agency Stock on their Properties list and property pages. It never changes what a buyer sees, and it never publishes the listing anywhere.'],
+
+            // Blank = the standard wording (shown greyed out as the placeholder, like the settings page).
+            ['key' => 'other_agency_stock_consent_wording', 'source' => 'other_agency_stock', 'type' => 'textarea', 'rows' => 4,
+             'placeholder' => \App\Models\OtherAgencyStockConsent::DEFAULT_WORDING,
+             'label' => 'Import consent wording',
+             'explain' => 'Before an agent imports another agency\'s listing, they must tick a box confirming they have that agency\'s permission. This is the sentence beside that box. Leave it blank to use the standard wording (shown greyed out below); write your own if your agency\'s policy needs different words.',
+             'affects' => 'The exact words the agent agrees to on the import screen of the Chrome tool. The wording as it stood is saved with each import, so changing it later never rewrites an earlier consent.'],
+            // ── Title Deed Register (AT-450) - .ai/specs/title-deed-register.md §9 and §15. Same wording as Settings -> Title Deeds. ──
+            ['key' => 'pin_mode', 'source' => 'title_deeds', 'type' => 'select', 'default' => 'required',
+             'options' => ['required' => 'Required', 'optional' => 'Optional', 'not_used' => 'Not used'],
+             'heading' => 'To collect a title deed',
+             'label' => 'Collection PIN from the owner',
+             'explain' => "When a title deed arrives, the owner is told it is at the office. Required: they are sent a PIN and the deed is only handed over against it. Optional: the PIN is sent and may be used, or staff can check the owner's ID instead. Not used: no PIN is sent.",
+             'affects' => "Whether the owner's notice carries a PIN, and whether a deed can be handed over without one."],
+            ['key' => 'signature_mode', 'source' => 'title_deeds', 'type' => 'select', 'default' => 'required',
+             'options' => ['required' => 'Required', 'optional' => 'Optional', 'not_used' => 'Not used'],
+             'label' => 'Signature of the person collecting',
+             'explain' => 'Required: no hand-over without a signature. Optional: staff may skip it, and the record then says "not captured". Not used: no signature box and no signing link.',
+             'affects' => 'Whether the signature box and the signing link appear, and whether a hand-over can finish without one.'],
+            ['key' => 'collector_id_photo_mode', 'source' => 'title_deeds', 'type' => 'select', 'default' => 'not_used',
+             'options' => ['required' => 'Required', 'optional' => 'Optional', 'not_used' => 'Not used'],
+             'label' => "Photo of the collector's ID",
+             'explain' => "Required: staff must photograph the collector's ID. Optional: staff may skip it. Not used: staff are never asked.",
+             'affects' => 'Whether the photo field appears at the hand-over, and whether it can be skipped.'],
+            ['key' => 'representatives_allowed', 'source' => 'title_deeds', 'type' => 'select', 'default' => '1',
+             'options' => ['1' => 'Yes', '0' => 'No'],
+             'heading' => 'Someone collecting for the owner',
+             'label' => 'May a representative collect?',
+             'explain' => 'Yes: staff can hand the deed to someone the owner sent, who gives their own name, ID number and relationship to the owner. No: only the owners themselves can collect.',
+             'affects' => 'Whether staff can hand a title deed to anyone other than the owners themselves.'],
+            ['key' => 'rep_without_pin_mode', 'source' => 'title_deeds', 'type' => 'select', 'default' => 'owner_consent',
+             'options' => ['refuse' => 'Refuse - they cannot collect', 'owner_consent' => 'Ask the owner to confirm by link', 'consent_or_letter' => 'Owner link or a signed authority letter'],
+             'label' => 'A representative who arrives without the PIN',
+             'explain' => 'What staff may do when the person collecting for the owner cannot give the PIN. (Ignored while the PIN is Required: then a representative must have it.)',
+             'affects' => 'Whether such a person is turned away, or every owner is emailed a link to approve or decline them, or a signed authority letter is accepted instead.'],
+            ['key' => 'phone_consent_allowed', 'source' => 'title_deeds', 'type' => 'select', 'default' => '0',
+             'options' => ['1' => 'Yes', '0' => 'No'],
+             'label' => "Accept the owner's consent by phone call",
+             'explain' => 'Yes: staff can phone an owner on a number stored on their contact and record that they agreed to the named representative collecting. No: only the confirmation link counts.',
+             'affects' => "Whether a recorded phone call counts as the owner's consent, as well as the approval link."],
+            ['key' => 'authority_letter_mode', 'source' => 'title_deeds', 'type' => 'select', 'default' => 'optional',
+             'options' => ['required' => 'Required', 'optional' => 'Optional', 'not_used' => 'Not used'],
+             'label' => 'Authority letter',
+             'explain' => "Required: every representative must hand in the owner's signed letter. Optional: staff can upload one. Not used: never asked for.",
+             'affects' => "Whether a handover to a representative can be completed without the owner's signed letter."],
+            ['key' => 'sign_on_screen_enabled', 'source' => 'title_deeds', 'type' => 'select', 'default' => '1',
+             'options' => ['1' => 'Yes', '0' => 'No'],
+             'heading' => 'Ways to sign',
+             'label' => 'Sign on our screen',
+             'explain' => "Yes: the collector signs in a box on the staff member's screen. No: no signature box on our screen. (At least one way to sign must stay Yes while the signature is Required.)",
+             'affects' => 'Whether staff see a signature box at the hand-over.'],
+            ['key' => 'sign_by_link_enabled', 'source' => 'title_deeds', 'type' => 'select', 'default' => '1',
+             'options' => ['1' => 'Yes', '0' => 'No'],
+             'label' => 'Sign on their own phone from a link or QR',
+             'explain' => 'Yes: staff can send the collector a one-time link (or show a QR code) and they sign on their own phone. No: no signing links.',
+             'affects' => 'Whether staff see "Create the signing link" on the hand-over screen.'],
+            ['key' => 'notify_listing_agent', 'source' => 'title_deeds', 'type' => 'select', 'default' => '1',
+             'options' => ['1' => 'Yes', '0' => 'No'],
+             'heading' => 'Who is told',
+             'label' => "Tell the deal's listing agent when a deed is collected",
+             'explain' => 'Yes: the listing agent of the deal the deed came from gets a notification when it is collected. No: only the responsible agent and the other agents on the deed are told.',
+             'affects' => 'Whether the listing agent gets a notification when a title deed linked to their deal is collected.'],
+            ['key' => 'reference_prefix', 'source' => 'title_deeds', 'type' => 'text', 'default' => 'TD', 'placeholder' => 'TD',
+             'heading' => 'Reference numbers',
+             'label' => 'Reference prefix',
+             'explain' => 'Printed on every title deed record, e.g. TD-00042. Changing it only affects new deeds.',
+             'affects' => 'The first part of the reference number written on the envelope and quoted to owners. Numbers already issued never change.'],
+            ['key' => 'pin_lock_attempts', 'source' => 'title_deeds', 'type' => 'number', 'default' => 5, 'min' => 1, 'max' => 20,
+             'heading' => 'Limits and reminders',
+             'label' => 'Wrong PIN attempts before the PIN locks (attempts)',
+             'explain' => 'After this many wrong PINs the deed locks until someone issues a new PIN.',
+             'affects' => 'How many mistakes are allowed before the PIN stops working.'],
+            ['key' => 'consent_validity_minutes', 'source' => 'title_deeds', 'type' => 'number', 'default' => 60, 'min' => 5, 'max' => 1440,
+             'label' => "How long an owner's confirmation lasts (minutes)",
+             'explain' => 'After this long the owner has to confirm again before the representative can collect.',
+             'affects' => 'How long an approval lasts once an owner gives it.'],
+            ['key' => 'signing_link_minutes', 'source' => 'title_deeds', 'type' => 'number', 'default' => 30, 'min' => 5, 'max' => 1440,
+             'label' => 'How long a signing link lasts (minutes)',
+             'explain' => 'A signing link works once, and stops working after this long.',
+             'affects' => 'How long the collector has to open the link and sign.'],
+            ['key' => 'reminder_days', 'source' => 'title_deeds', 'type' => 'number', 'default' => 14, 'min' => 1, 'max' => 365,
+             'label' => 'Remind the owners every (days)',
+             'explain' => 'An owner who has been told the deed is here gets a reminder email this many days after the last notice.',
+             'affects' => 'How soon a deed that is still waiting gets a reminder.'],
+            ['key' => 'max_reminders', 'source' => 'title_deeds', 'type' => 'number', 'default' => 3, 'min' => 0, 'max' => 20,
+             'label' => 'Most reminders for one deed (0 = none)',
+             'explain' => 'After this many reminders no more are sent for that deed.',
+             'affects' => 'When reminders stop for a deed.'],
+            ['key' => 'contact_changed_block_days', 'source' => 'title_deeds', 'type' => 'number', 'default' => 7, 'min' => 0, 'max' => 365,
+             'label' => "Extra check after an owner's email or phone changed (days, 0 = no extra check)",
+             'explain' => "If an owner's email or phone changed within this many days, only someone with the override permission can hand the deed over, and must give a reason.",
+             'affects' => 'Whether a deed can be handed over straight away when the details used to reach its owner changed very recently.'],
+
         ],
     ],
 
@@ -861,6 +1020,9 @@ return [
             // spec §5.1. Guarded internally by the 'fica_referral_settings_present'
             // hidden marker (§6.1) — the partial always renders it.
             ['controller' => FicaOfficerAppointmentsController::class, 'method' => 'saveReferralSettings'],
+            // Quick Links W1 — FICA link life + "expiring" threshold (quick-links.md §8-4). Plain number inputs that are
+            // only written when posted (§6.1), so a subset post can never wipe the other value.
+            ['controller' => FicaOfficerAppointmentsController::class, 'method' => 'saveRequestSettings'],
             // PPRA Inspection Pack Phase E — item (j), .ai/specs/ppra-inspection-pack.md
             // §6.7/§10a. A required <select> always posts a value, so no §6.1
             // has()-guard is needed here (that rule protects optional checkboxes only).
@@ -876,6 +1038,14 @@ return [
              'label' => 'Financial year starts in',
              'explain' => 'The month your agency\'s financial year begins — used by the PPRA Inspection Pack to bound its "current financial year" sales and rentals list.',
              'affects' => 'Which sales and rentals count as "this financial year" on the PPRA Inspection Pack (Admin → PPRA Inspection Pack). Does not affect any other report.'],
+            ['key' => 'fica_link_days', 'source' => 'agency', 'type' => 'number', 'default' => 14, 'min' => 1, 'max' => 90,
+             'label' => 'FICA link is valid for (days)',
+             'explain' => 'When an agent sends a client a FICA form by email, the secure link in that email stops working after this many days.',
+             'affects' => 'How long a client has to fill in a FICA form before the agent has to resend it. Links already sent keep the life they were sent with.'],
+            ['key' => 'fica_expiring_after_months', 'source' => 'agency', 'type' => 'number', 'default' => 11, 'min' => 1, 'max' => 60,
+             'label' => 'Show FICA as "expiring" after (months)',
+             'explain' => 'How many months after a FICA is approved before CoreX starts showing that contact\'s FICA as expiring.',
+             'affects' => 'When the FICA chip on a contact turns amber and prompts the agent to send a new FICA form.'],
             // PPRA Inspection Pack Phase F — .ai/specs/ppra-inspection-pack.md
             // §4.6a/§6.8a. Plain number inputs always post a value, so no §6.1
             // has()-guard is needed here either.

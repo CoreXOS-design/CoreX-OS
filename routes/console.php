@@ -44,6 +44,8 @@ Schedule::command('articles:scrape')->daily();
 
 // Signature reminders — runs daily at 08:00
 Schedule::command('signatures:send-reminders')->dailyAt('08:00');
+// AT-450 - title deeds still at the office: remind the owners (capped, idempotent; settings per agency).
+Schedule::command('titledeeds:send-reminders')->dailyAt('08:30')->withoutOverlapping();
 
 // AT-383 — pre-webinar reminders. HOURLY, deliberately: the lead time is set per
 // webinar in HOURS, so a daily job would fire hours early or late depending on what
@@ -162,6 +164,14 @@ Schedule::command('corex:matches:send-digests')->dailyAt('07:00')->onOneServer()
 
 // Agency Access Authorization — expire stale pending requests every minute.
 Schedule::command('agency-access:expire')->everyMinute()->withoutOverlapping();
+// AT-432 Phase 4 (.ai/specs/auctions.md §11.2) — pure-online auction lots
+// close themselves when their bidding window passes; a hybrid/in-room lot
+// always waits for the auctioneer's own hammer (see the command's own
+// closeExpiredOnlineLots() docblock for why only 'online' auctions qualify).
+Schedule::command('auctions:close-expired-lots')->everyMinute()->withoutOverlapping();
+
+// AT-432 addendum — .ai/specs/auctions-advertising-mode.md §7: reminders to people who enquired about a lot.
+Schedule::command('auctions:send-reminders')->hourly()->withoutOverlapping();
 
 // AT-118 — Communications Access Gate: midnight reset of all live grants
 // (closes the never-closed-session loophole) + expire stale pending requests.
@@ -390,6 +400,21 @@ Schedule::command('deals:recalc-money-lines')
     ->timezone('Africa/Johannesburg')
     ->onOneServer()
     ->withoutOverlapping();
+
+// ── DR1↔DR2 twin money guard ──
+// ONE SOURCE for a deal's money (2026-10-08): compares every linked deal against its v2 row,
+// in cents — what v2 would show, what the saved money lines hold, and the link itself — and
+// logs Log::critical on any disagreement. Read-only; never repairs. Before this the parity
+// harness only compared status/price and was never scheduled, which is how the v2 copy of 10
+// deals lost the "other agency handled this side" marker unnoticed. Runs after the 04:45
+// money-line rebuild so a stale line is judged against the freshly rebuilt ones. NB: like the
+// rebuild above, inert on QA1 (no scheduler cron) — run `php artisan deals:parity-check` by hand there.
+Schedule::command('deals:parity-check')
+    ->dailyAt('05:15')
+    ->timezone('Africa/Johannesburg')
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->name('deals-parity-check');
 
 // ── Leave Management ──
 Schedule::command('corex:leave:accrue-daily')->dailyAt('02:00')->onOneServer()->withoutOverlapping();

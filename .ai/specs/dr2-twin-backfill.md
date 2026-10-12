@@ -68,3 +68,8 @@ DR2 (`deals_v2`) shows **zero deals** because no DR1 deal was ever paired into D
 
 ## Deploy
 Staging (branch → origin/Staging) → staging host (migrate + backfill + clears + php8.2 reload + worker) → QA1 (`qa-deploy.sh` + backfill). `schema:dump` after the migration. **No live.** Johan creates test data on Staging/QA1 to prove new-deal pipeline activation.
+
+## Amendment 2026-10-08 — twins never own money
+`commission_amount`/`commission_vat` (and the twin's default splits / external markers) copied above are a **dormant copy**: a linked
+twin reads every money figure from the real deal (`DealV2::money()`), and `syncFromV2` no longer writes commission back. See
+`deal-register-v2-spec.md` §22. `deals:parity-check` now compares money, the saved money lines and the link in cents, daily.

@@ -219,6 +219,8 @@
             // is a different idea from Draft's "unfinished" pencil.
             'Awaiting approval' => '<circle cx="12" cy="12" r="9" fill="none"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 7.5V12l3 1.75"/>',
             'Rented Out'  => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>',
+            // AT-453 — Other agency: a building with a door (another agency's stock).
+            'Other agency' => '<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15v18M9 7.5h1.5M13.5 7.5H15M9 11.25h1.5M13.5 11.25H15M10.5 21v-4.5h3V21"/>',
         ];
         $kpiColors = [
             'Total'       => ['bg' => 'color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent)',  'fg' => 'var(--brand-icon, #0ea5e9)'],
@@ -244,6 +246,12 @@
             ['label' => 'Rented Out',  'value' => $stats['rentedOut'],   'filter' => 'rented_out'],
             // AT-448 — Expired tile on both lenses (rental mandates expire too).
             ['label' => 'Expired',     'value' => $stats['expired'] ?? 0, 'filter' => 'expired'],
+        ] : (($isAuctionEntry ?? false) ? [
+            // AT-432 — Auctions lens: the statuses that matter for auction stock.
+            ['label' => 'Total',       'value' => $stats['total'],       'filter' => ''],
+            ['label' => 'On Auction',  'value' => $stats['onAuction'],   'filter' => \App\Models\Property::STATUS_ON_AUCTION],
+            ['label' => 'Draft',       'value' => $stats['draft'],       'filter' => 'draft'],
+            ['label' => 'Sold',        'value' => $stats['sold'],        'filter' => 'sold'],
         ] : [
             ['label' => 'Total',       'value' => $stats['total'],       'filter' => ''],
             ['label' => 'On Market',   'value' => $stats['active'],      'filter' => 'on_market'],
@@ -252,7 +260,17 @@
             ['label' => 'Sold',        'value' => $stats['sold'],        'filter' => 'sold'],
             // AT-448 — Expired tile (spec §2.1).
             ['label' => 'Expired',     'value' => $stats['expired'] ?? 0, 'filter' => 'expired'],
-        ];
+        ]);
+
+        // AT-453 — Other Agency Stock is another agency's listing: its own tile, never inside
+        // Total / On Market. Shown only where the feature is on for this viewer.
+        if (($showOtherAgencyStock ?? false)) {
+            $kpiTiles[] = [
+                'label'  => 'Other agency',
+                'value'  => $stats['otherAgency'] ?? 0,
+                'filter' => \App\Models\Property::STATUS_OTHER_AGENCY_STOCK,
+            ];
+        }
 
         // Layer 3 — "Awaiting approval" (.ai/specs/syndication-approval-gate.md §7.1).
         // Only for an agency that switched the gate on, and only for someone who
@@ -292,7 +310,7 @@
          by definition) and "Sold" is only one of several statuses shown, so
          they're misleading rather than useful there. Andre, 2026-09-15. --}}
     @unless($importedStock ?? false)
-    <div class="grid grid-cols-2 sm:grid-cols-3 {{ count($kpiTiles) > 5 ? 'lg:grid-cols-6' : 'lg:grid-cols-5' }} gap-2 mt-3 flex-shrink-0" data-tour="re-properties-kpis">
+    <div class="grid grid-cols-2 sm:grid-cols-3 {{ count($kpiTiles) > 6 ? 'lg:grid-cols-7' : (count($kpiTiles) > 5 ? 'lg:grid-cols-6' : 'lg:grid-cols-5') }} gap-2 mt-3 flex-shrink-0" data-tour="re-properties-kpis">
         @foreach($kpiTiles as $kpi)
         @php
             // Most tiles drive `status=`; the layer-3 approval tile drives
@@ -419,7 +437,12 @@
                  mislabelled — no rental-equivalent status exists for either today. --}}
             <select name="status" onchange="this.form.submit()" class="list-header-filter" data-tour="re-properties-status">
                 <option value="" {{ $status === '' ? 'selected' : '' }}>All Statuses</option>
-                @if($isRentalEntry ?? false)
+                @if($isAuctionEntry ?? false)
+                <option value="{{ \App\Models\Property::STATUS_ON_AUCTION }}" {{ $status === \App\Models\Property::STATUS_ON_AUCTION ? 'selected' : '' }}>On Auction</option>
+                <option value="draft" {{ $status === 'draft' ? 'selected' : '' }}>Draft</option>
+                <option value="sold" {{ $status === 'sold' ? 'selected' : '' }}>Sold</option>
+                <option value="withdrawn" {{ $status === 'withdrawn' ? 'selected' : '' }}>Withdrawn</option>
+                @elseif($isRentalEntry ?? false)
                 <option value="on_market" {{ $status === 'on_market' ? 'selected' : '' }}>Available</option>
                 <option value="{{ \App\Models\Property::STATUS_PROSPECTING }}" {{ $status === \App\Models\Property::STATUS_PROSPECTING ? 'selected' : '' }}>Prospecting</option>
                 <option value="draft" {{ $status === 'draft' ? 'selected' : '' }}>Draft</option>
@@ -442,6 +465,10 @@
                 {{-- AT-448 — Expired + the "Expiring soon" window (the popup's View all). --}}
                 <option value="expired" {{ $status === 'expired' ? 'selected' : '' }}>Expired</option>
                 <option value="expiring_soon" {{ $status === 'expiring_soon' ? 'selected' : '' }}>Expiring soon</option>
+                {{-- AT-453 — another agency's imported listing; filters with the existing status param. --}}
+                @if($showOtherAgencyStock ?? false)
+                <option value="{{ \App\Models\Property::STATUS_OTHER_AGENCY_STOCK }}" {{ $status === \App\Models\Property::STATUS_OTHER_AGENCY_STOCK ? 'selected' : '' }}>Other Agency Stock</option>
+                @endif
                 @endif
             </select>
 
@@ -450,7 +477,27 @@
                  server-side whenever isRentalEntry is true, regardless of
                  what this control (or a hand-edited URL) says, so a static
                  label here is honest, not merely decorative. --}}
-            @if($isRentalEntry ?? false)
+            @if($isAuctionEntry ?? false)
+                <span class="list-header-filter" style="cursor:default;" title="This entry point always shows auction properties only" data-tour="au-prop-lens">Auctions only</span>
+                {{-- AT-432 (§8.2) — lens-only filters: which auction, lot status, reserve met. --}}
+                <select name="auction_id" onchange="this.form.submit()" class="list-header-filter" title="Auction" data-tour="au-prop-auction">
+                    <option value="">All auctions</option>
+                    @foreach($auctionOptions as $ao)
+                    <option value="{{ $ao->id }}" {{ $auctionFilters['auctionId'] === (string) $ao->id ? 'selected' : '' }}>{{ $ao->reference }} — {{ $ao->title }} ({{ $ao->starts_at?->format('d M Y') }})</option>
+                    @endforeach
+                </select>
+                <select name="lot_status" onchange="this.form.submit()" class="list-header-filter" title="Lot status" data-tour="au-prop-lotstatus">
+                    <option value="">Any lot status</option>
+                    @foreach($lotStatusLabels as $slug => $label)
+                    <option value="{{ $slug }}" {{ $auctionFilters['lotStatus'] === (string) $slug ? 'selected' : '' }}>{{ $label }}</option>
+                    @endforeach
+                </select>
+                <select name="reserve_met" onchange="this.form.submit()" class="list-header-filter" title="Reserve" data-tour="au-prop-reserve">
+                    <option value="">Reserve: any</option>
+                    <option value="1" {{ $auctionFilters['reserveMet'] === '1' ? 'selected' : '' }}>Reserve met</option>
+                    <option value="0" {{ $auctionFilters['reserveMet'] === '0' ? 'selected' : '' }}>Reserve not met</option>
+                </select>
+            @elseif($isRentalEntry ?? false)
                 <span class="list-header-filter" style="cursor:default;" title="This entry point always shows rentals only">Rentals only</span>
             @else
                 <select name="listing_type" onchange="this.form.submit()" class="list-header-filter">
@@ -470,6 +517,10 @@
                 <option value="price_desc" {{ ($filters['sort'] ?? '') === 'price_desc' ? 'selected' : '' }}>Price: high → low</option>
                 <option value="price_asc"  {{ ($filters['sort'] ?? '') === 'price_asc'  ? 'selected' : '' }}>Price: low → high</option>
                 <option value="title"      {{ ($filters['sort'] ?? '') === 'title'      ? 'selected' : '' }}>Title (A–Z)</option>
+                @if($isAuctionEntry ?? false)
+                <option value="lot_number" {{ ($filters['sort'] ?? '') === 'lot_number' ? 'selected' : '' }}>Lot number</option>
+                <option value="auction_date" {{ ($filters['sort'] ?? '') === 'auction_date' ? 'selected' : '' }}>Auction date</option>
+                @endif
             </select>
 
             {{-- More filters toggle --}}
@@ -874,7 +925,16 @@
     <div x-show="view === 'grid'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" data-tour="re-properties-list">
         @foreach($properties as $property)
         @php
-            $images = $property->allImages();
+            // 2026-09-30 field audit — allImages() merges gallery_images_json
+            // with images_json (a divergent public/website mirror) and the
+            // dawn/noon/dusk variant sets, over-counting the "N photos" badge
+            // below (confirmed live: 46 shown for a genuinely 23-photo
+            // property — exactly the class of bug syndicationImages() was
+            // already built to fix for outbound syndication; same fix here.
+            // Falls back to allImages() when the curated gallery is empty,
+            // so a property whose photos live only in a legacy column still
+            // shows a thumbnail/count instead of none.
+            $images = $property->syndicationImages();
             // Resolved ONCE here (not re-called inside the <img>) so the @if
             // gate below checks the SAME value the <img src> uses — a missing
             // original now correctly falls through to the placeholder instead
@@ -906,6 +966,10 @@
             // it appears when the listing may be marketed AND reaches at least one
             // portal (own website / P24 / Private Property), and its tooltip names
             // them. Drives how much room the left-hand badge stack is given.
+            // AT-453 — the Other Agency Stock portal link. It is rendered OUTSIDE the photo link (a link
+            // inside a link is invalid HTML: the browser split the card and painted a second, pale photo
+            // box over the left of the image).
+            $oasPortalUrl = $property->isOtherAgencyStock() ? $property->externalSource?->listing_url : null;
             $showSynBtn = ($property->is_marketable ?? false)
                 && ($property->has_syndication ?? $property->isLiveOnAnyPortal());
         @endphp
@@ -951,7 +1015,7 @@
 
                 {{-- Glassmorphism status badges (left). right-12 clears the
                      syndication button when it renders so pills wrap cleanly. --}}
-                <div class="absolute top-2.5 left-2.5 {{ $showSynBtn ? 'right-12' : 'right-2.5' }} flex flex-row flex-wrap items-center gap-1.5">
+                <div class="absolute top-2.5 left-2.5 {{ ($showSynBtn || $oasPortalUrl) ? 'right-12' : 'right-2.5' }} flex flex-row flex-wrap items-center gap-1.5">
                     <span class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium">{{ $listingTypeLabel }}</span>
                     <span class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium inline-flex items-center gap-1.5">
                         @if($isLiveStatus)<span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style="background:#34D399;"></span><span style="color:#34D399;">{{ $statusLabel }}</span>
@@ -1001,7 +1065,12 @@
             {{-- Syndication viewer. Sits outside the thumbnail anchor so the
                  button is a real button, not a nested interactive element
                  inside a link. --}}
-            <div class="absolute top-2.5 right-2.5 z-10 flex items-center">
+            <div class="absolute top-2.5 right-2.5 z-10 flex items-center gap-1.5">
+                {{-- .ai/specs/other-agency-stock.md §9 — small portal-link icon on the card (AT-453: a sibling of
+                     the photo link, not nested inside it). --}}
+                @if($oasPortalUrl)
+                <a href="{{ $oasPortalUrl }}" target="_blank" rel="noopener noreferrer" class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium" data-oas-portal-link title="View on {{ $property->externalSource->portal === 'pp' ? 'Private Property' : 'Property24' }}">&#8599;</a>
+                @endif
                 @include('corex.properties.partials.syndication-button', ['property' => $property, 'variant' => 'card'])
             </div>
 
@@ -1029,6 +1098,8 @@
                     {{ $property->title }}
                 </div>
                 @endif
+
+                @if($isAuctionEntry ?? false) @include('corex.properties.partials.auction-lot-chip') @endif
 
                 {{-- Property type + features row --}}
                 <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs" style="color:var(--text-secondary);">
@@ -1085,10 +1156,15 @@
                         <a href="{{ route('corex.properties.show', $property) }}"
                            target="_blank" rel="noopener"
                            class="corex-btn-outline text-[10px] px-2 py-1">View</a>
+                        @if($property->isOtherAgencyStock())
+                        <span class="corex-btn-primary text-[10px] px-2 py-1 opacity-50 cursor-not-allowed" aria-disabled="true" data-oas-blocked="ad_builder"
+                              title="{{ \App\Services\Properties\OtherAgencyStockActionRules::reason('ad_builder') }}">Ad</span>
+                        @else
                         <a href="{{ route('corex.properties.ad', $property) }}"
                            target="_blank"
                            class="corex-btn-primary text-[10px] px-2 py-1"
                            title="Create Ad">Ad</a>
+                        @endif
                         <form method="POST" action="{{ route('corex.properties.destroy', $property) }}"
                               onsubmit="return confirm('Delete \'{{ addslashes($property->title) }}\'?')">
                             @csrf @method('DELETE')
@@ -1162,7 +1238,8 @@
             <tbody>
                 @foreach($properties as $property)
                 @php
-                    $rowImages = $property->allImages();
+                    // 2026-09-30 field audit — see the grid-view $images comment above.
+                    $rowImages = $property->syndicationImages();
                     // Resolved once — see the grid-view $thumb comment above.
                     $rowThumb  = $property->thumbFor($rowImages[0] ?? null);
                     $rowListingLabel = $property->isRental() ? 'For Rent' : 'For Sale';
@@ -1235,6 +1312,7 @@
                     </td>
                     <td class="px-4 py-2.5 text-xs" style="color:var(--text-secondary);">
                         {{ $property->buildDisplayAddress() }}
+                        @if($isAuctionEntry ?? false) @include('corex.properties.partials.auction-lot-chip') @endif
                     </td>
                     <td class="px-4 py-2.5 text-xs capitalize hidden sm:table-cell" style="color:var(--text-secondary);">
                         {{ str_replace('_', ' ', $property->property_type) }}
@@ -1309,7 +1387,12 @@
                         <div class="flex items-center justify-end gap-1">
                             @include('corex.properties.partials.syndication-button', ['property' => $property, 'variant' => 'row'])
                             <a href="{{ route('corex.properties.show', $property) }}" target="_blank" rel="noopener" class="corex-btn-outline text-[10px] px-2 py-1">View</a>
+                            @if($property->isOtherAgencyStock())
+                            <span class="corex-btn-outline text-[10px] px-2 py-1 opacity-50 cursor-not-allowed" aria-disabled="true" data-oas-blocked="ad_builder"
+                                  title="{{ \App\Services\Properties\OtherAgencyStockActionRules::reason('ad_builder') }}">Ad</span>
+                            @else
                             <a href="{{ route('corex.properties.ad', $property) }}" target="_blank" class="corex-btn-outline text-[10px] px-2 py-1">Ad</a>
+                            @endif
                             <form method="POST" action="{{ route('corex.properties.destroy', $property) }}"
                                   onsubmit="return confirm('Delete \'{{ addslashes($property->title) }}\'?')">
                                 @csrf @method('DELETE')

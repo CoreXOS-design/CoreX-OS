@@ -1,0 +1,201 @@
+{
+  "portal": "p24",
+  "listing_ref": "117324987",
+  "listing_url": "https://www.property24.com/for-sale/ballito-central/ballito/kwazulu-natal/17817/117324987",
+  "price": 1330000,
+  "description": "EXCLUSIVE MANDATE  74m2 in extent.  Direct access via roadway with no stairs plus stack away doors.  Outside balcony overlooks the immaculate garden and fever trees.  Includes a kitchenette, seperate toilet and basin with an open plan space which could be easily custom designed.  Prime location within reach of everything.\n            \n            To view this property or any other quality real estate please do not hesitate to contact your professional and qualified property consultants at Fiona Crago Real Estate in Ballito.",
+  "listing_title": "Conveniently situated prime commercial space in a popular and sought after boutique business park behind Lifestyle and within the business hub",
+  "listing_type": "sale",
+  "property_type_raw": "Place",
+  "property_type_label_hint": "Commercial Property",
+  "beds": null,
+  "baths": 1,
+  "garages": null,
+  "size_m2": 74,
+  "erf_size_m2": null,
+  "suburb": "Ballito Central",
+  "province": "KwaZulu Natal",
+  "street_address": null,
+  "latitude": null,
+  "longitude": null,
+  "p24_suburb_external_id": 17817,
+  "image_ids": [
+    381406652,
+    381406655,
+    381406654,
+    381406661,
+    381406656,
+    381406653,
+    381406657,
+    381406658,
+    381406659,
+    381406660,
+    381406662,
+    381406663,
+    381406664,
+    381406665,
+    381406666,
+    381406667,
+    381406668
+  ],
+  "first_image_id": 381406652,
+  "image_count": 17,
+  "source_agency_name": "Fiona Crago Real Estate",
+  "source_agent_name": "Fiona Crago",
+  "source_agent_profile_url": "/estate-agents/fiona-crago-real-estate/fiona-crago/173063",
+  "source_agent_image_url": "https://images.prop24.com/212399620/UpperCrop200x200",
+  "source_agency_logo_url": "https://images.prop24.com/220330593/Fit450x225",
+  "date_posted": "17 June 2026",
+  "levy": "R 1 399",
+  "rates_taxes": "R 1 524",
+  "zone_type_raw": null,
+  "pets_allowed": null,
+  "parking_count": 1,
+  "parking_features": [
+    "Carport parking",
+    "Secure parking"
+  ],
+  "pool": false,
+  "garden": false,
+  "kitchen_features": [
+    "Sink"
+  ],
+  "garden_features": [],
+  "feature_rows": [
+    {
+      "s": "Property Overview",
+      "k": "Listing Number",
+      "v": [
+        "117324987"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Type of Property",
+      "v": [
+        "Commercial Property"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Description",
+      "v": [
+        "Office"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Lifestyle",
+      "v": [
+        "Complex"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Listing Date",
+      "v": [
+        "17 June 2026"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Floor Size",
+      "v": [
+        "74 m²"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Levies",
+      "v": [
+        "R 1 399"
+      ]
+    },
+    {
+      "s": "Property Overview",
+      "k": "Rates and Taxes",
+      "v": [
+        "R 1 524"
+      ]
+    },
+    {
+      "s": "Facilities",
+      "k": "Bathrooms",
+      "v": [
+        "1",
+        "In unit bathrooms"
+      ]
+    },
+    {
+      "s": "Facilities",
+      "k": "Kitchens",
+      "v": [
+        "1",
+        "Sink"
+      ]
+    },
+    {
+      "s": "External Features",
+      "k": "Parking",
+      "v": [
+        "1",
+        "Carport parking, Secure parking"
+      ]
+    },
+    {
+      "s": "Building",
+      "k": "Style",
+      "v": [
+        "Conventional"
+      ]
+    },
+    {
+      "s": "Building",
+      "k": "Roof",
+      "v": [
+        "Zinc"
+      ]
+    },
+    {
+      "s": "Building",
+      "k": "Wall",
+      "v": [
+        "Plaster"
+      ]
+    },
+    {
+      "s": "Building",
+      "k": "Window",
+      "v": [
+        "Aluminium"
+      ]
+    },
+    {
+      "s": "Other Features",
+      "k": "Security",
+      "v": [
+        "Totally Fenced, Electric Gate, Security Gate"
+      ]
+    },
+    {
+      "s": "Other Features",
+      "k": "Temperature Control",
+      "v": [
+        "Air Conditioning Unit"
+      ]
+    },
+    {
+      "s": "Other Features",
+      "k": "Wheelchair Accessible",
+      "v": [
+        "Yes"
+      ]
+    }
+  ],
+  "strip_tags": [],
+  "bathroom_features": [
+    "In unit bathrooms"
+  ],
+  "_title": "Conveniently situated prime commercial space in a popular and sought after boutique business park behind Lifestyle and within the business hub",
+  "_expected_photo_count": 17
+}

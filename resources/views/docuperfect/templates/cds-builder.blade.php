@@ -131,6 +131,7 @@
                             <input type="hidden" name="draft_id" :value="draftId">
                             <input type="hidden" name="template_name" :value="templateName">
                             <input type="hidden" name="is_esign" :value="isEsign ? 1 : 0">
+                            <input type="hidden" name="esign_acknowledged" :value="esignAcknowledged ? 1 : 0">
                             <input type="hidden" name="party_mode" :value="partyMode">
                             <input type="hidden" name="allowed_delivery_modes" :value="deliveryModes.join(',')">
                             <input type="hidden" name="security_tier" :value="securityTier">
@@ -155,6 +156,7 @@
                             <input type="hidden" name="draft_id" :value="draftId">
                             <input type="hidden" name="template_name" :value="templateName">
                             <input type="hidden" name="is_esign" :value="isEsign ? 1 : 0">
+                            <input type="hidden" name="esign_acknowledged" :value="esignAcknowledged ? 1 : 0">
                             <input type="hidden" name="party_mode" :value="partyMode">
                             <input type="hidden" name="allowed_delivery_modes" :value="deliveryModes.join(',')">
                             <input type="hidden" name="security_tier" :value="securityTier">
@@ -320,7 +322,7 @@
                         {{-- Document Type --}}
                         <div>
                             <label class="text-[10px] font-semibold text-gray-500 uppercase block mb-1">Document Type</label>
-                            <select x-model="templateDocumentTypeId"
+                            <select x-model="templateDocumentTypeId" @change="_onDocTypeChange()"
                                     class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 bg-white text-gray-700 focus:ring-teal-400 focus:border-teal-400">
                                 <option value="">Select document type...</option>
                                 @foreach(\App\Models\Docuperfect\DocumentType::orderBy('sort_order')->get() as $dt)
@@ -371,10 +373,15 @@
 
                         {{-- E-Sign Eligible --}}
                         <div class="flex items-center gap-2">
-                            <input type="checkbox" x-model="isEsign"
+                            <input type="checkbox" x-model="isEsign" @change="if (!isEsign) esignAcknowledged = false"
                                    class="w-3 h-3 rounded border-gray-300 text-teal-600 focus:ring-teal-400">
                             <span class="text-xs text-gray-700">Eligible for E-Signature</span>
                         </div>
+                        {{-- Admin-only record (template setup): who switched e-signing on for a flagged
+                             type, and when. Never shown to agents. --}}
+                        @if(!empty($sourceTemplate) && $sourceTemplate->esignAcknowledgementRecord())
+                        <p class="text-[10px] text-gray-400 -mt-2">{{ $sourceTemplate->esignAcknowledgementRecord() }}</p>
+                        @endif
 
                         {{-- Document Signing Roles --}}
                         <div>
@@ -929,6 +936,7 @@
     .doc-tagging-page .corex-signature-grid { pointer-events: none; }
 </style>
 
+<script src="{{ asset('js/esign-acknowledgement-modal.js') }}"></script>
 <script>
 function cdsEditor() {
     return {
@@ -967,6 +975,11 @@ function cdsEditor() {
 
         // Template settings
         isEsign: true,
+        // Legal e-sign warning (template setup only): which document types carry it is DATA.
+        esignFlaggedTypeIds: @json(app(\App\Services\Docuperfect\EsignAcknowledgementService::class)->flaggedTypeIds()),
+        esignWarning: @json(app(\App\Services\Docuperfect\EsignAcknowledgementService::class)->warning()),
+        esignAcknowledged: @json(!empty($sourceTemplate) && $sourceTemplate->is_esign && $sourceTemplate->esign_acknowledged_at !== null),
+        hasSourceTemplate: @json(!empty($sourceTemplate)),
         partyMode: 'shared',
         deliveryModes: ['esign', 'wet_ink', 'download'],
         securityTier: 'enhanced',
@@ -1081,7 +1094,30 @@ function cdsEditor() {
             await this._doSaveDraft(true);
         },
 
+        _esignNeedsAck() {
+            return this.isEsign && !this.esignAcknowledged && this.templateDocumentTypeId
+                && this.esignFlaggedTypeIds.includes(parseInt(this.templateDocumentTypeId, 10));
+        },
+
+        // A NEW template of a flagged type starts on its wet-ink default; the admin switches
+        // e-signing on deliberately (and acknowledges the warning when saving).
+        _onDocTypeChange() {
+            if (!this.hasSourceTemplate && this._esignNeedsAck()) {
+                this.isEsign = false;
+            }
+        },
+
         async saveAndGenerate(formEl) {
+            // E-sign ON for a flagged document type: the admin acknowledges the legal warning
+            // here, in template setup, before the save goes through.
+            if (this._esignNeedsAck()) {
+                const ok = window.CoreXEsignAck ? await window.CoreXEsignAck.confirm(this.esignWarning) : false;
+                if (!ok) {
+                    this.isEsign = false;
+                    return;
+                }
+                this.esignAcknowledged = true;
+            }
             // Pre-save draft so cdsGenerate reads fresh data
             await this._doSaveDraft(false);
             formEl.submit();

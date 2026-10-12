@@ -173,6 +173,25 @@
                                 </label>
                             @endforeach
                         </div>
+                    @elseif ($type === 'role_multiselect')
+                        {{-- Tick any of THIS agency's own roles (a live list, like
+                             user_multiselect, so a static option map cannot express it).
+                             Posts `key[]` plus a `key_submitted` marker: an un-ticked
+                             checkbox group sends nothing at all, so without the marker
+                             "everything un-ticked" is indistinguishable from "this form was
+                             never submitted" — spec §6.1. The saver keys on the marker. --}}
+                        @php $selectedRoles = array_map('strval', (array) ($val ?? [])); @endphp
+                        <input type="hidden" name="{{ $key }}_submitted" value="1">
+                        <div class="mt-2 flex flex-wrap gap-x-5 gap-y-2">
+                            @foreach (($agencyRoles ?? collect()) as $r)
+                                <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:var(--text-primary,#0f172a);">
+                                    <input type="checkbox" name="{{ $key }}[]" value="{{ $r->name }}"
+                                           @checked(in_array((string) $r->name, $selectedRoles, true))
+                                           style="accent-color: var(--brand-button, #0ea5e9);">
+                                    {{ $r->label ?? ucwords(str_replace('_', ' ', $r->name)) }}
+                                </label>
+                            @endforeach
+                        </div>
                     @elseif ($type === 'user_multiselect')
                         {{-- Pick one or more of THIS agency's own people. The static
                              `select` option map above cannot express a live per-agency

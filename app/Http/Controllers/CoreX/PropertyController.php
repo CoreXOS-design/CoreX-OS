@@ -81,6 +81,9 @@ class PropertyController extends Controller
         // down, AFTER the query string is read — see $listingType below.
         $indexRouteName = $request->route()->getName();
         $isRentalEntry  = $indexRouteName === 'corex.rentals.properties.index';
+        // AT-432 — same lock mechanism, the OTHER axis (sale_method, not
+        // listing_type) per .ai/specs/auctions.md §2/§8.2.
+        $isAuctionEntry = $indexRouteName === 'corex.auctions.properties.index';
 
         // AT-401 — remembers which lens the user most recently entered
         // Properties through, so the sidebar can keep highlighting "Rentals →
@@ -91,6 +94,10 @@ class PropertyController extends Controller
         // used for the listing_type lock above — that always derives from the
         // route name itself, never from session state.
         session(['corex.lens.properties' => $isRentalEntry]);
+        // AT-432 — the fourth lens (see M14's comment on the third, just
+        // below): a property opened FROM Auctions → Properties returns
+        // there and lights up the Auctions sidebar panel, not Real Estate.
+        session(['corex.lens.auctions' => $isAuctionEntry]);
         // Prod-audit 2026-09-16 (M14) — the third lens. A property opened FROM
         // Imported Stock returns there (Back link + sidebar highlight), not to
         // Properties, where the row is by construction not listed. Kept as a
@@ -106,15 +113,19 @@ class PropertyController extends Controller
         // redirected to the canonical URL so links, chips and pagination all
         // carry the state. This replaces the previous behaviour that silently
         // reset to "my listings" on any nav that dropped ?agent_id=.
-        // One list, three entry points (Properties, Rentals -> Properties, Imported Stock) and
-        // three saved-filter sets, so a pick on one list never bleeds into another (AT-401 / AT-419).
+        // One list, FOUR entry points (Properties, Rentals -> Properties, Imported Stock,
+        // Auctions -> Properties) and four saved-filter sets, so a pick on one list never
+        // bleeds into another (AT-401 / AT-419 / AT-432).
         $SESSION_KEY = $importedStock
             ? 'corex.properties.imported_stock.filters'
-            : ($isRentalEntry ? 'corex.rentals.properties.filters' : 'corex.properties.filters');
+            : ($isRentalEntry ? 'corex.rentals.properties.filters'
+                : ($isAuctionEntry ? 'corex.auctions.properties.filters' : 'corex.properties.filters'));
         $FILTER_KEYS = [
             'status', 'search', 'listing_type', 'property_type', 'category',
             'mandate_type', 'branch_id', 'price_min', 'price_max',
             'beds_min', 'baths_min', 'sort', 'dir', 'agent_ids',
+            // AT-432 — §8.2's own additions: auction, lot status, reserve met.
+            'sale_method', 'auction_id', 'lot_status', 'reserve_met',
         ];
 
         // Explicit reset — "Clear all" / "Clear filters" hit ?clear=1.
@@ -158,6 +169,17 @@ class PropertyController extends Controller
         if ($isRentalEntry) {
             $listingType = 'rental';
         }
+
+        // AT-432 — the same lock, applied to sale_method instead of
+        // listing_type: ?sale_method=private_treaty on this entry point is
+        // overridden exactly as the rental lock overrides listing_type above.
+        $saleMethod = $request->query('sale_method', '');
+        if ($isAuctionEntry) {
+            $saleMethod = 'auction';
+        }
+        $auctionIdFilter = $request->query('auction_id', '');
+        $lotStatusFilter = $request->query('lot_status', '');
+        $reserveMetFilter = $request->query('reserve_met', '');
         $propertyType   = $request->query('property_type', '');
         $category       = $request->query('category', '');
         $mandateType    = $request->query('mandate_type', '');
@@ -174,7 +196,13 @@ class PropertyController extends Controller
         $query = Property::with([
             'agent', 'branch', 'secondAgent',
             'websiteSyndication' => fn ($q) => $q->withoutGlobalScope(\App\Models\Scopes\AgencyScope::class),
-        ]);
+        ])
+            // .ai/specs/other-agency-stock.md §6 — hide Other Agency Stock from
+            // a viewer whose role the agency hasn't opted into seeing it.
+            ->visibleOtherAgencyStock($user);
+        if ($isAuctionEntry) {
+            $query->with('auctionLots.auction');
+        }
 
         // AT-419 — the two pages partition every property between them: Imported
         // Stock gets P24-imported off-market rows, Properties gets everything
@@ -297,7 +325,8 @@ class PropertyController extends Controller
         } elseif ($status === 'on_market') {
             // On-market = live stock (for_sale incl. sub-labels, under_offer, …),
             // i.e. NOT terminal/draft. Single source of truth on the model.
-            $query->whereNotIn('status', Property::OFF_MARKET_STATUSES);
+            // AT-453 — Other Agency Stock is on-market for Core Matches but is not OUR stock.
+            $query->whereNotIn('status', Property::OFF_MARKET_STATUSES)->ownStock();
         } elseif ($status === 'rented_out') {
             // AT-401 — the Rentals-lens equivalent of the sale side's "Sold"
             // tab/filter. Not a single literal status value: real data on the
@@ -322,6 +351,17 @@ class PropertyController extends Controller
             $query->where('status', $status);
         }
         if ($listingType !== '')   $query->where('listing_type', $listingType);
+        // AT-432 (.ai/specs/auctions.md §8.2) — the lock above; the three
+        // lens-only additions (auction, lot status, reserve met) apply ONLY
+        // through a real join to auction_lots, never a bare column guess.
+        if ($saleMethod !== '')   $query->where('sale_method', $saleMethod);
+        if ($auctionIdFilter !== '' || $lotStatusFilter !== '' || $reserveMetFilter !== '') {
+            $query->whereHas('auctionLots', function ($q) use ($auctionIdFilter, $lotStatusFilter, $reserveMetFilter) {
+                if ($auctionIdFilter !== '') $q->where('auction_id', (int) $auctionIdFilter);
+                if ($lotStatusFilter !== '') $q->where('status', $lotStatusFilter);
+                if ($reserveMetFilter !== '') $q->where('reserve_met', $reserveMetFilter === '1');
+            });
+        }
         if ($propertyType !== '') {
             // 2026-08-20 audit — also match legacy/imported labels for the same
             // type (Property::propertyTypeSynonyms), so older and P24-imported
@@ -380,9 +420,13 @@ class PropertyController extends Controller
         // set (single source of truth on the model). Values are code constants,
         // never user input, so direct interpolation is safe.
         $offMarketIn = "'" . implode("','", Property::OFF_MARKET_STATUSES) . "'";
+        // AT-453 — one definition of "our own stock" (Property::scopeOwnStock): Total and On Market
+        // never count Other Agency Stock; it gets its own tile (other_agency).
+        $oasSlug = Property::STATUS_OTHER_AGENCY_STOCK;
         $agg = (clone $query)->selectRaw(
-            "COUNT(*) as total,"
-            . " SUM(CASE WHEN status NOT IN ($offMarketIn) THEN 1 ELSE 0 END) as active,"
+            "SUM(CASE WHEN COALESCE(status, '') <> '$oasSlug' THEN 1 ELSE 0 END) as total,"
+            . " SUM(CASE WHEN status NOT IN ($offMarketIn) AND status <> '$oasSlug' THEN 1 ELSE 0 END) as active,"
+            . " SUM(CASE WHEN status = '$oasSlug' THEN 1 ELSE 0 END) as other_agency,"
             . " SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft,"
             . " SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold,"
             // AT-401 — Rentals-lens "Rented Out" tile. Same case-insensitive
@@ -395,16 +439,20 @@ class PropertyController extends Controller
             . " SUM(CASE WHEN status = '" . Property::STATUS_PROSPECTING . "' THEN 1 ELSE 0 END) as prospecting,"
             // AT-448 — the Expired tile. Same clone-of-$query aggregate, same
             // case-insensitive match as its filter keyword above.
-            . " SUM(CASE WHEN LOWER(status) = 'expired' THEN 1 ELSE 0 END) as expired"
+            . " SUM(CASE WHEN LOWER(status) = 'expired' THEN 1 ELSE 0 END) as expired,"
+            // AT-432 — Auctions lens "On Auction" tile (same clone-of-$query rule).
+            . " SUM(CASE WHEN status = '" . Property::STATUS_ON_AUCTION . "' THEN 1 ELSE 0 END) as on_auction"
         )->first();
         $stats = [
             'total'      => (int) ($agg->total ?? 0),
+            'otherAgency'=> (int) ($agg->other_agency ?? 0),
             'active'     => (int) ($agg->active ?? 0),
             'draft'      => (int) ($agg->draft ?? 0),
             'sold'       => (int) ($agg->sold ?? 0),
             'rentedOut'  => (int) ($agg->rented_out ?? 0),
             'prospecting'=> (int) ($agg->prospecting ?? 0),
             'expired'    => (int) ($agg->expired ?? 0),
+            'onAuction'  => (int) ($agg->on_auction ?? 0),
         ];
 
         // Layer 3 — the "Awaiting approval" tile. Counted ONLY when the agency
@@ -499,6 +547,18 @@ class PropertyController extends Controller
             } else {
                 $query->orderByDesc('created_at');
             }
+        } elseif ($isAuctionEntry && in_array($sort, ['lot_number', 'auction_date'], true)) {
+            // AT-432 (§8.2) — sort by lot number / auction date. Correlated
+            // sub-selects over the property's live (non-deleted) lots; a property
+            // with no lot sorts last either way. $dir is already whitelisted.
+            $concluded = "'" . implode("','", \App\Models\AuctionLot::CONCLUDED_STATUSES) . "'";
+            $expr = $sort === 'lot_number'
+                ? "(SELECT MIN(al.lot_number) FROM auction_lots al WHERE al.property_id = properties.id AND al.deleted_at IS NULL AND al.status NOT IN ($concluded))"
+                : "(SELECT MIN(a.starts_at) FROM auction_lots al JOIN auctions a ON a.id = al.auction_id WHERE al.property_id = properties.id AND al.deleted_at IS NULL AND a.deleted_at IS NULL)";
+            $query->select('properties.*')
+                  ->orderByRaw("$expr IS NULL")
+                  ->orderByRaw("$expr " . ($dir === 'asc' ? 'asc' : 'desc'))
+                  ->orderByDesc('properties.created_at');
         } elseif (isset($sortableColumns[$sort])) {
             $query->orderBy($sortableColumns[$sort], $dir);
         } else {
@@ -625,6 +685,20 @@ class PropertyController extends Controller
             'bedsMin', 'bathsMin', 'sort'
         );
 
+        // AT-432 — lens-only filter controls (§8.2): which auction, lot status, reserve met.
+        $isAuctionEntry = $isAuctionEntry ?? false;
+        $auctionFilters = [
+            'auctionId' => (string) $auctionIdFilter,
+            'lotStatus' => (string) $lotStatusFilter,
+            'reserveMet' => (string) $reserveMetFilter,
+        ];
+        $auctionOptions = $isAuctionEntry
+            ? \App\Models\Auction::query()->orderByDesc('starts_at')->get(['id', 'reference', 'title', 'starts_at'])
+            : collect();
+        $lotStatusLabels = $isAuctionEntry
+            ? PropertySettingItem::auctionLotStatusLabelsFor((int) ($user?->effectiveAgencyId() ?? 0))
+            : [];
+
         $scope = $viewScope;
 
         $currentSort = $sort;
@@ -686,13 +760,20 @@ class PropertyController extends Controller
             }
         }
 
+        // AT-453 — the status option + 'Other agency' tile show only where Other Agency Stock is on for
+        // this viewer (the agency's role-visibility setting, spec §6; default = every role).
+        $showOtherAgencyStock = ! $isRentalEntry && ! ($isAuctionEntry ?? false) && ! $importedStock
+            && \App\Services\Properties\OtherAgencyStockVisibility::canSee($user);
+
         return view('corex.properties.index', compact(
+            'showOtherAgencyStock',
             'properties', 'stats', 'scope', 'status', 'search',
             'filterAgentIds', 'agentList', 'selectedAgents', 'canPickAgent',
             'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode',
             'myDrafts', 'hasWebsiteStats', 'importedStock', 'isRentalEntry', 'indexRouteName',
             'syndicationApprovalOn', 'canApproveSyndication', 'approvalPendingIds', 'approvalRejectedIds',
-            'expiringProperties', 'expiringMore', 'expiringWarnDays', 'expiringViewAllUrl'
+            'expiringProperties', 'expiringMore', 'expiringWarnDays', 'expiringViewAllUrl',
+            'isAuctionEntry', 'auctionFilters', 'auctionOptions', 'lotStatusLabels'
         ));
     }
 
@@ -1161,6 +1242,21 @@ class PropertyController extends Controller
         /** @var User $user */
         $user = auth()->user();
 
+        // AT-432 — "On Auction" is a third choice in the Listing Type picker
+        // (spec §2.1). It is stored as a SALE listing with sale_method='auction';
+        // the chosen auction takes the property as a lot once it exists.
+        $auctionChoice = $request->input('listing_type') === 'auction';
+        $chosenAuction = null;
+        if ($auctionChoice) {
+            abort_unless($user->hasPermission('auctions.create'), 403);
+            $request->validate(['auction_id' => 'required|integer']);
+            $chosenAuction = \App\Models\Auction::find((int) $request->input('auction_id'));
+            if (! $chosenAuction) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['auction_id' => 'Pick the auction this property is going into.']);
+            }
+            $request->merge(['listing_type' => 'sale']);
+        }
+
         $data = $request->validate([
             'title'            => 'required|string|max:200',
             'excerpt'          => 'nullable|string|max:500',
@@ -1216,9 +1312,19 @@ class PropertyController extends Controller
             'complex_name'     => 'nullable|string|max:255',
             'unit_number'      => 'nullable|string|max:100',
             'floor_number'     => 'nullable|string|max:50',
+            'number_of_floors' => 'nullable|integer|min:0|max:300',
             'unit_section_block' => 'nullable|string|max:255',
             'stand_number'     => 'nullable|string|max:100',
+            // 2026-09-30 — erf_number was fillable and used for search, but
+            // had no validation rule anywhere (store or update), so it
+            // silently never saved regardless of lock status. Genuine
+            // pre-existing gap, unrelated to the OAS content lock.
+            'erf_number'       => 'nullable|string|max:100',
             'zone_type'        => 'nullable|string|max:100',
+            // 2026-09-30 field audit — pet_friendly existed as a column
+            // (and was already mapped on OAS import) but had no form field
+            // or validation rule anywhere, so it was never savable.
+            'pet_friendly'     => 'nullable|boolean',
             'address_internal_note' => 'nullable|string|max:2000',
             'street_name'      => 'nullable|string|max:255',
             'street_number'    => 'nullable|string|max:50',
@@ -1507,6 +1613,10 @@ class PropertyController extends Controller
             return $property;
         });
 
+        if ($chosenAuction) {
+            app(\App\Services\Auctions\AuctionLotAttacher::class)->attach($chosenAuction, $property);
+        }
+
         // The create form falls back to an AJAX submit when it carries more
         // gallery images than PHP's max_file_uploads cap (default 20): the
         // property is created here without the gallery, then the gallery is
@@ -1545,7 +1655,12 @@ class PropertyController extends Controller
         $isDraftSave = ($property->isDraft() || $property->listing_type_pending) && ! $publishing;
 
         // A contact is required to COMPLETE a listing, not to save a draft in progress.
-        if (! $isDraftSave && $property->contacts()->count() === 0) {
+        // 2026-09-30 — Other Agency Stock is exempt: the agency doesn't have
+        // (and will never be given) the other agency's seller/owner details,
+        // so a linked contact is not REQUIRED to save it (linking one stays
+        // allowed — 2026-10-07, Johan; it does not unlock a pitch, spec §5c).
+        // Every other status keeps the rule unchanged.
+        if (! $isDraftSave && ! $property->isOtherAgencyStock() && $property->contacts()->count() === 0) {
             return back()
                 ->withInput()
                 ->withErrors(['contacts' => 'A contact must be linked to the property before saving.']);
@@ -1638,9 +1753,19 @@ class PropertyController extends Controller
             'complex_name'     => 'nullable|string|max:255',
             'unit_number'      => 'nullable|string|max:100',
             'floor_number'     => 'nullable|string|max:50',
+            'number_of_floors' => 'nullable|integer|min:0|max:300',
             'unit_section_block' => 'nullable|string|max:255',
             'stand_number'     => 'nullable|string|max:100',
+            // 2026-09-30 — erf_number was fillable and used for search, but
+            // had no validation rule anywhere (store or update), so it
+            // silently never saved regardless of lock status. Genuine
+            // pre-existing gap, unrelated to the OAS content lock.
+            'erf_number'       => 'nullable|string|max:100',
             'zone_type'        => 'nullable|string|max:100',
+            // 2026-09-30 field audit — pet_friendly existed as a column
+            // (and was already mapped on OAS import) but had no form field
+            // or validation rule anywhere, so it was never savable.
+            'pet_friendly'     => 'nullable|boolean',
             'address_internal_note' => 'nullable|string|max:2000',
             'street_name'      => 'nullable|string|max:255',
             'street_number'    => 'nullable|string|max:50',
@@ -1763,7 +1888,7 @@ class PropertyController extends Controller
         // checkboxes don't submit, so coerce explicitly on every save.
         $data['p24_hide_address']      = $request->boolean('p24_hide_address');
 
-        $data = $this->processSpacesJson($data);
+        $data = $this->processSpacesJson($data, $property);
         // P24 link is OPTIONAL on edit. A legacy/imported property whose suburb
         // isn't on Property24 (or simply isn't linked yet) must still be
         // saveable — forcing a re-pick on every save trapped every such record.
@@ -1985,6 +2110,12 @@ class PropertyController extends Controller
     {
         $this->authorizeProperty($property);
 
+        // Other Agency Stock can never be duplicated (spec other-agency-stock.md §5b) —
+        // the button is disabled too, but hiding a button is not the fix: this is.
+        if (! $property->canBeDuplicated()) {
+            return $this->refuseOtherAgencyStockDuplicate($request);
+        }
+
         $currentType = $property->listing_type ?: 'sale';
         $targetType  = $request->input('target_type', $currentType);
         if (! in_array($targetType, ['sale', 'rental'], true)) {
@@ -2031,6 +2162,12 @@ class PropertyController extends Controller
     public function changeType(Request $request, Property $property)
     {
         $this->authorizeProperty($property);
+
+        // Change-type is a duplicate + archive — the same ban applies (it is also
+        // already refused for any non-draft, which Other Agency Stock always is).
+        if (! $property->canBeDuplicated()) {
+            return $this->refuseOtherAgencyStockDuplicate($request);
+        }
 
         // AT-262 (Johan's gate) — change-type is ONLY for a draft that has never been
         // advertised. Server-side guard so the rule holds even if the UI is bypassed:
@@ -2079,9 +2216,25 @@ class PropertyController extends Controller
             . ' listing was archived and de-listed. Complete the new listing and save.');
     }
 
+    /** One refusal for every clone entry point: 403 for JSON/API callers, a plain message back to the screen otherwise. */
+    private function refuseOtherAgencyStockDuplicate(Request $request)
+    {
+        $reason = Property::OTHER_AGENCY_STOCK_NO_DUPLICATE_REASON;
+        if ($request->expectsJson()) {
+            return response()->json(['message' => $reason], 403);
+        }
+
+        return back()->with('error', $reason);
+    }
+
     /** Build a draft clone as $targetType — shared fields carried, other-type fields cleared. */
     private function makeClone(Property $property, string $targetType): Property
     {
+        // Last line of defence: no caller — present or future — can clone Other Agency Stock.
+        if (! $property->canBeDuplicated()) {
+            throw new \DomainException(Property::OTHER_AGENCY_STOCK_NO_DUPLICATE_REASON);
+        }
+
         $clone = $property->replicate([
             'external_id', 'published_at', 'p24_ref', 'p24_syndication_enabled',
             'p24_syndication_status', 'p24_last_submitted_at', 'p24_activated_at',
@@ -3249,6 +3402,9 @@ class PropertyController extends Controller
         if (! auth()->user()?->is_assistant) {
             $this->authorizeProperty($property);
         }
+        // Other Agency Stock can never be advertised (spec other-agency-stock.md §5c) —
+        // its own rule, not the compliance gate; refused on a direct address too.
+        \App\Services\Properties\OtherAgencyStockActionRules::assertAllowed('ad_builder', $property);
         $property->load(['agent', 'branch']);
 
         /** @var User $user */
@@ -3504,14 +3660,38 @@ class PropertyController extends Controller
         ]);
     }
 
-    private function processSpacesJson(array $data): array
+    private function processSpacesJson(array $data, ?Property $property = null): array
     {
+        // 2026-09-30 — a request that never mentions spaces_json at all (no
+        // key in $data — confirmed live via tinker simulating a plain
+        // street_name edit on 21098) used to fall into the same "else" branch
+        // as an EXPLICIT empty submission and force the column to null. For
+        // Other Agency Stock that's an imported advert field under the
+        // content lock, so nulling out real Bedroom/Bathroom/etc. data on an
+        // unrelated address-only save immediately tripped "spaces_json is
+        // read-only" — the property never actually saved. Only an explicitly
+        // submitted-but-empty/undecodable payload (a genuine "clear spaces"
+        // action) may null the column; a request that omits the key entirely
+        // must leave the property's existing spaces_json untouched.
+        $hadKey  = array_key_exists('spaces_json', $data);
         $rawJson = $data['spaces_json'] ?? null;
         unset($data['features'], $data['spaces_json']);
 
         if (!empty($rawJson)) {
             $decoded = json_decode($rawJson, true);
             if ($decoded) {
+                // 2026-10-08 — the page now always posts a "building" feature group. A property saved before that
+                // group existed has none stored; posting it back empty is not an edit. For Other Agency Stock
+                // spaces_json is a locked column, so without this every such property's next save (an internal
+                // street-number fix, say) would be refused as "spaces_json is read-only".
+                if ($property !== null
+                    && is_array($decoded['features'] ?? null)
+                    && array_key_exists('building', $decoded['features'])
+                    && empty($decoded['features']['building'])
+                    && ! array_key_exists('building', (array) ($property->spaces_json['features'] ?? []))) {
+                    unset($decoded['features']['building']);
+                }
+
                 $data['spaces_json'] = $decoded;
 
                 // Build flat features_json for backward compat (overview tab)
@@ -3527,7 +3707,29 @@ class PropertyController extends Controller
                         foreach ($catArr as $f) { $flat[] = $f; }
                     }
                 }
-                $data['features_json'] = array_values(array_unique(array_filter($flat)));
+                $newFeaturesJson = array_values(array_unique(array_filter($flat)));
+
+                // 2026-09-30 — features_json is a DERIVED, "backward compat"
+                // flat mirror of spaces_json (see comment above), recomputed
+                // on every save regardless of whether the agent touched
+                // spaces/features at all. For Other Agency Stock that's a
+                // SEPARATE locked column — confirmed live via a real-form
+                // reproduction against 21098: a plain street_name edit threw
+                // "features_json is read-only" because the import path never
+                // populates this legacy column (stays null) while this
+                // recompute always produces a real array from the imported
+                // spaces_json, so ANY save looked like a features_json edit
+                // that never happened. Only write it when it's genuinely
+                // different from what's already stored, so an unrelated
+                // field edit can never smuggle in an unintended change here
+                // — exactly the same field, the lock still catches it.
+                $existingFeaturesJson = $property?->features_json ?? [];
+                sort($newFeaturesJson);
+                $existingSorted = $existingFeaturesJson;
+                sort($existingSorted);
+                if ($newFeaturesJson !== $existingSorted) {
+                    $data['features_json'] = array_values(array_unique(array_filter($flat)));
+                }
 
                 // Sync beds/baths from spaces so DB columns stay correct
                 foreach ($decoded['spaces'] ?? [] as $sp) {
@@ -3535,7 +3737,7 @@ class PropertyController extends Controller
                     if ($sp['type'] === 'Bathroom') { $data['baths'] = (int) ($sp['count'] ?? 0); }
                 }
             }
-        } else {
+        } elseif ($hadKey) {
             $data['spaces_json'] = null;
         }
 

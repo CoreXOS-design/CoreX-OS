@@ -44,6 +44,17 @@ class Property extends Model
     public bool $skipSyndicationAutomation = false;
 
     /**
+     * .ai/specs/other-agency-stock.md §8 — content lock bypass. Other Agency
+     * Stock's imported advert content (description, photos, price, features,
+     * sizes, address) is read-only in CoreX — PropertyObserver::saving()
+     * refuses a dirty save on any locked field while the property IS/WAS
+     * other_agency_stock. The ONLY legitimate writer of that content is a
+     * re-import (OtherAgencyStockImportService), which sets this flag true
+     * before saving. Never set anywhere else.
+     */
+    public bool $allowOtherAgencyStockContentWrite = false;
+
+    /**
      * Off-market / terminal listing statuses — the single source of truth for
      * "this listing is NOT live on the market". Everything else (for_sale, incl.
      * Reduced Price / Pending sub-labels, under_offer, on_show, on_auction,
@@ -107,6 +118,84 @@ class Property extends Model
     public const STATUS_OTHER_AGENCY_STOCK = 'other_agency_stock';
 
     /**
+     * AT-432 — the slug of the 'On Auction' property_status setting item,
+     * same slugging convention as STATUS_SOLD_BY_3RD_PARTY above
+     * (strtolower(str_replace(' ', '_', $name))). Written ONLY by
+     * AuctionLotStatusService when a lot's catalogue publishes; restored to
+     * `pre_auction_status` on cancel/withdraw/passed-in (§6.2). On-market —
+     * deliberately NOT in OFF_MARKET_STATUSES.
+     */
+    public const STATUS_ON_AUCTION = 'on_auction';
+
+    /** Instance check — true when this property is another agency's imported listing. */
+    public function isOtherAgencyStock(): bool
+    {
+        return $this->normalizedStatus() === self::STATUS_OTHER_AGENCY_STOCK;
+    }
+
+    /**
+     * AT-453 — the ONE definition of "our own stock": every property that is not
+     * another agency's listing. Other Agency Stock stays on-market on purpose (it
+     * must remain eligible for Core Matches and viewing packs — spec §2) but it is
+     * NOT the agency's stock, so anything that COUNTS or WORKS ON the agency's own
+     * stock (tiles, agent listing counts, registers, chase tasks, alerts, health
+     * scores, map layers, the MIC "in stock" count) chains this scope. Core Matches
+     * and viewing packs deliberately do not. NULL-safe: a NULL status is own stock.
+     * .ai/specs/other-agency-stock.md §12a (AT-453).
+     */
+    public function scopeOwnStock($query)
+    {
+        $col = $query->qualifyColumn('status');
+
+        return $query->where(function ($q) use ($col) {
+            $q->whereNull($col)->orWhere($col, '!=', self::STATUS_OTHER_AGENCY_STOCK);
+        });
+    }
+
+    /** Instance twin of scopeOwnStock(). */
+    public function isOwnStock(): bool
+    {
+        return ! $this->isOtherAgencyStock();
+    }
+
+    /**
+     * Other Agency Stock is another agency's advert, imported read-only (spec
+     * other-agency-stock.md §5b). A copy of it would be a second, editable,
+     * syndicate-able version of someone else's listing under our name — so it can
+     * never be duplicated, by any route (UI button, web route, change-type clone).
+     */
+    public function canBeDuplicated(): bool
+    {
+        return ! $this->isOtherAgencyStock();
+    }
+
+    public const OTHER_AGENCY_STOCK_NO_DUPLICATE_REASON = 'Other Agency Stock is another agency\'s listing and can\'t be duplicated. To use it again, import the portal listing again.';
+
+    /** Source-of-record metadata (portal, listing ref, listing agent/agency) — see PropertyExternalSource. */
+    public function externalSource(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(PropertyExternalSource::class);
+    }
+
+    /** Append-only unlock/request/decision/relock history — see OtherAgencyStockUnlock. */
+    public function otherAgencyStockUnlocks(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(OtherAgencyStockUnlock::class);
+    }
+
+    /** Append-only consent evidence for each (re-)import — see OtherAgencyStockConsent. */
+    public function otherAgencyStockConsents(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(OtherAgencyStockConsent::class);
+    }
+
+    /** Current unlock state ('locked'|'pending'|'unlocked') — see OtherAgencyStockUnlock::currentStateFor(). */
+    public function otherAgencyStockUnlockState(): array
+    {
+        return OtherAgencyStockUnlock::currentStateFor($this);
+    }
+
+    /**
      * On-market listings = base status NOT in OFF_MARKET_STATUSES. This is the
      * canonical definition of "active"/live stock for dashboards and filters.
      */
@@ -125,6 +214,26 @@ class Property extends Model
     public function isOnMarket(): bool
     {
         return ! in_array((string) $this->status, self::OFF_MARKET_STATUSES, true);
+    }
+
+    /**
+     * Hide Other Agency Stock rows from a viewer whose role the agency has
+     * not opted into that visibility (Property::STATUS_OTHER_AGENCY_STOCK
+     * stays a normal on-market status for every OTHER purpose — this is the
+     * one place its extra, agency-configurable role gate applies). $viewer
+     * defaults to the current auth()->user() so existing call sites don't
+     * need to pass one; a null/guest viewer (a buyer on a public share link
+     * or a viewing-pack PDF) is never gated — see
+     * App\Services\Properties\OtherAgencyStockVisibility.
+     */
+    public function scopeVisibleOtherAgencyStock($query, ?User $viewer = null)
+    {
+        $viewer = $viewer ?? auth()->user();
+        if (\App\Services\Properties\OtherAgencyStockVisibility::canSee($viewer)) {
+            return $query;
+        }
+
+        return $query->where('status', '!=', self::STATUS_OTHER_AGENCY_STOCK);
     }
 
     /**
@@ -765,8 +874,10 @@ class Property extends Model
         'listing_type',
         'listing_type_pending',
         'status',
+        'sale_method',
         'pre_deal_offer_status',
         'pre_tenant_link_status',
+        'pre_auction_status',
         'status_label',
         'features_json',
         'features_json_meta',
@@ -836,6 +947,7 @@ class Property extends Model
         'pp_images_last_synced_at',
         'pp_listing_last_synced_at',
         'floor_number',
+        'number_of_floors',
         'unit_section_block',
         'stand_number',
         'zone_type',
@@ -1802,7 +1914,11 @@ class Property extends Model
             self::OFF_MARKET_STATUSES,
             self::CONCLUDED_STATUSES,
             self::INACTIVE_STATUSES,
-            ['active', 'for_sale', 'to_let', 'under_offer'],
+            // other_agency_stock must always be a valid write-side status for
+            // EVERY agency (not something an agency has to separately activate
+            // in Settings → Property Statuses) — the import endpoint writes it
+            // directly, same as active/for_sale/to_let/under_offer below.
+            ['active', 'for_sale', 'to_let', 'under_offer', self::STATUS_OTHER_AGENCY_STOCK],
         ))));
     }
 
@@ -1919,6 +2035,7 @@ class Property extends Model
             // the identical bug-class the [[normalizedStatus]] docblock above
             // describes (60 'Sold' rows badged For Sale).
             self::isSoldByThirdPartyStatus($status)          => 'Sold by 3rd Party',
+            $status === self::STATUS_OTHER_AGENCY_STOCK       => 'Other Agency Stock',
             in_array($status, ['sold', 'transferred'], true) => 'Sold',
             $status === 'under_offer'                        => 'Under Offer',
             // A concluded rental reads "Rented" / "Let Out" — never "To Let", which
@@ -1931,6 +2048,14 @@ class Property extends Model
             $status === self::STATUS_PROSPECTING => 'Prospecting',
             $status === self::STATUS_NOT_SELLING => 'Not selling',
             in_array($status, self::INACTIVE_STATUSES, true) => ucwords(str_replace('_', ' ', $status)),
+            // AT-432 — checked via isAuction() (sale_method), not the status
+            // string: the property's on-market status while catalogued IS
+            // 'on_auction' (§6.2), but the badge must ask the same single
+            // source of truth every other auction-aware surface asks, per
+            // .ai/specs/auctions.md §2. Placed AFTER every terminal-status
+            // arm above so a SOLD auction lot still badges "Sold", never
+            // "On Auction" forever after the hammer fell.
+            $this->isAuction()                               => 'On Auction',
             $this->isRental()                                => 'To Let',
             default => 'For Sale',
         };
@@ -2301,6 +2426,59 @@ class Property extends Model
     }
 
     /**
+     * AT-432 — .ai/specs/auctions.md §2, the spec's governing rule: an auction
+     * is a METHOD OF SALE, not a third `listing_type`. `listing_type` stays
+     * the two-value canon above; `sale_method` records whether that sale (or
+     * lease) is running as a private treaty or an auction. Kept deliberately
+     * separate from LISTING_TYPES so no existing isRental()/LISTING_TYPES call
+     * site needs to change.
+     */
+    public const SALE_METHODS = ['private_treaty', 'auction'];
+
+    /** Write-side canon guard for sale_method, mirroring normaliseListingType() exactly. */
+    public static function normaliseSaleMethod(mixed $value): string
+    {
+        $v = strtolower(trim((string) ($value ?? '')));
+
+        if ($v === '' || $v === 'private_treaty' || $v === 'private treaty') {
+            return 'private_treaty';
+        }
+
+        return $v === 'auction' ? 'auction' : $v;
+    }
+
+    public function setSaleMethodAttribute(mixed $value): void
+    {
+        $this->attributes['sale_method'] = self::normaliseSaleMethod($value);
+    }
+
+    /**
+     * THE single source of truth for "is this property going/gone to
+     * auction?". Every surface that renders, prices, labels or syndicates a
+     * listing asks this — never `sale_method === 'auction'` inline. Mirrors
+     * isRental()'s own role on the read side exactly.
+     */
+    public function isAuction(): bool
+    {
+        return strtolower(trim((string) $this->sale_method)) === 'auction';
+    }
+
+    /** The lot currently carrying this property, across any auction (concluded or not). */
+    public function auctionLots(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(\App\Models\AuctionLot::class, 'property_id');
+    }
+
+    /** The property's open (not yet concluded) auction lot, if any. Null once sold/passed-in/withdrawn. */
+    public function currentAuctionLot(): ?\App\Models\AuctionLot
+    {
+        return $this->auctionLots()
+            ->whereNotIn('status', \App\Models\AuctionLot::CONCLUDED_STATUSES)
+            ->latest('id')
+            ->first();
+    }
+
+    /**
      * The single source of truth for a listing's price across display,
      * syndication payloads, and readiness gates. Rentals carry the amount in
      * `rental_amount` (the sale `price` column is 0/null on a rental); sales use
@@ -2317,6 +2495,13 @@ class Property extends Model
 
     public function formattedPrice(): string
     {
+        // Price On Application hides the amount EVERYWHERE this is shown (live preview,
+        // property header/cards, brochure, match cards, portals' display strings) — the
+        // one place that decides, so no view has to remember to check the flag.
+        if ($this->price_on_application) {
+            return 'Price on Application';
+        }
+
         return 'R ' . number_format((int) $this->effectivePrice(), 0, '.', ' ');
     }
 
@@ -3489,6 +3674,19 @@ class Property extends Model
             'communication_links',
             null,
             'communication_id'
+        );
+    }
+
+    /**
+     * Quick Links W2 — the mandate chip: type + days left, amber inside the agency's own mandate-expiry warning window
+     * (MandateExpiryPolicy, an agency setting). Null when there is no mandate to show. Pure apart from reading that one setting.
+     */
+    public function mandateQuickState(): ?array
+    {
+        return \App\Support\QuickLinks\MandateState::resolve(
+            $this->mandate_type,
+            $this->expiry_date,
+            \App\Services\Properties\MandateExpiryPolicy::warnDaysFor($this->agency_id),
         );
     }
 }

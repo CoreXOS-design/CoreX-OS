@@ -247,7 +247,7 @@ agency, so the visible count is ≤ 13.
 | 7 | `presentations` | Presentations / CMA | `agencies` (`presentations_*`,`comp_*`,`cma_*`) |
 | 8 | `matches` | Matches | `performance_settings` (`matches_show_on_properties`, `matches_visibility_scope`, `matches_wa_message`) and `agency_contact_settings.core_matches_excluded_buyer_states` (Won/Lost buyers — 2026-10-07, new `multiselect` control type + `_present` marker, `core_matches` source) — **gated on `matches_enabled`** (step 2); the `matches_enabled` master moved to step 2 |
 | 9 | `contacts` | Contacts | `performance_settings` (`contacts_per_page`), `contact_sources` |
-| 10 | `compliance` | Compliance | whistleblow columns on `agencies`; `agencies.fica_referral_enabled` / `fica_referral_recipient_user_id` (AT-236, added 2026-08-04 — was flagged 2026-07-14 as a deliberate-omission candidate pending Johan's call; resolved to include rather than exclude); `agencies.ppra_employment_letter_address_block` (PPRA employment letter addressee — 2026-10-07, saver `SettingsController@savePpraEmploymentLetterSettings`) |
+| 10 | `compliance` | Compliance | whistleblow columns on `agencies`; `agencies.fica_referral_enabled` / `fica_referral_recipient_user_id` (AT-236, added 2026-08-04 — was flagged 2026-07-14 as a deliberate-omission candidate pending Johan's call; resolved to include rather than exclude); `agencies.ppra_employment_letter_address_block` (PPRA employment letter addressee — 2026-10-07, saver `SettingsController@savePpraEmploymentLetterSettings`); `agencies.fica_link_days` / `agencies.fica_expiring_after_months` (FICA request link life + "expiring" threshold — 2026-10-12, Quick Links W1, saver `FicaOfficerAppointmentsController@saveRequestSettings`, has()-guarded per field) |
 | 11 | `notifications` | Notifications & dashboard | `AgencyDashboardSetting`, `agencies.dashboard_settings_mode` |
 | 12 | `roles` | How roles & permissions work (explainer) | — (explainer only; no savers) |
 | 13 | `access` | Access & finish | `agencies.require_external_access_authorization`; review summary; mark complete |
@@ -265,6 +265,12 @@ by oversight — do not reinstate them without asking:
   settings page.
 - **"Invite your team".** Onboarding configures the agency; adding people stays in User
   Management.
+- **Auctions — the sale-running settings (AT-432, 2026-10-02).** The wizard's Auctions step
+  carries only the four settings that decide how an agency *advertises* auctions
+  (advertising-only, who conducts, reserve visibility, guide price). Fees, bidding modes,
+  proxy bidding, registration/deposit rules, purchase-deposit and settlement terms stay on
+  Settings → Auctions: they only matter once an agency has switched "Advertising only" off,
+  and they are expert knobs. **Recorded as a decision for Johan to confirm — not the lane's call.**
 - **"Public website" toggle (`website_enabled`)** (Johan, 2026-08-12 — alongside the
   "features on by default" change below). Taking the agency's public site live is a
   deliberate action, never an onboarding default — removed from the capabilities step's
@@ -273,6 +279,8 @@ by oversight — do not reinstate them without asking:
   save). Stays on `Admin\AgencyApiKeyController@toggleWebsite`, reachable from the
   agency's website-settings page. `agencies.website_enabled` and
   `config/corex-features.php`'s `public-website` registry row both still default `false`.
+- **E-sign legal warning flag (`document_types.esign_warning_required`, 2026-10-08).** Which document types ask the admin to acknowledge a legal warning when e-signing is switched on for a template. `document_types` is a platform-wide table shared by every agency (no `agency_id`), switched only by a CoreX owner-role user on Document Types settings — not an agency setting, so the wizard cannot configure it. Recorded as a decision for Johan to confirm (§10a makes the call his, not the lane's). Spec `ESIGN-CANON.md` §7.
+
 
 - **MIC tile-count cache window** (`suggested_action_thresholds.mic_counts_cache_fresh_seconds` /
   `.mic_counts_cache_stale_seconds`, added 2026-08-27). An internal cache-tuning knob, not a

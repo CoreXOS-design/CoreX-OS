@@ -39,6 +39,8 @@ class PresentationGeneratorController extends Controller
         if ((int) $property->agency_id !== (int) $user->effectiveAgencyId()) {
             return $this->reject($request, 'Property is outside your agency scope.', 403);
         }
+        // Other Agency Stock can never be presented (spec other-agency-stock.md §5c).
+        \App\Services\Properties\OtherAgencyStockActionRules::assertAllowed('generate_presentation', $property);
 
         // Keystone — property_type is mandatory. The classifier needs it
         // to derive title_type (which drives comp-filter discipline);
@@ -179,6 +181,7 @@ class PresentationGeneratorController extends Controller
         if ((int) $property->agency_id !== (int) $user->effectiveAgencyId()) {
             return response()->json(['error' => 'Property is outside your agency scope.'], 403);
         }
+        \App\Services\Properties\OtherAgencyStockActionRules::assertAllowed('generate_presentation', $property);
 
         $result = $this->coverage->scoreForProperty($property);
 

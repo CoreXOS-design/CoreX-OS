@@ -74,6 +74,32 @@ class DocumentTypeController extends Controller
         return back()->with('status', "Document type \"{$type->name}\" updated.");
     }
 
+    /**
+     * Switch the e-sign legal warning on or off for a document type. This is the "mere tick" for
+     * when the law changes: it changes which templates ask their admin to acknowledge the warning.
+     * Document types are shared by every agency, so this is a CoreX (owner-role) control only.
+     */
+    public function setEsignWarning(Request $request, $id)
+    {
+        $user = $request->user();
+        abort_unless($user->hasPermission('manage_templates') && $user->isOwnerRole(), 403);
+
+        $type = DocumentType::findOrFail($id);
+        $on = $request->boolean('esign_warning_required');
+        $type->update(['esign_warning_required' => $on]);
+
+        \Illuminate\Support\Facades\Log::notice('E-sign legal warning flag changed on a document type', [
+            'document_type_id' => $type->id,
+            'slug'             => $type->slug,
+            'esign_warning_required' => $on,
+            'user_id'          => $user->id,
+        ]);
+
+        return back()->with('status', $on
+            ? "Templates of type \"{$type->name}\" will now ask their admin to acknowledge the e-sign legal warning."
+            : "The e-sign legal warning is switched off for \"{$type->name}\".");
+    }
+
     public function destroy(Request $request, $id)
     {
         $user = $request->user();

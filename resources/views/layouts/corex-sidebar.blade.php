@@ -212,6 +212,16 @@
         || (request()->routeIs('corex.contacts.show') && session('corex.lens.contacts', false))
     ) {
         $activeGroup = 'rental-applications';
+    } elseif (
+        // AT-432 — same lens-highlighting mechanism as Rentals above (AT-401),
+        // on the auctions.* route family and the session('corex.lens.auctions')
+        // flag PropertyController::index() sets on the way in. Placed BEFORE
+        // the generic real-estate matcher below (which would otherwise claim
+        // corex.properties.* first).
+        request()->routeIs('corex.auctions.*')
+        || (request()->routeIs('corex.properties.*') && session('corex.lens.auctions', false))
+    ) {
+        $activeGroup = 'auctions';
     } elseif (request()->routeIs(
         'prospecting.*',
         'market-intelligence.*',
@@ -249,6 +259,15 @@
         $activeGroup = 'hr-documents';
     } elseif (request()->routeIs('admin.importer.*') || request()->routeIs('admin.pp.*')) {
         $activeGroup = 'importer';
+    } elseif (request()->routeIs(
+        'corex.settings*',
+        'corex.features.*',
+        'admin.users*',
+        'admin.settings.document-types.*',
+        'admin.p24-suburbs.*',
+        'deals-v2.settings.service-types.*'
+    )) {
+        $activeGroup = 'settings';
     } elseif (request()->routeIs(
         'deals-v2.suppliers.*',
         'deals-v2.pipeline.*',
@@ -1232,6 +1251,61 @@
             </div>
         </div>
         @endif
+
+        {{-- ═══════════════════════════════════════════
+             AUCTIONS (expandable group) — AT-432, .ai/specs/auctions.md §7.1
+             Feature-flagged AND permission-gated: an agency that does not
+             auction sees nothing here at all. Alpine group key 'auctions'.
+             Mirrors the Rentals panel above exactly (same push()/pop() +
+             corex-nav-group-toggle + lens pattern) — copy that fix, don't
+             rediscover it, per §7.1's own instruction.
+             ═══════════════════════════════════════════ --}}
+        @feature('auctions')
+        @if($user && $user->hasPermission('access_auctions'))
+        <div>
+            <button type="button" @click="push('auctions')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'auctions' ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.25 9.75 16.5 12l-6.75 6.75-2.25-2.25M3 21l3-3m12.75-15L21 5.25m-3.75 3.75L21 5.25m-8.303 8.303 2.652 2.652M5.25 5.25l3.879 3.879" />
+                </svg>
+                <span>Auctions</span>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div class="corex-nav-panel {{ $activeGroup === 'auctions' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('auctions') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Auctions</div>
+
+                <a href="{{ route('corex.auctions.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.index', 'corex.auctions.show', 'corex.auctions.create', 'corex.auctions.edit', 'corex.auctions.lots.show') ? 'active' : '' }}">Auction Diary</a>
+
+                {{-- Entry point into the SAME Properties screen as Real Estate →
+                     Properties, sale_method locked to 'auction' server-side
+                     (PropertyController::index(), by route name). Stays
+                     highlighted on a property opened from this list
+                     (session('corex.lens.auctions') — set on the way in). --}}
+                @permission('properties.view')
+                <a href="{{ route('corex.auctions.properties.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.properties.index') || (request()->routeIs('corex.properties.*') && session('corex.lens.auctions', false)) ? 'active' : '' }}">Properties</a>
+                @endpermission
+
+                {{-- AT-432 Phase 3 — Results is genuinely auction-independent (it
+                     already lists every auction's concluded lots), so it gets a
+                     real top-level entry per §7.1. Bidder Register and Sale Room
+                     (§7 screens 5, 7) deliberately do NOT get one — both need an
+                     auction context to mean anything (you cannot "operate the
+                     sale room" without first picking which auction), so they are
+                     reached from the auction's own catalogue-builder page
+                     (corex.auctions.show) instead, where that link already lives. --}}
+                @permission('auctions.results.view')
+                <a href="{{ route('corex.auctions.results') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.results') ? 'active' : '' }}">Results</a>
+                @endpermission
+
+            </div>
+        </div>
+        @endif
+        @endfeature
 
         {{-- ═══════════════════════════════════════════
              COMMUNICATION (expandable group)
@@ -2288,6 +2362,18 @@
         @endpermission
         @endfeature
 
+        {{-- Title Deeds (AT-450) - directly under Filing Register --}}
+        @feature('title-deeds')
+        @permission('access_title_deeds')
+        <a href="{{ route('title-deeds.index') }}" class="corex-nav-item {{ request()->routeIs('title-deeds.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
+            </svg>
+            <span>Title Deeds</span>
+        </a>
+        @endpermission
+        @endfeature
+
         {{-- AT-338 — What's New: the archive of system updates. Sits under Filing
              Register in Tools (moved here 2026-07-26).
 
@@ -2566,16 +2652,44 @@
         </div>
         @endif
 
-        {{-- Settings --}}
-        @permission('access_settings')
-        <a href="{{ route('corex.settings') }}" class="corex-nav-item {{ (request()->routeIs('corex.settings*') || request()->routeIs('admin.settings.document-types.*') || request()->routeIs('admin.p24-suburbs.*') || request()->routeIs('deals-v2.settings.service-types.*')) ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        {{-- Settings (slide-panel group) — Settings page + Features page + Users. Johan 2026-10-12: Features moved out of the
+             Settings page into its own page, and both now live under one "Settings" sub menu. Each child keeps its OWN
+             permission (Settings = access_settings, Features = agency_features.manage, Users = manage_users); the group shows when the user
+             holds either. Spec: features-page.md. --}}
+        @if($user && $user->hasAnyPermission(['access_settings', 'agency_features.manage', 'manage_users']))
+        <div>
+            <button type="button" @click="push('settings')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'settings' ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
             </svg>
-            <span>Settings</span>
-        </a>
-        @endpermission
+                <span>Settings</span>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div class="corex-nav-panel {{ $activeGroup === 'settings' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('settings') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Settings</div>
+
+                @permission('access_settings')
+                <a href="{{ route('corex.settings') }}" class="corex-nav-subitem {{ (request()->routeIs('corex.settings*') || request()->routeIs('admin.settings.document-types.*') || request()->routeIs('admin.p24-suburbs.*') || request()->routeIs('deals-v2.settings.service-types.*')) ? 'active' : '' }}">Settings</a>
+                @endpermission
+
+                @permission('agency_features.manage')
+                <a href="{{ route('corex.features.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.features.*') ? 'active' : '' }}">Features</a>
+                @endpermission
+
+                {{-- Users — user management (/admin/users). Johan 2026-10-12: a dedicated entry in the Settings sub menu. --}}
+                @permission('manage_users')
+                <a href="{{ route('admin.users') }}" class="corex-nav-subitem {{ request()->routeIs('admin.users*') ? 'active' : '' }}">Users</a>
+                @endpermission
+            </div>
+        </div>
+        @endif
 
         {{-- Johan menu reorg (2026-07-12) — DEAL REGISTER SETTINGS group. The four
              deal-register config doors (Supplier Directory, Deal Pipelines, Deal

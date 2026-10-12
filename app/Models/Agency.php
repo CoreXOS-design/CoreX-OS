@@ -182,6 +182,8 @@ class Agency extends Model
         'financial_year_start_month', // PPRA Inspection Pack item (j) — .ai/specs/ppra-inspection-pack.md §6.7
         'fica_referral_enabled', // AT-236 — is "Refer to CO" available (default ON)
         'fica_referral_recipient_user_id', // AT-236 — CO who receives referrals (null = primary CO)
+        'fica_link_days', // Quick Links W1 — validity (days) of the secure link in a FICA request email (default 14)
+        'fica_expiring_after_months', // Quick Links W1 — months after approval at which FICA shows "expiring" (default 11)
         'payroll_default_cut_day', // AT-237 — default run cut day-of-month (null => full month)
         'payroll_default_daily_rate_basis', // AT-237 — default proration basis for employees not individually set
         'wa_history_backfill', // AT-135 — read-only WA body backfill toggle
@@ -242,6 +244,14 @@ class Agency extends Model
         'require_external_access_authorization',
         'dashboard_settings_mode',
         'split_branches_enabled',
+        // .ai/specs/ppra-ffc-employment-letter.md §11 — the letter's "RE:" addressee block (null = PPRA's own
+        // address). Was never mass-assignable, so SettingsController::savePpraEmploymentLetterSettings'
+        // update() silently discarded it (found 2026-10-07 wiring the Setup Wizard control).
+        'ppra_employment_letter_address_block',
+        // .ai/specs/other-agency-stock.md §6 — which roles may see Other Agency
+        // Stock properties. null/[] = all roles (default, so rollout hides nothing).
+        'other_agency_stock_visible_roles',
+        'other_agency_stock_consent_wording',
         // .ai/specs/ppra-ffc-employment-letter.md §11 — the letter's "RE:" addressee block (null = PPRA's own
         // address). Was never mass-assignable, so SettingsController::savePpraEmploymentLetterSettings'
         // update() silently discarded it (found 2026-10-07 wiring the Setup Wizard control).
@@ -416,6 +426,8 @@ class Agency extends Model
         'is_active' => 'boolean',
         'is_demo' => 'boolean',
         'fica_referral_enabled' => 'boolean', // AT-236
+        'fica_link_days' => 'integer', // Quick Links W1
+        'fica_expiring_after_months' => 'integer', // Quick Links W1
         'vat_registered' => 'boolean',
         'payroll_default_cut_day' => 'integer', // AT-237
 
@@ -442,6 +454,7 @@ class Agency extends Model
         'privacy_policy_published_at' => 'datetime',
         'require_external_access_authorization' => 'boolean',
         'split_branches_enabled' => 'boolean',
+        'other_agency_stock_visible_roles' => 'array',
         'assistants_enabled' => 'boolean',
         'one_email_enabled' => 'boolean', // AT-423 — set only by OneEmailSettingsController (not fillable)
         'assistant_fica_required_default' => 'boolean',
@@ -1085,5 +1098,38 @@ class Agency extends Model
         $lang = (string) ($this->wa_transcription_language ?? '');
 
         return array_key_exists($lang, self::TRANSCRIPTION_LANGUAGES) ? $lang : 'auto';
+    }
+
+    /**
+     * Quick Links W1 — validity of the secure link in a FICA request email, in days. Per-agency (Settings → FICA, and
+     * the Setup Wizard's Compliance step); unset/odd values fall back to the historical 14.
+     */
+    public function ficaLinkDays(): int
+    {
+        $d = (int) ($this->fica_link_days ?? 0);
+
+        return $d >= 1 ? min($d, 90) : 14;
+    }
+
+    /** Months after approval at which a contact's FICA shows "expiring" (historical default 11). */
+    public function ficaExpiringAfterMonths(): int
+    {
+        $m = (int) ($this->fica_expiring_after_months ?? 0);
+
+        return $m >= 1 ? min($m, 60) : 11;
+    }
+
+    /**
+     * "Expiring after N months" for an agency id. List pages ask once per row, so this goes through Agency::find(), which is
+     * already memoised per request/job AND refreshed on every save (see $findMemo) — no second cache to go stale.
+     */
+    public static function ficaExpiringMonthsFor(?int $agencyId): int
+    {
+        if (! $agencyId) {
+            return 11;
+        }
+        $agency = static::find($agencyId);
+
+        return $agency ? $agency->ficaExpiringAfterMonths() : 11;
     }
 }

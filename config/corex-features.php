@@ -28,7 +28,15 @@
  *     'settings_section' => ?string,  // $railGroups anchor in corex/settings.blade.php (null if none)
  *     'route_prefixes'   => array,    // verified ->prefix() strings for the phase-4 feature:<key> middleware
  *     'global_flag'      => ?string,  // optional key in config/features.php for the outer AND kill-switch
+ *     'permission_modules' => array,  // OPTIONAL — whole permission `module`s (corex-permissions.php) this feature owns
+ *     'permission_keys'    => array,  // OPTIONAL — individual permission keys it owns (these WIN over module ownership)
  *   ]
+ *
+ * Permission ownership (.ai/specs/features-page.md §4): a permission owned by a feature that is OFF is
+ * blocked — its routes 404 (CheckPermission) and Role Manager hides it, while the role_permissions rows
+ * are left untouched so turning the feature back on restores every grant. A permission module that no
+ * feature owns is always available; Tests\Feature\Features\FeaturePermissionOwnershipTest forces every
+ * module to be either owned here or listed there with a reason, so a new module cannot slip through.
  *
  * Resolution order (AgencyFeatureService::enabled, spec §3.5):
  *   unknown key => false | global_flag off => false | core => true
@@ -159,6 +167,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_core_matches'], 'sidebar_section' => 'real-estate',
         'settings_section' => 'feature-matches', 'route_prefixes' => ['corex/core-matches'], 'global_flag' => null,
+        'permission_modules' => ['core_matches'],
     ],
     'multi-branch' => [
         'label' => 'Multi-branch offices', 'category' => 'People & Payroll',
@@ -189,6 +198,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_prospecting'], 'sidebar_section' => 'real-estate',
         'settings_section' => null, 'route_prefixes' => ['prospecting', 'corex/market-intelligence', 'corex/tracked-properties'], 'global_flag' => null,
+        'permission_modules' => ['prospecting', 'mic', 'market_intelligence', 'deeds_capture'],
     ],
     'portal-leads' => [
         'label' => 'Portal Leads', 'category' => 'Prospecting & Outreach',
@@ -197,6 +207,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_portal_leads'], 'sidebar_section' => 'real-estate',
         'settings_section' => null, 'route_prefixes' => ['real-estate/portal-leads'], 'global_flag' => null,
+        'permission_modules' => ['portal_leads'],
     ],
     'outreach' => [
         'label' => 'Seller Outreach & Canvassing', 'category' => 'Prospecting & Outreach',
@@ -205,6 +216,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['outreach.summary.view'], 'sidebar_section' => 'real-estate',
         'settings_section' => null, 'route_prefixes' => ['real-estate/outreach-summary', 'real-estate/outreach-canvassing', 'real-estate/outreach-queue', 'compliance/seller-info'], 'global_flag' => null,
+        'permission_modules' => ['outreach', 'outreach_queue', 'outreach_canvassing'],
     ],
 
     // ── Presentations & Valuations ──
@@ -215,6 +227,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_presentations'], 'sidebar_section' => 'real-estate',
         'settings_section' => 'feature-presentations', 'route_prefixes' => ['presentations', 'corex/presentations/refresh-requests'], 'global_flag' => 'presentations',
+        'permission_modules' => ['presentations'],
     ],
     'commercial-evaluations' => [
         'label' => 'Commercial Evaluations', 'category' => 'Presentations & Valuations',
@@ -223,6 +236,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_commercial_evaluations'], 'sidebar_section' => 'real-estate',
         'settings_section' => null, 'route_prefixes' => ['commercial-evaluations'], 'global_flag' => null,
+        'permission_modules' => ['commercial_evals'],
     ],
     'viewing-packs' => [
         'label' => 'Viewing Packs', 'category' => 'Presentations & Valuations',
@@ -231,6 +245,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_viewing_packs'], 'sidebar_section' => 'real-estate',
         'settings_section' => null, 'route_prefixes' => ['viewing-packs'], 'global_flag' => null,
+        'permission_modules' => ['viewing_packs'],
     ],
 
     // ── Documents & E-Sign ──
@@ -241,6 +256,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_docuperfect'], 'sidebar_section' => 'documents',
         'settings_section' => 'feature-documents', 'route_prefixes' => ['docuperfect'], 'global_flag' => null,
+        'permission_modules' => ['docuperfect', 'documents', 'templates', 'clauses', 'packs', 'esign', 'esign-compiler'],
     ],
     'document-library' => [
         'label' => 'Document Library', 'category' => 'Documents & E-Sign',
@@ -249,6 +265,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_document_library'], 'sidebar_section' => 'tools',
         'settings_section' => null, 'route_prefixes' => ['documents'], 'global_flag' => 'document_library_v1',
+        'permission_modules' => ['document_library'],
     ],
     'shared-drive' => [
         'label' => 'Shared Drive', 'category' => 'Documents & E-Sign',
@@ -257,6 +274,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_shared_drive'], 'sidebar_section' => 'documents',
         'settings_section' => null, 'route_prefixes' => ['documents/shared-drive'], 'global_flag' => null,
+        'permission_modules' => ['shared_drive'],
     ],
     'filing-register' => [
         'label' => 'Filing Register', 'category' => 'Documents & E-Sign',
@@ -265,6 +283,15 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_filing_register'], 'sidebar_section' => 'tools',
         'settings_section' => null, 'route_prefixes' => ['filing-register'], 'global_flag' => null,
+        'permission_modules' => ['filing'],
+    ],
+    'title-deeds' => [
+        'label' => 'Title Deeds', 'category' => 'Documents & E-Sign',
+        'explain' => 'The register of title deeds the attorneys send to the agency: who was told, and exactly when and by whom each one was collected.',
+        'affects' => 'Whether Title Deeds appears in Tools. Off hides it; the register data is kept.',
+        'default' => true, 'core' => false, 'depends_on' => [],
+        'nav_permission' => ['access_title_deeds'], 'sidebar_section' => 'tools',
+        'settings_section' => null, 'route_prefixes' => ['title-deeds'], 'global_flag' => null,
     ],
 
     // ── Compliance ──
@@ -275,6 +302,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_compliance'], 'sidebar_section' => 'compliance',
         'settings_section' => null, 'route_prefixes' => ['compliance/fica', 'compliance/rmcp-dashboard', 'compliance/policy-dashboard', 'compliance/screenings', 'compliance/screening-dashboard', 'compliance/verification-queue', 'compliance/document-types', 'compliance/agency-settings', 'compliance/whistleblow'], 'global_flag' => null,
+        'permission_modules' => ['compliance', 'compliance_whistleblow', 'screening', 'policy', 'rmcp', 'fica'],
     ],
 
     // ── Communications ──
@@ -285,6 +313,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_communication', 'triage_communications', 'access_communication_archive'], 'sidebar_section' => 'communication',
         'settings_section' => null, 'route_prefixes' => ['communications/wa-devices', 'communications/wa-link', 'communications/capture', 'communications/triage', 'compliance/communications', 'compliance/communication-archive', 'compliance/communication-mailboxes', 'compliance/communication-flags', 'settings/email-setup', 'my-portal/communication-capture'], 'global_flag' => null,
+        'permission_modules' => ['communication', 'communication_archive', 'communications', 'communication_mailboxes', 'deal_comms_suspense'],
     ],
 
     // ── Deals & Commission ──
@@ -295,6 +324,10 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_agency_tracker'], 'sidebar_section' => 'agency-tracker',
         'settings_section' => null, 'route_prefixes' => [], 'global_flag' => null,
+        // NOT the whole agency_tracker module: it also holds access_branch_assignments (branch administration)
+        // and view_buyers_report, which must stay available when Agency Tracker is off — so those are listed by key.
+        'permission_modules' => ['daily_activity', 'listings', 'activity-points'],
+        'permission_keys'    => ['access_agency_tracker', 'access_worksheet_market', 'view_worksheet', 'edit_worksheet', 'view_performance', 'manage_targets'],
     ],
     'commission-management' => [
         'label' => 'Commission Management', 'category' => 'Deals & Commission',
@@ -311,6 +344,8 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['proforma.manage'], 'sidebar_section' => 'company',
         'settings_section' => null, 'route_prefixes' => ['proforma'], 'global_flag' => null,
+        'permission_modules' => ['proforma'],
+        'permission_keys'    => ['proforma.generate', 'proforma.manage'],
     ],
 
     // ── People & Payroll ──
@@ -321,6 +356,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['manage_payroll', 'run_payroll', 'view_payroll_reports'], 'sidebar_section' => 'payroll',
         'settings_section' => null, 'route_prefixes' => ['payroll'], 'global_flag' => null,
+        'permission_modules' => ['payroll'],
     ],
     'leave' => [
         'label' => 'Leave Management', 'category' => 'People & Payroll',
@@ -329,6 +365,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => ['payroll'],
         'nav_permission' => ['manage_leave', 'approve_leave', 'apply_for_leave'], 'sidebar_section' => 'leave',
         'settings_section' => null, 'route_prefixes' => ['payroll/leave', 'my-portal/leave'], 'global_flag' => null,
+        'permission_modules' => ['leave'],
     ],
     'staff-take-on' => [
         'label' => 'Staff Take-On', 'category' => 'People & Payroll',
@@ -337,6 +374,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['manage_staff_take_on'], 'sidebar_section' => 'company',
         'settings_section' => null, 'route_prefixes' => ['staff-take-on'], 'global_flag' => null,
+        'permission_keys'    => ['manage_staff_take_on'],
     ],
     'agent-onboarding' => [
         'label' => 'Agent Onboarding', 'category' => 'People & Payroll',
@@ -353,6 +391,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['view_rentals'], 'sidebar_section' => 'hidden.rentals',
         'settings_section' => 'feature-rentals', 'route_prefixes' => ['rental'], 'global_flag' => null,
+        'permission_modules' => ['rentals', 'leases', 'rental_applications', 'rental_details', 'rental_fault_reports', 'rental_inspections', 'rental_inventories', 'rental_work_orders'],
     ],
 
     // ── Tools & Calculators ──
@@ -363,6 +402,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_pdf_suite', 'access_pdf_splitter'], 'sidebar_section' => 'tools',
         'settings_section' => null, 'route_prefixes' => ['tools/pdf-suite'], 'global_flag' => null,
+        'permission_modules' => ['pdf_suite', 'pdf_splitter'],
     ],
     'image-converter' => [
         'label' => 'Image Converter', 'category' => 'Tools & Calculators',
@@ -371,6 +411,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_image_converter'], 'sidebar_section' => 'tools',
         'settings_section' => null, 'route_prefixes' => ['tools/image-converter'], 'global_flag' => null,
+        'permission_modules' => ['image_converter'],
     ],
     'calculators' => [
         'label' => 'Calculators', 'category' => 'Tools & Calculators',
@@ -379,6 +420,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_calculators', 'access_deposit_calculator'], 'sidebar_section' => 'trust-interest',
         'settings_section' => null, 'route_prefixes' => ['deposit-interest-calculator', 'calculators'], 'global_flag' => null,
+        'permission_modules' => ['calculators'],
     ],
     'trust-interest' => [
         'label' => 'Trust Interest Register', 'category' => 'Tools & Calculators',
@@ -387,6 +429,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_trust_interest'], 'sidebar_section' => 'trust-interest',
         'settings_section' => null, 'route_prefixes' => ['admin/deposit-trust-interest'], 'global_flag' => null,
+        'permission_modules' => ['trust_interest'],
     ],
     'tv-display' => [
         'label' => 'TV Display', 'category' => 'Tools & Calculators',
@@ -395,6 +438,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['manage_tv_messages'], 'sidebar_section' => 'agency-tracker',
         'settings_section' => null, 'route_prefixes' => [], 'global_flag' => null,
+        'permission_modules' => ['tv_messages'],
     ],
     'guided-tours' => [
         'label' => 'Guided Tours', 'category' => 'Tools & Calculators',
@@ -413,6 +457,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_ellie'], 'sidebar_section' => 'tools',
         'settings_section' => null, 'route_prefixes' => ['ellie'], 'global_flag' => null,
+        'permission_modules' => ['ellie'],
     ],
     'training' => [
         'label' => 'Training', 'category' => 'Learning & AI',
@@ -421,6 +466,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => [], 'sidebar_section' => 'tools',
         'settings_section' => null, 'route_prefixes' => ['training', 'training-help'], 'global_flag' => null,
+        'permission_modules' => ['training'],
     ],
     'knowledge-base' => [
         'label' => 'Knowledge Base', 'category' => 'Learning & AI',
@@ -429,6 +475,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_knowledge_base'], 'sidebar_section' => 'admin',
         'settings_section' => null, 'route_prefixes' => ['admin/knowledge'], 'global_flag' => null,
+        'permission_modules' => ['knowledge'],
     ],
 
     // ── Marketing add-ons ──
@@ -439,6 +486,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => ['marketing'],
         'nav_permission' => ['access_ad_manager'], 'sidebar_section' => 'tools',
         'settings_section' => null, 'route_prefixes' => ['tools/ad-manager'], 'global_flag' => null,
+        'permission_modules' => ['ad_manager'],
     ],
     'marketing-suppressions' => [
         'label' => 'Marketing Suppressions', 'category' => 'Listings & Marketing',
@@ -447,6 +495,18 @@ return [
         'default' => true, 'core' => false, 'depends_on' => ['marketing'],
         'nav_permission' => ['marketing_suppressions.view'], 'sidebar_section' => 'admin',
         'settings_section' => null, 'route_prefixes' => ['admin/marketing-suppressions'], 'global_flag' => null,
+        'permission_modules' => ['marketing'],
+    ],
+
+    // ── Auctions (AT-432) ──
+    'auctions' => [
+        'label' => 'Auctions', 'category' => 'Listings & Marketing',
+        'explain' => 'The third route to sell a property alongside private-treaty sale and rental — scheduling an auction, cataloguing lots, and recording the result.',
+        'affects' => 'Whether the Auctions menu, the "On Auction" catalogue tools, and Settings → Auctions appear at all. Off means no change whatsoever for an agency that does not auction; nothing already recorded is deleted.',
+        'default' => false, 'core' => false, 'depends_on' => [],
+        'nav_permission' => ['access_auctions'], 'sidebar_section' => 'auctions',
+        'settings_section' => null, 'route_prefixes' => ['corex/auctions', 'corex/settings/auctions'], 'global_flag' => 'auctions',
+        'permission_modules' => ['auctions'],
     ],
 
 ];

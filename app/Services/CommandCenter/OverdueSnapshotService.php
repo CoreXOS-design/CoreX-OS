@@ -34,6 +34,7 @@ class OverdueSnapshotService
                     // already sold is pure noise (AT-350).
                     $q->whereNull('status')->orWhereNotIn('status', Property::OFF_MARKET_STATUSES);
                 })
+                ->ownStock() // AT-453 — no document chase on another agency's listing
                 ->where('created_at', '<=', now()->subHours($threshold))
                 ->limit(50)->get();
             foreach ($props as $p) {

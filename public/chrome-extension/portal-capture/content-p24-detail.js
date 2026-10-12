@@ -361,6 +361,18 @@
       erf_size_m2: null, size_m2: null, property_type: null,
       features: [], images: [],
       agent_name: null, agency_name: null, source: 'p24',
+      // 2026-09-29 Pomona fix (property #21094) — "Pull Property" left
+      // listing_type/category/P24 location ids unset on every pull, not
+      // just Other Agency Stock imports. These raw signals feed the SAME
+      // OtherAgencyStockFieldMapper both import paths now share — see
+      // PropertyPullController::pullFromPortal().
+      listing_type: /^\/to-rent\//i.test(window.location.pathname) ? 'rental' : 'sale',
+      property_type_raw: null,
+      property_type_label_hint: null,
+      p24_suburb_external_id: (function () {
+        const parts = window.location.pathname.split('/').filter(Boolean);
+        return (parts.length >= 5 && /^\d+$/.test(parts[4])) ? parseInt(parts[4], 10) : null;
+      })(),
     };
 
     // 1. JSON-LD
@@ -388,7 +400,11 @@
           property.region = about.address.addressRegion || null;
           property.city = about.address.addressLocality || null;
         }
-        if (about['@type'] && about['@type'] !== 'RealEstateListing') property.property_type = about['@type'];
+        if (about['@type'] && about['@type'] !== 'RealEstateListing') {
+          property.property_type = about['@type'];
+          property.property_type_raw = about['@type'];
+        }
+        if (about.description) property.property_type_label_hint = about.description;
       }
 
       if (jsonLd.url) property.portal_url = jsonLd.url;
@@ -495,7 +511,13 @@
 
     if (!property.property_type && property.title) {
       const tl = property.title.toLowerCase();
-      for (const pt of PROPERTY_TYPES) { if (tl.includes(pt)) { property.property_type = pt.charAt(0).toUpperCase() + pt.slice(1); break; } }
+      for (const pt of PROPERTY_TYPES) {
+        if (tl.includes(pt)) {
+          property.property_type = pt.charAt(0).toUpperCase() + pt.slice(1);
+          if (!property.property_type_raw) property.property_type_raw = property.property_type;
+          break;
+        }
+      }
     }
 
     // 4. Features list
@@ -562,6 +584,60 @@
     if (!property.image_count && property.first_image_id) {
       property.image_count = document.querySelectorAll('.js_mainThreeImage').length || 1;
     }
+
+    // 5c. 2026-09-30 field audit (property #21098, Norkem Park): Levies,
+    // Rates and Taxes, Listing Date, Pets Allowed, Zoning, Parking, Pool,
+    // Kitchen, Garden, Security — none of these are in JSON-LD at all, they
+    // only sit in the same .p24_propertyOverviewRow table beds/baths/floor
+    // ALSO come from further up (via JSON-LD there, so this is a SEPARATE
+    // pass, not a duplicate of anything above). Same markup as the OAS
+    // extractor (popup.js p24ExtractOasFn) uses: .p24_propertyOverviewKey
+    // label + .p24_propertyOverviewResult .p24_info value; Kitchen/Garden/
+    // Security render as ONE .p24_info block with real embedded newlines.
+    // Raw text sent as-is; the server-side shared mapper
+    // (OtherAgencyStockFieldMapper) parses currency/zoning, Carbon parses
+    // "17 July 2026" natively.
+    property.levy = null; property.rates_taxes = null; property.date_posted = null;
+    property.pets_allowed = null; property.zone_type_raw = null; property.parking_count = null;
+    property.pool = false; property.kitchen_features = []; property.garden_features = []; property.security_features = [];
+    property.bathroom_features = []; property.parking_features = [];
+    try {
+      // 2026-09-30 REGRESSION FIX (property #21098): "Parking" is only the
+      // AGGREGATE row (confirmed live: shows "1" even with 2 real spots) —
+      // P24 also renders one row PER spot: "Parking 1" -> "1 Carport",
+      // "Parking 2" -> "1 open parking". Per-spot rows win when present.
+      let parkingAggregate = null;
+      const parkingSubRows = [];
+      document.querySelectorAll('.p24_propertyOverviewRow').forEach(function (row) {
+        const key = row.querySelector('.p24_propertyOverviewKey');
+        const vals = row.querySelectorAll('.p24_propertyOverviewResult .p24_info');
+        if (!key || !vals.length) return;
+        const k2 = key.textContent.toLowerCase();
+        const vText = vals[0].textContent.trim();
+        const parkingSubMatch = k2.match(/^parking\s+(\d+)$/);
+        if (k2 === 'levies') property.levy = vText;
+        else if (k2 === 'rates and taxes') property.rates_taxes = vText;
+        else if (k2 === 'listing date') property.date_posted = vText;
+        else if (k2 === 'pets allowed') property.pets_allowed = /^yes$/i.test(vText);
+        else if (k2 === 'zoning') property.zone_type_raw = vText;
+        else if (k2 === 'parking') parkingAggregate = parseInt(vText, 10) || null;
+        else if (parkingSubMatch) parkingSubRows.push(vText);
+        else if (k2 === 'pool') property.pool = /^yes$/i.test(vText);
+        else if (k2 === 'kitchen') property.kitchen_features = vText.split('\n').map(s => s.trim()).filter(Boolean);
+        else if (k2 === 'garden') property.garden_features = vText.split('\n').map(s => s.trim()).filter(Boolean);
+        else if (k2 === 'security') property.security_features = vText.split('\n').map(s => s.trim()).filter(Boolean);
+        else if (k2.indexOf('bathroom') !== -1 && vals.length > 1) {
+          // A second .p24_info in the SAME row is a free-text note ("Shower
+          // only") — confirmed live, additive to whatever set property.baths
+          // from JSON-LD further up in this function.
+          property.bathroom_features = property.bathroom_features.concat(
+            Array.prototype.slice.call(vals, 1).map(v => v.textContent.trim()).filter(Boolean)
+          );
+        }
+      });
+      property.parking_count = parkingSubRows.length > 0 ? parkingSubRows.length : parkingAggregate;
+      property.parking_features = parkingSubRows;
+    } catch (e) { /* */ }
 
     // 6. Agent info
     try { const el = document.querySelector('.p24_agentName, [class*="agent-name"], [class*="agentName"], .p24_listingAgentName, .p24_agentDetails .p24_name'); if (el) property.agent_name = el.textContent.trim(); } catch (e) { /* */ }

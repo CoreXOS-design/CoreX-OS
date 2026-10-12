@@ -1,0 +1,87 @@
+<?php
+
+namespace App\Models\TitleDeeds;
+
+use App\Models\Concerns\BelongsToAgency;
+use App\Models\User;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+/**
+ * The notification ledger: one row per owner per channel per send — who, when, destination (masked), result.
+ * WhatsApp is honest: `prepared` until the staff member confirms they sent it. (Rows are never deleted.)
+ */
+class TitleDeedEvent extends Model
+{
+    use BelongsToAgency;
+
+    protected $table = 'title_deed_events';
+
+    public const KIND_OWNER_NOTICE = 'owner_notice';
+    public const KIND_PIN_RESEND = 'pin_resend';
+    public const KIND_PIN_NEW = 'pin_new';
+    public const KIND_CONSENT_REQUEST = 'consent_request';
+    public const KIND_REMINDER = 'reminder';
+    public const KIND_COLLECTED_NOTICE = 'collected_notice';
+    public const KIND_SIGNING_LINK = 'signing_link';
+
+    public const KIND_LABELS = [
+        self::KIND_OWNER_NOTICE => 'Collection notice',
+        self::KIND_PIN_RESEND => 'The PIN, sent again',
+        self::KIND_PIN_NEW => 'A new PIN',
+        self::KIND_CONSENT_REQUEST => 'Request to confirm a representative',
+        self::KIND_REMINDER => 'Reminder that the deed is waiting',
+        self::KIND_COLLECTED_NOTICE => 'Notice that the deed was collected',
+        self::KIND_SIGNING_LINK => 'Link to sign on their own phone',
+    ];
+
+    public const CHANNEL_EMAIL = 'email';
+    public const CHANNEL_WHATSAPP = 'whatsapp';
+
+    public const STATUS_SENT = 'sent';
+    public const STATUS_FAILED = 'failed';
+    public const STATUS_SKIPPED = 'skipped';
+    public const STATUS_PREPARED = 'prepared';
+    /** WhatsApp was opened for this send by a person; it is NOT yet confirmed as sent. */
+    public const STATUS_OPENED = 'opened';
+    /** A person opened WhatsApp and then said they did not send it. */
+    public const STATUS_NOT_SENT = 'not_sent';
+
+    protected $fillable = [
+        'agency_id', 'title_deed_id', 'contact_id', 'owner_name', 'kind', 'channel', 'destination_masked',
+        'status', 'error', 'user_id', 'confirmed_at', 'opened_at', 'opened_by_user_id', 'consent_id', 'payload_encrypted',
+    ];
+
+    protected $hidden = ['payload_encrypted'];
+
+    protected $casts = ['confirmed_at' => 'datetime', 'opened_at' => 'datetime'];
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function openedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'opened_by_user_id');
+    }
+
+    /** A WhatsApp row still waiting for a person (to open it, or to say whether they sent it). */
+    public function isPendingWhatsapp(): bool
+    {
+        return $this->channel === self::CHANNEL_WHATSAPP && in_array($this->status, [self::STATUS_PREPARED, self::STATUS_OPENED], true);
+    }
+
+    public function deed(): BelongsTo
+    {
+        return $this->belongsTo(TitleDeed::class, 'title_deed_id')->withTrashed();
+    }
+
+    /** What this message is, in words ("Collection notice with the PIN"), for the panel that waits for a person to send it. */
+    public function messageLabel(bool $pinUsed): string
+    {
+        $label = self::KIND_LABELS[$this->kind] ?? $this->kind;
+
+        return ($pinUsed && in_array($this->kind, [self::KIND_OWNER_NOTICE, self::KIND_REMINDER], true)) ? $label . ' with the PIN' : $label;
+    }
+}

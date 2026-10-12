@@ -99,6 +99,8 @@ class AgencySetupWizardController extends Controller
         'mic_property_type'   => ['step' => 'market_intelligence', 'label' => 'Property types', 'placeholder' => 'e.g. Vacant Land'],
         'mic_bedroom_segment' => ['step' => 'market_intelligence', 'label' => 'Bedroom segments', 'placeholder' => 'e.g. 3 Bed'],
         'mic_price_band'      => ['step' => 'market_intelligence', 'label' => 'Price bands', 'placeholder' => 'e.g. Entry Level'],
+        // AT-450 round 2 - the Title Deed Register's storage locations (Properties step), same controller as the settings screen.
+        'title_deed_location' => ['step' => 'properties', 'label' => 'Title deed storage locations', 'placeholder' => 'e.g. Safe 2'],
     ];
 
     private function stepData(string $step, Agency $agency): array
@@ -116,6 +118,13 @@ class AgencySetupWizardController extends Controller
             ],
             'commission' => [
                 'commission' => \App\Models\CommissionSetting::forAgency($agency->id),
+            ],
+            // Other Agency Stock "who can see it" — this agency's own roles, the SAME
+            // list Company Settings → Other Agency Stock offers (spec §6).
+            'properties' => [
+                'agencyRoles' => \App\Models\Role::allRoles($agency->id),
+                'titleDeedLocations' => \App\Models\TitleDeeds\TitleDeedStorageLocation::withoutGlobalScopes()
+                    ->where('agency_id', $agency->id)->whereNull('deleted_at')->ordered()->get(),
             ],
             'branches' => [
                 'branches' => \App\Models\Branch::orderBy('name')->get(),
@@ -360,6 +369,8 @@ class AgencySetupWizardController extends Controller
                 app(\App\Http\Controllers\Settings\Prospecting\BedroomSegmentsController::class)->store($request);
             } elseif ($collection === 'mic_price_band') {
                 app(\App\Http\Controllers\Settings\Prospecting\PriceBandsController::class)->store($request);
+            } elseif ($collection === 'title_deed_location') {
+                app(\App\Http\Controllers\TitleDeeds\TitleDeedLocationController::class)->store($request);
             }
         } catch (ValidationException $e) {
             throw $e;
@@ -411,6 +422,8 @@ class AgencySetupWizardController extends Controller
             } elseif ($collection === 'mic_price_band') {
                 $band = \App\Models\Prospecting\PriceBand::findOrFail($id);
                 app(\App\Http\Controllers\Settings\Prospecting\PriceBandsController::class)->archive($request, $band);
+            } elseif ($collection === 'title_deed_location') {
+                app(\App\Http\Controllers\TitleDeeds\TitleDeedLocationController::class)->destroy($request, $id);
             }
         } catch (HttpException $e) {
             if (!in_array($e->getStatusCode(), [403, 404], true)) {
@@ -583,6 +596,15 @@ class AgencySetupWizardController extends Controller
                 // own singleton row (agency_deal_sync_settings), not on Agency.
                 'deal_sync' => \App\Models\AgencyDealSyncSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
                 'proforma'  => AgencyProformaSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
+                // Other Agency Stock — .ai/specs/other-agency-stock.md §6/§3a. Explicit per-key match
+                // (spec §6.2). Visible roles: stored NULL/empty means "visible to everyone", which the
+                // settings page shows as every role ticked — so the wizard does the same.
+                'other_agency_stock' => match ($key) {
+                    'other_agency_stock_visible_roles' => $agency->other_agency_stock_visible_roles
+                        ?: \App\Models\Role::allRoles($agency->id)->pluck('name')->all(),
+                    'other_agency_stock_consent_wording' => $agency->other_agency_stock_consent_wording,
+                    default => $control['default'] ?? null,
+                },
                 // Core Matches — which Buyer Pipeline statuses take a buyer off Core Matches.
                 // Explicit per-key match (spec §6.2): never fall through to an Agency column.
                 'core_matches' => match ($key) {
@@ -669,6 +691,12 @@ class AgencySetupWizardController extends Controller
                 // user input — they come only from this file's own hardcoded
                 // control declarations in config/agency-onboarding-copy.php.
                 'rental_application' => \App\Models\RentalApplicationQualifyingSetting::{\Illuminate\Support\Str::camel($key) . 'For'}($agency->id),
+                // AT-450 - Title Deed Register: one named resolver per setting, same convention (keys are this file's own config, never user input).
+                'title_deeds' => (function () use ($key, $agency) {
+                    $v = \App\Models\TitleDeeds\TitleDeedSetting::{\Illuminate\Support\Str::camel($key) . 'For'}($agency->id);
+
+                    return is_bool($v) ? (int) $v : $v;   // Yes / No selects compare against '1' / '0'
+                })(),
                 // AT-395 — the outgoing-mail step reads the CURRENT ADMIN's own
                 // mailbox row, never any other agent's. Password is never
                 // resolved back (write-only, same rule as every mailbox screen).
@@ -677,6 +705,15 @@ class AgencySetupWizardController extends Controller
                         ->where('user_id', Auth::id())
                         ->first()?->{$key} ?? ($control['default'] ?? null)
                 ),
+                // AT-432 — Auctions settings live on agency_auction_settings; the
+                // accessors return the documented default when no row exists.
+                'auction'   => match ($key) {
+                    'auction_advertising_only'    => (int) \App\Models\AgencyAuctionSettings::advertisingOnlyFor($agency->id),
+                    'auction_auctioneer_mode'     => \App\Models\AgencyAuctionSettings::auctioneerModeFor($agency->id),
+                    'auction_reserve_visibility'  => \App\Models\AgencyAuctionSettings::reserveVisibilityFor($agency->id),
+                    'auction_guide_price_enabled' => (int) \App\Models\AgencyAuctionSettings::guidePriceEnabledFor($agency->id),
+                    default                       => $control['default'] ?? null,
+                },
                 default     => $agency->{$key} ?? ($control['default'] ?? null),
             };
         }

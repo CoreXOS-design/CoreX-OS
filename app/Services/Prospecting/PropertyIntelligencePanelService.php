@@ -147,6 +147,9 @@ final class PropertyIntelligencePanelService
             'price'        => $listing->price,
             'in_stock'     => $companyStockId !== null,
             'matched_property_id' => $companyStockId,
+            // Other Agency Stock can't be pitched (spec §5c) — the slide-over hides Pitch for it.
+            'matched_is_oas'      => $companyStockId !== null
+                && isset(\App\Services\Properties\OtherAgencyStockActionRules::blockedPropertyIds('pitch_seller', [$companyStockId])[$companyStockId]),
             'tracked_property_id' => $listing->tracked_property_id,
             'is_active'    => $listing->is_active,
             'first_seen_at'=> $listing->first_seen_at,

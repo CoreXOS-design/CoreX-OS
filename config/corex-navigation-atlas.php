@@ -252,6 +252,12 @@ return [
         'blurb' => 'The compliance filing register of documents and their metadata.',
         'keywords' => ['filing register', 'filing', 'register', 'file register'],
     ],
+    'title-deeds.index' => [
+        'label' => 'Title Deeds',
+        'category' => 'Documents',
+        'blurb' => 'Title deeds received from the attorneys: who was told, and when and by whom each was collected.',
+        'keywords' => ['title deeds', 'title deed', 'deeds', 'collect deed', 'deed register', 'attorney deeds'],
+    ],
 
     // ── Compliance ──────────────────────────────────────────────────────
     'compliance.fica.index' => [
@@ -397,6 +403,12 @@ return [
         'category' => 'Admin',
         'blurb' => 'Your CoreX settings and preferences.',
         'keywords' => ['settings', 'preferences', 'my settings', 'configure'],
+    ],
+    'corex.features.index' => [
+        'label' => 'Features',
+        'category' => 'Admin',
+        'blurb' => 'Switch CoreX modules on or off for your agency.',
+        'keywords' => ['features', 'modules', 'turn on', 'turn off', 'switch off', 'enable module', 'disable module', 'feature toggles'],
     ],
     'admin.company-settings' => [
         'label' => 'Company Settings',

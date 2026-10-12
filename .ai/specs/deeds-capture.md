@@ -684,3 +684,310 @@ comment explaining why. No new setting → nothing for the Setup Wizard (CLAUDE.
       is still there), never at the top.
 - [x] `tests/Feature/Prospecting/DeedsCaptureDismissTest.php` green (renders both a property row and
       a standalone TVA row, then asserts they vanish after dismiss).
+
+---
+
+## 9. Pre-check before the paid ID reveal (2026-10-05, Johan — built)
+
+**Status:** Built, QA1-pending Johan's go-ahead. Branch
+`cma-deeds-precheck-2026-10-05`. Prior investigation:
+`/tmp/cma-extension-precheck-investigation-2026-10-05.md`.
+
+### 9.0 The problem and the fact that shaped the fix
+
+Agencies pay CMA Info **R3 per owner ID, at the moment that ID is revealed** on the
+property panel (clicking the "eye" icon that unmasks `560728*******`). Everything else
+on the panel — Property Information (LPI Code, Erf no, Scheme no/Section number,
+Address, Suburb, Municipality, GPS, extents, Type) and the non-ID parts of Sale
+Information (Owner **name**, Title Deed **number**, Sale Price/Date, Bond Holder/Amount)
+— is free.
+
+Before this build, `content-cmainfo.js`'s `extractSaleInformation()` called
+`revealOwnerIdIfNeeded()` — the function that synthetically clicks every visible
+`i.fa.fa-eye` icon — **unconditionally**, as its first line, every time the agent
+pressed the single "Capture to CoreX" button. The agent never touched the reveal
+themselves; the extension did it automatically, with no gate, before CoreX's own
+duplicate check (which only ran AFTER the paid POST had already landed) ever had a
+chance to say "we already have this."
+
+### 9.1 What changed
+
+`content-cmainfo.js`'s `onCaptureClick()` now runs in two phases:
+
+1. **Free phase** — `ensureSectionExpanded` + `extractPropertyInformation()` (unchanged,
+   already free) + a **new** `extractFreeSaleFields()` that reads Owner (name) and Title
+   Deed from the Sale Information panel **without** calling `revealOwnerIdIfNeeded()`.
+   `buildPreCheckPayload()` (new) maps these into the same `property`/`owners` shape
+   `buildDeedsCapturePayload()` already uses, plus `source_ref` (via the existing,
+   unchanged `buildSourceRef()`).
+2. **Gate** — `POST /api/v1/deeds-capture/check-duplicate` (new). Response `status`:
+   - `not_found` → proceeds straight into the existing `extractDeed()` →
+     `revealOwnerIdIfNeeded()` → `buildDeedsCapturePayload()` → `POST /api/v1/deeds-capture`
+     path, byte-for-byte unchanged from before this build.
+   - `exists` / `possible_match` → a new on-page banner (mirrors the P24/PP popup's
+     `duplicateWarning` Confirm/Cancel pattern) shows what matched, who captured it and
+     when, and three actions: **Open in CoreX** / **Pull anyway** / **Cancel**. The
+     reveal only ever happens after "Pull anyway".
+   - Request fails/times out → "Could not check CoreX — Try again / Pull anyway". Never
+     reveals on a failure either; "Try again" re-sends the same pre-check payload
+     (no re-extraction needed — the free phase already ran once).
+
+Multi-owner properties: ONE pre-check call per property (all free owner names sent
+together in the `owners[]` array), before any ID anywhere on that property is opened.
+
+### 9.2 New endpoint — `POST /api/v1/deeds-capture/check-duplicate`
+
+`App\Http\Controllers\Api\DeedsCaptureController::checkDuplicate()` — Sanctum-authed,
+same `effectiveAgencyId()` resolution as `store()`. Side-effect-free: wraps
+`TrackedPropertyMatchOrCreateService::findExistingMatch()` (already existed, already
+read-only) via a private `buildFreePropertyFacts()` mapping — a deliberate, separate
+duplicate of `ingestOne()`'s own `$facts` mapping (property-only subset) so this new
+endpoint can never change `store()`'s existing, audited behaviour. No new matching
+*strategy* was added to the resolver.
+
+Request: `source_ref` (optional, built client-side exactly like a real capture's would
+be), `property.*` (the free Property Information fields), `owners[]` (name + optional
+`id_type` hint — no ID, since none exists yet at this point).
+
+Response:
+```
+{ "status": "exists" | "possible_match" | "not_found",
+  "matches": [ { tracked_property_id, address, captured_by, captured_at, captured_at_human,
+                 reason, match_type: "structural"|"owner_name", confident, matched_fields, deeplink } ] }
+```
+`status` is `exists` only when a *confident* structural match is found (every
+`resolveMatch()` strategy except the untiebroken Strategy-5 tie); otherwise
+`possible_match` when anything (structural-but-uncertain, or the owner-name signal below)
+was found; `not_found` when nothing was.
+
+**Cross-agency:** never revealed — `$agencyId` comes from the authenticated token exactly
+like `store()`, and every query inside the matcher is filtered to that one agency; there
+is no broader lookup to opt out of (proven by test, §9.5).
+
+### 9.3 New matching signal — owner name + address (Johan's addition, item 2)
+
+`TrackedPropertyMatchOrCreateService::findPossibleOwnerMatches()` (new, public) — NOT
+part of `resolveMatch()`'s structural chain; a separate, independent signal that never
+promotes to a confident `exists`, only ever `possible_match`. Agency-scoped the same way
+every other query in the service is (join through `tracked_properties`, since
+`tracked_property_owners` carries no `agency_id` of its own).
+
+Rule: a natural-person name matches on **order-independent, >=2-shared-token** overlap
+(CMA's cell is surname-first; a stored Contact's name may not be); a juristic
+entity/trust/company name (`OwnerEntityClassifier::isEntity()`) matches on **exact
+normalised registered name** instead, never token-reordered. Either way, owner-name
+alone is never enough — at least one property-side signal must ALSO match: same
+suburb, same sectional scheme (`scheme_number`, or `complex_name`/`scheme_name` when no
+number is known), or same street name. `matched_fields` on the response names exactly
+which ones fired.
+
+### 9.4 Deep link — "Open in CoreX"
+
+`resources/views/corex/deeds-capture/index.blade.php`'s selection Alpine component now
+reads `?open=tp-<id>` on `init()` (new), winning over the remembered `sessionStorage`
+row. The pre-check's `deeplink` field is built as
+`route('corex.deeds-capture.index', ['scope' => 'all', 'open' => 'tp-<id>'])` — `scope=all`
+asks for the broadest view the clamped Own/Branch/All ceiling actually grants (never
+wider than the viewer's real permission).
+
+**Known limit, not solved here:** the queue's `ids` are whatever the current
+page/filter/pagination already rendered — a match on a different page, a different
+filter, or outside the viewer's own scope ceiling simply won't be in `ids`, and the link
+silently falls back to the first row instead. Fine for "open the thing I was just warned
+about" (same session, same agency); not a general-purpose record finder.
+
+### 9.5 Logging — `agent_activity_events`
+
+No new table. `AgentActivityEvent` (existing, append-only, `agency_id`+`user_id`+
+`event_type`+`subject_type/id`+`payload` — built for exactly this kind of thing, see
+its own docblock) gets one row per outcome:
+`deeds_capture.precheck.{not_found,possible_match,exists,pulled_anyway,cancelled}`. The
+first three are logged inside `checkDuplicate()` itself; the last two are logged by a
+second new endpoint, `POST /api/v1/deeds-capture/check-duplicate/decision`
+(`logPrecheckDecision()`) — the agent's banner decision, which `checkDuplicate()` cannot
+know since it happens in the browser after the response. This is what lets "avoided
+reveals" (and therefore avoided R3 charges) be reported later: `pulled_anyway` + `exists`/
+`possible_match` without `pulled_anyway` tells you how many warnings led to a skip.
+
+### 9.6 Extension version
+
+`manifest.json` bumped **3.7.7 → 3.8.0** — a real behaviour change (gates the paid
+reveal), not a patch, same convention as the 3.6.5 → 3.7.0 bump for the `scripting`
+permission addition. **No new permission, no new host** — the pre-check calls the same
+`corexos.co.za` host the extension already talks to. Publish steps (not done as part of
+this build):
+1. `scripts/package-chrome-extension.sh` (rebuild the zip at
+   `public/downloads/portal-capture-extension.zip`).
+2. Chrome Web Store dashboard → upload the new zip → since no permission/host changed,
+   this should route through Chrome's abbreviated review (no new permissions requested),
+   not a full review.
+3. Existing installs auto-update on Chrome's normal cadence; nothing forces an
+   immediate update — an agent on the old 3.7.7 build keeps the unconditional reveal
+   until Chrome updates them.
+
+### 9.10 Street-number correctness and the second source (2026-10-07, extension 3.8.1)
+
+**Trigger.** Johan's first test of 3.8.0 on QA1: a click on **19 Grindewald Drive**, Uvongo
+came back *"29 Grindewald Drive … Address is a close text match on this street and suburb —
+no other property on this street was a candidate"*, while CoreX already held that exact
+property (QA1 property 6113, "19 Grindewald"). Wrong twice.
+
+**Root causes (QA1 rows read, not guessed).**
+1. **Only `tracked_properties` was searched.** Property 6113 is agency stock created directly;
+   no earlier capture of it exists, so the pre-check could not see it. (Its one linked tracked
+   record, 373, is itself corrupt — see "Not fixed here".)
+2. **The street-number veto read the structured column only.** Tracked property 392 is stored
+   `street_number = NULL`, `street_name = "29 Grindewald Drive"` (old cmainfo import: number
+   inside the name). `numbersConflict()` saw a NULL column, did not veto, and strategy 5 (token
+   overlap, which drops tokens under 3 characters — i.e. every street number) matched on
+   "grindewald drive" alone. 111 tracked properties on QA1 are stored that way. The real capture
+   path (`matchOrCreate`) shares `resolveMatch()`, so a real capture of 19 would have been
+   merged into the record for 29.
+3. **"Grindewald" ≠ "Grindewald Drive"** to the address normaliser (no street-type handling),
+   so even a properties search by normalised street would have missed 6113.
+
+**Rules (BINDING).**
+- An exact **street number + street + suburb** (or **erf + suburb** for freehold, or **scheme +
+  section** for sectional) always wins and is searched in **both** places CoreX holds a property:
+  agency stock (`properties`) and earlier captures (`tracked_properties`).
+- A **different street number is never the same property.** The number is read from the
+  structured column, or — when that is blank — from the numbers written in the street/address text
+  (`streetNumberSet()`: leading number of each line/comma segment, so "4 Villa-Del-Mei⏎35
+  Grindewald Drive" states 4 and 35). A conflict is declared only when both sides state numbers
+  and none agree. This fixes the class for every caller of `resolveMatch()` (pre-check and
+  real captures), not just this address.
+- A **loose street-text (strategy 5) hit** is reported as a duplicate only if the street number
+  is confirmed equal on both sides. When the click carries a number and the hit's number is
+  different or unknown it is **not a duplicate**: it is returned in `same_street`.
+- **Street type may be missing on one side** ("Grindewald" vs "Grindewald Drive", "Dr" vs "Drive"):
+  still confident. If both sides name a *different* type (Road vs Drive) → `possible_match` only. A
+  unit/section the capture carries but the property lacks → `possible_match` only; a differing unit
+  is a different property.
+
+**Endpoint contract change** (`POST /api/v1/deeds-capture/check-duplicate`, additive):
+- `matches[]` now also holds `source: "property"` rows (`property_id`, `address`, `summary`,
+  `confident`, `deeplink` → `corex.properties.show`); every row has a `source`
+  (`tracked_property` | `property`). Confident rows sort first (the banner shows `matches[0]`).
+- **`same_street[]`** (new, informational): other properties on the same street with a different
+  or unrecorded number — `{source, id, address, number_known}`, max 5. Never part of `status`,
+  never blocks.
+- **Scope:** a property the caller cannot open (own/branch/agency data scope + the Other Agency
+  Stock role gate) is still reported — a duplicate must not be silently missed — but as "A property
+  already held in your agency", no address, no deep link. Other agencies' rows are never read.
+- `agent_activity_events` payload gains `same_street_count` and `loose_hit_ignored`.
+
+**Extension 3.8.1** (`manifest.json` 3.8.0 → 3.8.1; no permission or host change, so the same
+abbreviated store review as 3.8.0): the banner uses the server's `summary` for property matches;
+a `same_street` answer on a `not_found` shows a non-blocking note next to "Captured ✓"
+(*"Other property on this street in CoreX (different number): 29 Grindewald Drive, UVONGO"*) and the
+capture proceeds exactly as before — it never opens the duplicate banner and never skips.
+
+**Not fixed here (reported).**
+- QA1 tracked property **373** is a "Frankenstein" record: four different cmainfo reports
+  (1 Como Drive, 4 Garden Place, 15 Meriel Road, 36 Grindewald Drive) collapsed into one, and it is
+  promoted to property 6113 (19 Grindewald). Data repair is a separate, deliberate job.
+- `resolvePropertyMatch()` (promote-to-stock) still compares `street_name_normalised` exactly, so a
+  promotion of a capture "19 Grindewald Drive" would not link to property "19 Grindewald" and would
+  create a second property. Same street-type tolerance should be applied there in its own change.
+  **Fixed 2026-10-07 — see §9.11.**
+- Suburb differences ("Uvongo" vs "Uvongo Beach") are not bridged. **Handled 2026-10-07 — see §9.11**
+  (spelling twins are one suburb; neighbouring P24 suburbs are "possible match" only).
+
+**Tests.** `tests/Feature/Prospecting/DeedsCapturePrecheckStreetNumberTest.php` (18 cases incl. both
+Grindewald rows as they exist on QA1); `deeds-cleanslate.test.cjs` (+9 checks).
+
+### 9.11 Promote link, suburb spelling and the 373 merge guard (2026-10-07, extension unchanged at 3.8.1)
+
+Closes items 2, 3 and 1 of the §9.10 "not fixed" list (item 4, the stale download zip, is also done:
+`public/downloads/portal-capture-extension.zip` was rebuilt with `scripts/package-chrome-extension.sh`
+from the 3.8.1 source; it is NOT published to the Chrome Web Store).
+
+**Promote link (`resolvePropertyMatch()`, address fallback).** It no longer compares the street-name
+column exactly. It runs the same street comparison as the pre-check — one private method,
+`stockByStreetNumber()`, now shared by `findExistingStock()` (pre-check) and the promote link — so the
+two can no longer disagree: street number + street name + suburb, street type may be missing on one
+side, the number may live in the street text of an old row, a different number or unit never matches.
+Only a *confident* hit is linked; a street-type clash (Road/Drive) or a neighbouring-suburb hit is
+"possible" and Promote creates the new property instead of guessing. `PropertyDuplicateMatchEvidence`
+(Deeds-screen side-by-side panel) calls the public `addressFallbackCandidates()` so the panel lists exactly
+what Promote acts on.
+
+**Suburb.** `TrackedPropertyAddress::suburbSpellingKeys()` returns the set of stored `suburb_normalised`
+strings that are the same suburb by spelling alone ("saint X" <-> "st X", plus `config/property-suburb-aliases.php`
+groups); the matcher queries `whereIn(...)` so existing rows need no backfill. Uvongo and Uvongo Beach are
+**two real Property24 suburbs** (p24_id 6359 and 33106, ~1,100 and ~300 properties on QA1, each listing the
+other in `p24_suburbs.surrounding_ids`) that share streets — they are never merged; `neighbouringSuburbKeys()`
+makes a street-number + street match under the neighbouring suburb a "possible match" in the pre-check only.
+
+**373 merge guard.** Root cause of tracked property 373 (four streets in one record, QA1): the CMA report
+parsers (`CmaInfoPropertyValuationParser`, `…VicinitySaleParser`, `…SectionalTitleSalesParser`) put the whole
+printed line into `street_name` ("4 Garden Place   Cadastral Extent  1 605 M²") with `street_number` NULL, and
+strategy 5 (token overlap) accepts any candidate sharing two words in the suburb — "cadastral" and "extent" are
+two words. Fix: strategy 5 now also requires the street names to agree (`streetsAgree()`: number, unit, street
+type and the "Cadastral Extent … M²" tail ignored). The existing record 373 is NOT repaired (QA1 demo data).
+Not fixed here: the parsers still store the whole line in `street_name` — replaced by the structured-address
+proposal (Part 2 report), not patched.
+
+**Tests.** `tests/Feature/Prospecting/MatchingPromoteLinkAndMergeGuardTest.php` (13 cases; mutation-checked).
+**Not in the wizard / no setting added** (CLAUDE.md #10a does not apply).
+
+### 9.12 Ranked matches, partial scheme names, either unit number, the owner SURNAME (2026-10-12, Johan — extension 3.11.0)
+
+**What failed (Staging, Johan's retest).** CMA page: Unit/Section 6, Du Bantry [Holiday Flats], 77 Colin Street, Uvongo Beach, owner Pretorius.
+CoreX property 21729 holds "Unit 6, Du Bantry, Colin Street, Uvongo Beach" with NO street number and a seller Pretorius. The pre-check
+returned only the unit-less "77 Colin Street" record (15815). Cause: the Staging stock rule needed the scheme name to be *exactly* equal and a
+street number on both sides; and the banner showed only `matches[0]`. Mont Blanc and Pretorius Drive worked only because an earlier CMA capture
+already held their scheme number / erf. 589 of 6,130 Staging properties have the failing shape (unit + complex, no street number).
+
+**What changed (Johan's scope — nothing else):**
+
+1. **Scheme / complex name — partial match, guarded** (`AddressMatchScorer::scheme()`). One normalised name inside the other counts as the same scheme
+   ("Du Bantry" in "Du Bantry Holiday Flats"), by whole WORDS only, and only when the shorter name is substantial: at least one real word of 4+ letters that is
+   not noise (the, ss, flats, court, villa, estate, van, der …) and 5+ letters of real words in all. "Sea", "The Villas", "SS 12", "Villa", "Flats" never match every scheme; "Bantry" is not inside "Bantryside".
+2. **Unit — the section number AND the flat/unit number** (`AddressFacts::$units`, `AddressMatchScorer::unit()`). Either one equal to the CoreX unit counts. Written forms
+   "Unit 6", "6", "06", "No 6", "Flat 6", "Door 6", "#6" are one key (`AddressFacts::unitKey()`); a unit stored in the street field (property 2872 "1 DU BANTRY\n77 Colin Street") is lifted by the parser as before.
+   **Safety:** when the CMA page's two numbers disagree (section 6 / flat 7) and the CoreX unit equals only the secondary one, that is a candidate ("possible", with a sentence saying so), never exact.
+3. **A missing street number no longer excludes a record.** Two new POSSIBLE anchors: scheme + street + suburb, and unit + street + suburb, each when the street number is absent on one side. A
+   DIFFERENT number is still a veto (19 ≠ 29). The exact scheme rule (scheme + unit + suburb) already never needed a number.
+4. **Owner SURNAME as confirming evidence** (`OwnerSurnameEvidence`). The CMA owner cell is surname-first; a compound surname has its prefix words trailing ("MERWE FRANCOIS VAN DER" = Van Der Merwe).
+   Only the surname is compared — never first names (Lodewyk is captured as Leon), never ID digits. Compared with: the contacts linked to the property as seller / owner / landlord / lessor
+   (`contact_property`, agency-scoped, soft-removed links ignored), the owners captured on a tracked property (and the contact one is linked to), and — for a tracked property already promoted — that property's contacts.
+   Case, accents, hyphens and a compound prefix on one side only are tolerated; several owners: any one counts; a company/trust owner is compared by its whole name with Pty/Ltd/CC/The removed.
+   **Evidence only:** it re-orders and upgrades candidates the address matcher already found; a surname with no address signal matches nothing.
+5. **Ranking** (`DeedsCapturePreCheckRanker`, applied in `checkDuplicate()`): 1 **exact** (identity rule, or a possible whose UNIT agrees and whose surname matches — "upgraded") · 2 **surname-confirmed** · 3 **possible** · 4 **no unit** — a same-address record with no unit number,
+   labelled exactly **"Same address, no unit number - may be a different unit"** and always listed below the stronger ones. Within a group: surname-confirmed first, then the scorer's score, then the oldest id.
+   Every match carries `rank`, `rank_group`, `rank_label`, `owner_surname_match`, `owner_surname_evidence`; the response adds `match_count`. `status` is `exists` when any non-owner-name match is exact, else `possible_match`, else `not_found` (unchanged).
+   A stock match's `address` is now the full display address ("Unit 6, Du Bantry, Colin Street, Uvongo Beach") so two units of one scheme can be told apart.
+6. **Banner** (extension 3.11.0, `showDuplicateBanner()`): the title carries the count ("Already in CoreX — 2 matches, best first"), the best match as before plus its plain rank label, then the rest of the list (up to 5, "+ N more"); weaker rows are amber. Buttons and the decision log are unchanged.
+7. **Extension version** 3.10.0 → 3.11.0 on QA1 and Staging (the same build). The payload is unchanged: the section number and the flat/unit number were already both sent.
+
+**Deliberately NOT built:** first names, ID digits, storing the scheme number on stock, anything else.
+
+**Tests:** `tests/Feature/Address/AddressMatchScorerPreCheckRulesTest.php`, `tests/Unit/Prospecting/OwnerSurnameEvidenceTest.php`, `tests/Feature/Prospecting/DeedsCapturePreCheckRankedTest.php` (Johan's case, Mont Blanc, 195 Pretorius Drive, different unit, 19 vs 29, surname alone, cross-agency, several owners, compound surname, company), the node harness (`deeds-cleanslate.test.cjs`, banner list helpers).
+
+### 9.7 Deliberately unchanged
+`extractDeed()`, `extractSaleInformation()`, `revealOwnerIdIfNeeded()`,
+`buildDeedsCapturePayload()`, `DeedsCaptureController::store()`/`ingestOne()` — all
+byte-for-byte unchanged. The gate sits entirely in front of them in
+`onCaptureClick()`; the existing, audited capture path itself was never touched.
+
+### 9.8 Files touched
+| File | Change |
+|---|---|
+| `app/Services/Prospecting/TrackedPropertyMatchOrCreateService.php` | + `describeLastMatch()`, `findPossibleOwnerMatches()` (new, additive methods only) |
+| `app/Http/Controllers/Api/DeedsCaptureController.php` | + `checkDuplicate()`, `logPrecheckDecision()`, `buildFreePropertyFacts()`, `formatMatch()` (new methods only; `store()`/`ingestOne()` untouched) |
+| `routes/api.php` | + 2 routes next to the existing `/deeds-capture` route |
+| `resources/views/corex/deeds-capture/index.blade.php` | `init()` reads `?open=` (§9.4) |
+| `public/chrome-extension/portal-capture/content-cmainfo.js` | `onCaptureClick()` restructured; + `extractFreeSaleFields()`, `buildPreCheckPayload()`, banner functions, `logPrecheckDecision()` |
+| `public/chrome-extension/portal-capture/background.js` | + `handleCheckDeedsDuplicate()`, `handleLogDeedsPrecheckDecision()`, message routing |
+| `public/chrome-extension/portal-capture/manifest.json` | version 3.7.7 → 3.8.0 (→ 3.8.1, §9.10) |
+| `tests/Feature/Prospecting/DeedsCapturePrecheckTest.php` | new |
+| `public/chrome-extension/portal-capture/tests/deeds-cleanslate.test.cjs` | + pre-check gate test section |
+
+**§9.12 files (2026-10-12):** `app/Services/Address/AddressMatchScorer.php` (partial scheme names, either unit, number-missing anchors, wording, `record_lacks_unit`), `app/Services/Address/AddressFacts.php` (`units`, `unitKey()`),
+`app/Services/Prospecting/OwnerSurnameEvidence.php` (new), `app/Services/Prospecting/DeedsCapturePreCheckRanker.php` (new), `app/Http/Controllers/Api/DeedsCaptureController.php` (`checkDuplicate()` ranks; fuller stock address; `match_count`),
+`public/chrome-extension/portal-capture/content-cmainfo.js` (ranked-list banner), `manifest.json` / `popup.html` (3.11.0), `deeds-cleanslate.test.cjs`, and the three test files named in §9.12.
+
+### 9.9 Deliberately NOT in the wizard
+No new agency setting — the pre-check is unconditional behaviour, not a configurable
+toggle. CLAUDE.md #10a does not apply.

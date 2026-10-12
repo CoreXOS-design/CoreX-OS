@@ -122,6 +122,77 @@ function makeChromeMockWithCapture(storageBackingStore) {
   };
 }
 
+/**
+ * Pre-check gate mock (.ai/specs/deeds-capture.md §9) — handles
+ * 'checkDeedsDuplicate' (configurable response/failure per call, so a test
+ * can simulate "first call fails, retry succeeds"), 'captureDeed' (same
+ * capture-recording behaviour as makeChromeMockWithCapture above), and
+ * 'logDeedsPrecheckDecision' (records every decision payload sent).
+ */
+function makeChromeMockForPrecheck(options) {
+  options = options || {};
+  let listener = null;
+  let resolveCaptured;
+  const captured = new Promise((resolve) => { resolveCaptured = resolve; });
+  let precheckCallCount = 0;
+  const decisions = [];
+  const precheckPayloads = [];
+  return {
+    runtime: {
+      onMessage: { addListener: (fn) => { listener = fn; } },
+      sendMessage: (msg) => {
+        if (msg && msg.action === 'checkDeedsDuplicate') {
+          precheckCallCount++;
+          precheckPayloads.push(msg.payload);
+          if (options.precheckBehavior === 'reject') {
+            return Promise.reject(new Error('CoreX unreachable'));
+          }
+          const responses = options.precheckResponses || [options.precheckResponse || { status: 'not_found', matches: [] }];
+          return Promise.resolve(responses[Math.min(precheckCallCount - 1, responses.length - 1)]);
+        }
+        if (msg && msg.action === 'captureDeed') {
+          resolveCaptured(msg.payload);
+          return Promise.resolve({ results: [{ created: true }] });
+        }
+        if (msg && msg.action === 'logDeedsPrecheckDecision') {
+          decisions.push(msg.payload);
+          return Promise.resolve({ ok: true });
+        }
+        return Promise.resolve({});
+      },
+    },
+    storage: { local: makeStorageLocal() },
+    _getListener: () => listener,
+    _captured: captured,
+    _precheckCallCount: () => precheckCallCount,
+    _decisions: decisions,
+    _precheckPayloads: precheckPayloads,
+  };
+}
+
+/** Appends a single fa-eye reveal icon next to the Owner's ID value cell — same shape as the existing testRevealOwnerIdIfNeeded_clicksEveryIcon fixture, but exposes whether it fired. */
+function addRevealIcon(doc, unmaskedValue) {
+  const rows = doc._salePanel.querySelectorAll('tr');
+  let idValueCell = null;
+  for (const tr of rows) {
+    if (tr.children[0] && String(tr.children[0].textContent).trim().toLowerCase() === "owner's id") { idValueCell = tr.children[1]; break; }
+  }
+  let clicked = false;
+  const icon = doc.createElement('i');
+  icon.addClass('fa fa-eye');
+  icon.addEventListener('click', () => { clicked = true; idValueCell.textContent = unmaskedValue; });
+  if (idValueCell) idValueCell.parentNode.appendChild(icon);
+  return { wasClicked: () => clicked };
+}
+
+/** Finds a button/link inside the pre-check banner by its exact visible text. */
+function findBannerControl(doc, text) {
+  const banner = doc.getElementById('corex-deeds-precheck-banner');
+  if (!banner) return null;
+  const candidates = banner.querySelectorAll('button').concat(banner.querySelectorAll('a'));
+  return candidates.find((el) => String(el.textContent).trim() === text) || null;
+}
+
 function loadContentScript(filePath, doc, chromeMock) {
   const src = fs.readFileSync(filePath, 'utf8');
   let mutationCallback = null;
@@ -824,6 +895,392 @@ async function testRevealOwnerIdIfNeeded_clicksEveryIcon(filePath, label) {
 }
 
 // ══════════════════════════════════════════════════════════
+// ── PRE-CHECK GATE — .ai/specs/deeds-capture.md §9 ──────────
+// ══════════════════════════════════════════════════════════
+// Proves the thing Johan's fact changed everything about: revealOwnerIdIfNeeded()
+// — the CMA Info R3-per-ID paid click — must never fire before the pre-check
+// has resolved AND (if it found something) the agent has explicitly chosen to
+// proceed. Drives the REAL onCaptureClick() via a real button click, same as
+// every other black-box test in this file — no internals poked.
+
+async function testPrecheck_notFound_proceedsAndRevealsExactlyOnce(filePath, label) {
+  const doc = buildCmaInfoDocument(PARK_ST_PROPERTY_FIELDS_FROZEN, PARK_ST_SALE_FIELDS);
+  const reveal = addRevealIcon(doc, '7505125800088');
+  const chromeMock = makeChromeMockForPrecheck({ precheckResponse: { status: 'not_found', matches: [] } });
+  loadContentScript(filePath, doc, chromeMock);
+
+  doc.getElementById('corex-deeds-capture-btn').click();
+  const payload = await Promise.race([chromeMock._captured, sleep(3000).then(() => null)]);
+
+  check(`[${label}] precheck not_found — reveal icon fired exactly once, no banner needed`,
+    reveal.wasClicked() === true, 'reveal icon was never clicked after a not_found result');
+  check(`[${label}] precheck not_found — captureDeed sent with the real (revealed) owner ID`,
+    !!(payload && payload.captures[0].owners[0] && payload.captures[0].owners[0].id_number === '7505125800088'),
+    `payload=${JSON.stringify(payload)}`);
+}
+
+async function testPrecheck_exists_cancelClicked_neverRevealsNeverSends(filePath, label) {
+  const doc = buildCmaInfoDocument(PARK_ST_PROPERTY_FIELDS_FROZEN, PARK_ST_SALE_FIELDS);
+  const reveal = addRevealIcon(doc, '7505125800088');
+  const precheckResponse = {
+    status: 'exists',
+    matches: [{
+      tracked_property_id: 42, address: '12 Park Street, Margate', captured_by: 'Jane Agent',
+      captured_at_human: '3 days ago', reason: 'Same erf number and suburb.', match_type: 'structural',
+      confident: true, deeplink: 'https://example.test/corex/deeds-capture?open=tp-42',
+    }],
+  };
+  const chromeMock = makeChromeMockForPrecheck({ precheckResponse });
+  loadContentScript(filePath, doc, chromeMock);
+
+  doc.getElementById('corex-deeds-capture-btn').click();
+  // Property+free-sale extraction settle-waits (waitForPanelIdentityStable(),
+  // the FIRST_CAPTURE_EXTRA_SETTLE_MS widened window) run BEFORE the pre-check
+  // fires — same ~850ms-class wait every other settle-dependent test in this
+  // file budgets for (see testE's own sleep(900)).
+  await sleep(1000);
+
+  const cancelBtn = findBannerControl(doc, 'Cancel');
+  check(`[${label}] precheck exists — banner rendered with a Cancel control`, !!cancelBtn, 'banner or its Cancel control was not found');
+  if (cancelBtn) cancelBtn.click();
+  await sleep(100);
+
+  check(`[${label}] precheck exists + Cancel — the paid reveal icon was NEVER clicked`,
+    reveal.wasClicked() === false, 'reveal icon fired despite the agent cancelling');
+  check(`[${label}] precheck exists + Cancel — decision 'cancelled' logged with the matched tracked_property_id`,
+    chromeMock._decisions.some((d) => d.decision === 'cancelled' && d.tracked_property_id === 42),
+    `decisions=${JSON.stringify(chromeMock._decisions)}`);
+
+  const captured = await Promise.race([chromeMock._captured, sleep(300).then(() => 'TIMEOUT')]);
+  check(`[${label}] precheck exists + Cancel — captureDeed was NEVER sent`, captured === 'TIMEOUT', `captured=${JSON.stringify(captured)}`);
+}
+
+async function testPrecheck_possibleMatch_pullAnywayClicked_revealsAndSends(filePath, label) {
+  const doc = buildCmaInfoDocument(PARK_ST_PROPERTY_FIELDS_FROZEN, PARK_ST_SALE_FIELDS);
+  const reveal = addRevealIcon(doc, '7505125800088');
+  const precheckResponse = {
+    status: 'possible_match',
+    matches: [{ tracked_property_id: 7, match_type: 'owner_name', confident: false, reason: 'Owner name matches an existing capture, and this is the same suburb.' }],
+  };
+  const chromeMock = makeChromeMockForPrecheck({ precheckResponse });
+  loadContentScript(filePath, doc, chromeMock);
+
+  doc.getElementById('corex-deeds-capture-btn').click();
+  await sleep(1000);
+
+  const pullBtn = findBannerControl(doc, 'Pull anyway');
+  check(`[${label}] precheck possible_match — banner has a Pull anyway control`, !!pullBtn, 'pull-anyway control not found');
+  if (pullBtn) pullBtn.click();
+
+  const payload = await Promise.race([chromeMock._captured, sleep(3000).then(() => null)]);
+  check(`[${label}] precheck possible_match + Pull anyway — reveal icon fired`, reveal.wasClicked() === true, 'reveal never fired after Pull anyway');
+  check(`[${label}] precheck possible_match + Pull anyway — captureDeed WAS sent`, !!payload, 'captureDeed never sent after Pull anyway');
+  check(`[${label}] precheck possible_match + Pull anyway — decision 'pulled_anyway' logged`,
+    chromeMock._decisions.some((d) => d.decision === 'pulled_anyway' && d.tracked_property_id === 7),
+    `decisions=${JSON.stringify(chromeMock._decisions)}`);
+}
+
+async function testPrecheck_requestFails_pullAnywayStillProceeds(filePath, label) {
+  const doc = buildCmaInfoDocument(PARK_ST_PROPERTY_FIELDS_FROZEN, PARK_ST_SALE_FIELDS);
+  const reveal = addRevealIcon(doc, '7505125800088');
+  const chromeMock = makeChromeMockForPrecheck({ precheckBehavior: 'reject' });
+  loadContentScript(filePath, doc, chromeMock);
+
+  doc.getElementById('corex-deeds-capture-btn').click();
+  await sleep(1000);
+
+  // Never reveals while the check has failed and no explicit choice was made yet.
+  check(`[${label}] precheck request fails — reveal has NOT fired while the "could not check" banner is up`,
+    reveal.wasClicked() === false, 'reveal fired before the agent made any choice on a failed check');
+
+  const pullBtn = findBannerControl(doc, 'Pull anyway');
+  check(`[${label}] precheck request fails — "Could not check CoreX" banner offers Pull anyway`, !!pullBtn, 'pull-anyway control not found on the failure banner');
+  if (pullBtn) pullBtn.click();
+
+  const payload = await Promise.race([chromeMock._captured, sleep(3000).then(() => null)]);
+  check(`[${label}] precheck request fails + Pull anyway — capture still proceeds (never fails closed on CAPABILITY, only on cost)`,
+    !!payload, 'capture never proceeded after an explicit Pull anyway on a failed check');
+}
+
+/**
+ * 3.8.1 (2026-10-07, Johan's first pre-check test) — a click on "19 Grindewald
+ * Drive" must be sent as street number 19 + street "Grindewald Drive", and a
+ * `same_street` answer (other property, different number) must be a NON-blocking
+ * note: no duplicate banner, the capture proceeds, the paid reveal fires once.
+ */
+function runSplitStreetAddressTests() {
+  const split = loadStandaloneFunction(NEW_FILE, 'splitStreetAddress');
+  const r19 = split('19 Grindewald Drive');
+  check('splitStreetAddress — "19 Grindewald Drive" -> number 19, name "Grindewald Drive"',
+    r19.number === '19' && r19.name === 'Grindewald Drive', `result=${JSON.stringify(r19)}`);
+  const r29 = split('29 Grindewald Drive');
+  check('splitStreetAddress — "29 Grindewald Drive" -> number 29 (a different number stays different)',
+    r29.number === '29' && r29.name === 'Grindewald Drive', `result=${JSON.stringify(r29)}`);
+}
+
+function runSameStreetNoteTests() {
+  const describe = loadStandaloneFunction(NEW_FILE, 'describeSameStreet');
+  check('describeSameStreet — nothing to say when same_street is absent/empty',
+    describe({ status: 'not_found' }) === '' && describe({ same_street: [] }) === '', 'expected empty string');
+  const note = describe({ same_street: [{ address: '29 Grindewald Drive, UVONGO', source: 'tracked_property' }] });
+  check('describeSameStreet — names the OTHER property and says the number is different',
+    /29 Grindewald Drive/.test(note) && /different number/.test(note), `note=${JSON.stringify(note)}`);
+}
+
+async function testPrecheck_notFoundWithSameStreet_isNonBlocking(filePath, label) {
+  const doc = buildCmaInfoDocument(PARK_ST_PROPERTY_FIELDS_FROZEN, PARK_ST_SALE_FIELDS);
+  const reveal = addRevealIcon(doc, '7505125800088');
+  const chromeMock = makeChromeMockForPrecheck({ precheckResponse: {
+    status: 'not_found', matches: [],
+    same_street: [{ source: 'tracked_property', id: 392, address: '29 Grindewald Drive, UVONGO', number_known: true }],
+  } });
+  loadContentScript(filePath, doc, chromeMock);
+
+  doc.getElementById('corex-deeds-capture-btn').click();
+  const payload = await Promise.race([chromeMock._captured, sleep(3000).then(() => null)]);
+
+  check(`[${label}] same_street only — capture proceeds (a different number is not a duplicate)`,
+    !!payload, 'captureDeed was never sent');
+  check(`[${label}] same_street only — no duplicate banner was shown`,
+    !doc.getElementById('corex-deeds-precheck-banner'), 'banner is present');
+  check(`[${label}] same_street only — paid reveal fired exactly as for any new property`,
+    reveal.wasClicked() === true, 'reveal icon was never clicked');
+}
+
+async function testPrecheck_propertyMatch_bannerUsesServerSummary(filePath, label) {
+  const doc = buildCmaInfoDocument(PARK_ST_PROPERTY_FIELDS_FROZEN, PARK_ST_SALE_FIELDS);
+  const reveal = addRevealIcon(doc, '7505125800088');
+  const chromeMock = makeChromeMockForPrecheck({ precheckResponse: {
+    status: 'exists',
+    matches: [{
+      source: 'property', property_id: 6113, tracked_property_id: null, address: '19 Grindewald, Uvongo',
+      summary: 'On CoreX as a property (Active). Street number, street name and suburb all match.',
+      match_type: 'property', confident: true, deeplink: 'https://example.test/corex/properties/6113',
+    }],
+  } });
+  loadContentScript(filePath, doc, chromeMock);
+
+  doc.getElementById('corex-deeds-capture-btn').click();
+  await sleep(1000);
+  const banner = doc.getElementById('corex-deeds-precheck-banner');
+  check(`[${label}] property match — banner names the property and says it is on CoreX as a property`,
+    !!banner && /19 Grindewald, Uvongo/.test(banner.textContent) && /On CoreX as a property/.test(banner.textContent),
+    `banner=${banner ? JSON.stringify(banner.textContent) : 'none'}`);
+  const cancelBtn = findBannerControl(doc, 'Cancel');
+  if (cancelBtn) cancelBtn.click();
+  await sleep(100);
+  check(`[${label}] property match + Cancel — the paid reveal icon was NEVER clicked`,
+    reveal.wasClicked() === false, 'reveal icon fired');
+}
+
+// ── v3.11.0 — the ranked list: every match, best first, with a count ───────────────────────────────
+const RANKED_RESPONSE = {
+  status: 'exists', match_count: 3,
+  matches: [
+    { rank: 1, rank_group: 'exact', rank_label: 'Same property - the owner surname Pretorius matches', owner_surname_match: true,
+      source: 'property', property_id: 21729, tracked_property_id: null, address: 'Unit 6, Du Bantry, Colin Street, Uvongo Beach',
+      summary: 'On CoreX as a property (Active). Same sectional scheme and section/unit number (6).', reason: 'Same sectional scheme and section/unit number (6).',
+      match_type: 'property', confident: true, tier: 'exact', deeplink: 'https://example.test/corex/properties/21729',
+      matched_on: ['scheme', 'unit', 'suburb'] },
+    { rank: 2, rank_group: 'possible', rank_label: 'Possible match - some of the address agrees and nothing contradicts it',
+      source: 'property', property_id: 30001, tracked_property_id: null, address: 'Unit 6, Du Bantry Court, Colin Street',
+      match_type: 'property', confident: false, tier: 'possible', deeplink: 'https://example.test/corex/properties/30001' },
+    { rank: 3, rank_group: 'no_unit', rank_label: 'Same address, no unit number - may be a different unit',
+      source: 'property', property_id: 15815, tracked_property_id: null, address: '77 Colin Street, UVONGO BEACH',
+      match_type: 'property', confident: false, tier: 'possible', deeplink: 'https://example.test/corex/properties/15815' },
+  ],
+};
+
+function runRankedListHelperTests() {
+  const rows = loadStandaloneFunction(NEW_FILE, 'describeRankedRow');
+  const count = loadStandaloneFunction(NEW_FILE, 'describeMatchCount');
+  check('describeMatchCount — one match says nothing, several say how many and "best first"',
+    count({ matches: [{}] }) === '' && count({ matches: [{}, {}, {}] }) === ' — 3 matches, best first' && count({}) === '', 'wrong count wording');
+  const weak = rows(RANKED_RESPONSE.matches[2], 2);
+  check('describeRankedRow — the no-unit row carries the exact label and is marked weaker',
+    weak.n === 3 && weak.weak === true && weak.label === 'Same address, no unit number - may be a different unit' && /77 Colin Street/.test(weak.address), `row=${JSON.stringify(weak)}`);
+  const top = rows(RANKED_RESPONSE.matches[0], 0);
+  check('describeRankedRow — an exact row is not marked weaker', top.weak === false && top.n === 1, `row=${JSON.stringify(top)}`);
+}
+
+async function testPrecheck_rankedList_bannerShowsAllMatchesWithCountAndLabels(filePath, label) {
+  const doc = buildCmaInfoDocument(PARK_ST_PROPERTY_FIELDS_FROZEN, PARK_ST_SALE_FIELDS);
+  const reveal = addRevealIcon(doc, '7505125800088');
+  const chromeMock = makeChromeMockForPrecheck({ precheckResponse: RANKED_RESPONSE });
+  loadContentScript(filePath, doc, chromeMock);
+
+  doc.getElementById('corex-deeds-capture-btn').click();
+  await sleep(1000);
+  const banner = doc.getElementById('corex-deeds-precheck-banner');
+  const text = banner ? banner.textContent : '';
+  check(`[${label}] ranked list — the title carries the count`, /Already in CoreX — 3 matches, best first/.test(text), `banner=${JSON.stringify(text)}`);
+  check(`[${label}] ranked list — the best match is shown with its plain rank label`,
+    /Unit 6, Du Bantry, Colin Street, Uvongo Beach/.test(text) && /owner surname Pretorius matches/.test(text), `banner=${JSON.stringify(text)}`);
+  check(`[${label}] ranked list — the weaker matches are listed below with their labels`,
+    /2\. Unit 6, Du Bantry Court, Colin Street/.test(text) && /3\. 77 Colin Street, UVONGO BEACH — Same address, no unit number - may be a different unit/.test(text)
+      && text.indexOf('Du Bantry Court') < text.indexOf('77 Colin Street'), `banner=${JSON.stringify(text)}`);
+  const cancelBtn = findBannerControl(doc, 'Cancel');
+  if (cancelBtn) cancelBtn.click();
+  await sleep(100);
+  check(`[${label}] ranked list + Cancel — the paid reveal icon was NEVER clicked`, reveal.wasClicked() === false, 'reveal icon fired');
+}
+
+// ── v3.9.0 — structured address matching: the three tiers in the extension ─────────────────────────
+const ADDRESS_POSSIBLE_RESPONSE = {
+  status: 'possible_match',
+  matches: [{
+    source: 'property', property_id: 61, tracked_property_id: null, address: '61 Colin Street, Uvongo Beach',
+    summary: 'On CoreX as a property (Active). Same street number and street, but CoreX has it under the neighbouring suburb Uvongo Beach.',
+    reason: 'Same street number and street, but CoreX has it under the neighbouring suburb Uvongo Beach.',
+    match_type: 'property', confident: false, tier: 'possible', deeplink: 'https://example.test/corex/properties/61',
+    matched_on: ['number', 'street'],
+    columns: { number: 'agree', street: 'agree', suburb: 'neighbour', type: 'compatible', unit: 'missing', erf: 'missing', gps: 'missing' },
+  }],
+};
+
+async function testPrecheck_addressPossible_showsEachColumnAndTheTwoAnswers(filePath, label) {
+  const doc = buildCmaInfoDocument(PARK_ST_PROPERTY_FIELDS_FROZEN, PARK_ST_SALE_FIELDS);
+  addRevealIcon(doc, '7505125800088');
+  const chromeMock = makeChromeMockForPrecheck({ precheckResponse: ADDRESS_POSSIBLE_RESPONSE });
+  loadContentScript(filePath, doc, chromeMock);
+  doc.getElementById('corex-deeds-capture-btn').click();
+  await sleep(1000);
+
+  const banner = doc.getElementById('corex-deeds-precheck-banner');
+  const text = banner ? String(banner.textContent) : '';
+  check(`[${label}] address possible — titled as a question`, /Possible match — is this the same property\?/.test(text), `banner=${JSON.stringify(text)}`);
+  check(`[${label}] address possible — a tick or cross for each column compared`,
+    /✓ street number/.test(text) && /✓ street/.test(text) && /≈ suburb \(neighbouring suburb\)/.test(text), `banner=${JSON.stringify(text)}`);
+  check(`[${label}] address possible — offers "Yes, same — open it" and "No, different — continue the capture"`,
+    !!findBannerControl(doc, 'Yes, same — open it') && !!findBannerControl(doc, 'No, different — continue the capture') && !!findBannerControl(doc, 'Cancel'), `banner=${JSON.stringify(text)}`);
+  check(`[${label}] address possible — the plain "Pull anyway" is not offered`, findBannerControl(doc, 'Pull anyway') === null, 'Pull anyway present');
+  const yes = findBannerControl(doc, 'Yes, same — open it');
+  check(`[${label}] address possible — "Yes, same" links to the property it names`, !!yes && yes.href === 'https://example.test/corex/properties/61', `href=${yes && yes.href}`);
+  const cancelBtn = findBannerControl(doc, 'Cancel');
+  if (cancelBtn) cancelBtn.click();
+  await sleep(100);
+}
+
+async function testPrecheck_addressPossible_differentContinuesTheCapture(filePath, label) {
+  const doc = buildCmaInfoDocument(PARK_ST_PROPERTY_FIELDS_FROZEN, PARK_ST_SALE_FIELDS);
+  const reveal = addRevealIcon(doc, '7505125800088');
+  const chromeMock = makeChromeMockForPrecheck({ precheckResponse: ADDRESS_POSSIBLE_RESPONSE });
+  loadContentScript(filePath, doc, chromeMock);
+  doc.getElementById('corex-deeds-capture-btn').click();
+  await sleep(1000);
+  const no = findBannerControl(doc, 'No, different — continue the capture');
+  if (no) no.click();
+
+  const payload = await Promise.race([chromeMock._captured, sleep(3000).then(() => null)]);
+  check(`[${label}] "No, different" — the capture carries on (reveal fired, captureDeed sent)`, reveal.wasClicked() === true && !!payload, `reveal=${reveal.wasClicked()} payload=${!!payload}`);
+  check(`[${label}] "No, different" — logged as pulled_anyway`, chromeMock._decisions.some((d) => d.decision === 'pulled_anyway'), `decisions=${JSON.stringify(chromeMock._decisions)}`);
+}
+
+async function testPrecheck_addressPossible_sameStopsTheCaptureAndSpendsNothing(filePath, label) {
+  const doc = buildCmaInfoDocument(PARK_ST_PROPERTY_FIELDS_FROZEN, PARK_ST_SALE_FIELDS);
+  const reveal = addRevealIcon(doc, '7505125800088');
+  const chromeMock = makeChromeMockForPrecheck({ precheckResponse: ADDRESS_POSSIBLE_RESPONSE });
+  loadContentScript(filePath, doc, chromeMock);
+  doc.getElementById('corex-deeds-capture-btn').click();
+  await sleep(1000);
+  const yes = findBannerControl(doc, 'Yes, same — open it');
+  if (yes) yes.click();
+  await sleep(500);
+
+  check(`[${label}] "Yes, same" — the paid reveal was NEVER clicked`, reveal.wasClicked() === false, 'reveal fired');
+  check(`[${label}] "Yes, same" — no capture was sent`, (await Promise.race([chromeMock._captured, sleep(400).then(() => null)])) === null, 'captureDeed sent');
+  check(`[${label}] "Yes, same" — logged as confirmed_same`, chromeMock._decisions.some((d) => d.decision === 'confirmed_same'), `decisions=${JSON.stringify(chromeMock._decisions)}`);
+  check(`[${label}] "Yes, same" — the banner is gone`, !doc.getElementById('corex-deeds-precheck-banner'), 'banner still present');
+}
+
+async function testPrecheck_exact_saysWhatItWasMatchedOn_andKeepsItsButtons(filePath, label) {
+  const doc = buildCmaInfoDocument(PARK_ST_PROPERTY_FIELDS_FROZEN, PARK_ST_SALE_FIELDS);
+  addRevealIcon(doc, '7505125800088');
+  const chromeMock = makeChromeMockForPrecheck({ precheckResponse: {
+    status: 'exists',
+    matches: [{
+      source: 'property', property_id: 6113, tracked_property_id: null, address: '19 Grindewald, Uvongo',
+      summary: 'On CoreX as a property (Active). Street number, street name and suburb all match.',
+      match_type: 'property', confident: true, tier: 'exact', deeplink: 'https://example.test/corex/properties/6113',
+      matched_on: ['number', 'street', 'suburb'], columns: { number: 'agree', street: 'agree', suburb: 'agree' },
+    }],
+  } });
+  loadContentScript(filePath, doc, chromeMock);
+  doc.getElementById('corex-deeds-capture-btn').click();
+  await sleep(1000);
+
+  const banner = doc.getElementById('corex-deeds-precheck-banner');
+  const text = banner ? String(banner.textContent) : '';
+  check(`[${label}] exact — "Already in CoreX" with a "Matched on" line`, /Already in CoreX/.test(text) && /Matched on: street number, street, suburb/.test(text), `banner=${JSON.stringify(text)}`);
+  check(`[${label}] exact — still offers Open in CoreX / Pull anyway / Cancel`,
+    !!findBannerControl(doc, 'Open in CoreX') && !!findBannerControl(doc, 'Pull anyway') && !!findBannerControl(doc, 'Cancel'), `banner=${JSON.stringify(text)}`);
+  const cancelBtn = findBannerControl(doc, 'Cancel');
+  if (cancelBtn) cancelBtn.click();
+  await sleep(100);
+}
+
+async function testPrecheck_olderServerWithoutEvidenceStillWorks(filePath, label) {
+  const doc = buildCmaInfoDocument(PARK_ST_PROPERTY_FIELDS_FROZEN, PARK_ST_SALE_FIELDS);
+  addRevealIcon(doc, '7505125800088');
+  const chromeMock = makeChromeMockForPrecheck({ precheckResponse: {
+    status: 'exists', matches: [{ source: 'property', property_id: 1, address: '1 Old Road', match_type: 'property', confident: true, reason: 'x' }],
+  } });
+  loadContentScript(filePath, doc, chromeMock);
+  doc.getElementById('corex-deeds-capture-btn').click();
+  await sleep(1000);
+  const banner = doc.getElementById('corex-deeds-precheck-banner');
+  check(`[${label}] a server that sends no matched_on/columns — the 3.8 banner still renders`, !!banner && /Already in CoreX/.test(String(banner.textContent)) && !/Matched on/.test(String(banner.textContent)) && !!findBannerControl(doc, 'Pull anyway'), `banner=${banner ? JSON.stringify(banner.textContent) : 'none'}`);
+  const cancelBtn = findBannerControl(doc, 'Cancel');
+  if (cancelBtn) cancelBtn.click();
+  await sleep(100);
+}
+
+async function testPrecheck_payloadsCarryLpiAndTheCmaRows(filePath, label) {
+  const doc = buildCmaInfoDocument(PARK_ST_PROPERTY_FIELDS_FROZEN, PARK_ST_SALE_FIELDS);
+  addRevealIcon(doc, '7505125800088');
+  const chromeMock = makeChromeMockForPrecheck({ precheckResponse: { status: 'not_found', matches: [] } });
+  loadContentScript(filePath, doc, chromeMock);
+  doc.getElementById('corex-deeds-capture-btn').click();
+  const capture = await Promise.race([chromeMock._captured, sleep(3000).then(() => null)]);
+
+  // A freehold capture (LPI + erf): the sectional-only "Situated at" is nulled by the type-coherence rule, a blank Estate is null.
+  const pre = chromeMock._precheckPayloads[0] && chromeMock._precheckPayloads[0].property;
+  check(`[${label}] pre-check payload carries lpi_code and cma_street_number (situated_at / estate null for this freehold capture)`,
+    !!pre && pre.lpi_code === 'N0ET04520000045200001' && pre.cma_street_number === '12' && pre.situated_at === null && pre.estate === null, `property=${JSON.stringify(pre)}`);
+  const cap = capture && capture.captures && capture.captures[0] && capture.captures[0].property;
+  check(`[${label}] capture payload carries the same four fields`,
+    !!cap && cap.lpi_code === 'N0ET04520000045200001' && cap.cma_street_number === '12' && cap.situated_at === null && cap.estate === null, `property=${JSON.stringify(cap)}`);
+}
+
+async function testPrecheck_requestFails_tryAgainRetriesThenNotFoundProceeds(filePath, label) {
+  const doc = buildCmaInfoDocument(PARK_ST_PROPERTY_FIELDS_FROZEN, PARK_ST_SALE_FIELDS);
+  const reveal = addRevealIcon(doc, '7505125800088');
+  // First call fails; makeChromeMockForPrecheck only supports one failure MODE
+  // per mock (precheckBehavior is global), so this proves the retry path with
+  // a mock that fails every call — "Try again" must re-ask, not silently
+  // proceed — by asserting the call count increased and the reveal still has
+  // not fired after exactly one retry.
+  const chromeMock = makeChromeMockForPrecheck({ precheckBehavior: 'reject' });
+  loadContentScript(filePath, doc, chromeMock);
+
+  doc.getElementById('corex-deeds-capture-btn').click();
+  await sleep(1000);
+
+  const retryBtn = findBannerControl(doc, 'Try again');
+  check(`[${label}] precheck request fails — "Try again" control is offered`, !!retryBtn, 'try-again control not found');
+  const callsBeforeRetry = chromeMock._precheckCallCount();
+  if (retryBtn) retryBtn.click();
+  // Retry re-sends checkDeedsDuplicate directly (no re-extraction, no settle
+  // wait needed a second time) — short wait is enough here.
+  await sleep(100);
+
+  check(`[${label}] precheck "Try again" — re-sent the pre-check request (did not silently proceed)`,
+    chromeMock._precheckCallCount() > callsBeforeRetry, `calls before=${callsBeforeRetry} after=${chromeMock._precheckCallCount()}`);
+  check(`[${label}] precheck "Try again" — still has NOT revealed (second check also failed, banner shown again)`,
+    reveal.wasClicked() === false, 'reveal fired despite the retry also failing');
+}
+
+// ══════════════════════════════════════════════════════════
 // ── KEPT — freehold-to-freehold settle timing, entity owner name ──
 // ══════════════════════════════════════════════════════════
 
@@ -1042,6 +1499,26 @@ async function main() {
   await testOwnershipHistoryRaw_sentVerbatimWhenMultiOwner(NEW_FILE, 'NEW 3.6.2');
   await testOwnershipHistoryRaw_absentWhenSingleOwner(NEW_FILE, 'NEW 3.6.2');
   await testRevealOwnerIdIfNeeded_clicksEveryIcon(NEW_FILE, 'NEW 3.6.2');
+
+  console.log('=== Pre-check gate — .ai/specs/deeds-capture.md §9 (R3-per-ID reveal must wait) ===');
+  await testPrecheck_notFound_proceedsAndRevealsExactlyOnce(NEW_FILE, 'NEW 3.8.0');
+  await testPrecheck_exists_cancelClicked_neverRevealsNeverSends(NEW_FILE, 'NEW 3.8.0');
+  await testPrecheck_possibleMatch_pullAnywayClicked_revealsAndSends(NEW_FILE, 'NEW 3.8.0');
+  await testPrecheck_requestFails_pullAnywayStillProceeds(NEW_FILE, 'NEW 3.8.0');
+  await testPrecheck_requestFails_tryAgainRetriesThenNotFoundProceeds(NEW_FILE, 'NEW 3.8.0');
+  runSplitStreetAddressTests();
+  runSameStreetNoteTests();
+  await testPrecheck_notFoundWithSameStreet_isNonBlocking(NEW_FILE, 'NEW 3.8.1');
+  await testPrecheck_propertyMatch_bannerUsesServerSummary(NEW_FILE, 'NEW 3.8.1');
+  runRankedListHelperTests();
+  await testPrecheck_rankedList_bannerShowsAllMatchesWithCountAndLabels(NEW_FILE, 'NEW 3.11.0');
+  console.log('=== v3.9.0 — structured address matching: the three tiers ===');
+  await testPrecheck_addressPossible_showsEachColumnAndTheTwoAnswers(NEW_FILE, 'NEW 3.9.0');
+  await testPrecheck_addressPossible_differentContinuesTheCapture(NEW_FILE, 'NEW 3.9.0');
+  await testPrecheck_addressPossible_sameStopsTheCaptureAndSpendsNothing(NEW_FILE, 'NEW 3.9.0');
+  await testPrecheck_exact_saysWhatItWasMatchedOn_andKeepsItsButtons(NEW_FILE, 'NEW 3.9.0');
+  await testPrecheck_olderServerWithoutEvidenceStillWorks(NEW_FILE, 'NEW 3.9.0');
+  await testPrecheck_payloadsCarryLpiAndTheCmaRows(NEW_FILE, 'NEW 3.9.0');
 
   console.log('=== Running against OLD file (pre-fix, v3.4.2 REGRESSION fixture) — Test E expected to FAIL (regression reproduction) ===');
   await testE_twoDistinctPropertiesInSequence(REGRESSION_FILE, 'REGRESSION 3.4.2', true);

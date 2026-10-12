@@ -131,7 +131,7 @@ clears on SUBMISSION** (V2 §9 semantics). Doc and code disagree — confirm int
 
 | File | What | Key lines |
 |------|------|-----------|
-| `app/Models/Docuperfect/Template.php` | template model; `isEsignBlocked()` `:331`, `isSalesDocument()` `:282`, delivery-mode resolution `:396-419` | SoftDeletes `:12` |
+| `app/Models/Docuperfect/Template.php` | template model; `requiresEsignAcknowledgement()` / `esignAwaitingAcknowledgement()` (document-type flag + admin acknowledgement; no hard block), `isSalesDocument()` `:282`, delivery-mode resolution `:396-419` | SoftDeletes `:12` |
 | `app/Models/Docuperfect/CdsDraft.php` | CDS builder draft state (tags/mappings/tagged_html) — the "six sources of truth" hazard (§9) | SoftDeletes |
 | `app/Services/Docuperfect/SignatureSurfaceNormalizer.php` | promotes inline sig blocks to `[data-marker-party][data-marker-type]` so the engine finds signable surfaces | invoked `SigningController.php:302` |
 | `app/Services/Docuperfect/LetterheadRefresher.php` | re-resolves company header in stored `merged_html` at serve time (no stale letterhead) | invoked `:307` |

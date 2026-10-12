@@ -47,7 +47,7 @@ The E-Sign Wizard is a 6-step process. The screen is split in two: your form is 
 5. Each template card shows: name, number of pages, number of fields, and a badge for Web or PDF format.
 6. Click on a template to select it, then click **"Next"**.
 
-> **Important:** Sale agreements and OTPs are blocked from e-sign. The system will show: "Sale agreements must be signed with wet ink per the Alienation of Land Act." Use the wet-ink option for these.
+> **Note:** Sale agreements and OTPs are set up for wet ink. If a template is not set up for e-signing, the system tells you so; use the wet-ink option, or ask an administrator to switch e-signing on for that template in template setup.
 
 [SCREENSHOT: Step 1 showing template cards with category filters]
 
@@ -244,7 +244,7 @@ Supervisors: go to **Documents > Authorise Documents** in the sidebar to see doc
 | Problem | Solution |
 |---------|----------|
 | Template I need isn't listed | Check the category filter (All/Sales/Rentals). If it's still missing, your admin may need to create or publish it. |
-| "Sale agreements must be signed with wet ink" | This is a legal requirement. Choose **"Wet Ink"** in Step 6 instead of E-Sign. |
+| "This template is not set up for e-signing" | E-signing has not been switched on for this template. Choose **"Wet Ink"** in Step 6, or ask an administrator to switch e-signing on in template setup. |
 | Recipient has a role mismatch warning | The template expects a specific party type. Change the recipient's role to match (e.g., change "Buyer" to "Seller" if it's a mandate). |
 | Signer says they didn't get the email | Go to My E-Sign Documents and click **"Send Reminder"**. Also ask them to check spam. |
 | Fields didn't auto-fill | Make sure the property and contact were selected (not entered manually). Auto-fill works from linked records. |

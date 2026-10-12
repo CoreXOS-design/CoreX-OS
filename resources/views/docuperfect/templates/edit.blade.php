@@ -78,9 +78,14 @@
                          future CoreX-supplied-template concept only. --}}
                     <div class="flex items-center gap-2 mt-2">
                         <input type="checkbox" id="dpEsign" {{ $template->is_esign ? 'checked' : '' }} class="rounded border-slate-300"
-                               onchange="document.getElementById('dpPartyModeGroup').style.display = this.checked ? 'block' : 'none';">
+                               onchange="document.getElementById('dpPartyModeGroup').style.display = this.checked ? 'block' : 'none'; if (!this.checked && window.DocuperfectConfig) { window.DocuperfectConfig.esignAcknowledged = false; }">
                         <span class="text-sm text-slate-700">Eligible for E-Signature</span>
                     </div>
+                    {{-- Admin-only record (this is the manage_templates setup screen): who switched
+                         e-signing on for a flagged type, and when. Not shown to agents anywhere. --}}
+                    @if($template->esignAcknowledgementRecord())
+                        <p class="mt-1 ml-5 text-xs text-slate-500">{{ $template->esignAcknowledgementRecord() }}</p>
+                    @endif
                     <div id="dpPartyModeGroup" class="mt-2 ml-5 space-y-1" style="{{ $template->is_esign ? '' : 'display:none;' }}">
                         <label class="ds-label text-xs block mb-1">Signing Mode</label>
                         <label class="flex items-center gap-2 text-sm text-slate-700">
@@ -129,6 +134,9 @@
         pageImages: @json($pageImageUrls),
         fields: @json($template->fields_json ?? []),
         isEsign: @json($template->is_esign),
+        esignFlaggedTypeIds: @json(app(\App\Services\Docuperfect\EsignAcknowledgementService::class)->flaggedTypeIds()),
+        esignAcknowledged: @json($template->is_esign && $template->esign_acknowledged_at !== null),
+        esignWarning: @json(app(\App\Services\Docuperfect\EsignAcknowledgementService::class)->warning()),
         partyMode: @json($template->party_mode ?? 'shared'),
         allowedBranches: @json($template->branches->pluck('id')),
         saveUrl: @json(route('docuperfect.templates.saveFields', $template->id)),
@@ -145,5 +153,6 @@
     };
 </script>
 <script src="{{ asset('js/corex-connection-guard.js') }}"></script>
+<script src="{{ asset('js/esign-acknowledgement-modal.js') }}"></script>
 <script src="{{ asset('js/docuperfect-editor.js') }}"></script>
 @endsection

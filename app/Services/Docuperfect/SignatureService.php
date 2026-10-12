@@ -1190,9 +1190,9 @@ class SignatureService
      * Track C (HD-9) — set the ceremony's legal deadline from its source, at dispatch.
      *
      * A mandate's legal clock is the property's mandate expiry (`properties.expiry_date`, verified to
-     * exist). Only a mandate is wired today: an OTP is an alienation document that may not be
-     * e-signed at all (ECTA §13(1) — `isEsignBlocked()`), so its irrevocable-date clock has nothing
-     * to run against yet, and a lease has no single legal-lapse date. Absorb, never break: if there
+     * exist). Only a mandate is wired today: an OTP is a sale document whose e-signing is each agency's
+     * own template setting (ESIGN-CANON §7) and has no wired clock source yet, so its irrevocable-date
+     * clock has nothing to run against, and a lease has no single legal-lapse date. Absorb, never break: if there
      * is no derivable date, leave it null and the ceremony simply never lapses (today's behaviour).
      * Never overwrite a deadline already set (an extension/revival owns it after HD-12).
      */

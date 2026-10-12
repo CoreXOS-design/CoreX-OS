@@ -313,7 +313,14 @@ class MatchingService
                     ->orWhereRaw('LOWER(TRIM(status)) IN ('
                         . collect($allowedStatuses)->map(fn ($s) => "'" . addslashes($s) . "'")->implode(',')
                         . ')');
-            });
+            })
+            // .ai/specs/other-agency-stock.md §6 — Other Agency Stock stays a
+            // genuine Core Match candidate (deliberately not excluded above);
+            // this ONLY hides it from a STAFF viewer whose agency hasn't opted
+            // their role into seeing it. auth()->user() is null on a public
+            // buyer share link / unauthenticated context, which is never
+            // gated — Johan: buyers see it like any other property.
+            ->visibleOtherAgencyStock();
 
         if ($match->agency_id) {
             $query->where('agency_id', $match->agency_id);
@@ -723,6 +730,13 @@ class MatchingService
             $query->where(function (Builder $q) use ($property) {
                 $q->whereNull('listing_type')->orWhere('listing_type', $property->listing_type);
             });
+        }
+
+        // AT-432 — a buyer who will not bid at an auction (open_to_auction = false)
+        // is never matched to an auction lot. Default true, so every existing
+        // wishlist is unaffected.
+        if ($property->isAuction()) {
+            $query->where('open_to_auction', true);
         }
 
         $query->where(function (Builder $q) use ($price) {

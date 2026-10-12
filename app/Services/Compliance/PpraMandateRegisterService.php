@@ -42,6 +42,7 @@ class PpraMandateRegisterService
 
         return $sales->concat($rentals)
             ->filter(fn (Property $p) => ! in_array($p->status, Property::OFF_MARKET_STATUSES, true))
+            ->filter(fn (Property $p) => $p->isOwnStock()) // AT-453 — another agency's listing is not our mandate
             ->unique('id')
             ->values();
     }
@@ -55,6 +56,7 @@ class PpraMandateRegisterService
             ? $this->activeAdvertisedListings($agency)
             : Property::where('agency_id', $agency->id)
                 ->whereNotIn('status', Property::OFF_MARKET_STATUSES)
+                ->ownStock() // AT-453 — not our mandate
                 ->with('agent')
                 ->orderBy('address')
                 ->get();

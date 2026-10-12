@@ -204,13 +204,52 @@
         including encrypted transport (HTTPS) and restricted access to stored credentials.
     </p>
 
-    <h2>13. Changes to this policy</h2>
+    <h2>13. CoreX browser extension (Chrome)</h2>
+    <p>
+        CoreX offers an optional <strong>Chrome browser extension</strong>, installed only by
+        users who choose to, which helps agents bring property information from the portals they
+        already use into their own CoreX account. This section explains exactly what it does.
+    </p>
+    <ul>
+        <li><strong>Where it works</strong> — only on <strong>Property24</strong>,
+            <strong>PrivateProperty</strong>, <strong>CMAInfo</strong> and
+            <strong>TheVirtualAgent</strong> pages. It does not run on any other website and does
+            not read your browsing history, your other tabs, your passwords or your cookies.</li>
+        <li><strong>When it captures</strong> — only when you click. You press <em>Pull
+            Property</em> or <em>Capture Listings</em> in the extension, or the <em>Capture</em>
+            button the extension adds to a deeds or trace-search page. Nothing is captured or sent
+            in the background.</li>
+        <li><strong>What it captures</strong> — the information shown on the page you are
+            capturing: for listings, the address, price, description, features and photographs; for
+            deeds and trace pages, the property ownership record shown, which can include owner or
+            director names, identity numbers and title-deed details.</li>
+        <li><strong>Where it goes</strong> — only to the CoreX address you set in the extension
+            (by default <strong>corexos.co.za</strong>), using your own personal access token. The
+            capture becomes part of your agency's CoreX records and is handled under the rest of
+            this policy. It is <strong>not</strong> sent to any other server or third party, not
+            used for advertising, analytics or profiling, and not sold.</li>
+        <li><strong>What it keeps on your device</strong> — your CoreX address and access token,
+            the status of your last capture, and a temporary queue of captures that have not yet
+            reached CoreX (for example if you were offline). Queued items are removed once
+            delivered.</li>
+        <li><strong>Removing it</strong> — uninstalling the extension deletes everything it stored
+            on your device, including the token. Captured records remain in your agency's CoreX
+            account, subject to section 9 and section 10.</li>
+    </ul>
+    <p>
+        The extension's use of information received from browser pages is limited to providing
+        and improving its single purpose, capturing property and ownership information from the
+        page you are viewing and sending it to your own CoreX account, and complies with the
+        Chrome Web Store User Data Policy, including its Limited Use requirements.
+    </p>
+
+    <h2>14. Changes to this policy</h2>
     <p>
         We may update this policy from time to time. The "last updated" date at the top of this
         page reflects the most recent change.
     </p>
 
-    <h2>14. Contact us</h2>
+    <h2>15. Contact us</h2>
     <p>
         For any privacy question or request, email
         <a href="mailto:{{ $contactEmail }}">{{ $contactEmail }}</a>.

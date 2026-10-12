@@ -51,13 +51,20 @@ class FeatureSettingsController extends Controller
 
             $desired = $request->boolean($key);
 
-            $row = AgencyFeature::firstOrNew([
+            // withTrashed(): agency_features is SoftDeletes but its unique key
+            // (agency_id, feature_key) still counts a soft-deleted row. A plain
+            // firstOrNew() skipped that row, tried to INSERT a duplicate, and the
+            // toggle 500'd (QA2, 'auctions', 2026-10-02). A trashed row is revived,
+            // and for the "was it a real change?" check it counts as no row.
+            $row = AgencyFeature::withTrashed()->firstOrNew([
                 'agency_id'   => $agencyId,
                 'feature_key' => $key,
             ]);
 
-            $was = $row->exists ? (bool) $row->enabled : (bool) ($features->catalogue()[$key]['default'] ?? false);
+            $live = $row->exists && ! $row->trashed();
+            $was = $live ? (bool) $row->enabled : (bool) ($features->catalogue()[$key]['default'] ?? false);
 
+            $row->deleted_at = null;
             $row->enabled    = $desired;
             $row->updated_by = $user->id;
             $row->save();
@@ -76,7 +83,7 @@ class FeatureSettingsController extends Controller
         // the wizard's save() loop ignores the return (it only cares about thrown
         // exceptions), so this redirect is harmless there.
         return redirect()
-            ->route('corex.settings', ['s' => 'features'])
+            ->route('corex.features.index')
             ->with('success', 'Feature settings updated.');
     }
 }

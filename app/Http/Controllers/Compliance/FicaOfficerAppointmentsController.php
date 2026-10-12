@@ -146,6 +146,33 @@ class FicaOfficerAppointmentsController extends Controller
     }
 
     /**
+     * Quick Links W1 (.ai/specs/quick-links.md §8-4) — the two FICA numbers an agency may set: how many days the secure link in a
+     * FICA request email stays valid, and after how many months an approved FICA shows "expiring". Each is only written when the
+     * form actually posted it (agency-onboarding-setup.md §6.1 — a wizard step posting a subset must never wipe the other).
+     */
+    public function saveRequestSettings(Request $request)
+    {
+        abort_unless(Auth::user()->hasPermission('manage_compliance_officer'), 403);
+        $agencyId = (int) (Auth::user()->effectiveAgencyId() ?: 0);
+        abort_unless($agencyId > 0, 403);
+
+        $rules = [];
+        if ($request->has('fica_link_days')) {
+            $rules['fica_link_days'] = 'required|integer|min:1|max:90';
+        }
+        if ($request->has('fica_expiring_after_months')) {
+            $rules['fica_expiring_after_months'] = 'required|integer|min:1|max:60';
+        }
+        $validated = $request->validate($rules);
+
+        if ($validated !== []) {
+            \App\Models\Agency::withoutGlobalScopes()->whereKey($agencyId)->update($validated);
+        }
+
+        return back()->with('success', 'FICA request settings saved.')->with('tab', 'user');
+    }
+
+    /**
      * AT-236 — save the agency's Refer-to-CO settings (feature on/off + recipient CO).
      * Defaults are ON / primary CO; a chosen recipient must be an active officer, else
      * it falls back to the primary. The boolean is only written when the form actually
