@@ -91,8 +91,8 @@ async function staffScreen(label, viewport, how) {
     const n = await painted(page);
     check(n > 200, `${label}: drawing with the ${how} leaves ink on the box (${n} painted pixels)`);
 
-    await page.evaluate(() => document.querySelector('#handover-form button[type=submit]').scrollIntoView({ block: 'center' }));
-    await page.evaluate(() => document.querySelector('#handover-form button[type=submit]').click());
+    await page.evaluate(() => document.querySelector('#handover-submit').scrollIntoView({ block: 'center' }));
+    await page.evaluate(() => document.querySelector('#handover-submit').click());
     await new Promise(r => setTimeout(r, 600));
     const sig = await page.evaluate(() => window.__sig);
     const clientError = await page.evaluate(() => (document.querySelector('[x-text="clientError"]') || {}).textContent || '');

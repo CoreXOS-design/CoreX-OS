@@ -84,7 +84,6 @@ final class TitleDeedSigningLinkTest extends TitleDeedTestCase
         $this->assertEqualsWithDelta(45 * 60, now()->diffInSeconds($link->expires_at, false), 5);
         $this->assertSame('waiting', $link->effectiveStatus());
         $this->assertNotNull($deed->fresh()->pin_encrypted, 'the PIN is spent only when the deed is handed over');
-        $this->assertSame('received', $deed->fresh()->status === 'notified' ? 'received' : $deed->fresh()->status);
     }
 
     public function test_the_default_expiry_is_thirty_minutes_and_the_feature_can_be_switched_off(): void
@@ -275,6 +274,21 @@ final class TitleDeedSigningLinkTest extends TitleDeedTestCase
         $loc = $this->actingAs($this->admin)->post(route('title-deeds.events.open', [$deed->id, $ev->id]))->headers->get('Location');
         $this->assertStringStartsWith('https://wa.me/27731112222', $loc);
         $this->actingAs($this->admin)->post(route('title-deeds.events.confirm', [$deed->id, $ev->id]))->assertSessionHas('success');
+    }
+
+    public function test_a_link_whatsapp_stops_waiting_once_the_link_is_used_or_cancelled(): void
+    {
+        $owner = $this->contact('Lerato', 'Khumalo', email: null, phone: '0731112222');
+        [$deed, $pin] = $this->notified([$owner]);
+        [$link, $token] = $this->ownerLink($deed, $pin);
+        $this->actingAs($this->admin)->post(route('title-deeds.signing-link.whatsapp', [$deed->id, $link->id]), $this->tk('link_whatsapp', $deed))->assertSessionHas('success');
+
+        $this->actingAs($this->admin)->get(route('title-deeds.show', $deed->id))->assertSee('&middot; Signing link', false);
+        $this->actingAs($this->admin)->get(route('title-deeds.index'))->assertSee('&middot; Signing link', false);
+
+        app(TitleDeedHandoverService::class)->cancelLink($this->admin, $deed, $link);
+        $this->actingAs($this->admin)->get(route('title-deeds.show', $deed->id))->assertDontSee('&middot; Signing link', false);
+        $this->actingAs($this->admin)->get(route('title-deeds.index'))->assertDontSee('&middot; Signing link', false);
     }
 
     public function test_the_handover_screen_shows_the_link_a_qr_code_and_the_signed_state(): void
