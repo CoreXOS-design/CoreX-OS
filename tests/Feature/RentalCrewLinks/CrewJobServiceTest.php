@@ -86,7 +86,7 @@ final class CrewJobServiceTest extends TestCase
         // `authorised` (§17.29) is a plain yes/no — never the approval gate's note, which can carry amounts — and only decides whether
         // the page offers "Mark work completed".
         $this->assertSame(
-            ['access_notes', 'address', 'agency', 'authorised', 'blocks', 'cost_total', 'crew_completed', 'crew_name', 'due_at', 'is_open', 'labour', 'map_url', 'materials', 'photos', 'scheduled_at', 'show_costs', 'status', 'status_label', 'tasks', 'tenant', 'title'],
+            ['access_notes', 'address', 'agency', 'authorised', 'blocks', 'cost_total', 'crew_completed', 'crew_name', 'due_at', 'is_open', 'labour', 'map_url', 'materials', 'photos', 'reported_photos', 'scheduled_at', 'show_costs', 'status', 'status_label', 'tasks', 'tenant', 'title'],
             collect(array_keys($payload))->sort()->values()->all(),
         );
     }

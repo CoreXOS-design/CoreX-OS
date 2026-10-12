@@ -38,6 +38,16 @@ class RentalFaultContractorService
         return $this->optionsForCategory((int) $fault->agency_id, (string) $category);
     }
 
+    /**
+     * AT-452 item 9 — does the agency have at least one active contractor for this fault's type of work? THE one test: the owner portal's
+     * "Your agent has no contractor on file for this type of work yet" and the agent's "No contractor loaded for <type>" warning on the
+     * fault page both ask this, so they can never disagree. Agency-scoped (there is no branch dimension in a contractor list).
+     */
+    public function hasContractorFor(RentalFaultReport $fault): bool
+    {
+        return $this->optionsFor($fault)->isNotEmpty();
+    }
+
     /** @return Collection<int, array{id:int, name:string, phone:?string}> */
     public function optionsForCategory(int $agencyId, string $category): Collection
     {

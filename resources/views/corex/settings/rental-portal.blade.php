@@ -222,6 +222,15 @@
                 <p class="text-xs" style="color: var(--text-muted);">The portal shrinks phone photos before sending, so most arrive well under 1 MB. Anything larger than this is refused.</p>
                 <button type="submit" class="corex-btn-primary text-xs">Save</button>
             </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.tenant-sees-agent-marks') }}" class="space-y-2">
+                @csrf
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="tenant_sees_agent_marks" value="0">
+                    <input type="checkbox" name="tenant_sees_agent_marks" value="1" onchange="this.form.submit()" @checked($tenantSeesAgentMarks)>
+                    Show the tenant my agents' marks and notes on their photos
+                </label>
+                <p class="text-xs" style="color: var(--text-muted);">Off by default. The owner only ever sees marks on the photos you share with them.</p>
+            </form>
         </div>
     </div>
 

@@ -84,6 +84,21 @@
         .aid-photo img { width:96px; height:72px; }
         .aid-doc { margin-top:8px; display:flex; flex-direction:column; gap:2px; }
         .aid-doc-img { max-width:100%; max-height:180px; border-radius:8px; border:1px solid var(--border); }
+        /* AT-452 item 8 - tenant "Try this first": safety line box, real heading, steps list, two equal buttons */
+        .aid-safety { display:flex; gap:10px; align-items:flex-start; background:#fff4e5; border:1px solid #f59e0b; border-left-width:5px; border-radius:10px; padding:10px 12px; margin:0 0 12px; font-weight:600; font-size:14px; color:#7a4100; }
+        .aid-safety svg { flex:0 0 22px; width:22px; height:22px; margin-top:1px; }
+        .aid-safety p { margin:0; }
+        .aid-h { font-size:17px; margin:4px 0 8px; }
+        .aid-list { background:#eaf6fb; border:1px solid #b6e0ee; border-radius:10px; padding:12px 14px 12px 34px; margin:0 0 12px; font-size:14px; }
+        .aid-list li { margin:4px 0; padding-left:2px; }
+        .btn-brand { background:var(--brand); color:#fff; }
+        .btn-pair { display:flex; gap:10px; }
+        .btn-pair .btn { flex:1 1 0; }
+        @media (max-width:420px) { .btn-pair { flex-direction:column; gap:0; } }
+        /* AT-452 - a photo that opens the shared viewer, and the owner decision screen's sections */
+        .photo-btn { padding:0; border:0; background:none; cursor:zoom-in; border-radius:8px; }
+        .sec { border-top:1px solid var(--border); margin-top:14px; padding-top:12px; }
+        .sec > h3 { font-size:15px; margin:0 0 8px; }
         .done-card { text-align:center; }
         .done-card .tick { width:44px; height:44px; border-radius:50%; background:var(--ok); color:#fff; font-size:26px; line-height:44px; margin:0 auto 8px; }
     </style>
@@ -252,10 +267,11 @@
                                                 {{-- Before you report: the steps, photos and documents for the chosen fault type. --}}
                                                 <template x-if="faultWizard.faultTypeId && faultWizard.step === 'aid'">
                                                     <div style="margin-top:12px;" data-fault-aid-step>
-                                                        <h2>Try this first</h2>
-                                                        @include('rentals.portal._fault-aid', ['w' => 'faultWizard'])
-                                                        <button class="btn btn-ok" :disabled="!!(faultWizard.sending)" @click="submitFault('first_aid_resolved')" x-text="faultWizard.sending ? 'Sending…' : 'That fixed it'"></button>
-                                                        <button class="btn btn-outline" :disabled="!!(faultWizard.sending)" @click="faultWizard.step = 'form'">Still a problem</button>
+                                                        @include('rentals.portal._fault-aid', ['w' => 'faultWizard', 'tenant' => true])
+                                                        <div class="btn-pair" data-fault-aid-buttons>
+                                                            <button class="btn btn-ok" :disabled="!!(faultWizard.sending)" @click="submitFault('first_aid_resolved')" x-text="faultWizard.sending ? 'Sending…' : 'That fixed it'"></button>
+                                                            <button class="btn btn-brand" :disabled="!!(faultWizard.sending)" @click="faultWizard.step = 'form'">Still a problem</button>
+                                                        </div>
                                                     </div>
                                                 </template>
 
@@ -284,6 +300,11 @@
                                     <div class="card" data-tenant-fault>
                                         <div class="row"><h2 x-text="f.title" style="margin:0;"></h2></div>
                                         <template x-if="f.progress"><div>@include('rentals.portal._progress', ['p' => 'f.progress'])</div></template>
+                                        <div class="photo-grid" x-show="f.reported_photos && f.reported_photos.length" data-tenant-fault-photos>
+                                            <template x-for="(ph, i) in (f.reported_photos || [])" :key="ph.id">
+                                                <button type="button" class="photo-btn" :aria-label="'Open photo ' + (i + 1)" @click="openPhotos(f.reported_photos, i, $event)"><img :src="ph.thumb_url || ph.url" :alt="ph.alt || 'Photo you sent'" loading="lazy" decoding="async"></button>
+                                            </template>
+                                        </div>
                                         <button class="btn btn-outline" x-show="f.rental_work_order_id" @click="tenantTab='jobs'; loadWorkOrders()">See the work order</button>
                                     </div>
                                 </template>
@@ -616,6 +637,7 @@
     </div>
 </div>
 
+@include('partials.photo-viewer')
 <script>
 function getCookie(name) {
     const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
@@ -1204,6 +1226,11 @@ function rentalsPortal() {
                 if (r.ok) this.loadDecisions();
                 else this.say(r.data?.message || 'Could not record decision.');
             } finally { this.busy[bk] = false; }
+        },
+        // AT-452 - every portal fault photo opens in the shared viewer (a popup over the page, never a new tab). A copy is passed so the page's own data is never touched.
+        openPhotos(list, index, ev) {
+            if (!window.CorexPhotoViewer || !list || !list.length) return;
+            window.CorexPhotoViewer.open({ photos: JSON.parse(JSON.stringify(list)), index: index || 0, editable: false, returnFocus: ev && ev.currentTarget ? ev.currentTarget : null });
         },
         async openFault(id) {
             this.faultForm = { decision: '', handled_by: '', contractor_name: '', contractor_phone: '', agency_service_provider_id: '', note: '', error: null, busy: false };

@@ -3240,6 +3240,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/crew-page-upcoming-days', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewPageUpcomingDays'])->name('corex.settings.rental-portal.crew-page-upcoming-days');
         // rental-portal-access.md §22 — fault photos and the Home FAQ wording.
         Route::post('/fault-photo-max-count', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateFaultPhotoMaxCount'])->name('corex.settings.rental-portal.fault-photo-max-count');
+        Route::post('/tenant-sees-agent-marks', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateTenantSeesAgentMarks'])->name('corex.settings.rental-portal.tenant-sees-agent-marks');
         Route::post('/fault-photo-max-mb', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateFaultPhotoMaxMb'])->name('corex.settings.rental-portal.fault-photo-max-mb');
         Route::post('/faq-texts', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateFaqTexts'])->name('corex.settings.rental-portal.faq-texts');
     });
@@ -4091,6 +4092,20 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.restore');
         Route::post('/{rentalFaultReport}/photos', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'storePhoto'])
             ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.photos.store');
+
+        // AT-452 (rentals-faults-work-orders.md §18) - the agent's marks and per-photo notes. Same edit gate as the photo upload above; the controller adds the own / branch / agency scope.
+        Route::post('/{rentalFaultReport}/photos/{photo}/marks', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'storeMark'])
+            ->middleware('permission:rental_fault_reports.create')->whereNumber('photo')->name('corex.rental-fault-reports.photos.marks.store');
+        Route::put('/{rentalFaultReport}/photos/{photo}/marks/{mark}', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'updateMark'])
+            ->middleware('permission:rental_fault_reports.create')->whereNumber(['photo', 'mark'])->name('corex.rental-fault-reports.photos.marks.update');
+        Route::delete('/{rentalFaultReport}/photos/{photo}/marks/{mark}', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'destroyMark'])
+            ->middleware('permission:rental_fault_reports.create')->whereNumber(['photo', 'mark'])->name('corex.rental-fault-reports.photos.marks.destroy');
+        Route::post('/{rentalFaultReport}/photos/{photo}/marks/{mark}/restore', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'restoreMark'])
+            ->middleware('permission:rental_fault_reports.create')->whereNumber(['photo', 'mark'])->name('corex.rental-fault-reports.photos.marks.restore');
+        Route::put('/{rentalFaultReport}/photos/{photo}/note', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'saveNote'])
+            ->middleware('permission:rental_fault_reports.create')->whereNumber('photo')->name('corex.rental-fault-reports.photos.note.save');
+        Route::delete('/{rentalFaultReport}/photos/{photo}/note', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'clearNote'])
+            ->middleware('permission:rental_fault_reports.create')->whereNumber('photo')->name('corex.rental-fault-reports.photos.note.clear');
 
         // Stage 2 (§3a.1/§3a.2, §0c) — the lifecycle: request/record approval,
         // set the outcome. Separately permissioned per §10 — a decision

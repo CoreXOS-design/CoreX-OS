@@ -49,6 +49,8 @@ class RentalPortalSetting extends Model
     public const MAX_FAULT_PHOTO_COUNT = 10;
     public const DEFAULT_FAULT_PHOTO_MAX_MB = 8;
     public const MAX_FAULT_PHOTO_MB = 15;
+    /** rentals-faults-work-orders.md §18 (AT-452) — the tenant also sees the agent's marks and per-photo notes on their own fault photos. Off unless the agency allows it. */
+    public const DEFAULT_TENANT_SEES_AGENT_MARKS = false;
 
     /**
      * §22 — the portal Home FAQ. The agency's wording, with the lease's own values merged in: {notice_days}, {earliest_termination_date},
@@ -96,6 +98,7 @@ class RentalPortalSetting extends Model
         'crew_page_upcoming_days',
         'fault_photo_max_count',
         'fault_photo_max_mb',
+        'tenant_sees_agent_marks',
         'faq_tenant_notice_question', 'faq_tenant_notice_answer', 'faq_tenant_early_question', 'faq_tenant_early_answer',
         'faq_landlord_notice_question', 'faq_landlord_notice_answer', 'faq_landlord_early_question', 'faq_landlord_early_answer',
         'faq_tenant_cancel_yes', 'faq_tenant_cancel_no', 'faq_landlord_cancel_yes', 'faq_landlord_cancel_no',
@@ -119,6 +122,7 @@ class RentalPortalSetting extends Model
         'crew_page_upcoming_days' => 'integer',
         'fault_photo_max_count' => 'integer',
         'fault_photo_max_mb' => 'integer',
+        'tenant_sees_agent_marks' => 'boolean',
     ];
 
     private static function boolFor(?int $agencyId, string $column, bool $default): bool
@@ -274,6 +278,12 @@ class RentalPortalSetting extends Model
         $n = $value !== null ? (int) $value : self::DEFAULT_FAULT_PHOTO_MAX_MB;
 
         return max(1, min(self::MAX_FAULT_PHOTO_MB, $n));
+    }
+
+    /** AT-452 — may the tenant see the agent's marks and notes on their own fault photos? */
+    public static function tenantSeesAgentMarksFor(?int $agencyId): bool
+    {
+        return self::boolFor($agencyId, 'tenant_sees_agent_marks', self::DEFAULT_TENANT_SEES_AGENT_MARKS);
     }
 
     /** One FAQ wording (a question or an answer): the agency's own text when saved and not blank, else the default. */

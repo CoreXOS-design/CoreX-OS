@@ -253,6 +253,13 @@ class RentalFaultReport extends Model
                     RentalFaultReportUpdate::TYPE_ARCHIVED => 'Archived',
                     RentalFaultReportUpdate::TYPE_RESTORED => 'Restored',
                     RentalFaultReportUpdate::TYPE_NOTE => 'Note added',
+                    RentalFaultReportUpdate::TYPE_PHOTO_MARK_ADDED => 'Photo mark added',
+                    RentalFaultReportUpdate::TYPE_PHOTO_MARK_CHANGED => 'Photo mark changed',
+                    RentalFaultReportUpdate::TYPE_PHOTO_MARK_REMOVED => 'Photo mark removed',
+                    RentalFaultReportUpdate::TYPE_PHOTO_MARK_RESTORED => 'Photo mark restored',
+                    RentalFaultReportUpdate::TYPE_PHOTO_NOTE_SET => 'Photo note saved',
+                    RentalFaultReportUpdate::TYPE_PHOTO_NOTE_REMOVED => 'Photo note removed',
+                    RentalFaultReportUpdate::TYPE_SENT_WITHOUT_CONTRACTOR => 'Sent to owner without a contractor',
                     default => ucfirst(str_replace('_', ' ', $update->update_type)),
                 },
                 'from' => $update->from_status ? ucfirst(str_replace('_', ' ', $update->from_status)) : null,
@@ -287,6 +294,12 @@ class RentalFaultReport extends Model
     }
 
     /** Records one line in this report's own history (updates()). */
+    /** AT-452 - the ONE way other code (the photo annotation service, the send gate) adds a "who did what" line to this fault's history. */
+    public function recordHistory(string $type, ?User $by, ?string $note = null): void
+    {
+        $this->logUpdate($type, $by, $note);
+    }
+
     private function logUpdate(string $type, ?User $by, ?string $note = null, ?string $from = null, ?string $to = null): void
     {
         $this->updates()->create([

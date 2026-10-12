@@ -133,6 +133,31 @@
     {{-- §17.21.1 plug-in slot — Build 1's "Parts & labour" panel (see CrewPricingBlock). --}}
     @include('rentals.crew-link._block-pricing', ['block' => $job['blocks']['pricing'] ?? []])
 
+    {{-- AT-452 - the photos of the fault, with the office's marks and notes, in the shared viewer (a popup, never a new tab). --}}
+    @if(!empty($job['reported_photos']))
+        @include('partials.photo-viewer')
+        <div class="cj-card" data-crew-reported-photos>
+            <h2>Photos from the report</h2>
+            <div class="cj-photos">
+                @foreach($job['reported_photos'] as $i => $p)
+                    <button type="button" data-open-report-photo="{{ $i }}" aria-label="Open photo {{ $i + 1 }}" style="padding:0;border:0;background:none;cursor:zoom-in;"><img src="{{ $p['thumb_url'] ?? $p['url'] }}" alt="{{ $p['alt'] ?? 'Photo' }}" loading="lazy"></button>
+                @endforeach
+            </div>
+        </div>
+        <script type="application/json" id="crew-report-photos">@json($job['reported_photos'])</script>
+        <script>
+            (function () {
+                var list = JSON.parse(document.getElementById('crew-report-photos').textContent || '[]');
+                document.addEventListener('click', function (e) {
+                    var b = e.target.closest ? e.target.closest('[data-open-report-photo]') : null;
+                    if (!b || !window.CorexPhotoViewer) return;
+                    e.preventDefault();
+                    window.CorexPhotoViewer.open({ photos: JSON.parse(JSON.stringify(list)), index: parseInt(b.getAttribute('data-open-report-photo'), 10) || 0, editable: false, returnFocus: b });
+                });
+            })();
+        </script>
+    @endif
+
     <div class="cj-card">
         <h2>Photos</h2>
         @if($job['is_open'])

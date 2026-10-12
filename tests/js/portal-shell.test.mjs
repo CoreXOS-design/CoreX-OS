@@ -904,3 +904,55 @@ test('every picture in the portal pages is a server-made thumbnail, opened full-
     }
   }
 });
+
+// ── AT-452 (rentals-faults-work-orders.md §18): the shared photo viewer, the owner decision sections, "Try this first" ─────────────
+
+test('a portal fault photo opens in the shared viewer with a COPY of the list, read-only, and focus goes back to the thumbnail', () => {
+  const { p } = boot();
+  let opened = null;
+  p.openPhotos.call(p, [], 0, null);   // nothing to show and no viewer yet: quietly nothing
+  const list = [{ id: 1, url: '/a.jpg', thumb_url: '/a-t.jpg', marks: [{ id: 5 }] }, { id: 2, url: '/b.jpg' }];
+  const btn = { focus() {} };
+  const viewerWindow = { CorexPhotoViewer: { open: (o) => { opened = o; } } };
+  // the component reads window.CorexPhotoViewer: the boot() sandbox has its own window object
+  const m = /openPhotos\(list, index, ev\) \{([\s\S]*?)\n        \},/.exec(blade);
+  assert.ok(m, 'openPhotos is defined on the portal component');
+  const fn = new Function('window', 'list', 'index', 'ev', m[1]);
+  fn(viewerWindow, list, 1, { currentTarget: btn });
+  assert.equal(opened.index, 1);
+  assert.equal(opened.editable, false, 'a portal user can never edit marks');
+  assert.equal(opened.returnFocus, btn);
+  assert.notEqual(opened.photos, list, 'a copy is passed, so the page data is never touched');
+  assert.deepEqual(opened.photos, list);
+});
+
+test('the viewer is included once, before the page script, and no portal fault photo opens a new tab', () => {
+  assert.equal((blade.match(/@include\('partials\.photo-viewer'\)/g) || []).length, 1);
+  assert.ok(blade.indexOf("@include('partials.photo-viewer')") < blade.lastIndexOf('<script>'));
+  const dir = path.join(here, '../../resources/views/rentals/portal');
+  for (const f of ['_fault-detail.blade.php']) {
+    assert.doesNotMatch(fs.readFileSync(path.join(dir, f), 'utf8'), /target="_blank"/, f);
+  }
+  const card = blade.slice(blade.indexOf('data-tenant-fault>'), blade.indexOf('See the work order'));
+  assert.match(card, /data-tenant-fault-photos/);
+  assert.doesNotMatch(card, /target="_blank"/);
+});
+
+test('the owner decision screen has the five sections in order, each with a heading and a divider, and no new helper paragraphs', () => {
+  const src = fs.readFileSync(path.join(here, '../../resources/views/rentals/portal/_fault-detail.blade.php'), 'utf8');
+  const order = [...src.matchAll(/data-fault-section="(\w+)"/g)].map((m) => m[1]);
+  assert.deepEqual(order, ['progress', 'reported', 'photos', 'agent', 'decision']);
+  const heads = [...src.matchAll(/<h3[^>]*>([^<]*)<\/h3>/g)].map((m) => m[1]);
+  assert.deepEqual(heads, ['Progress', '', 'Photos', 'What your agent says', 'Your decision']);   // the second is bound: What the tenant reported / What you reported
+  assert.match(src, /'What the tenant reported'/);
+  assert.match(blade, /\.sec \{ border-top:1px solid/, 'every section carries a dividing line');
+  assert.doesNotMatch(src, /class="muted">(?!Reason|Your agent has no contractor|Your agent may need)/, 'no helper text beyond the data and the two existing notes');
+});
+
+test('"Try this first": safety line in a warning box with an icon, a real heading, the steps as a list, and two equal buttons', () => {
+  const aid = fs.readFileSync(path.join(here, '../../resources/views/rentals/portal/_fault-aid.blade.php'), 'utf8');
+  assert.match(aid, /class="aid-safety"[\s\S]*?<svg[\s\S]*?class="aid-h">Try this first<\/h2>[\s\S]*?<ol class="aid-list"/);
+  assert.match(blade, /class="btn-pair" data-fault-aid-buttons>\s*<button class="btn btn-ok"[\s\S]*?That fixed it[\s\S]*?<button class="btn btn-brand"[\s\S]*?Still a problem/);
+  assert.match(blade, /@media \(max-width:420px\) \{ \.btn-pair \{ flex-direction:column/, 'stacked on a narrow phone');
+  assert.doesNotMatch(blade, /<h2>Try this first<\/h2>/, 'the old plain heading is gone from the tenant step');
+});

@@ -403,6 +403,8 @@ class ClientTenantRentalsController extends Controller
             'status' => $this->tenantFaultStatus($fault),
             'reported_at' => $fault->reported_at?->toIso8601String(),
             'rental_work_order_id' => $fault->rental_work_order_id,
+            // AT-452 - the tenant's OWN photos (what they sent), opened in the shared viewer; the agent's marks / notes ride along only when the agency allows it.
+            'reported_photos' => app(\App\Services\Rentals\RentalFaultPhotoAnnotationService::class)->payload($fault, app(\App\Services\Rentals\RentalFaultPhotoAnnotationService::class)->tenantPhotos($fault), \App\Services\Rentals\RentalFaultPhotoAnnotationService::AUDIENCE_TENANT),
             // BUILD 3 — §17.3.5: the linked work order's plain stage ("Being arranged", "In progress", …), never a price.
             'work_order_stage' => $this->workOrderStageFor($fault),
             // Johan, 8 Oct 2026: where this fault is, step by step, fault AND work order in one line (derived from the real records;

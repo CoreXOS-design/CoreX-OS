@@ -1140,3 +1140,47 @@ Each reached step shows its date; the last reached is `current`. A declined faul
 
 **Back-half walk follow-up (8 Oct 2026).** Step 5 of the progress line ("Sent to contractor for scheduling") is reached on the agency-contractor route only when the office actually sends the work order (`ordered_at`), not at creation; a fault whose work order was CANCELLED may get a new one (`RentalFaultReport::hasLiveWorkOrder()`); the command centre gains "Resolve dispute" for a disputed work order. Full list and the walk: `rental-work-orders.md` §17.30; tests `tests/Feature/RentalMaintenanceWalk/BackHalfWalkTest.php`.
 
+
+---
+
+## 18. Fault photos: one viewer, agent marks, a note per photo, clearer screens, "no contractor" warning (AT-452, Johan 12 Oct 2026, QA1)
+
+### 18.1 Where fault photos are shown today (before AT-452)
+(a) Staff fault page `resources/views/corex/rental-fault-reports/show.blade.php` — the "Photos the owner sees" Share ticks (owner-version card) and the side "Photos" block; both opened the file in a new tab.
+(b) Owner portal "Review and decide" — `resources/views/rentals/portal/_fault-detail.blade.php` (owner-version photos; `ClientLandlordRentalsController::faultReportShow`).
+(c) Tenant portal fault card — `shell.blade.php` `data-tenant-fault`: showed **no photos at all** (the tenant API only carried photos of the *work*). It now shows the tenant's own photos.
+(d) Work order — staff work-order page lists the copied `reported` photos (new tab); the crew job page deliberately excludes `reported` photos; the contractor secure link shows no photos. Contractor/crew now see the reported photos with the agent's marks and notes (see 18.5).
+
+### 18.2 One shared viewer
+`resources/views/partials/photo-viewer.blade.php` (CSS + vanilla JS, no framework, included once per page) exposes `window.CorexPhotoViewer.open({photos, index, editable, handlers})`. Popup over the page (never a new tab); close by X / Esc / backdrop; previous / next by buttons, arrow keys, swipe; "2 of 5" counter; zoom in / out / reset with pan (wheel, pinch, buttons, double-tap); thumbnails in the strip, full image in the viewer (`PortalImageService::urls()`); phone width; focus trapped and returned; no browser dialogs. One tick **"Agent's marks and notes"** (default on); off shows the photo exactly as sent. Marks are an SVG overlay in the image's own coordinate space, so the tenant's file is never drawn on or re-encoded.
+
+### 18.3 Data
+- `rental_fault_photo_marks`: agency_id, rental_fault_report_id, rental_fault_report_photo_id, `shape` (`circle`|`arrow`), `geometry` JSON in **normalised** 0–1 coordinates (circle `{cx,cy,r}` with r relative to image width; arrow `{x1,y1,x2,y2}`), `colour`, created_by/updated_by/deleted_by user, timestamps, **soft delete**.
+- `rental_fault_photo_notes`: one short description per photo (`description` ≤ 500), `recorded_by_user_id`, `recorded_at`, soft delete (setting again restores the same row).
+- The original `rental_fault_report_photos` row and file are never touched. Proven by checksum in `FaultPhotoMarksTest`.
+- History: `RentalFaultReportUpdate` types `photo_mark_added|changed|removed|restored`, `photo_note_set|removed` (who, when, which photo) — shown in the fault History card.
+- Setting `rental_portal_settings.tenant_sees_agent_marks` (default **off**). Settings page → Fault photos; Setup Wizard (Rentals portal step) via `updateTenantSeesAgentMarks` (has()-guarded, onboarding §6.1).
+
+### 18.4 Who may do what / sees what (server-side — `RentalFaultPhotoAnnotationService`)
+| Audience | Marks and notes |
+|---|---|
+| Staff who may edit the fault (`rental_fault_reports.create` + `guardRentalRecordScope`) | add / move / remove marks, set / clear the note; everything visible |
+| Staff view-only | read |
+| Owner | only photos the agent ticked Share (the owner version) **and** only once the fault has been sent (`sent_to_owner_at`) |
+| Tenant | their own photos (portal uploads, `uploaded_by_user_id` null, on faults they can already see); marks / notes only if `tenant_sees_agent_marks` |
+| Contractor / crew | the shared (`reported`) photos, with marks and notes |
+The portal identity / link checks are unchanged — the new data rides on the existing payloads. Staff routes: `POST rental-fault-reports/{id}/photos/{photo}/marks`, `PUT|DELETE …/marks/{mark}`, `POST …/marks/{mark}/restore`, `PUT|DELETE …/note` (JSON, same convention as `storePhoto`).
+List-screen floor: not a list entity; scoping is per fault (agency global scope + `guardRentalRecordScope` own / branch / agency); archive = soft delete with a one-step Undo (restore route) and the history entry.
+
+### 18.5 Screens
+- Staff fault page: Share thumbnails and the Photos block open the viewer; marks tools only for editors. Work-order page: reported photos open the viewer (read-only marks).
+- Owner "Review and decide": header, then sections each with a heading and a divider, in this order: **Progress**; **What the tenant reported** ("What you reported" when the owner reported it); **Photos**; **What your agent says**; **Your decision**. No new helper text; empty sections are left out. Same data as before.
+- Tenant "Try this first": the safety line in its own warning box with an icon; "Try this first" a real heading; the steps an ordered list in a highlighted box (wording unchanged — only split into lines; `RentalFaultTypePortalView` adds `safety_line` + `steps`, `first_aid_steps` is unchanged); "That fixed it" / "Still a problem" two equal buttons side by side (stacked on a narrow phone). Owner wizard unchanged.
+
+### 18.6 Item 9 — "No contractor loaded for <fault type>" warning before sending
+- ONE method: `RentalFaultContractorService::hasContractorFor($fault)` = `optionsFor($fault)->isNotEmpty()`. The owner portal's note used `optionsFor()` being empty (`ClientLandlordRentalsController::faultReportShow`, `contractors`); it now sends `has_contractor` from the same method, and the agent page uses it too, so they cannot disagree. A fault with no type = all contractors count (unchanged). The test is agency-scoped (`agency_id`, active, maintenance contractors); there is no branch dimension in it, so the agent page has none either.
+- Staff fault page, owner-version card, above Save owner version / Save and send: one line "No contractor loaded for <fault type>." plus, only for users with `deals_v2.manage_suppliers`, **Add a contractor** and **Add <fault type> to an existing contractor**. Both open the existing Supplier Directory (`deals-v2.suppliers.index`) with `?fault=<id>&mode=add|types`; the directory shows a banner "Back to fault report #n" and (add mode) opens the add form with the matching trade pre-ticked. Back on the fault page the check runs again.
+- Sending stays allowed, but only through the app's own confirm dialog ("Send without a contractor for <fault type>?"); the send is never blocked on the server (other callers, e.g. the API, send as before), but every send while uncovered writes `sent_without_contractor` (who, when) to the fault history, saying whether the dialog confirmed it (`send_without_contractor=1`). The owner-side note is unchanged and shows only if there is no contractor when the owner opens it.
+
+### 18.7 Tests
+`tests/Feature/RentalFaultFlow/FaultPhotoMarksTest.php`, `FaultNoContractorWarningTest.php`, `tests/js/photo-viewer.test.mjs`, `tests/js/portal-shell.test.mjs` (viewer hook), render gate + headless check at 390 / 1280 / 1920 px.

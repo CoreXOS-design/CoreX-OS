@@ -29,6 +29,15 @@ class RentalFaultReportUpdate extends Model
     public const TYPE_RESTORED = 'restored';
     /** Fault flow F2 - the agent saved the sanitised version the owner will see. */
     public const TYPE_OWNER_VERSION_SAVED = 'owner_version_saved';
+    /** AT-452 (rentals-faults-work-orders.md §18) - agent marks and per-photo notes: who, when, which photo. */
+    public const TYPE_PHOTO_MARK_ADDED = 'photo_mark_added';
+    public const TYPE_PHOTO_MARK_CHANGED = 'photo_mark_changed';
+    public const TYPE_PHOTO_MARK_REMOVED = 'photo_mark_removed';
+    public const TYPE_PHOTO_MARK_RESTORED = 'photo_mark_restored';
+    public const TYPE_PHOTO_NOTE_SET = 'photo_note_set';
+    public const TYPE_PHOTO_NOTE_REMOVED = 'photo_note_removed';
+    /** AT-452 item 9 - the agent confirmed sending to the owner while no contractor covered this type of work. */
+    public const TYPE_SENT_WITHOUT_CONTRACTOR = 'sent_without_contractor';
 
     protected $fillable = [
         'agency_id',

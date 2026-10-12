@@ -741,6 +741,7 @@ class AgencySetupWizardController extends Controller
                     // rental-portal-access.md §22 — fault photos and the Home FAQ wording (each needs its own explicit arm, §6.2).
                     'fault_photo_max_count' => \App\Models\RentalPortalSetting::faultPhotoMaxCountFor($agency->id),
                     'fault_photo_max_mb' => \App\Models\RentalPortalSetting::faultPhotoMaxMbFor($agency->id),
+                    'tenant_sees_agent_marks' => \App\Models\RentalPortalSetting::tenantSeesAgentMarksFor($agency->id),
                     'faq_tenant_notice_question' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_tenant_notice_question'),
                     'faq_tenant_notice_answer' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_tenant_notice_answer'),
                     'faq_tenant_early_question' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_tenant_early_question'),

@@ -5,7 +5,30 @@
 @section('corex-content')
 {{-- AT-319 — code→label map for the active service types (badges fall back to the code if archived). --}}
 @php($typeLabels = $serviceTypes->pluck('label', 'code'))
-<div class="w-full space-y-5" x-data="{ showAdd: false }">
+{{-- AT-452 item 9 - arrived from a fault report: way back, live "covered now?" check, add form opened with the matching trade ticked. --}}
+@php($rf = $returnFault ?? null)
+@php($openAdd = $rf && $rf['mode'] === 'add' && ! session('success'))
+@php($preTick = $rf && $rf['mode'] === 'add' && $rf['trade_code'] ? [$rf['trade_code']] : [])
+<div class="w-full space-y-5" x-data="{ showAdd: {{ $openAdd ? 'true' : 'false' }} }">
+
+    @if($rf)
+        <div class="rounded-md px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, var(--surface)); border: 1px solid var(--ds-amber, #f59e0b); color: var(--text-primary);" data-return-to-fault>
+            <a href="{{ $rf['url'] }}" class="font-semibold underline" data-return-to-fault-link>&larr; Back to fault report #{{ $rf['id'] }}</a>
+            @if($rf['covered'])
+                <span class="font-semibold" style="color: var(--ds-green);" data-fault-now-covered>&#10003; A contractor is now loaded for {{ $rf['type'] }}.</span>
+            @elseif($rf['mode'] === 'types')
+                <span>
+                    @if($rf['trade_code'])
+                        Tick <strong>{{ $rf['category'] }}</strong> on the contractor who does this work. It saves as you tick.
+                    @else
+                        None of your service types matches <strong>{{ $rf['category'] ?: $rf['type'] }}</strong> yet &mdash; add it under Settings &rarr; COC / Service Types first.
+                    @endif
+                </span>
+            @else
+                <span>Add the contractor below{{ $rf['trade_code'] ? ' (' . $rf['category'] . ' is already ticked)' : '' }}, then go back to the fault.</span>
+            @endif
+        </div>
+    @endif
 
     {{-- Page header (branded — §2.4 Pattern A) --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
@@ -122,7 +145,7 @@
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Service types <span class="text-[11px]" style="color: var(--text-muted);">(the COCs / services this supplier handles — filters the work-order picker)</span></label>
                 @forelse($serviceTypes as $t)
                     <label class="inline-flex items-center gap-1.5 text-sm mr-4 mb-1" style="color: var(--text-secondary);">
-                        <input type="checkbox" name="service_types[]" value="{{ $t->code }}" style="accent-color: var(--brand-button, #0ea5e9);">
+                        <input type="checkbox" name="service_types[]" value="{{ $t->code }}" @checked(in_array($t->code, $preTick, true)) style="accent-color: var(--brand-button, #0ea5e9);">
                         {{ $t->label }}
                     </label>
                 @empty

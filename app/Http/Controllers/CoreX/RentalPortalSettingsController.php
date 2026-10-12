@@ -51,6 +51,7 @@ class RentalPortalSettingsController extends Controller
             // rental-portal-access.md §22 — fault photos and the Home FAQ wording.
             'faultPhotoMaxCount' => RentalPortalSetting::faultPhotoMaxCountFor($agencyId),
             'faultPhotoMaxMb' => RentalPortalSetting::faultPhotoMaxMbFor($agencyId),
+            'tenantSeesAgentMarks' => RentalPortalSetting::tenantSeesAgentMarksFor($agencyId),
             'faqTexts' => collect(RentalPortalSetting::FAQ_KEYS)->mapWithKeys(fn ($k) => [$k => RentalPortalSetting::faqTextFor($agencyId, $k)])->all(),
             'faqDefaults' => RentalPortalSetting::FAQ_DEFAULTS,
         ]);
@@ -220,6 +221,12 @@ class RentalPortalSettingsController extends Controller
     public function updateFaultPhotoMaxMb(Request $request): RedirectResponse
     {
         return $this->updateBoundedInt($request, 'fault_photo_max_mb', 1, RentalPortalSetting::MAX_FAULT_PHOTO_MB, 'Largest fault photo (MB)');
+    }
+
+    /** AT-452 — the tenant also sees the agent's marks and notes on their own fault photos. has()-guarded (onboarding §6.1). */
+    public function updateTenantSeesAgentMarks(Request $request): RedirectResponse
+    {
+        return $this->updateToggle($request, 'tenant_sees_agent_marks', 'Agent marks and notes shown to the tenant');
     }
 
     /**

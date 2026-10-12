@@ -40,7 +40,7 @@ class RentalFaultTypePortalView
             ->get()
             ->groupBy('rental_fault_type_id');
 
-        return $types->map(fn (RentalFaultType $type) => [
+        return $types->map(fn (RentalFaultType $type) => $this->splitSteps($this->renderer->renderFirstAidSteps($type, $property)) + [
             'id' => $type->id,
             'name' => $type->name,
             'category' => $type->category,
@@ -53,6 +53,32 @@ class RentalFaultTypePortalView
             ])),
             'documents' => ($docs->get($type->id) ?? collect())->map(fn ($d) => $this->document($d))->filter()->values()->all(),
         ])->values()->all();
+    }
+
+    /**
+     * AT-452 item 8 - the tenant screen shows the safety line in its own warning box and the steps as a list. The WORDING is untouched: the
+     * rendered text is only cut into pieces (the leading safety line; then one step per line, or per sentence when the text is one block).
+     * `first_aid_steps` (the whole text) stays in the payload for the owner screen and anything else that reads it.
+     *
+     * @return array{safety_line:?string, steps:array<int,string>}
+     */
+    public function splitSteps(string $rendered): array
+    {
+        $text = trim(str_replace("\r\n", "\n", $rendered));
+        $safety = null;
+        if (str_starts_with($text, RentalFaultType::SAFETY_LINE)) {
+            $safety = RentalFaultType::SAFETY_LINE;
+            $text = trim(substr($text, strlen(RentalFaultType::SAFETY_LINE)));
+        }
+
+        $lines = array_values(array_filter(array_map('trim', explode("\n", $text)), fn ($l) => $l !== ''));
+        if (count($lines) === 1) {
+            $lines = preg_split('/(?<=[.!?])\s+(?=[A-Z])/', $lines[0]) ?: $lines;
+        }
+        // a typed "1." / "2)" / "- " / "•" in front of a step is dropped: the list draws its own number
+        $steps = array_values(array_filter(array_map(fn ($l) => trim((string) preg_replace('/^\s*(?:\d{1,2}[.)]|[-•*])\s+/u', '', $l)), $lines), fn ($l) => $l !== ''));
+
+        return ['safety_line' => $safety, 'steps' => $steps];
     }
 
     /** @return array{max_photos:int,max_photo_mb:int} the agency's fault-photo limits (the page checks them before sending) */

@@ -5,7 +5,19 @@
     <div class="aid-urgent" x-show="{{ $w }}.ftype && {{ $w }}.ftype.urgency === 'emergency'" data-fault-aid-emergency>
         This is an emergency. Follow the steps first, then call your agent now.
     </div>
-    <p class="aid-steps" x-text="{{ $w }}.ftype ? {{ $w }}.ftype.first_aid_steps : ''"></p>
+    @if(!empty($tenant))
+        {{-- AT-452 item 8 - the tenant screen: the safety line in its own warning box, "Try this first" as a heading, the steps as a list. The wording is the agency's, unchanged. --}}
+        <div class="aid-safety" x-show="{{ $w }}.ftype && {{ $w }}.ftype.safety_line" data-fault-aid-safety role="note">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <p x-text="{{ $w }}.ftype ? {{ $w }}.ftype.safety_line : ''"></p>
+        </div>
+        <h2 class="aid-h">Try this first</h2>
+        <ol class="aid-list" x-show="{{ $w }}.ftype && {{ $w }}.ftype.steps && {{ $w }}.ftype.steps.length" data-fault-aid-steps>
+            <template x-for="(st, i) in ({{ $w }}.ftype && {{ $w }}.ftype.steps ? {{ $w }}.ftype.steps : [])" :key="i"><li x-text="st"></li></template>
+        </ol>
+    @else
+        <p class="aid-steps" x-text="{{ $w }}.ftype ? {{ $w }}.ftype.first_aid_steps : ''"></p>
+    @endif
 
     <div class="photo-grid" x-show="{{ $w }}.ftype && {{ $w }}.ftype.photos.length">
         <template x-for="ph in ({{ $w }}.ftype ? {{ $w }}.ftype.photos : [])" :key="ph.url">

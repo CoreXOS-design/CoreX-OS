@@ -9,7 +9,11 @@ use App\Http\Controllers\Concerns\SearchesQualifyingRentalProperties;
 use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalFaultReport;
+use App\Models\RentalFaultPhotoMark;
 use App\Models\RentalFaultReportPhoto;
+use App\Models\RentalFaultReportUpdate;
+use App\Services\Rentals\RentalFaultContractorService;
+use App\Services\Rentals\RentalFaultPhotoAnnotationService;
 use App\Services\Images\PropertyImageStorer;
 use App\Services\Rentals\RentalDocumentPdfService;
 use App\Services\Rentals\RentalFaultReportService;
@@ -425,6 +429,14 @@ class RentalFaultReportController extends Controller
 
         return view('corex.rental-fault-reports.show', [
             'faultReport' => $rentalFaultReport,
+            // AT-452 - the viewer's photo list (marks + notes for staff) and who may edit them.
+            'viewerPhotos' => app(RentalFaultPhotoAnnotationService::class)->payload(
+                $rentalFaultReport, $rentalFaultReport->photos, RentalFaultPhotoAnnotationService::AUDIENCE_STAFF, array_map('intval', (array) ($rentalFaultReport->owner_photo_ids ?? []))
+            ),
+            'canMarkPhotos' => $request->user()->hasPermission('rental_fault_reports.create') && ! in_array($rentalFaultReport->status, [RentalFaultReport::STATUS_CANCELLED], true),
+            // AT-452 item 9 - the same test the owner portal's "no contractor" note uses.
+            'noContractor' => ! app(RentalFaultContractorService::class)->hasContractorFor($rentalFaultReport),
+            'canManageContractors' => $request->user()->hasPermission('deals_v2.manage_suppliers'),
             // Fault flow F3/F5 - the supplier list for this fault's type of work (empty = say so, offer the other routes).
             'contractors' => $contractors,
             'decisionSummary' => $rentalFaultReport->decisionSummary(),
@@ -491,10 +503,22 @@ class RentalFaultReportController extends Controller
             return back()->withErrors(['rental_fault_report' => 'Prepare the owner version first (check the wording and photos the owner will see), then send it.']);
         }
 
+        // AT-452 item 9 - no active contractor covers this type of work: sending stays allowed (the page asks "Send without a contractor for
+        // <type>?" in its own dialog, which posts send_without_contractor=1), and the decision is written to the history either way.
+        $noContractor = ! app(RentalFaultContractorService::class)->hasContractorFor($rentalFaultReport);
+
         try {
             $rentalFaultReport->requestApproval($request->user());
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
+        }
+
+        if ($noContractor) {
+            $rentalFaultReport->recordHistory(
+                RentalFaultReportUpdate::TYPE_SENT_WITHOUT_CONTRACTOR,
+                $request->user(),
+                'Sent to the owner without a contractor for ' . $this->typeLabel($rentalFaultReport) . ($request->boolean('send_without_contractor') ? ' (confirmed in the dialog).' : ' (no contractor was loaded at the time).')
+            );
         }
 
         return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Sent to the owner. They can now see it and decide.');
@@ -774,5 +798,77 @@ class RentalFaultReportController extends Controller
         ]);
 
         return response()->json($photo, 201);
+    }
+    private function typeLabel(RentalFaultReport $fault): string
+    {
+        return $fault->faultType?->name ?: 'this fault';
+    }
+
+    // ── AT-452 (rentals-faults-work-orders.md §18) - the agent's marks and per-photo notes ──────────────────────────────────
+
+    /** Same gate as every other edit on this screen: the permission is on the route, the own / branch / agency scope here, and a cancelled fault is read-only. */
+    private function guardPhotoEdit(RentalFaultReport $fault, RentalFaultReportPhoto $photo): void
+    {
+        $this->guardRentalRecordScope($fault, 'rental_fault_reports', $fault->property?->branch_id);
+        abort_if($fault->status === RentalFaultReport::STATUS_CANCELLED, 409, 'This fault report is cancelled.');
+        abort_unless((int) $photo->rental_fault_report_id === (int) $fault->id, 404);
+    }
+
+    private function markRow(RentalFaultPhotoMark $m, Request $request): array
+    {
+        return [
+            'id' => $m->id, 'shape' => $m->shape, 'geometry' => $m->geometry, 'colour' => $m->colour,
+            'by' => $request->user()->name, 'at' => $m->created_at?->toIso8601String(),
+        ];
+    }
+
+    public function storeMark(Request $request, RentalFaultReport $rentalFaultReport, RentalFaultReportPhoto $photo): JsonResponse
+    {
+        $this->guardPhotoEdit($rentalFaultReport, $photo);
+        $mark = app(RentalFaultPhotoAnnotationService::class)->addMark($rentalFaultReport, $photo, $request->only(['shape', 'geometry', 'colour']), $request->user());
+
+        return response()->json(['mark' => $this->markRow($mark, $request)], 201);
+    }
+
+    public function updateMark(Request $request, RentalFaultReport $rentalFaultReport, RentalFaultReportPhoto $photo, RentalFaultPhotoMark $mark): JsonResponse
+    {
+        $this->guardPhotoEdit($rentalFaultReport, $photo);
+        $mark = app(RentalFaultPhotoAnnotationService::class)->changeMark($rentalFaultReport, $photo, $mark, $request->only(['shape', 'geometry', 'colour']), $request->user());
+
+        return response()->json(['mark' => $this->markRow($mark, $request)]);
+    }
+
+    public function destroyMark(Request $request, RentalFaultReport $rentalFaultReport, RentalFaultReportPhoto $photo, RentalFaultPhotoMark $mark): JsonResponse
+    {
+        $this->guardPhotoEdit($rentalFaultReport, $photo);
+        app(RentalFaultPhotoAnnotationService::class)->removeMark($rentalFaultReport, $photo, $mark, $request->user());
+
+        return response()->json(['removed' => true]);
+    }
+
+    /** Undo for a removed mark. The mark is looked up including removed ones, inside this agency and this photo only. */
+    public function restoreMark(Request $request, RentalFaultReport $rentalFaultReport, RentalFaultReportPhoto $photo, int $mark): JsonResponse
+    {
+        $this->guardPhotoEdit($rentalFaultReport, $photo);
+        $row = RentalFaultPhotoMark::withTrashed()->where('rental_fault_report_photo_id', $photo->id)->findOrFail($mark);
+        $row = app(RentalFaultPhotoAnnotationService::class)->restoreMark($rentalFaultReport, $photo, $row, $request->user());
+
+        return response()->json(['mark' => $this->markRow($row, $request)]);
+    }
+
+    public function saveNote(Request $request, RentalFaultReport $rentalFaultReport, RentalFaultReportPhoto $photo): JsonResponse
+    {
+        $this->guardPhotoEdit($rentalFaultReport, $photo);
+        $note = app(RentalFaultPhotoAnnotationService::class)->setNote($rentalFaultReport, $photo, (string) $request->input('description', ''), $request->user());
+
+        return response()->json(['note' => ['text' => $note->description, 'by' => $request->user()->name, 'at' => $note->recorded_at?->toIso8601String()]]);
+    }
+
+    public function clearNote(Request $request, RentalFaultReport $rentalFaultReport, RentalFaultReportPhoto $photo): JsonResponse
+    {
+        $this->guardPhotoEdit($rentalFaultReport, $photo);
+        app(RentalFaultPhotoAnnotationService::class)->clearNote($rentalFaultReport, $photo, $request->user());
+
+        return response()->json(['removed' => true]);
     }
 }

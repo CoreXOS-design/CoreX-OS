@@ -598,7 +598,8 @@
             <div class="grid grid-cols-4 gap-2">
                 @foreach($workOrder->photos as $photo)
                     <div>
-                        <a href="{{ $photo->storage_path }}" target="_blank"><img src="{{ $photo->storage_path }}" class="rounded-md w-full h-24 object-cover"></a>
+                        {{-- AT-452 - opens in the shared viewer (a popup); a copy of a fault photo carries the agent's marks and note --}}
+                        <button type="button" data-open-wo-photo="{{ $loop->index }}" aria-label="Open photo {{ $loop->iteration }}" class="p-0 bg-transparent border-0 cursor-zoom-in w-full"><img src="{{ $woViewerPhotos[$loop->index]['thumb_url'] ?? $photo->storage_path }}" alt="{{ $woViewerPhotos[$loop->index]['alt'] ?? 'Photo' }}" loading="lazy" class="rounded-md w-full h-24 object-cover"></button>
                         <span class="text-xs" style="color: var(--text-muted);">{{ ucfirst(str_replace('_', ' ', $photo->photo_type)) }}</span>
                     </div>
                 @endforeach
@@ -651,4 +652,18 @@
         @endpermission
     </div>
 </div>
+{{-- AT-452 - the shared photo viewer (popup, never a new tab). --}}
+@include('partials.photo-viewer')
+<script type="application/json" id="wo-photo-data">@json($woViewerPhotos)</script>
+<script>
+(function () {
+    var photos = JSON.parse(document.getElementById('wo-photo-data').textContent || '[]');
+    document.addEventListener('click', function (e) {
+        var b = e.target.closest ? e.target.closest('[data-open-wo-photo]') : null;
+        if (!b || !window.CorexPhotoViewer) return;
+        e.preventDefault();
+        window.CorexPhotoViewer.open({ photos: JSON.parse(JSON.stringify(photos)), index: parseInt(b.getAttribute('data-open-wo-photo'), 10) || 0, editable: false, returnFocus: b });
+    });
+})();
+</script>
 @endsection

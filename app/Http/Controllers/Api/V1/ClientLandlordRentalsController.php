@@ -382,7 +382,10 @@ class ClientLandlordRentalsController extends Controller
             'title' => $version['title'],
             'description' => $version['description'],
             'agent_note' => $version['agent_note'],
-            'photos' => $version['photos']->map(fn ($p) => ['id' => $p->id] + app(\App\Services\Images\PortalImageService::class)->urls($p->storage_path))->values(),
+            // AT-452 - the shared photos, with the agent's marks and notes ONLY once the fault has been sent (RentalFaultPhotoAnnotationService decides).
+            'photos' => app(\App\Services\Rentals\RentalFaultPhotoAnnotationService::class)->payload($fault, $version['photos'], \App\Services\Rentals\RentalFaultPhotoAnnotationService::AUDIENCE_OWNER),
+            // The "What the tenant reported" section reads "What you reported" when the owner raised it themselves.
+            'reported_by_owner' => $fault->reported_by_type === RentalFaultReport::REPORTED_BY_LANDLORD,
             'property' => $fault->property?->buildDisplayAddress(),
             'category' => $fault->faultType?->category,
             'status' => $fault->status,
@@ -396,6 +399,8 @@ class ClientLandlordRentalsController extends Controller
             'awaiting_decision' => $awaiting,
             // The supplier list for THIS type of work (empty = the owner is offered the other routes only).
             'contractors' => $awaiting ? app(RentalFaultContractorService::class)->optionsFor($fault)->values() : [],
+            // AT-452 item 9 - the SAME test the agent's warning on the fault page uses; the note under the contractor choice reads this.
+            'has_contractor' => $awaiting ? app(RentalFaultContractorService::class)->hasContractorFor($fault) : true,
             'decision' => $summary ? [
                 'decision' => $summary['decision'],
                 'by' => $summary['by'],

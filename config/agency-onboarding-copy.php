@@ -555,6 +555,8 @@ return [
             // .ai/specs/rental-portal-access.md §22 — fault photo limits and the portal Home FAQ wording. Each saver has()-guards its own field(s).
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateFaultPhotoMaxCount'],
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateFaultPhotoMaxMb'],
+            // rentals-faults-work-orders.md §18 (AT-452) — has()-guarded toggle.
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateTenantSeesAgentMarks'],
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateFaqTexts'],
         ],
         'controls' => [
@@ -861,6 +863,11 @@ return [
              'label' => 'Largest fault photo (MB)',
              'explain' => 'The portal shrinks each phone photo before it is sent (a typical photo arrives well under 1 MB). A photo that is still larger than this when it arrives is refused with a clear message.',
              'affects' => 'Only matters for unusually large images. 8 MB suits most agencies.'],
+            // rentals-faults-work-orders.md §18 (AT-452) — agent marks on fault photos.
+            ['key' => 'tenant_sees_agent_marks', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Show the tenant my agents\' marks and notes on their photos',
+             'explain' => 'Your agents can draw a circle or an arrow on a fault photo and write a short note about it. The owner sees these on the photos your agent chooses to share. This decides whether the tenant sees them too, on the photos the tenant sent.',
+             'affects' => 'Whether a tenant opening their own fault photo also sees what your agent marked on it. Off by default — the tenant sees the photo exactly as they sent it.'],
             ['key' => 'faq_tenant_notice_question', 'source' => 'rental_portal', 'type' => 'text', 'default' => \App\Models\RentalPortalSetting::FAQ_DEFAULTS['faq_tenant_notice_question'],
              'label' => 'Tenant FAQ: question 1',
              'explain' => 'The first question on a tenant’s portal Home page, about giving notice.',

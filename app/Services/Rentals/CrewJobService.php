@@ -124,6 +124,8 @@ class CrewJobService
             'cost_total' => $ctx->showCosts && $costedLines->isNotEmpty() ? number_format((float) $costedLines->sum('cost_total'), 2) : null,
             'tenant' => $ctx->showTenantContact ? $this->tenantContact($card) : null,
             'photos' => $photos,
+            // AT-452 - the photos of the fault behind this job, with the office's marks and notes (they help the repair); [] when the job has no fault.
+            'reported_photos' => app(RentalFaultPhotoAnnotationService::class)->forJobCard($card),
             'crew_completed' => $card->worker_signed_off_at ? [
                 'name' => $card->worker_sign_off_name,
                 'at' => $card->worker_signed_off_at->copy()->setTimezone($tz)->format('j M Y, H:i'),

@@ -601,6 +601,10 @@ class RentalWorkOrderController extends Controller
             // §3.4c full-CRUD floor — archived quotes stay reachable with a
             // restore path on this same screen (no separate quotes index).
             'archivedQuotes' => $rentalWorkOrder->quotes()->onlyTrashed()->with('supplier')->get(),
+            // AT-452 - the work order's photos for the shared viewer (a copy of a fault photo carries the agent's marks and note, read-only here).
+            'woViewerPhotos' => app(\App\Services\Rentals\RentalFaultPhotoAnnotationService::class)->workOrderPayload(
+                $rentalWorkOrder, $rentalWorkOrder->photos, \App\Services\Rentals\RentalFaultPhotoAnnotationService::AUDIENCE_STAFF
+            ),
         ]);
     }
 

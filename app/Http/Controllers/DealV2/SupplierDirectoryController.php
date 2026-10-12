@@ -60,7 +60,39 @@ class SupplierDirectoryController extends Controller
             'providers' => $providers,
             'specialties' => self::SPECIALTIES,
             'serviceTypes' => $serviceTypes,
+            'returnFault' => $this->returnFault($request, $agencyId),
         ]);
+    }
+
+    /**
+     * AT-452 item 9 (rentals-faults-work-orders.md §18.6) - the fault page's "Add a contractor" / "Add <type> to an existing contractor" open this
+     * screen with ?fault=<id>&mode=add|types. This only works out the way BACK (and whether the fault is covered now); nothing here changes the
+     * directory's own forms. A fault the user cannot view, or one of another agency, is simply not offered.
+     *
+     * @return array{id:int, url:string, type:string, category:?string, mode:string, covered:bool, trade_code:?string}|null
+     */
+    private function returnFault(Request $request, int $agencyId): ?array
+    {
+        $id = (int) $request->query('fault', 0);
+        $user = $request->user();
+        if ($id <= 0 || ! $user || ! $user->hasPermission('rental_fault_reports.view')) {
+            return null;
+        }
+        $fault = \App\Models\RentalFaultReport::withoutGlobalScopes()->with('faultType')->where('agency_id', $agencyId)->whereNull('deleted_at')->find($id);
+        if (! $fault) {
+            return null;
+        }
+        $contractors = app(\App\Services\Rentals\RentalFaultContractorService::class);
+
+        return [
+            'id' => $fault->id,
+            'url' => route('corex.rental-fault-reports.show', $fault),
+            'type' => $fault->faultType?->name ?: 'this fault',
+            'category' => $fault->faultType?->category,
+            'mode' => $request->query('mode') === 'types' ? 'types' : 'add',
+            'covered' => $contractors->hasContractorFor($fault),
+            'trade_code' => $contractors->tradeCodeFor($fault),
+        ];
     }
 
     public function store(Request $request)

@@ -3,6 +3,9 @@
 {{-- .ai/specs/rental-work-orders.md §3a — the fault report detail screen. --}}
 
 @php
+        // AT-452 - photo thumbnails come from the viewer payload (small copies); `noContractor` is the owner portal's own test (item 9).
+        $vp = collect($viewerPhotos ?? [])->keyBy('id');
+        $typeName = $faultReport->faultType?->name ?: 'this fault';
         // Johan, 8 Oct 2026: the screen shows only what fits where the fault IS, not every stage at once.
         //   prepare     reported / under review   -> the owner version + send it
         //   with_owner  sent, owner not yet decided -> record the owner's decision on their behalf
@@ -229,10 +232,12 @@
                     <label class="text-xs font-medium">Photos the owner sees <span class="font-normal" style="color: var(--text-muted);">(none are shared unless ticked)</span></label>
                     <div class="flex flex-wrap gap-3 mt-1">
                         @foreach($faultReport->photos as $photo)
-                            <label class="text-xs flex flex-col items-center gap-1">
-                                <img src="{{ $photo->storage_path }}" alt="" class="rounded-md object-cover" style="width: 90px; height: 70px; border: 1px solid var(--border);">
-                                <span><input type="checkbox" name="owner_photo_ids[]" value="{{ $photo->id }}" @checked(in_array($photo->id, (array) old('owner_photo_ids', $faultReport->owner_photo_ids ?? []), true))> Share</span>
-                            </label>
+                            <div class="text-xs flex flex-col items-center gap-1">
+                                <button type="button" data-open-photo="{{ $photo->id }}" aria-label="Open photo {{ $loop->iteration }}" class="p-0 bg-transparent border-0 cursor-zoom-in">
+                                    <img src="{{ $vp[$photo->id]['thumb_url'] ?? $photo->storage_path }}" alt="Photo {{ $loop->iteration }}" loading="lazy" class="rounded-md object-cover" style="width: 90px; height: 70px; border: 1px solid var(--border);">
+                                </button>
+                                <label><input type="checkbox" name="owner_photo_ids[]" value="{{ $photo->id }}" @checked(in_array($photo->id, (array) old('owner_photo_ids', $faultReport->owner_photo_ids ?? []), true))> Share</label>
+                            </div>
                         @endforeach
                     </div>
                 </div>
@@ -241,10 +246,15 @@
                     <label class="text-xs font-medium">Your note / recommendation to the owner</label>
                     <textarea name="owner_agent_note" rows="3" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);" placeholder="e.g. I recommend we approve this - a plumber can fix it this week.">{{ old('owner_agent_note', $faultReport->owner_agent_note) }}</textarea>
                 </div>
+                @include('corex.rental-fault-reports._no-contractor-warning')
                 <div class="flex flex-wrap gap-2">
                     <button type="submit" class="corex-btn-outline text-xs">Save owner version</button>
                     @permission('rental_fault_reports.send_to_owner')
-                        <x-confirm-submit title="Send to the owner" message="Send this to the owner now? They will see it in their portal and be emailed." confirm-label="Send to owner" name="send_now" value="1">Save and send to owner</x-confirm-submit>
+                        @if($noContractor)
+                            <x-confirm-submit title="Send without a contractor?" message="Send without a contractor for {{ $typeName }}?" confirm-label="Send without a contractor" name="send_now" value="1">Save and send to owner</x-confirm-submit>
+                        @else
+                            <x-confirm-submit title="Send to the owner" message="Send this to the owner now? They will see it in their portal and be emailed." confirm-label="Send to owner" name="send_now" value="1">Save and send to owner</x-confirm-submit>
+                        @endif
                     @endpermission
                 </div>
             </form>
@@ -252,7 +262,12 @@
                 @permission('rental_fault_reports.send_to_owner')
                 <form method="POST" action="{{ route('corex.rental-fault-reports.send-to-owner', $faultReport) }}">
                     @csrf
-                    <x-confirm-submit title="Send to the owner" message="Send the saved owner version to the owner now? They will see it in their portal and be emailed." confirm-label="Send to owner">Send saved version to owner</x-confirm-submit>
+                    @if($noContractor)
+                        <input type="hidden" name="send_without_contractor" value="1">
+                        <x-confirm-submit title="Send without a contractor?" message="Send without a contractor for {{ $typeName }}?" confirm-label="Send without a contractor">Send saved version to owner</x-confirm-submit>
+                    @else
+                        <x-confirm-submit title="Send to the owner" message="Send the saved owner version to the owner now? They will see it in their portal and be emailed." confirm-label="Send to owner">Send saved version to owner</x-confirm-submit>
+                    @endif
                 </form>
                 @endpermission
             @endif
@@ -270,7 +285,7 @@
                 <div class="font-medium">{{ $ov['title'] }}</div>
                 @if($ov['description'])<div>{{ $ov['description'] }}</div>@endif
                 @if($ov['photos']->isNotEmpty())
-                    <div class="flex flex-wrap gap-2 pt-1">@foreach($ov['photos'] as $photo)<img src="{{ $photo->storage_path }}" alt="" class="rounded-md object-cover" style="width: 90px; height: 70px;">@endforeach</div>
+                    <div class="flex flex-wrap gap-2 pt-1">@foreach($ov['photos'] as $photo)<button type="button" data-open-photo="{{ $photo->id }}" aria-label="Open photo" class="p-0 bg-transparent border-0 cursor-zoom-in"><img src="{{ $vp[$photo->id]['thumb_url'] ?? $photo->storage_path }}" alt="Photo" loading="lazy" class="rounded-md object-cover" style="width: 90px; height: 70px;"></button>@endforeach</div>
                 @endif
                 @if($ov['agent_note'])<div class="text-xs pt-1" style="color: var(--text-muted);">Agent note: {{ $ov['agent_note'] }}</div>@endif
             </div>
@@ -458,7 +473,11 @@
         @else
             <div class="grid grid-cols-2 gap-2">
                 @foreach($faultReport->photos as $photo)
-                    <a href="{{ $photo->storage_path }}" target="_blank"><img src="{{ $photo->storage_path }}" class="rounded-md w-full h-24 object-cover"></a>
+                    <button type="button" data-open-photo="{{ $photo->id }}" aria-label="Open photo {{ $loop->iteration }}" class="p-0 bg-transparent border-0 cursor-zoom-in">
+                        <img src="{{ $vp[$photo->id]['thumb_url'] ?? $photo->storage_path }}" alt="Photo {{ $loop->iteration }}" loading="lazy" class="rounded-md w-full h-24 object-cover">
+                        @php($pv = $vp[$photo->id] ?? null)
+                        @if($pv && (count($pv['marks']) || $pv['note']))<span class="text-xs block" style="color: var(--text-muted);">{{ count($pv['marks']) ? count($pv['marks']) . ' mark' . (count($pv['marks']) > 1 ? 's' : '') : '' }}{{ count($pv['marks']) && $pv['note'] ? ' · ' : '' }}{{ $pv['note'] ? 'note' : '' }}</span>@endif
+                    </button>
                 @endforeach
             </div>
         @endif
@@ -501,4 +520,46 @@
     </div>
     </div>
 </div>
+
+{{-- AT-452 - the shared photo viewer (popup, never a new tab). Staff who may edit the fault get the marks tools; everyone here reads the marks. --}}
+@include('partials.photo-viewer')
+<script type="application/json" id="fault-photo-data">@json($viewerPhotos)</script>
+<script>
+(function () {
+    var photos = JSON.parse(document.getElementById('fault-photo-data').textContent || '[]');
+    var editable = @json((bool) $canMarkPhotos);
+    var base = @json(route('corex.rental-fault-reports.show', $faultReport));
+    var csrf = @json(csrf_token());
+    function call(method, path, body) {
+        return fetch(base + path, {
+            method: method, credentials: 'same-origin',
+            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf, 'X-Requested-With': 'XMLHttpRequest' },
+            body: body ? JSON.stringify(body) : undefined,
+        }).then(function (r) {
+            return r.json().catch(function () { return {}; }).then(function (d) {
+                if (r.ok) return d;
+                var m = d && d.errors ? Object.keys(d.errors).map(function (k) { return d.errors[k][0]; })[0] : (d && d.message);
+                throw new Error(m || 'That could not be saved. Please try again.');
+            });
+        });
+    }
+    var handlers = {
+        addMark: function (p, m) { return call('POST', '/photos/' + p.id + '/marks', m).then(function (d) { return d.mark; }); },
+        updateMark: function (p, m) { return call('PUT', '/photos/' + p.id + '/marks/' + m.id, { shape: m.shape, geometry: m.geometry, colour: m.colour }).then(function (d) { return d.mark; }); },
+        removeMark: function (p, m) { return call('DELETE', '/photos/' + p.id + '/marks/' + m.id); },
+        restoreMark: function (p, m) { return call('POST', '/photos/' + p.id + '/marks/' + m.id + '/restore').then(function (d) { return d.mark; }); },
+        saveNote: function (p, text) { return call('PUT', '/photos/' + p.id + '/note', { description: text }).then(function (d) { return d.note; }); },
+        clearNote: function (p) { return call('DELETE', '/photos/' + p.id + '/note'); },
+    };
+    document.addEventListener('click', function (e) {
+        var b = e.target.closest ? e.target.closest('[data-open-photo]') : null;
+        if (!b) return;
+        e.preventDefault();
+        var id = parseInt(b.getAttribute('data-open-photo'), 10);
+        var i = photos.findIndex(function (p) { return p.id === id; });
+        if (i < 0) return;
+        window.CorexPhotoViewer.open({ photos: photos, index: i, editable: editable, handlers: handlers, returnFocus: b });
+    });
+})();
+</script>
 @endsection
