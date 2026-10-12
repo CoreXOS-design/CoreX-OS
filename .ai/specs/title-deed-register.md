@@ -265,7 +265,8 @@ actions do not).
 "Open WhatsApp and send" (POST) records `opened_at` / `opened_by_user_id` and redirects to the wa.me link on the STORED number.
 Only a message that was opened can then be marked "Mark as sent" or "Not sent" (the server refuses both for a message nobody
 opened). Same for PIN resend and the consent link. "Owner notified" moves only via a sent email or a confirmed WhatsApp. The list
-shows a "WhatsApp waiting to be sent" panel. History shows who opened it and when, who confirmed.
+shows a "WhatsApp waiting to be sent" panel. History shows who opened it and when, who confirmed. A collected deed never shows a
+waiting WhatsApp, and the message for a signing link stops "waiting" once that link is used, cancelled or has run out.
 
 ### 14.8 Agents from the deal
 Responsible agent = the deal's first SELLING agent (`deal_user.side = selling`; they work with the buyer, the new owner); further
