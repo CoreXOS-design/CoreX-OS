@@ -52,6 +52,13 @@
  *     CoreX says yes or "possibly". The reveal only ever happens after a
  *     "not found" result or the agent's explicit "Pull anyway". See
  *     onCaptureClick()'s own docblock below for the exact sequencing.
+ *   - v3.11.0 (2026-10-12, .ai/specs/deeds-capture.md §9.12) — RANKED PRE-CHECK.
+ *     The server now returns EVERY match ranked (exact unit + scheme first,
+ *     then owner-surname-confirmed, then weaker; the "Same address, no unit
+ *     number - may be a different unit" record last) and the banner shows the
+ *     whole list with a count instead of only matches[0]. The payload is
+ *     unchanged: the CMA SECTION number and the flat/unit number were already
+ *     both sent, the owner NAME carries the surname the server compares.
  */
 
 (function () {
@@ -859,6 +866,12 @@
         scheme_number:     property.scheme_no,
         section_number:    property.section_number,
         erf_number:        property.erf_no || null,
+        // v3.9.0 (structured address matching) — read by label on the CMA page since 3.4, never sent until now.
+        // The LPI code carries the erf + portion + township; the server reads them out of it.
+        lpi_code:          property.lpi_code || null,
+        cma_street_number: property.cma_street_number || null,
+        situated_at:       property.situated_at || null,
+        estate:            property.estate || null,
         address:           property.address || property.situated_at || null,
         street_number:     street.number,
         street_name:       street.name,
@@ -1601,6 +1614,11 @@
         scheme_number:     p.scheme_no,
         section_number:    p.section_number,
         erf_number:        p.erf_no || null,
+        // v3.9.0 — same four fields as the pre-check payload above (kept in sync by hand).
+        lpi_code:          p.lpi_code || null,
+        cma_street_number: p.cma_street_number || null,
+        situated_at:       p.situated_at || null,
+        estate:            p.estate || null,
         address:           p.address || p.situated_at || null,
         street_number:     street.number,
         street_name:       street.name,
@@ -1727,6 +1745,9 @@
       #${BANNER_ID} .corex-deeds-banner-title { display: block !important; font-weight: 700 !important; font-size: 13px !important; margin-bottom: 4px !important; }
       #${BANNER_ID} .corex-deeds-banner-body { display: block !important; margin-bottom: 10px !important; line-height: 1.4 !important; }
       #${BANNER_ID} .corex-deeds-banner-actions { display: flex !important; gap: 6px !important; flex-wrap: wrap !important; }
+      #${BANNER_ID} .corex-deeds-banner-list { display: block !important; margin: 0 0 10px 0 !important; padding: 8px 0 0 0 !important; border-top: 1px solid #374151 !important; }
+      #${BANNER_ID} .corex-deeds-banner-row { display: block !important; margin-bottom: 8px !important; line-height: 1.35 !important; }
+      #${BANNER_ID} .corex-deeds-banner-weak { color: #fbbf24 !important; }
       #${BANNER_ID} button, #${BANNER_ID} a {
         all: unset !important;
         font-family: -apple-system, BlinkMacSystemFont, sans-serif !important;
@@ -1771,6 +1792,67 @@
     return 'Other property on this street in CoreX (different number): ' + names.join('; ');
   }
 
+  // v3.9.0 — plain words for the columns the server's scorer reports (structured address matching, spec §7).
+  const COLUMN_WORDS = { lpi: 'LPI code', erf: 'erf', portion: 'portion', scheme: 'scheme', unit: 'unit', suburb: 'suburb', street: 'street', number: 'street number', type: 'street type', gps: 'GPS' };
+
+  /** "street number, street, suburb" from the scorer's matched_on list; '' when the server sent none (older server). */
+  function describeMatchedOn(match) {
+    const list = match && Array.isArray(match.matched_on) ? match.matched_on : [];
+    const words = list.map((c) => COLUMN_WORDS[c]).filter(Boolean);
+    return words.length ? 'Matched on: ' + words.join(', ') : '';
+  }
+
+  /** "✓ street number · ✓ street · ≈ suburb (neighbouring)" — one verdict per column the server compared. */
+  function describeColumns(match) {
+    const cols = match && match.columns && typeof match.columns === 'object' ? match.columns : null;
+    if (!cols) return '';
+    const parts = [];
+    ['lpi', 'erf', 'portion', 'scheme', 'unit', 'number', 'street', 'type', 'suburb'].forEach((key) => {
+      const verdict = cols[key];
+      if (!verdict || (verdict === 'missing' && key !== 'suburb')) return;
+      let mark = '–';
+      if (verdict === 'agree') mark = '✓';
+      else if (verdict === 'differ' || verdict === 'differ_number' || verdict === 'differ_scheme_number') mark = '≠';
+      else if (verdict === 'neighbour' || verdict === 'partial' || verdict === 'compatible' || verdict === 'one_side') mark = '≈';
+      parts.push(mark + ' ' + COLUMN_WORDS[key] + (key === 'suburb' && verdict === 'neighbour' ? ' (neighbouring suburb)' : '') + (key === 'unit' && verdict === 'one_side' ? ' (unit on one side only)' : ''));
+    });
+    return parts.join(' · ');
+  }
+
+  // v3.11.0 — the pre-check now returns EVERY match, ranked (rank / rank_label / owner_surname_match), and the banner shows the
+  // whole list with a count instead of only matches[0]. Pure helpers, so the node harness can test them.
+  const BANNER_MAX_ROWS = 5;
+
+  /** one plain row of the ranked list: { n, address, label, weak, deeplink } */
+  function describeRankedRow(match, index) {
+    const label = (match && (match.rank_label || match.reason)) || '';
+    return {
+      n: (match && match.rank) || index + 1,
+      address: (match && match.address) || 'A property in CoreX',
+      label: String(label),
+      // "Same address, no unit number - may be a different unit" and plain possibles are the weaker rows
+      weak: !!(match && match.rank_group && match.rank_group !== 'exact'),
+      deeplink: (match && match.deeplink) || null,
+    };
+  }
+
+  /** the rows after the best one, capped, plus how many were cut off */
+  function rankedOtherRows(precheck) {
+    const list = precheck && Array.isArray(precheck.matches) ? precheck.matches : [];
+    const others = list.slice(1);
+    return {
+      total: list.length,
+      rows: others.slice(0, BANNER_MAX_ROWS - 1).map((m, i) => describeRankedRow(m, i + 1)),
+      more: Math.max(0, others.length - (BANNER_MAX_ROWS - 1)),
+    };
+  }
+
+  /** " — 3 matches, best first" when there is more than one match; '' for one */
+  function describeMatchCount(precheck) {
+    const total = precheck && Array.isArray(precheck.matches) ? precheck.matches.length : 0;
+    return total > 1 ? (' — ' + total + ' matches, best first') : '';
+  }
+
   function showDuplicateBanner(precheck) {
     return new Promise((resolve) => {
       injectStyles();
@@ -1778,13 +1860,16 @@
 
       const match = (precheck.matches && precheck.matches[0]) || null;
       const confident = precheck.status === 'exists';
+      // An ADDRESS-based possible match carries the scorer's per-column verdicts; an owner-name possible match does not
+      // and keeps the plain 3.8 banner (Pull anyway / Cancel).
+      const addressPossible = !confident && !!(match && match.columns && typeof match.columns === 'object');
 
       const el = document.createElement('div');
       el.id = BANNER_ID;
 
       const title = document.createElement('span');
       title.className = 'corex-deeds-banner-title';
-      title.textContent = confident ? 'Already in CoreX' : 'Possible match in CoreX';
+      title.textContent = (confident ? 'Already in CoreX' : (addressPossible ? 'Possible match — is this the same property?' : 'Possible match in CoreX')) + describeMatchCount(precheck);
       el.appendChild(title);
 
       const body = document.createElement('span');
@@ -1802,23 +1887,82 @@
       }
       el.appendChild(body);
 
+      // v3.9.0 — exact: say what it was matched on; possible: show each compared column with its verdict.
+      const detail = confident ? describeMatchedOn(match) : (addressPossible ? describeColumns(match) : '');
+      if (detail) {
+        const detailEl = document.createElement('span');
+        detailEl.className = 'corex-deeds-banner-body';
+        detailEl.textContent = detail;
+        el.appendChild(detailEl);
+      }
+
+      // v3.11.0 — how strong the best match is, in words (e.g. "Same address, no unit number - may be a different unit").
+      if (match && match.rank_label) {
+        const rankEl = document.createElement('span');
+        rankEl.className = 'corex-deeds-banner-body' + (match.rank_group && match.rank_group !== 'exact' ? ' corex-deeds-banner-weak' : '');
+        rankEl.textContent = match.rank_label + (match.owner_surname_evidence && String(match.rank_label).indexOf('surname') === -1 ? '. ' + match.owner_surname_evidence : '');
+        el.appendChild(rankEl);
+      }
+
+      // v3.11.0 — the rest of the ranked list, with a count.
+      const others = rankedOtherRows(precheck);
+      if (others.rows.length) {
+        const listEl = document.createElement('div');
+        listEl.className = 'corex-deeds-banner-list';
+        others.rows.forEach((row) => {
+          const rowEl = document.createElement('span');
+          rowEl.className = 'corex-deeds-banner-row' + (row.weak ? ' corex-deeds-banner-weak' : '');
+          rowEl.textContent = row.n + '. ' + row.address + (row.label ? ' — ' + row.label : '');
+          listEl.appendChild(rowEl);
+        });
+        if (others.more > 0) {
+          const moreEl = document.createElement('span');
+          moreEl.className = 'corex-deeds-banner-row';
+          moreEl.textContent = '+ ' + others.more + ' more';
+          listEl.appendChild(moreEl);
+        }
+        el.appendChild(listEl);
+      }
+
       const actions = document.createElement('div');
       actions.className = 'corex-deeds-banner-actions';
 
-      if (match && match.deeplink) {
-        const openLink = document.createElement('a');
-        openLink.textContent = 'Open in CoreX';
-        openLink.href = match.deeplink;
-        openLink.target = '_blank';
-        openLink.rel = 'noopener';
-        actions.appendChild(openLink);
-      }
+      if (addressPossible) {
+        // "Yes, same — open it" opens the record and does NOT capture (no R3 spent); "No, different — continue the
+        // capture" carries on exactly like Pull anyway. Both are logged (confirmed_same / pulled_anyway).
+        const yes = match.deeplink ? document.createElement('a') : document.createElement('button');
+        yes.textContent = 'Yes, same — open it';
+        if (match.deeplink) {
+          yes.href = match.deeplink;
+          yes.target = '_blank';
+          yes.rel = 'noopener';
+        } else {
+          yes.type = 'button';
+        }
+        yes.addEventListener('click', () => { removePrecheckBanner(); resolve('same'); });
+        actions.appendChild(yes);
 
-      const pullBtn = document.createElement('button');
-      pullBtn.type = 'button';
-      pullBtn.textContent = 'Pull anyway';
-      pullBtn.addEventListener('click', () => { removePrecheckBanner(); resolve(true); });
-      actions.appendChild(pullBtn);
+        const no = document.createElement('button');
+        no.type = 'button';
+        no.textContent = 'No, different — continue the capture';
+        no.addEventListener('click', () => { removePrecheckBanner(); resolve(true); });
+        actions.appendChild(no);
+      } else {
+        if (match && match.deeplink) {
+          const openLink = document.createElement('a');
+          openLink.textContent = 'Open in CoreX';
+          openLink.href = match.deeplink;
+          openLink.target = '_blank';
+          openLink.rel = 'noopener';
+          actions.appendChild(openLink);
+        }
+
+        const pullBtn = document.createElement('button');
+        pullBtn.type = 'button';
+        pullBtn.textContent = 'Pull anyway';
+        pullBtn.addEventListener('click', () => { removePrecheckBanner(); resolve(true); });
+        actions.appendChild(pullBtn);
+      }
 
       const cancelBtn = document.createElement('button');
       cancelBtn.type = 'button';
@@ -1970,8 +2114,10 @@
 
       if (precheck.status === 'exists' || precheck.status === 'possible_match') {
         setStatus(null);
-        proceed = await showDuplicateBanner(precheck);
-        logPrecheckDecision(preCheckPayload.source_ref, precheck, proceed ? 'pulled_anyway' : 'cancelled');
+        const outcome = await showDuplicateBanner(precheck);
+        proceed = outcome === true;
+        // 'same' = the agent confirmed it is the property CoreX already holds: no capture, no R3 spent.
+        logPrecheckDecision(preCheckPayload.source_ref, precheck, outcome === 'same' ? 'confirmed_same' : (proceed ? 'pulled_anyway' : 'cancelled'));
       } else {
         proceed = true; // not_found — already logged server-side in checkDuplicate(); nothing to confirm
         sameStreetNote = describeSameStreet(precheck);

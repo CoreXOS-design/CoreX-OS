@@ -189,6 +189,10 @@ final class DeedsCaptureController extends Controller
             'property.scheme_number'           => 'nullable|string|max:100',
             'property.section_number'          => 'nullable|string|max:50',
             'property.erf_number'              => 'nullable|string|max:100',
+            'property.lpi_code'                => 'nullable|string|max:40',
+            'property.cma_street_number'       => 'nullable|string|max:50',
+            'property.situated_at'             => 'nullable|string|max:200',
+            'property.estate'                  => 'nullable|string|max:200',
             'property.address'                 => 'nullable|string|max:255',
             'property.street_number'           => 'nullable|string|max:50',
             'property.street_name'             => 'nullable|string|max:200',
@@ -211,6 +215,13 @@ final class DeedsCaptureController extends Controller
         $agencyId = (int) $agencyId;
 
         $facts = $this->buildFreePropertyFacts($validated['property'] ?? []);
+        // LPI from the source_ref ("cmainfo:<lpi>") when the property block does not carry it (every build to date).
+        if (empty($facts['lpi_code'])) {
+            $lpiFromRef = \App\Services\Address\LpiCode::parse($validated['source_ref'] ?? null);
+            if ($lpiFromRef !== null) {
+                $facts['lpi_code'] = $lpiFromRef['code'];
+            }
+        }
         $source = [
             'type'    => 'deeds_capture',
             'ref'     => $validated['source_ref'] ?? null,
@@ -241,6 +252,8 @@ final class DeedsCaptureController extends Controller
                     // the exact-address strategy; only an untiebroken tie stays unconfident.
                     ($desc['confident'] ?? true),
                     ['structural'],
+                    // additive evidence (structured address matching): which columns agreed — old builds ignore it
+                    array_filter(['tier' => ($desc['confident'] ?? true) ? 'exact' : 'possible', 'matched_on' => $desc['matched_on'] ?? null, 'columns' => $desc['columns'] ?? null], fn ($v) => $v !== null),
                 );
             }
         }
@@ -251,7 +264,20 @@ final class DeedsCaptureController extends Controller
         $stockIds = [];
         foreach ($matcher->findExistingStock($agencyId, $facts) as $hit) {
             $stockIds[] = (int) $hit['property']->id;
-            $matches[] = $this->formatStockMatch($hit['property'], $hit['reason'], $hit['confident'], $hit['matched_fields'], $user);
+            $matches[] = $this->formatStockMatch($hit['property'], $hit['reason'], $hit['confident'], $hit['matched_fields'], $user, [
+                'tier' => $hit['tier'] ?? ($hit['confident'] ? 'exact' : 'possible'),
+                'matched_on' => $hit['matched_on'] ?? [],
+                'columns' => $hit['columns'] ?? [],
+                'score' => $hit['score'] ?? 0,
+            ]);
+        }
+
+        // Tracked properties that are only a POSSIBLE match (a neighbouring suburb, a different street type, a missing
+        // unit/portion) — never "already in CoreX", shown to the agent to confirm (spec structured-address-matching.md §7).
+        foreach ($matcher->findPossibleTrackedMatches($agencyId, $facts, array_values(array_filter([$structural?->id, $looseHitExcluded?->id]))) as $pm) {
+            $matches[] = $this->formatMatch($pm['tracked_property'], null, $pm['reason'], 'structural', false, $pm['matched_fields'], [
+                'tier' => 'possible', 'matched_on' => $pm['matched_on'], 'columns' => $pm['columns'], 'score' => $pm['score'] ?? 0,
+            ]);
         }
 
         foreach (($validated['owners'] ?? []) as $owner) {
@@ -268,8 +294,12 @@ final class DeedsCaptureController extends Controller
             }
         }
 
-        // Confident matches first — the extension's banner shows matches[0].
-        usort($matches, fn ($a, $b) => ((int) $b['confident'] <=> (int) $a['confident']));
+        // Rank EVERY candidate (spec deeds-capture.md §9.12): exact unit + scheme first, then owner-surname-confirmed, then the
+        // weaker ones, the "same address, no unit number" record last. The owner SURNAME only confirms a candidate the
+        // address matcher already found — it never creates one. The extension's banner shows the whole ranked list.
+        $captureHasUnit = ! empty($facts['section_number']) || ! empty($facts['unit_number']);
+        $matches = app(\App\Services\Prospecting\DeedsCapturePreCheckRanker::class)
+            ->rank($agencyId, $matches, $validated['owners'] ?? [], $captureHasUnit);
 
         $confidentHit = collect($matches)->contains(fn ($m) => $m['match_type'] !== 'owner_name' && $m['confident']);
         $status = $confidentHit ? 'exists' : (count($matches) > 0 ? 'possible_match' : 'not_found');
@@ -299,7 +329,7 @@ final class DeedsCaptureController extends Controller
             'created_at'  => now(),
         ]);
 
-        return response()->json(['status' => $status, 'matches' => $matches, 'same_street' => $sameStreet]);
+        return response()->json(['status' => $status, 'match_count' => count($matches), 'matches' => $matches, 'same_street' => $sameStreet]);
     }
 
     /**
@@ -314,7 +344,7 @@ final class DeedsCaptureController extends Controller
     public function logPrecheckDecision(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'decision'            => 'required|in:pulled_anyway,cancelled',
+            'decision'            => 'required|in:pulled_anyway,cancelled,confirmed_same',
             'source_ref'          => 'nullable|string|max:200',
             'tracked_property_id' => 'nullable|integer',
         ]);
@@ -360,6 +390,8 @@ final class DeedsCaptureController extends Controller
             'latitude'          => $p['latitude'] ?? null,
             'longitude'         => $p['longitude'] ?? null,
             'erf_number'        => $p['erf_number'] ?? null,
+            'lpi_code'          => $p['lpi_code'] ?? null,
+            'cma_street_number' => $p['cma_street_number'] ?? null,
             'title_deed_number' => $p['title_deed_number'] ?? null,
             'property_type'     => $p['property_type'] ?? null,
             'deeds_office'      => $p['deeds_office'] ?? null,
@@ -374,16 +406,21 @@ final class DeedsCaptureController extends Controller
      * the Other Agency Stock role gate) lets them open that property — otherwise the
      * duplicate is still reported, without leaking whose it is.
      */
-    private function formatStockMatch(\App\Models\Property $p, string $reason, bool $confident, array $matchedFields, $viewer): array
+    private function formatStockMatch(\App\Models\Property $p, string $reason, bool $confident, array $matchedFields, $viewer, array $extra = []): array
     {
         $visible = $viewer !== null
             && \App\Models\Property::query()->visibleTo($viewer)->visibleOtherAgencyStock($viewer)->whereKey($p->id)->exists();
 
         $address = trim(implode(' ', array_filter([$p->street_number, $p->street_name])))
             . ($p->suburb ? ', ' . $p->suburb : '');
+        // "Unit 6, Du Bantry, Colin Street, Uvongo Beach" — the street alone would not tell two units of one scheme apart
+        $display = trim((string) $p->buildDisplayAddress());
+        if ($display !== '') {
+            $address = $display . (($p->suburb && stripos($display, (string) $p->suburb) === false) ? ', ' . $p->suburb : '');
+        }
         $status = $p->status_label ?: $p->status;
 
-        return [
+        return $extra + [
             'source'               => 'property',
             'property_id'          => $p->id,
             'tracked_property_id'  => null,
@@ -402,9 +439,9 @@ final class DeedsCaptureController extends Controller
         ];
     }
 
-    private function formatMatch(TrackedProperty $tp, ?string $label, string $reason, string $matchType, bool $confident, array $matchedFields): array
+    private function formatMatch(TrackedProperty $tp, ?string $label, string $reason, string $matchType, bool $confident, array $matchedFields, array $extra = []): array
     {
-        return [
+        return $extra + [
             'source'               => 'tracked_property',
             'tracked_property_id' => $tp->id,
             'address'              => $label ?? trim(($tp->street_number ?? '') . ' ' . ($tp->street_name ?? '')) . ($tp->suburb ? ', ' . $tp->suburb : ''),
