@@ -857,14 +857,20 @@
   // ── Event listeners ────────────────────────────────────────
 
   // Settings
+  // The screen Back should return to. Captured when Settings opens, and never
+  // overwritten with 'settings' itself: on first run (no token saved) the popup
+  // OPENS on Settings, so previousState was 'settings' and Back/Settings did nothing.
+  let settingsReturnState = null;
+
   els.settingsToggle.addEventListener('click', () => {
+    if (currentState !== 'settings') settingsReturnState = currentState;
     els.apiUrl.value   = settings.apiUrl;
     els.apiToken.value = settings.apiToken;
     showState('settings');
   });
 
   els.backFromSettings.addEventListener('click', () => {
-    showState(previousState || 'notOnPortal');
+    showState(settingsReturnState && settingsReturnState !== 'settings' ? settingsReturnState : 'notOnPortal');
   });
 
   els.saveSettings.addEventListener('click', async () => {

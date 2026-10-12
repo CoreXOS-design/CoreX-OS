@@ -27,6 +27,9 @@ server-side change in this ticket.**
 3. **Restyle** — popup restyled to the AT-336 neutral system (`.ai/DESIGN-SYSTEM.md`): slate neutrals,
    6px radius, flat header, brand blue `#0ea5e9` only on the primary CTA and accents. No agency colours
    (the popup is not agency-aware and must not become HFC-looking — non-negotiable #9).
+4a. **First-run Settings/Back bug (found by Andre, pre-existing since 2026-03)** — with no token saved the popup opens
+   on Settings, so Back returned to Settings and the Settings button did nothing. Back now returns to the screen
+   Settings was opened from, or the "Browse to a portal" screen when there was none.
 4. **Store-readiness fixes** — remove the Google Fonts `@import` (a third-party request on every popup open
    and a privacy-disclosure item; system font stack instead); bump version to 3.7.0; add
    `scripts/build-extension-zip.sh` producing the store package (manifest at zip root, no `tests/`).
