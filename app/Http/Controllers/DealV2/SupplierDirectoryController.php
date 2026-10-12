@@ -133,7 +133,7 @@ class SupplierDirectoryController extends Controller
         if ($request->wantsJson() && $provider->trashed()) {
             return response()->json([
                 'ok' => false,
-                'message' => $provider->name . ' is already in your contractor list but has been archived. Restore them from the contractor list, then add the field of work there.',
+                'message' => $provider->name . ' is already in your contractor list but has been archived. Restore them from the contractor list, then add this kind of work to them there.',
             ], 422);
         }
         // AT-319 — capture the supplier's type(s) alongside the legacy single specialty.
@@ -427,7 +427,10 @@ class SupplierDirectoryController extends Controller
             'notes' => 'nullable|string',
             'is_preferred' => 'sometimes|boolean',
             'contact_id' => 'nullable|integer',
-        ]);
+        ], [], $request->wantsJson() ? [
+            // the fault / work order popups talk in the agent's words ("The trade field is required."), the directory page is unchanged
+            'specialty' => 'trade', 'registration_number' => 'company registration number', 'is_preferred' => 'preferred contractor tick',
+        ] : []);
     }
 
     /**

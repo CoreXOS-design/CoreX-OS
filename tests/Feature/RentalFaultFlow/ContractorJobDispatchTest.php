@@ -595,6 +595,16 @@ final class ContractorJobDispatchTest extends TestCase
         $this->assertStringContainsString('x-data="{ noContractor: true', $html, 'the warning is driven by page state, so it clears without a reload');
         $this->assertStringContainsString('data-send-variant="covered"', $html, 'the send dialog swaps without a reload');
         $this->assertStringContainsString('x-bind:disabled="!noContractor"', $html);
+        // plain agent words inside the popup, none of the developer wording; the directory page keeps its own
+        $popup = substr($html, strpos($html, 'data-contractor-popups'));
+        foreach (['>Trade', 'Business address', 'Our preferred contractor for this trade', 'Certificates and services they can do'] as $plainWord) {
+            $this->assertStringContainsString($plainWord, $popup);
+        }
+        foreach (['Specialty', 'Preferred for this specialty', 'Service types', 'filters the work-order picker', 'used on documents this supplier signs'] as $devWord) {
+            $this->assertStringNotContainsString($devWord, $popup);
+        }
+        $this->assertStringContainsString('This contractor will be offered for', $popup);
+        $this->assertStringNotContainsString('Added to your directory', $popup);
         // the popup form sits OUTSIDE every other form on the page (nothing typed is touched)
         $this->assertDoesNotMatchRegularExpression('#<form[^>]*owner-version[^>]*>(?:(?!</form>).)*data-contractor-popups#s', $html);
     }
@@ -614,7 +624,7 @@ final class ContractorJobDispatchTest extends TestCase
         ])->assertOk()->assertJsonPath('ok', true)->assertJsonPath('covered', true);
 
         $p = AgencyServiceProvider::withoutGlobalScopes()->findOrFail($r->json('provider.id'));
-        $this->assertSame(['Plumbing'], $p->typeCodes(), 'this fault\'s type was ticked as a field of work');
+        $this->assertSame(['Plumbing'], $p->typeCodes(), 'this fault\'s type was ticked as a trade');
         $this->assertTrue(app(RentalFaultContractorService::class)->hasContractorFor($fault), 'the warning clears on its own');
         $ev = \Illuminate\Support\Facades\DB::table('agency_service_provider_events')->where('service_provider_id', $p->id)->first();
         $this->assertSame([$manager->id, $fault->id, 'created_from_fault'], [$ev->user_id, $ev->rental_fault_report_id, $ev->event]);

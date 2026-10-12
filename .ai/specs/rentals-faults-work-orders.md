@@ -1239,3 +1239,21 @@ Tenant Faults tab and owner Faults list: open faults first (newest first), expan
 - *Before:* the early path ("Start a work order before the owner decides") needed no owner version, never set the fault's visibility (`sent_to_owner_at` stayed null, `owner_approval_status` `not_required`), so the FAULT never appeared in the owner's Faults list; the work order showed under the owner's Work orders tab but nothing was sent (`RentalWorkOrderService::notifyOwner()` is intentionally empty); the owner heard only at completion (the final statement). It also could not run once an owner version existed (status `under_review` was refused) — fixed.
 - *Now:* in the prepare stage the agent saves the owner version (title, description, shared photos, note) and presses **"Go ahead and tell the owner"** (with an "This is an emergency" tick): one step creates the work order, marks the fault arranged-by-agent (`arranged_by_agent_at / _by_user_id / _basis / _limit_amount`), writes the history and sends the owner the normal owner notice (`RentalLandlordInformedMail`, same channel and same on/off setting as "a decision is needed"; completion keeps the existing final statement with the final amount). The fault appears in the owner portal at once — never under "Needs your decision" — as "Arranged by your agent": the fault, property, shared photos, "Your agent arranged this repair under your R<limit> no-approval limit." (or "as an emergency"), the contractor / crew, the quoted / approved amount, the same progress line ("Your agent told you" → "Arranged by your agent under your no-approval limit") through to completed with the final cost. Over the limit later (a dearer quote, extra work): the existing rule still applies — owner approval is asked on the work order and the fault screen says so. The owner can **Query this** (`POST /api/v1/client/rentals/landlord/fault-reports/{id}/query`): a note to the agents (history + alert to both lease agents, event `rental_fault_report.owner_query`), not an approve / decline.
 - *Not acted on:* a fault the tenant never submitted leaves no record; one the agent cancelled / closed as not a fault before acting, and never sent, stays invisible to the owner. Any fault with a work order is visible (`rental_work_order_id` set), so "every fault the agency acted on" holds; a work order cancelled later keeps its fault visible.
+
+### 19.11 Popup wording — plain agent language (wording only, no behaviour change)
+The two contractor popups opened from the fault / work order pages speak the agent's language. The Supplier Directory page keeps its own wording: the shared form `deals-v2/suppliers/_add-form` takes a `$popup` switch, and only the popups set it.
+
+| Where | Was | Now |
+|---|---|---|
+| Add a contractor — sub-heading | Added to your directory with "<type>" ticked as a field of work. | This contractor will be offered for "<type>" faults. |
+| same, no fault type known | Added to your directory. | Add the details of the new contractor. |
+| field label | Specialty | Trade |
+| address label + helper | Address (the firm's business address — used on documents this supplier signs, e.g. as executor) | Business address (no helper) |
+| tick | Preferred for this specialty | Our preferred contractor for this trade |
+| certificates label + helper | Service types (the COCs / services this supplier handles — filters the work-order picker) | Certificates and services they can do (no helper) |
+| nothing configured | No service types configured yet — add them under Settings → COC / Service Types. | No certificates or services have been set up yet. Ask someone who manages the trade list to add them. |
+| validation (popup/JSON only) | "The specialty field is required." | "The trade field is required." (also: company registration number, preferred contractor tick) |
+| archived-match answer | …then add the field of work there. | …then add this kind of work to them there. |
+| Add <type> to an existing contractor — contractor with none | no fields of work yet | no trades yet |
+
+Unchanged on purpose: the title "Add <type> to an existing contractor", its sub-heading, search, "already does this", the trade-list lines, Save / Cancel, the confirmation "<type> added to <contractor>", and the third popup (contact details).

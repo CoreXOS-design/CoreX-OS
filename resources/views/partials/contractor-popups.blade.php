@@ -20,7 +20,7 @@
             <p class="cxcp-sub" data-cp-add-sub></p>
             @include('deals-v2.suppliers._add-form', [
                 'serviceTypes' => $cpServiceTypes, 'specialties' => \App\Http\Controllers\DealV2\SupplierDirectoryController::SPECIALTIES,
-                'idp' => 'cpadd', 'formAttrs' => 'data-contractor-popup-form', 'cancelAttrs' => 'data-cp-cancel', 'saveLabel' => 'Save contractor',
+                'idp' => 'cpadd', 'popup' => true, 'formAttrs' => 'data-contractor-popup-form', 'cancelAttrs' => 'data-cp-cancel', 'saveLabel' => 'Save contractor',
             ])
         </div>
     </div>
@@ -146,7 +146,7 @@
         form.querySelectorAll('input[name="fault_id"],input[name="work_order_id"]').forEach(function (i) { i.remove(); });
         Object.keys(ids()).forEach(function (k) { var h = document.createElement('input'); h.type = 'hidden'; h.name = k; h.value = ids()[k]; form.appendChild(h); });
         form.querySelectorAll('input[name="service_types[]"]').forEach(function (c) { c.checked = !!d.tradeCode && c.getAttribute('data-trade-code') === d.tradeCode; });
-        addModal.querySelector('[data-cp-add-sub]').textContent = d.type ? 'Added to your directory with "' + d.type + '" ticked as a field of work.' : 'Added to your directory.';
+        addModal.querySelector('[data-cp-add-sub]').textContent = d.type ? 'This contractor will be offered for "' + d.type + '" faults.' : 'Add the details of the new contractor.';
         show(addModal);
         var first = form.querySelector('input[name="name"]'); if (first) first.focus();
     }
@@ -186,7 +186,7 @@
             var cb = document.createElement('input'); cb.type = 'checkbox'; cb.value = c.id; cb.checked = !!picked[c.id] || c.has_trade; cb.disabled = c.has_trade;
             cb.addEventListener('change', function () { if (cb.checked) picked[c.id] = true; else delete picked[c.id]; updateSave(); });
             var name = document.createElement('span'); name.style.fontWeight = '600'; name.textContent = c.name;
-            var tr = document.createElement('span'); tr.className = 'cxcp-trades'; tr.textContent = c.trades.length ? c.trades.join(', ') : 'no fields of work yet';
+            var tr = document.createElement('span'); tr.className = 'cxcp-trades'; tr.textContent = c.trades.length ? c.trades.join(', ') : 'no trades yet';
             row.appendChild(cb); row.appendChild(name); row.appendChild(tr);
             if (c.has_trade) { var t = document.createElement('span'); t.className = 'cxcp-tag'; t.textContent = 'already does this'; row.appendChild(t); }
             list.appendChild(row);
