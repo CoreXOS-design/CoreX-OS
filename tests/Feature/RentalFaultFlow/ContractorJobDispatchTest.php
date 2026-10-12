@@ -620,6 +620,19 @@ final class ContractorJobDispatchTest extends TestCase
         $this->assertSame([$manager->id, $fault->id, 'created_from_fault'], [$ev->user_id, $ev->rental_fault_report_id, $ev->event]);
     }
 
+    public function test_adding_a_contractor_who_matches_an_archived_one_says_so_instead_of_claiming_success(): void
+    {
+        $manager = $this->managerWith(['deals_v2.manage_suppliers']);
+        $fault = $this->fault([], false);
+        AgencyServiceProvider::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'name' => 'Old Plumber', 'specialty' => 'plumber', 'email' => 'old@example.invalid', 'is_active' => true])->delete();
+
+        $r = $this->actingAs($manager)->postJson(route('deals-v2.suppliers.store'), [
+            'name' => 'New Name', 'specialty' => 'plumber', 'email' => 'old@example.invalid', 'service_types' => ['Plumbing'], 'fault_id' => $fault->id,
+        ])->assertStatus(422)->assertJsonPath('ok', false);
+        $this->assertStringContainsString('has been archived', $r->json('message'));
+        $this->assertFalse(app(RentalFaultContractorService::class)->hasContractorFor($fault));
+    }
+
     public function test_the_existing_contractor_popup_lists_everyone_with_their_fields_of_work_and_save_writes_who_when_and_from_which_fault(): void
     {
         $manager = $this->managerWith(['deals_v2.manage_suppliers']);

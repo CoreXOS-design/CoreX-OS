@@ -128,6 +128,14 @@ class SupplierDirectoryController extends Controller
         $data = $this->validated($request);
         $agencyId = (int) $request->user()?->effectiveAgencyId();
         $provider = $this->service->findOrCreate($agencyId, $data, $request->user()->id);
+        // The directory's own match-or-create also finds contractors that were ARCHIVED earlier (same specialty and email, or name) and leaves
+        // them archived. In the popup that would say "added" while nothing on the fault screen changes, so say what really happened instead.
+        if ($request->wantsJson() && $provider->trashed()) {
+            return response()->json([
+                'ok' => false,
+                'message' => $provider->name . ' is already in your contractor list but has been archived. Restore them from the contractor list, then add the field of work there.',
+            ], 422);
+        }
         // AT-319 — capture the supplier's type(s) alongside the legacy single specialty.
         $this->syncServiceTypes($provider, $this->postedTypeCodes($request, $agencyId));
 
