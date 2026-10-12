@@ -706,8 +706,8 @@ See the build report for exactly what ran and what could not run pre-merge (the
 Other Agency Stock is **another agency's listing**. §2 keeps it out of `OFF_MARKET_STATUSES` on purpose — it must stay
 eligible for Core Matches and viewing packs / share links, and §5c says that is the ONLY use of it. That did not make it
 the agency's own stock, but every "on market" count and chase did treat it as such (found 12 Oct on QA1: the On Market
-tile counted it; 42 "Upload signed mandate / owner ID / proof of ownership" tasks had been minted for the 8 imported
-listings). Fix: one definition, used everywhere the agency's own stock is counted or worked on.
+tile counted it; 42 "Upload signed mandate / owner ID / proof of ownership" tasks had been minted for the 14 imported
+listings, 8 live and 6 archived; ids in `/tmp/at453-oas-mandate-tasks-2026-10-12.txt`). Fix: one definition, used everywhere the agency's own stock is counted or worked on.
 
 **The definition.** `Property::scopeOwnStock()` / `Property::isOwnStock()` — every property whose status is not
 `other_agency_stock` (NULL-safe). Chain it wherever a figure or a chore means "OUR stock". Core Matches
