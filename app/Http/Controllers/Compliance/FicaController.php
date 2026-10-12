@@ -166,9 +166,27 @@ class FicaController extends Controller
             'contact_id' => 'required|exists:contacts,id',
             // #11 — inline add-email: a contact with no email on file can be given one on the spot.
             'email'      => 'nullable|email',
+            // Quick Links W1 — sent from the contact page's FICA chip: come back to that contact, not the Compliance list
+            // (a default agent holds compliance.fica.send but not access_compliance, so the list would 403 them).
+            'return_to'  => 'nullable|in:contact',
         ]);
 
+        // Scoped lookup (Agency/Branch/Contact global scopes): a contact the user cannot see is a 404, not a send.
         $contact = Contact::findOrFail($validated['contact_id']);
+        $fromContact = ($validated['return_to'] ?? null) === 'contact';
+        $fail = fn (string $msg) => $fromContact
+            ? redirect()->route('corex.contacts.show', ['contact' => $contact, 'tab' => 'fica'])->with('error', $msg)
+            : back()->withErrors(['contact_id' => $msg])->withInput();
+
+        // Quick Links W1 — one live request per contact: a request still waiting on the client (link not expired) is
+        // resent, never duplicated. An EXPIRED waiting draft does not block a fresh request.
+        $liveDraft = FicaSubmission::where('contact_id', $contact->id)
+            ->where('status', 'draft')
+            ->where(fn ($q) => $q->whereNull('token_expires_at')->orWhere('token_expires_at', '>', now()))
+            ->exists();
+        if ($liveDraft) {
+            return $fail('A FICA request is already waiting on ' . $contact->full_name . '. Use Resend instead of sending a second one.');
+        }
 
         // #11 (compliance) — the contact must have an email to receive the secure verification link.
         // If the selected contact has none, accept one supplied inline, PERSIST it to the contact
@@ -182,13 +200,13 @@ class FicaController extends Controller
         }
 
         if (! $contact->email) {
-            return back()->withErrors(['contact_id' => 'This contact has no email address. Add one below to send the FICA request.'])->withInput();
+            return $fail('This contact has no email address. Add one below to send the FICA request.');
         }
 
         $agencyId = Auth::user()->effectiveAgencyId() ?? $contact->agency_id;
 
         if (! $agencyId) {
-            return back()->withErrors(['contact_id' => 'Cannot determine the agency for this FICA request. Pick an active agency in the switcher and try again.'])->withInput();
+            return $fail('Cannot determine the agency for this FICA request. Pick an active agency in the switcher and try again.');
         }
 
         $submission = FicaSubmission::create([
@@ -196,7 +214,7 @@ class FicaController extends Controller
             'agency_id'        => $agencyId,
             'requested_by'     => Auth::id(),
             'token'            => Str::random(64),
-            'token_expires_at' => now()->addDays(14),
+            'token_expires_at' => now()->addDays($this->linkDays((int) $agencyId)),
             'status'           => 'draft',
         ]);
 
@@ -204,8 +222,24 @@ class FicaController extends Controller
             new FicaRequestMail($submission, Auth::user())
         );
 
+        if ($fromContact) {
+            return redirect()->route('corex.contacts.show', ['contact' => $contact, 'tab' => 'fica'])
+                ->with('success', "FICA request sent to {$contact->full_name}.");
+        }
+
         return redirect()->route('compliance.fica.index')
             ->with('success', "FICA request sent to {$contact->full_name}.");
+    }
+
+    /**
+     * How long (days) the secure link in a FICA request email stays valid — the agency's own setting
+     * (Settings → FICA, Setup Wizard → Compliance), default 14. Quick Links W1, .ai/specs/quick-links.md §8-4.
+     */
+    private function linkDays(int $agencyId): int
+    {
+        $agency = \App\Models\Agency::withoutGlobalScopes()->find($agencyId);
+
+        return $agency ? $agency->ficaLinkDays() : 14;
     }
 
     /**
@@ -851,7 +885,7 @@ class FicaController extends Controller
             'status'           => 'corrections_requested',
             'reviewer_notes'   => $validated['reviewer_notes'],
             'token'            => Str::random(64),
-            'token_expires_at' => now()->addDays(14),
+            'token_expires_at' => now()->addDays($this->linkDays((int) $submission->agency_id)),
         ]);
 
         if ($submission->contact && $submission->contact->email) {
@@ -867,7 +901,7 @@ class FicaController extends Controller
     /**
      * Resend FICA link email (draft/corrections_requested only, online intake only).
      */
-    public function resend(FicaSubmission $submission)
+    public function resend(Request $request, FicaSubmission $submission)
     {
         $this->authorizeAgency($submission);
         abort_if($submission->isWetInk(), 400, 'Cannot resend wet-ink submissions.');
@@ -875,7 +909,7 @@ class FicaController extends Controller
 
         $submission->update([
             'token'            => Str::random(64),
-            'token_expires_at' => now()->addDays(14),
+            'token_expires_at' => now()->addDays($this->linkDays((int) $submission->agency_id)),
         ]);
 
         FicaResendLog::create([
@@ -888,6 +922,13 @@ class FicaController extends Controller
             Mail::to($submission->contact->email)->send(
                 new FicaRequestMail($submission, Auth::user())
             );
+        }
+
+        // Quick Links W1 — resent from the contact page's chip: return there (an agent without access_compliance cannot
+        // open the Compliance list); every other caller keeps the old back() behaviour.
+        if ($request->input('return_to') === 'contact' && $submission->contact) {
+            return redirect()->route('corex.contacts.show', ['contact' => $submission->contact, 'tab' => 'fica'])
+                ->with('success', "FICA link resent to {$submission->contact->email}.");
         }
 
         return back()->with('success', "FICA link resent to {$submission->contact->email}.");

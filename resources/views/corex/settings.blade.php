@@ -102,11 +102,9 @@
             [
                 'label' => 'Modules',
                 'items' => array_values(array_filter([
-                    // Feature Registry — the on/off switchboard for every module.
-                    $can('agency_features.manage')
-                        ? ['key'=>'features', 'label'=>'Features (on/off)', 'type'=>'section', 'keywords'=>'feature registry modules enable disable turn on off capability toggle rentals payroll compliance']
-                        : null,
-                    ['key'=>'feature-documents',     'label'=>'Documents',             'type'=>'section', 'keywords'=>'docuperfect named fields'],
+                    // The on/off switchboard for every module is no longer a Settings section: it is its own page,
+                    // /corex/features (sidebar → Features). .ai/specs/features-page.md §5.
+                    ['key'=>'feature-documents',    'label'=>'Documents',             'type'=>'section', 'keywords'=>'docuperfect named fields'],
                     ['key'=>'feature-rentals',       'label'=>'Rentals',               'type'=>'section', 'keywords'=>'rental document types reminders'],
                     $can('rental_applications.manage_settings')
                         ? ['key'=>'rental-applications-settings', 'label'=>'Rental Applications', 'type'=>'link', 'href'=>route('corex.settings.rental-applications.edit'), 'keywords'=>'tenant application qualifying formula affordability ro co reviewer override authoriser decline email reopen link expiry highlighter matched properties approval email max maximum send limit']
@@ -1465,6 +1463,30 @@
                             @endforeach
                         </div>
                         <button type="submit" class="corex-btn-primary text-xs">Save MLROs</button>
+                    </form>
+                </div>
+            </div>
+
+            {{-- Quick Links W1 — FICA request link life + "expiring" threshold (per agency). Spec: quick-links.md §8-4. --}}
+            <div x-data="{ open: false }" class="rounded-md overflow-hidden mt-3" style="border:1px solid var(--border);">
+                <button type="button" @click="open = !open"
+                        class="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold transition-colors hover:opacity-80"
+                        style="background:var(--surface-2); color:var(--text-primary);">
+                    <span>FICA requests &mdash; link life &amp; expiry</span>
+                    <svg class="w-4 h-4 transition-transform duration-150" :class="open && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+                </button>
+                <div x-show="open" x-cloak x-transition class="p-4" style="border-top:1px solid var(--border); background:var(--surface);">
+                    <form method="POST" action="{{ route('corex.settings.fica-request.save') }}">
+                        @csrf
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">FICA link is valid for (days)</label>
+                        <input type="number" min="1" max="90" name="fica_link_days" value="{{ $agency?->ficaLinkDays() ?? 14 }}"
+                               class="w-32 rounded-md px-3 py-2 text-sm mb-1" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        <p class="text-xs mb-3" style="color:var(--text-muted);">How long the secure link in a FICA request email works. After this the client has to be sent a fresh link.</p>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Show FICA as &ldquo;expiring&rdquo; after (months)</label>
+                        <input type="number" min="1" max="60" name="fica_expiring_after_months" value="{{ $agency?->ficaExpiringAfterMonths() ?? 11 }}"
+                               class="w-32 rounded-md px-3 py-2 text-sm mb-1" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        <p class="text-xs mb-3" style="color:var(--text-muted);">Months after a FICA is approved before the contact shows &ldquo;FICA expiring&rdquo; and agents are prompted to send a new form.</p>
+                        <button type="submit" class="corex-btn-primary text-xs">Save FICA Request Settings</button>
                     </form>
                 </div>
             </div>
@@ -4096,15 +4118,7 @@
             ])
         </div>
 
-        {{-- ============================================================
-             FEATURES — per-agency feature registry (module on/off).
-             Spec: .ai/specs/corex-feature-registry.md §6.4.
-             ============================================================ --}}
-        @if ($can('agency_features.manage'))
-        <div x-show="activeSection === 'features'" x-cloak class="p-6">
-            @include('corex.settings._features')
-        </div>
-        @endif
+        {{-- FEATURES (module on/off) moved to its own page — see corex.features.index. Spec: features-page.md --}}
 
         {{-- ============================================================
              SYSTEM SETTINGS TAB

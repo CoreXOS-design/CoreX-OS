@@ -15,7 +15,8 @@ Source of truth for the extension: `public/chrome-extension/portal-capture/` (se
 ## 2. Pillars
 Tooling for ingest only. Capture/pull still go through the existing token-authenticated ingest endpoints,
 which already call `TrackedPropertyMatchOrCreateService::matchOrCreate()` (non-negotiable #10). **No
-server-side change in this ticket.**
+server-side change for the store/restyle work itself.** A separate permission audit the same day
+(§9) did add server-side gates to the capture endpoints; those are independent of the extension build.
 
 ## 3. Scope (exactly this, nothing else)
 1. **Logo/icon** — toolbar + store icons (16/48/128) generated from the current CoreX logo, `CoreX Logo.png`
@@ -107,3 +108,24 @@ transferred to third parties. A public **privacy policy URL is mandatory** — s
 Modify: `public/chrome-extension/portal-capture/{manifest.json,popup.html,popup.js,styles.css,icons/*}`.
 Create: `scripts/build-extension-zip.sh`, this spec.
 Not in the setup wizard: no agency setting is added (theme is a per-device UI preference).
+
+## 9. Server-side capture gating (permission audit, 2026-10-12)
+Found while auditing Role Manager / features / settings before starting AT-449. The extension authenticates
+with a token, but none of its capture endpoints checked what that user may *do* — so a user who cannot open
+the screen a capture feeds could still push records into it. Fixed (no extension change needed):
+
+| Endpoint | Now requires |
+|---|---|
+| `POST /api/v1/deeds-capture`, `/api/v1/tva-contact-capture`, `/api/v1/tva-company-directors` | `deeds_capture.access` (same key as the Deeds Capture screen) |
+| `POST /portal-captures/ingest` | `access_presentations` + `presentations` feature on; `presentation_id` must belong to the caller's own agency (it previously only had to exist) |
+
+Business effect: an agent whose role lacks Deeds Capture access can no longer send deeds/TVA records through
+the extension; an agency with Presentations switched off no longer accepts presentation captures.
+
+**Deliberately NOT gated (needs Johan's call):** `POST /api/prospecting/import`, `GET /api/prospecting/check-search`
+and `POST /api/properties/pull-from-portal` are shared with the mobile app and registered twice (v1 + legacy);
+adding a permission there could change mobile behaviour. They keep token + `deny_assistant_property_write` only.
+`GET corex/extension/download` is any logged-in user by design — the same files are already served from `public/`,
+so gating the zip would protect nothing.
+
+Tests: `tests/Feature/Prospecting/ExtensionCaptureEndpointGatingTest.php` (8 cases).

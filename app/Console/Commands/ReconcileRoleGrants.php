@@ -42,6 +42,7 @@ class ReconcileRoleGrants extends Command
         {--roles=agent : Comma-separated closed-include roles to reconcile down to config}
         {--apply : Soft-delete the over-grants (default = dry-run report only)}
         {--keys= : Comma-separated permission keys — restrict the strip to ONLY these keys (e.g. AT-283 deal-register/settlement scoping). Default: every off-config over-grant.}
+        {--except-agencies= : Comma-separated agency IDs to LEAVE UNTOUCHED (e.g. 1 = Home Finders Coastal). The global template and every other agency are still reconciled.}
         {--snapshot= : Path to write the rollback snapshot JSON (default: storage/app/permission-reconcile/reconcile-<timestamp>.json)}
         {--rollback= : Restore a prior reconcile from its snapshot JSON — one-command undo}';
 
@@ -76,6 +77,14 @@ class ReconcileRoleGrants extends Command
         if (!empty($keyFilter)) {
             $this->warn('Key filter active — restricting the strip to: ' . implode(', ', $keyFilter));
         }
+        // Agencies to leave exactly as they are (their grants may be deliberately wider than config).
+        $exceptAgencies = array_values(array_filter(
+            array_map('intval', explode(',', (string) $this->option('except-agencies'))),
+            fn (int $id) => $id > 0
+        ));
+        if (!empty($exceptAgencies)) {
+            $this->warn('Leaving these agencies UNTOUCHED: ' . implode(', ', $exceptAgencies));
+        }
         $planRows    = [];   // flat list of over-grant rows to remove
         $grandTotal  = 0;
 
@@ -108,6 +117,11 @@ class ReconcileRoleGrants extends Command
             $this->info("Role: {$role}  (config include = " . count($expected) . ' keys)');
 
             foreach ($byAgency as $agency => $agencyRows) {
+                if ($agency !== 'NULL' && in_array((int) $agency, $exceptAgencies, true)) {
+                    $this->line("  agency {$agency}: " . count($agencyRows) . ' grants — EXCLUDED, left untouched.');
+                    continue;
+                }
+
                 $over = array_filter($agencyRows, fn ($r) => !in_array($r->permission_key, $expected, true)
                     && (empty($keyFilter) || in_array($r->permission_key, $keyFilter, true)));
                 $ctx  = $agency === 'NULL' ? 'template (agency NULL)' : "agency {$agency}";
@@ -158,6 +172,7 @@ class ReconcileRoleGrants extends Command
             'created_at' => now()->toIso8601String(),
             'command'    => 'corex:reconcile-role-grants',
             'roles'      => $requested,
+            'except_agencies' => $exceptAgencies,
             'count'      => $grandTotal,
             'ids'        => array_map(fn ($r) => $r['id'], $planRows),
             'rows'       => $planRows,

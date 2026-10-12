@@ -140,8 +140,15 @@ On agency creation, provision its role set. Use the events catalogue:
 - Subscribe a listener to the agency-created event (add `AgencyCreated` to the
   catalogue if absent — confirm before inventing).
 - Listener calls a `RoleProvisioningService::provisionForAgency(Agency)` that
-  clones the template non-owner roles + their `role_defaults` grants from
-  `config/corex-permissions.php` into the new agency.
+  clones the template non-owner ROLES into the new agency and grants each role its
+  `role_defaults` from `config/corex-permissions.php` (**amended 2026-10-12, Johan:**
+  grants come from the config, never from the template's `role_permissions` rows —
+  those had drifted far past the config. admin = every permission except the
+  platform-owner-only `exclude` list; every other role = exactly its minimal `include`
+  list; a role with no `role_defaults` entry = no grants. `.view` keys get their data
+  scope from `scope_defaults` ('all' for `shared_scope_modules`), exactly as
+  `corex:sync-permissions` does. A new agency stays at these defaults until its admin
+  changes them in Role Manager.)
 - Idempotent: re-running must not duplicate.
 
 `SyncPermissions` (`corex:sync-permissions`):
@@ -304,3 +311,22 @@ New-letter picker (`letterCandidatesFor()`, direct role-row read) and in the use
 (`hasPermission`, so owner roles keep it). Backfill = agent/branch_manager/admin everywhere + roles of
 everyone in the old picker + roles of everyone with a letter on record; template rows get only the three
 practitioner roles. Spec: ppra-ffc-employment-letter.md §17.
+
+---
+
+## Appendix — Permission audit, 2026-10-12 (AT-449 pre-flight)
+
+Read-only audit of Role Manager ↔ feature registry ↔ settings ↔ code ↔ the QA2 database. Clean: the feature
+registry validates (47 features), every nav permission / global flag / route prefix resolves, every gated sidebar
+item is guarded, Role Manager queries are all agency-scoped. Findings and what was done:
+
+| # | Finding | Status |
+|---|---|---|
+| 1 | Five keys enforced in code but undefined in `config/corex-permissions.php` (`shared_drive.drives.{create,create_restricted,manage}`, `branches.self_assign_managed`, typo `commercial_evaluations.edit` → `commercial_evals.edit`) — Role Manager could not grant them, so only the platform owner passed | **Fixed** in code; guarded by `EnforcedPermissionKeysAreDefinedTest` |
+| 2 | Extension capture endpoints had no permission/feature check; `presentation_id` accepted another agency's presentation | **Fixed** — see `at449-chrome-extension-store-restyle.md` §9 |
+| 3 | Three permission keys had invalid `type` values (`use_ellie_voice`, `use_property_image_ai` = `feature`; `billing.view` = `view`) — Role Manager already treated them as access-style, so behaviour is unchanged | **Fixed** (label only) |
+| 4 | Role grants far beyond `role_defaults`: `office_admin` ~312 live grants vs 6 in config (incl. Role Manager, payroll, impersonation), `agent` +120, `branch_manager` +61, `viewer` +7–10 — copied into every new agency from the global template | **Fixed for NEW agencies (Johan's ruling, 2026-10-12):** "each role should get bare minimum and admin should get all, and until an admin gives permissions they should stay like that." `RoleProvisioningService` now builds a new agency's grants from config `role_defaults` (§6 below), not from the template's drifted grant rows. **Existing agencies are deliberately untouched** — HFC's wider access looks intentional (AT-118) and ~half the extra keys are still read by code, so `corex:reconcile-role-grants` was NOT run; any clean-up of an existing agency is a separate decision for Johan. |
+| 5 | Global template roles (`agency_id` NULL) duplicated on 2026-09-27 (a "Fresh Agency No Template" debug session) → every template role and grant doubled; `roles_name_agency_unique` cannot prevent it because MySQL treats NULLs as distinct. `RoleProvisioningService` already de-duplicates, so new agencies were unaffected | Data clean-up pending DB approval (soft-delete the newer copies; reversible) |
+| 6 | QA2 DB behind: 3 pending migrations, `viewing_feedback_edit.view` not synced, 8 stale keys (`access_agencies`, `manage_agencies`, `access_importer`, `importer.import_agents`, `importer.import_listings`, `confirm_properties`, `send_agent_invites`, `ad_manager.all_agents`) with zero grants and no code references | Pending DB approval: `migrate`, then `corex:sync-permissions --prune --merge-defaults` |
+
+**`corex:reconcile-role-grants --except-agencies=<ids>` (2026-10-12).** Leaves the listed agencies completely untouched (e.g. `1` = Home Finders Coastal) while reducing the global template and every other agency to config. The exclusion is recorded in the rollback snapshot. Used by `reduce_roles.sh`, which lists the agencies first and aborts if an agency named like Home Finders is not protected (ids can differ per database). Test: `ReconcileRoleGrantsTest::test_except_agencies_leaves_those_agencies_untouched_and_reduces_the_rest`.
