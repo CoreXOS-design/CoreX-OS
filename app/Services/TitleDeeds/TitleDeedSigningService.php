@@ -45,7 +45,7 @@ class TitleDeedSigningService
         }
 
         $mail = new TitleDeedSignLinkMail(
-            $link->collector_name, $deed->property_display, $link->url() ?? '', $link->expires_at->format('d M Y H:i'), $this->agencyName($deed), $by->name,
+            $link->collector_name, $deed->identified_as, $link->url() ?? '', $link->expires_at->format('d M Y H:i'), $this->agencyName($deed), $by->name,
         );
         try {
             $result = app(SignedDocumentDistributionService::class)->sendGenericMail($email, $mail, $by);
@@ -75,7 +75,7 @@ class TitleDeedSigningService
                 : 'Enter a mobile number for ' . $link->collector_name . ' first.');
         }
 
-        $text = 'Hi ' . $this->firstName($link->collector_name) . ', please confirm you are collecting the title deed for ' . $deed->property_display
+        $text = 'Hi ' . $this->firstName($link->collector_name) . ', please confirm you are collecting the title deed for ' . $deed->identified_as
             . ' at ' . $this->agencyName($deed) . ' by signing here: ' . $link->url() . ' (works once, until ' . $link->expires_at->format('H:i') . ').';
 
         $event = $this->ledger($deed, $link, TitleDeedEvent::CHANNEL_WHATSAPP, TitleDeedDestinations::maskPhone($digits), TitleDeedEvent::STATUS_PREPARED, $by, null,

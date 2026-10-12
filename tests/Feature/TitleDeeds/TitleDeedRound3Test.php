@@ -424,7 +424,7 @@ final class TitleDeedRound3Test extends TitleDeedTestCase
         $deed = $this->deed();
         $deed->forceFill(['status' => TitleDeed::STATUS_COLLECTED, 'collected_at' => now(), 'collected_by_name' => 'Thandi Mkhize'])->save();
 
-        $html = $this->actingAs($this->admin)->get(route('title-deeds.index'))->assertOk()->getContent();
+        $html = $this->actingAs($this->admin)->get(route('title-deeds.index', ['show' => ['collected']]))->assertOk()->getContent();
         $this->assertStringContainsString('>Open</a>', $html);
         $this->assertStringNotContainsString('var(--brand-icon)">Owner notified', $html, 'a status never wears the link colour');
     }
@@ -530,7 +530,7 @@ final class TitleDeedRound3Test extends TitleDeedTestCase
         $deed = $this->deed();
 
         $html = $this->actingAs($this->admin)->get(route('title-deeds.show', $deed->id))->assertOk()->getContent();
-        $header = substr($html, (int) strpos($html, 'corex-page-banner'), 6000);
+        $header = substr($html, (int) strpos($html, 'corex-page-banner'), 16000);
         $header = substr($header, 0, (int) strpos($header, 'Archive this title deed'));
         preg_match_all('/<(?:a|button)\b(?![^>]*data-confirm-go)[^>]*corex-btn-primary[^>]*>/', $header, $solid);
         $this->assertCount(1, $solid[0], 'one solid button in the header: the next step - ' . json_encode($solid[0]));

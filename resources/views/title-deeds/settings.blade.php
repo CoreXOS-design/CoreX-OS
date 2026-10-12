@@ -125,6 +125,20 @@
             @endforeach
         </section>
 
+        {{-- ═════ Reference numbers ═════ --}}
+        <section class="{{ $card }}" style="{{ $cardStyle }}">
+            <h2 class="text-base font-bold pb-2" style="color: var(--text-primary);">Reference numbers</h2>
+            <div class="py-4 flex flex-col md:flex-row md:items-start md:justify-between gap-3" style="border-top: 1px solid var(--border);" data-setting="reference_prefix">
+                <div class="md:max-w-md">
+                    <label for="s-reference_prefix" class="text-sm font-semibold" style="color: var(--text-primary);">Reference prefix</label>
+                    <div class="text-xs mt-0.5" style="color: var(--text-secondary);">Printed on every title deed record, e.g. TD-00042. Changing it only affects new deeds.</div>
+                    <div class="text-xs mt-1" style="color: var(--text-muted);">The next deed logged will be {{ $nextReference }}.</div>
+                    @error('reference_prefix')<div class="text-xs mt-1 font-medium" style="color: var(--ds-crimson);" role="alert">{{ $message }}</div>@enderror
+                </div>
+                <input id="s-reference_prefix" type="text" name="reference_prefix" maxlength="10" required value="{{ old('reference_prefix', $values['reference_prefix']) }}" class="w-32 {{ $input }} uppercase" style="{{ $inputStyle }}" autocomplete="off">
+            </div>
+        </section>
+
         {{-- ═════ Storage locations ═════ --}}
         <section class="{{ $card }} pb-4" style="{{ $cardStyle }}">
             <h2 class="text-base font-bold pb-2" style="color: var(--text-primary);">Storage locations</h2>

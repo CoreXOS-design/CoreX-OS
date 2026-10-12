@@ -80,7 +80,7 @@ class TitleDeedService
             $this->syncOwners($deed, $owners);
 
             TitleDeedAuditLog::record($deed, TitleDeedAuditLog::EVENT_CREATED,
-                'Title deed logged for ' . $deed->property_display . ' (' . $owners->count() . ' owner' . ($owners->count() === 1 ? '' : 's') . ')'
+                'Title deed ' . $deed->reference . ' logged for ' . $deed->property_display . ' (' . $owners->count() . ' owner' . ($owners->count() === 1 ? '' : 's') . ')'
                 . ($deal ? ' from deal ' . ($deal->deal_no ?: '#' . $deal->id) : '') . ($location ? ', kept at ' . $location->name : '') . '.',
                 null, ['owners' => $owners->pluck('name')->all(), 'received_at' => (string) $data['received_at'], 'deal_id' => $deal?->id], $user);
 
@@ -91,7 +91,7 @@ class TitleDeedService
             }
 
             return $deed->fresh();
-        });
+        }, 3);   // 3 attempts: a deadlock on a brand-new agency's FIRST reference number retries the whole create (nothing has been written outside it yet)
     }
 
     /** Edit. A collected deed accepts notes ONLY (the rest is the record of what happened). */

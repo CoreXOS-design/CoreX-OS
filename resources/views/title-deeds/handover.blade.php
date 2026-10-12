@@ -67,7 +67,7 @@
 
     <div class="rounded-md px-5 py-4 corex-page-banner">
         <a href="{{ route('title-deeds.show', $deed->id) }}" class="text-xs font-semibold" style="color: var(--brand-icon);">&larr; Back to the record</a>
-        <h1 class="text-base font-bold leading-tight mt-1" style="color: var(--text-primary);">Hand over: {{ $deed->property_display }}</h1>
+        <h1 class="text-base font-bold leading-tight mt-1" style="color: var(--text-primary);">Hand over: {{ $deed->reference }} &mdash; {{ $deed->property_display }}</h1>
         <div class="text-sm" style="color: var(--text-secondary);">{{ collect($owners)->pluck('name')->implode(', ') }}</div>
     </div>
 

@@ -48,6 +48,7 @@ class TitleDeedSetting extends Model
     public const DEFAULT_AUTHORITY_LETTER_MODE = self::MODE_OPTIONAL;
     public const DEFAULT_COLLECTOR_ID_PHOTO_MODE = self::MODE_NOT_USED;
     public const DEFAULT_SIGN_ON_SCREEN_ENABLED = true;
+    public const DEFAULT_REFERENCE_PREFIX = 'TD';
     public const DEFAULT_PIN_LOCK_ATTEMPTS = 5;
     public const DEFAULT_CONSENT_VALIDITY_MINUTES = 60;
     public const DEFAULT_REMINDER_DAYS = 14;
@@ -73,6 +74,7 @@ class TitleDeedSetting extends Model
         'max_reminders' => 'int',
         'contact_changed_block_days' => 'int',
         'notify_listing_agent' => 'bool',
+        'reference_prefix' => 'prefix',
         'sign_by_link_enabled' => 'bool',
         'signing_link_minutes' => 'int',
     ];
@@ -89,6 +91,7 @@ class TitleDeedSetting extends Model
         'sign_on_screen_enabled' => 'Sign on our screen',
         'sign_by_link_enabled' => 'Sign on their own phone from a link or QR',
         'notify_listing_agent' => "Tell the deal's listing agent when a deed is collected",
+        'reference_prefix' => 'Reference prefix',
         'pin_lock_attempts' => 'Wrong PIN attempts before the PIN locks',
         'consent_validity_minutes' => "How long an owner's confirmation lasts (minutes)",
         'reminder_days' => 'Remind the owners every (days)',
@@ -107,6 +110,7 @@ class TitleDeedSetting extends Model
             $type === 'bool' => ($value === true || $value === 1 || $value === '1' || $value === 'yes') ? 'Yes' : 'No',
             $type === 'proof' => self::PROOF_MODES[$value] ?? (string) $value,
             $type === 'mode' => self::REP_MODES[$value] ?? (string) $value,
+            $type === 'prefix' => (string) $value,
             default => (string) $value,
         };
     }
@@ -126,7 +130,7 @@ class TitleDeedSetting extends Model
         'pin_mode', 'signature_mode', 'collector_id_photo_mode', 'authority_letter_mode', 'sign_on_screen_enabled',
         'representatives_allowed', 'rep_without_pin_mode', 'phone_consent_allowed',
         'pin_lock_attempts', 'consent_validity_minutes', 'reminder_days', 'max_reminders', 'contact_changed_block_days',
-        'notify_listing_agent', 'sign_by_link_enabled', 'signing_link_minutes',
+        'notify_listing_agent', 'sign_by_link_enabled', 'signing_link_minutes', 'reference_prefix',
     ];
 
     protected $casts = [
@@ -243,6 +247,14 @@ class TitleDeedSetting extends Model
     public static function signByLinkEnabledFor(?int $agencyId): bool
     {
         return (bool) static::value($agencyId, 'sign_by_link_enabled', self::DEFAULT_SIGN_BY_LINK_ENABLED);
+    }
+
+    /** The prefix printed on new deeds ("TD" in "TD-00042"). Changing it only affects deeds logged afterwards. */
+    public static function referencePrefixFor(?int $agencyId): string
+    {
+        $prefix = \App\Services\TitleDeeds\TitleDeedReferenceService::cleanPrefix((string) static::value($agencyId, 'reference_prefix', self::DEFAULT_REFERENCE_PREFIX));
+
+        return $prefix ?? self::DEFAULT_REFERENCE_PREFIX;
     }
 
     public static function signingLinkMinutesFor(?int $agencyId): int
