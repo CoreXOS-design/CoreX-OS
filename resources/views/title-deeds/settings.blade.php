@@ -48,7 +48,7 @@
               screen: @js($bool('sign_on_screen_enabled')),
               link: @js($bool('sign_by_link_enabled')),
               notify: @js($bool('notify_listing_agent')),
-          })">
+          }">
         @csrf
 
         {{-- ═════ To collect a title deed ═════ --}}
