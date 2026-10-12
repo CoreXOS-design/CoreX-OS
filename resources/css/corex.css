@@ -3601,3 +3601,30 @@ html.dark .corex-template-card {
     .cx-action-row > *, .cx-action-row > span > span.inline-block { width: 100%; }
     .cx-action-row .corex-btn-primary, .cx-action-row .corex-btn-outline, .cx-action-row .corex-btn-danger { width: 100%; }
 }
+
+/* The legacy ".hfc-card button[type=submit]" rule (blue fill, 10px 18px, !important) painted every SUBMIT button inside a card differently from the
+   type=button ones beside it - the real reason "Save draft" was taller than "Save and send to owner". Inside the two pages every corex button is the same. */
+html body .cx-equal-btns button.corex-btn-primary,
+html body .cx-equal-btns button.corex-btn-outline,
+html body .cx-equal-btns button.corex-btn-danger,
+html body .cx-equal-btns a.corex-btn-primary,
+html body .cx-equal-btns a.corex-btn-outline,
+html body .cx-equal-btns a.corex-btn-danger {
+    min-height: 2.25rem !important;
+    padding: 0.375rem 0.875rem !important;
+    font-size: 0.8125rem !important;
+    line-height: 1.25rem !important;
+    border-radius: 0.5rem !important;
+    border-width: 1px !important;
+    border-style: solid !important;
+    box-sizing: border-box !important;
+}
+html body .cx-equal-btns button.corex-btn-primary[type="submit"],
+html body .cx-equal-btns button.corex-btn-danger[type="submit"] { border-color: transparent !important; font-weight: 600 !important; }
+html body .cx-equal-btns button.corex-btn-outline[type="submit"] {
+    background: transparent !important;
+    border-color: var(--border) !important;
+    color: var(--text-secondary) !important;
+    font-weight: 500 !important;
+}
+html body .cx-equal-btns button.corex-btn-outline[type="submit"]:hover { background: var(--surface-2) !important; border-color: var(--border-hover) !important; color: var(--text-primary) !important; }
