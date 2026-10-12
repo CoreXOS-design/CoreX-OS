@@ -15,13 +15,13 @@
     $userId = (int) auth()->id();
     $th = 'px-4 py-3 text-xs font-semibold uppercase tracking-wider text-left';
     // A sortable header: a worded link that keeps every other query parameter (ticks, filters, the other sections' sort and page).
-    $sortLink = function (string $field, string $label, string $align = 'left') use ($sec, $suffix, $th) {
+    $sortLink = function (string $field, string $label, string $align = 'left', bool $wide = false) use ($sec, $suffix, $th) {
         $current = $sec['sort'] === $field;
         $next = ($current && $sec['dir'] === 'asc') ? 'desc' : 'asc';
         $url = request()->fullUrlWithQuery(['sort_' . $suffix => $field, 'dir_' . $suffix => $next, 'page_' . $suffix => null, 'focus' => null]);
         $arrow = $current ? ($sec['dir'] === 'asc' ? ' ▲' : ' ▼') : '';
 
-        return '<th class="' . $th . ($align === 'right' ? ' text-right' : '') . '" style="color: var(--text-muted);" aria-sort="' . ($current ? ($sec['dir'] === 'asc' ? 'ascending' : 'descending') : 'none') . '">'
+        return '<th class="' . $th . ($align === 'right' ? ' text-right' : '') . ($wide ? ' hidden md:table-cell' : '') . '" style="color: var(--text-muted);" aria-sort="' . ($current ? ($sec['dir'] === 'asc' ? 'ascending' : 'descending') : 'none') . '">'
             . '<a href="' . e($url) . '" class="no-underline hover:underline" style="color: inherit;">' . e($label) . $arrow . '</a></th>';
     };
 @endphp
@@ -40,16 +40,16 @@
                     <tr style="background: var(--surface-2);">
                         {!! $sortLink('ref', 'Ref') !!}
                         {!! $sortLink('property', 'Property') !!}
-                        <th class="{{ $th }}" style="color: var(--text-muted);">Owner(s)</th>
-                        {!! $sortLink('agent', 'Agent') !!}
-                        {!! $sortLink('received', 'Received') !!}
+                        <th class="{{ $th }} hidden md:table-cell" style="color: var(--text-muted);">Owner(s)</th>
+                        {!! $sortLink('agent', 'Agent', 'left', true) !!}
+                        {!! $sortLink('received', 'Received', 'left', true) !!}
                         @if($key === 'agency')
-                            {!! $sortLink('status', 'Status') !!}
-                            {!! $sortLink('waiting', 'Days waiting', 'right') !!}
+                            {!! $sortLink('status', 'Status', 'left', true) !!}
+                            {!! $sortLink('waiting', 'Days waiting', 'right', true) !!}
                         @elseif($key === 'collected')
                             {!! $sortLink('collected', 'Collected') !!}
                         @else
-                            {!! $sortLink('status', 'Was') !!}
+                            {!! $sortLink('status', 'Was', 'left', true) !!}
                         @endif
                         <th class="{{ $th }} text-right" style="color: var(--text-muted);">What to do</th>
                     </tr>
@@ -57,24 +57,31 @@
                 <tbody>
                     @forelse($deeds as $d)
                     <tr style="border-top: 1px solid var(--border); cursor: pointer;" class="hover:opacity-90" data-td-row="{{ $d->id }}" @click="rowClick($event, @js(route('title-deeds.show', $d->id)))">
-                        <td class="px-4 py-3 whitespace-nowrap font-semibold tabular-nums" style="color: var(--text-primary);" data-td-ref>{{ $d->reference ?: '—' }}</td>
+                        <td class="px-3 md:px-4 py-3 whitespace-nowrap font-semibold tabular-nums" style="color: var(--text-primary);" data-td-ref>{{ $d->reference ?: '—' }}</td>
                         <td class="px-4 py-3">
                             <a href="{{ route('title-deeds.show', $d->id) }}" class="font-medium no-underline hover:underline" style="color: var(--text-primary);">{{ $d->property_display }}</a>
+                            {{-- On a phone the columns that do not fit move under the property name. --}}
+                            <div class="md:hidden text-xs mt-0.5" style="color: var(--text-secondary);">
+                                {{ $d->owners->map->display_name->implode(', ') ?: '—' }}
+                                @if($key === 'agency') &middot; {{ $d->status_label }} &middot; {{ $d->days_waiting ?? 0 }} {{ ($d->days_waiting ?? 0) === 1 ? 'day' : 'days' }} waiting
+                                @elseif($key === 'archived') &middot; was {{ strtolower($d->status_label) }}
+                                @endif
+                            </div>
                         </td>
-                        <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $d->owners->map->display_name->implode(', ') ?: '—' }}</td>
-                        <td class="px-4 py-3">{{ $d->agent?->name ?? '—' }}</td>
-                        <td class="px-4 py-3 whitespace-nowrap">{{ $d->received_at?->format('d M Y') }}</td>
+                        <td class="px-4 py-3 hidden md:table-cell" style="color: var(--text-secondary);">{{ $d->owners->map->display_name->implode(', ') ?: '—' }}</td>
+                        <td class="px-4 py-3 hidden md:table-cell">{{ $d->agent?->name ?? '—' }}</td>
+                        <td class="px-4 py-3 whitespace-nowrap hidden md:table-cell">{{ $d->received_at?->format('d M Y') }}</td>
                         @if($key === 'agency')
-                            <td class="px-4 py-3 whitespace-nowrap" style="color: var(--text-primary);">{{ $d->status_label }}</td>
-                            <td class="px-4 py-3 text-right tabular-nums">{{ $d->days_waiting ?? '—' }}</td>
+                            <td class="px-4 py-3 whitespace-nowrap hidden md:table-cell" style="color: var(--text-primary);">{{ $d->status_label }}</td>
+                            <td class="px-4 py-3 text-right tabular-nums hidden md:table-cell">{{ $d->days_waiting ?? '—' }}</td>
                         @elseif($key === 'collected')
                             <td class="px-4 py-3" style="color: var(--text-secondary);">
                                 {{ $d->collected_at?->format('d M Y, H:i') }}@if($d->collected_by_name) &middot; {{ $d->collected_by_name }}@endif
                             </td>
                         @else
-                            <td class="px-4 py-3 whitespace-nowrap" style="color: var(--text-secondary);">{{ $d->status_label }}</td>
+                            <td class="px-4 py-3 whitespace-nowrap hidden md:table-cell" style="color: var(--text-secondary);">{{ $d->status_label }}</td>
                         @endif
-                        <td class="px-3 py-2 text-right whitespace-nowrap" data-row-actions>
+                        <td class="px-2 md:px-3 py-2 text-right whitespace-nowrap" data-row-actions>
                             @include('title-deeds._row-actions', ['d' => $d])
                         </td>
                     </tr>
