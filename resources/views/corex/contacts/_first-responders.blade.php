@@ -25,6 +25,9 @@
             (for the types of fault it covers). Nothing is sent by itself.
         </p>
     </div>
+    @if(session('owner_first_responders_saved') && session('success'))
+        <div class="rounded-md px-3 py-2 text-xs font-medium" style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);" data-owner-first-responders-flash>{{ session('success') }}</div>
+    @endif
     @if($ofProps->isNotEmpty())
         <div class="text-xs" data-owner-first-responders-properties>
             <strong>Their rental properties:</strong>

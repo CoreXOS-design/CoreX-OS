@@ -47,7 +47,9 @@ class RentalFirstRespondersController extends Controller
         $changed = $this->service->save($contact, $this->rows($request), $request->user(), $request->input('agreed_with'));
 
         return redirect()->to(route('corex.contacts.show', $contact) . '?tab=properties#owner-first-responders-panel')
-            ->with('success', $changed ? "This owner's default for faults: saved." : 'Nothing changed - the list is as it was.');
+            ->with('success', $changed ? "This owner's default for faults: saved." : 'Nothing changed - the list is as it was.')
+            // the contact page has no global flash area, so the owner panel shows this confirmation itself
+            ->with('owner_first_responders_saved', true);
     }
 
     /** The posted rows in the order they were shown. @return array<int, array<string, mixed>> */

@@ -268,7 +268,11 @@ final class FirstResponderTest extends TestCase
     {
         $this->actingAs($this->agent)->put(route('corex.contacts.first-responders.update', $this->landlord), [
             'responders' => [['supplier_id' => $this->ownerMan->id, 'fault_scope' => 'all', 'tell_mode' => 'inspect']],
-        ])->assertRedirect();
+        ])->assertRedirect()->assertSessionHas('owner_first_responders_saved', true);
+        $flash = $this->actingAs($this->agent)->withSession(['owner_first_responders_saved' => true, 'success' => "This owner's default for faults: saved."])
+            ->get(route('corex.contacts.show', $this->landlord) . '?tab=properties')->getContent();
+        $this->assertStringContainsString('data-owner-first-responders-flash', $flash);
+        $this->assertStringContainsString(e("This owner's default for faults: saved."), $flash);
         $this->assertSame(1, RentalFirstResponder::withoutGlobalScopes()->where('contact_id', $this->landlord->id)->count());
 
         $contactHtml = $this->actingAs($this->agent)->get(route('corex.contacts.show', $this->landlord))->assertOk()->getContent();
