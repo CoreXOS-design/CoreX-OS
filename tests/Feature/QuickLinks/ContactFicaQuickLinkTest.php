@@ -341,6 +341,29 @@ final class ContactFicaQuickLinkTest extends TestCase
         $this->assertStringNotContainsString('data-fica-send', $html);
     }
 
+    public function test_the_fica_tab_never_shows_view_or_pdf_to_someone_who_cannot_open_them(): void
+    {
+        $sub = FicaSubmission::unguarded(fn () => FicaSubmission::create([
+            'contact_id' => $this->contact->id, 'agency_id' => $this->agency->id, 'requested_by' => $this->agent->id,
+            'status' => 'approved', 'verified_at' => now()->subMonth(), 'token' => 'x', 'token_expires_at' => now()->addDay(),
+        ]));
+
+        // a default agent can send FICA forms but holds no access_compliance => the buttons would 403, so they are not shown
+        $this->assertFalse($this->agent->hasPermission('access_compliance'));
+        $html = $this->show($this->agent);
+        $this->assertStringContainsString('data-fica-quick-link="approved"', $html, 'the status itself is still shown');
+        $this->assertStringNotContainsString('data-fica-view', $html);
+        $this->assertStringNotContainsString(route('compliance.fica.pdf', $sub), $html);
+        $this->assertStringNotContainsString(route('compliance.fica.show', $sub), $html);
+
+        // compliance staff can open them, so they do see them
+        $this->assertTrue($this->admin->hasPermission('access_compliance'));
+        $html = $this->show($this->admin);
+        $this->assertStringContainsString('data-fica-view', $html);
+        $this->assertStringContainsString(route('compliance.fica.pdf', $sub), $html);
+        $this->assertStringContainsString(route('compliance.fica.show', $sub), $html);
+    }
+
     public function test_the_two_fica_settings_save_independently_and_reject_nonsense(): void
     {
         $this->actingAs($this->admin)->post(route('corex.settings.fica-request.save'), ['fica_link_days' => 21])->assertSessionHas('success');
