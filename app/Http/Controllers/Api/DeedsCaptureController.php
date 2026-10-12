@@ -274,6 +274,7 @@ final class DeedsCaptureController extends Controller
                 'tier' => $hit['tier'] ?? ($hit['confident'] ? 'exact' : 'possible'),
                 'matched_on' => $hit['matched_on'] ?? [],
                 'columns' => $hit['columns'] ?? [],
+                'score' => $hit['score'] ?? 0,
             ]);
         }
 
@@ -281,7 +282,7 @@ final class DeedsCaptureController extends Controller
         // unit/portion) — never "already in CoreX", shown to the agent to confirm (spec structured-address-matching.md §7).
         foreach ($matcher->findPossibleTrackedMatches($agencyId, $facts, array_values(array_filter([$structural?->id, $looseHitExcluded?->id]))) as $pm) {
             $matches[] = $this->formatMatch($pm['tracked_property'], null, $pm['reason'], 'structural', false, $pm['matched_fields'], [
-                'tier' => 'possible', 'matched_on' => $pm['matched_on'], 'columns' => $pm['columns'],
+                'tier' => 'possible', 'matched_on' => $pm['matched_on'], 'columns' => $pm['columns'], 'score' => $pm['score'] ?? 0,
             ]);
         }
 
@@ -299,8 +300,12 @@ final class DeedsCaptureController extends Controller
             }
         }
 
-        // Confident matches first — the extension's banner shows matches[0].
-        usort($matches, fn ($a, $b) => ((int) $b['confident'] <=> (int) $a['confident']));
+        // Rank EVERY candidate (spec deeds-capture.md §9.12): exact unit + scheme first, then owner-surname-confirmed, then the
+        // weaker ones, the "same address, no unit number" record last. The owner SURNAME only confirms a candidate the
+        // address matcher already found — it never creates one. The extension's banner shows the whole ranked list.
+        $captureHasUnit = ! empty($facts['section_number']) || ! empty($facts['unit_number']);
+        $matches = app(\App\Services\Prospecting\DeedsCapturePreCheckRanker::class)
+            ->rank($agencyId, $matches, $validated['owners'] ?? [], $captureHasUnit);
 
         $confidentHit = collect($matches)->contains(fn ($m) => $m['match_type'] !== 'owner_name' && $m['confident']);
         $status = $confidentHit ? 'exists' : (count($matches) > 0 ? 'possible_match' : 'not_found');
@@ -330,7 +335,7 @@ final class DeedsCaptureController extends Controller
             'created_at'  => now(),
         ]);
 
-        return response()->json(['status' => $status, 'matches' => $matches, 'same_street' => $sameStreet]);
+        return response()->json(['status' => $status, 'match_count' => count($matches), 'matches' => $matches, 'same_street' => $sameStreet]);
     }
 
     /**
@@ -414,6 +419,11 @@ final class DeedsCaptureController extends Controller
 
         $address = trim(implode(' ', array_filter([$p->street_number, $p->street_name])))
             . ($p->suburb ? ', ' . $p->suburb : '');
+        // "Unit 6, Du Bantry, Colin Street, Uvongo Beach" — the street alone would not tell two units of one scheme apart
+        $display = trim((string) $p->buildDisplayAddress());
+        if ($display !== '') {
+            $address = $display . (($p->suburb && stripos($display, (string) $p->suburb) === false) ? ', ' . $p->suburb : '');
+        }
         $status = $p->status_label ?: $p->status;
 
         return $extra + [

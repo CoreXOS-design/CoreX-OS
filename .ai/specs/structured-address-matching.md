@@ -215,3 +215,9 @@ Not moved (deliberate): `OnMarketStockService` / `ProspectingListing::normalizeA
 - **Not changed (reported):** raw number + name concatenations used for *matching/scoring or logging*, not display of the property: `TrackedPropertyMatchOrCreateService` (:1052), `PropertyCmaPropagationService` (:319), `PropertyDuplicateMatchEvidence` (:198 — the "scraped" value shown in the duplicate-evidence panel), `UnpoisonP24TrackedPropertyLinks` (log line). A unit or complex fragment typed *inside* the street text of a row saved straight on the model (not through the writer, which strips a "Unit 3, " prefix) still reads with the lifted number in front — no ingress does that today.
 - Tests: `tests/Feature/Prospecting/TrackedPropertyTypedAddressKeepsStreetTest.php` (number + street, number in its own box, "12A", street only, unit prefix through the writer; through the writer and straight on the model; an unrelated save leaves the address alone).
 
+### 14.5 2026-10-12 — scorer rules added for the CMA pre-check (see `deeds-capture.md` §9.12)
+
+Partial scheme names are the same scheme when one is wholly inside the other — by whole words, and only when the shorter name is substantial (4+ letter real word, 5+ letters of real words; noise words never count).
+The unit column compares EVERY unit key a capture carries (section number and flat/unit number); either equal to the record's counts; a match on the secondary number alone is never exact.
+A missing street number on one side no longer blocks a POSSIBLE match when scheme + street + suburb, or unit + street + suburb, agree (a different number is still a veto). The no-unit wording is fixed:
+"Same address, no unit number - may be a different unit". The scorer result gains `record_lacks_unit`.

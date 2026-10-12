@@ -55,6 +55,7 @@ final class AddressMatchScorer
             'gps'    => $this->gps($a, $b, (int) $s['gps_radius_m']),
         ];
         $sectional = $a->sectional || $b->sectional;
+        $weakUnit = $col['unit'] === 'agree' && $this->unitAgreesOnlyOnSecondary($a, $b);
 
         // ── vetoes ────────────────────────────────────────────────────────────────
         $veto = [];
@@ -110,7 +111,7 @@ final class AddressMatchScorer
                 $reasons[] = 'Same erf number (' . $this->show($a->erf) . ') and suburb.';
                 $matched = ['erf', 'suburb'];
                 $legacy = ['erf', 'suburb'];
-            } elseif (! empty($s['rule_scheme_exact']) && $col['scheme'] === 'agree' && $col['unit'] === 'agree' && $suburbSame) {
+            } elseif (! empty($s['rule_scheme_exact']) && $col['scheme'] === 'agree' && $col['unit'] === 'agree' && ! $weakUnit && $suburbSame) {
                 $rule = 'scheme';
                 $reasons[] = 'Same sectional scheme and section/unit number (' . $this->show($a->unit) . ').';
                 $matched = ['scheme', 'unit', 'suburb'];
@@ -130,6 +131,13 @@ final class AddressMatchScorer
             $erfAnchor = ! $sectional && $col['erf'] === 'agree';
             $schemeAnchor = $col['scheme'] === 'agree' && $col['unit'] === 'agree';
             $streetAnchor = $col['number'] === 'agree' && in_array($col['street'], ['agree', 'partial'], true);
+            // The street NUMBER is missing on one side (CoreX often has none: "Unit 6, Du Bantry, Colin Street"): that must not
+            // exclude a record when the scheme or the unit agrees as well as the street and the suburb. A different number is still
+            // a veto (above) — only an absent one is let through.
+            $numberAbsent = $col['number'] === 'missing';
+            $streetOk = in_array($col['street'], ['agree', 'partial'], true) && $suburbSame;
+            $schemeStreetAnchor = $numberAbsent && $col['scheme'] === 'agree' && $streetOk;
+            $unitStreetAnchor = $numberAbsent && $col['unit'] === 'agree' && $streetOk;
 
             $agreeing = [];
             if ($col['lpi'] === 'agree' || $col['erf'] === 'agree') {
@@ -151,10 +159,10 @@ final class AddressMatchScorer
                 $agreeing[] = 'number';
             }
 
-            if (($erfAnchor || $schemeAnchor || $streetAnchor) && count($agreeing) >= (int) $s['possible_min_agreeing_columns']) {
+            if (($erfAnchor || $schemeAnchor || $streetAnchor || $schemeStreetAnchor || $unitStreetAnchor) && count($agreeing) >= (int) $s['possible_min_agreeing_columns']) {
                 $tier = self::TIER_POSSIBLE;
                 $matched = $agreeing;
-                $reasons = $this->possibleReasons($a, $b, $col, $erfAnchor, $schemeAnchor, $streetAnchor, $unitOneSide);
+                $reasons = $this->possibleReasons($a, $b, $col, $erfAnchor, $schemeAnchor, $streetAnchor, $unitOneSide, $weakUnit, $schemeStreetAnchor, $unitStreetAnchor);
                 $legacy = $col['suburb'] === 'neighbour' ? ['street_number', 'street_name'] : array_values(array_filter([
                     $col['number'] === 'agree' ? 'street_number' : null,
                     $col['street'] === 'agree' ? 'street_name' : null,
@@ -185,6 +193,8 @@ final class AddressMatchScorer
             'reasons'        => $reasons,
             'confident'      => $tier === self::TIER_EXACT,
             'rule'           => $rule,
+            // the CAPTURE carries a unit and this record has none (the weaker "same address, no unit" case)
+            'record_lacks_unit' => $unitOneSide && $this->unitKeys($a) !== [],
         ];
     }
 
@@ -216,8 +226,13 @@ final class AddressMatchScorer
         }
         $wa = explode(' ', $a->complex);
         $wb = explode(' ', $b->complex);
+        if (array_diff($wa, $wb) === [] && array_diff($wb, $wa) === []) {
+            return 'agree'; // the same words
+        }
         if (array_diff($wa, $wb) === [] || array_diff($wb, $wa) === []) {
-            return 'agree';
+            // One name sits wholly inside the other ("Du Bantry" in "Du Bantry Holiday Flats") — but only whole WORDS,
+            // and only when the shorter name is a real name: a bare "Sea" or "Villa" must not match every scheme.
+            return $this->substantialName(array_diff($wa, $wb) === [] ? $wa : $wb) ? 'agree' : 'differ';
         }
         // "Aqua Breeze 3" vs "Aqua Breeze 5": numbered complex names with disjoint numbers are different blocks.
         $na = array_values(array_filter($wa, fn ($w) => preg_match('/^\d+[a-z]?$/', $w) === 1));
@@ -229,17 +244,64 @@ final class AddressMatchScorer
         return 'differ';
     }
 
+    /** words that carry no identity in a scheme name — never enough on their own to say two schemes are the same */
+    private const SCHEME_NOISE = ['the', 'ss', 'scheme', 'sectional', 'title', 'body', 'corporate', 'flats', 'flat', 'court', 'villas', 'villa', 'estate', 'complex', 'apartments', 'units', 'unit', 'no', 'of', 'at', 'on', 'in', 'and', 'de', 'du', 'la', 'le', 'van', 'der'];
+
+    /**
+     * Is this (shorter) scheme name specific enough to be contained in another? At least one whole word that is not noise,
+     * of 4+ letters, and 5+ letters of real words in all ("Du Bantry" = bantry; "Sea", "The Villas" and "SS 12" are not).
+     *
+     * @param  array<int, string>  $words
+     */
+    private function substantialName(array $words): bool
+    {
+        $real = array_values(array_filter($words, fn ($w) => $w !== '' && ! ctype_digit($w) && ! in_array($w, self::SCHEME_NOISE, true)));
+        if ($real === []) {
+            return false;
+        }
+        $longest = max(array_map('mb_strlen', $real));
+        $total = array_sum(array_map('mb_strlen', $real));
+
+        return $longest >= 4 && $total >= 5;
+    }
+
     /** agree · differ · one_side (only one record has a unit) · missing (neither has one) */
     private function unit(AddressFacts $a, AddressFacts $b): string
     {
-        if ($a->unit !== null && $b->unit !== null) {
-            return $a->unit === $b->unit ? 'agree' : 'differ';
+        $ua = $this->unitKeys($a);
+        $ub = $this->unitKeys($b);
+        if ($ua !== [] && $ub !== []) {
+            // CMA gives a SECTION number and a flat/unit number; CoreX holds one unit — either equal counts.
+            return array_intersect($ua, $ub) !== [] ? 'agree' : 'differ';
         }
-        if ($a->unit === null && $b->unit === null) {
+        if ($ua === [] && $ub === []) {
             return 'missing';
         }
 
         return 'one_side';
+    }
+
+    /** @return array<int, string> */
+    private function unitKeys(AddressFacts $f): array
+    {
+        if ($f->units !== []) {
+            return $f->units;
+        }
+
+        return $f->unit !== null ? [$f->unit] : [];
+    }
+
+    /**
+     * The capture carries two different unit values (section 6 / flat 7) and only the SECONDARY one equals the record's:
+     * a weaker unit agreement — it can still make the record a candidate, but never an exact "same property" on its own.
+     */
+    private function unitAgreesOnlyOnSecondary(AddressFacts $a, AddressFacts $b): bool
+    {
+        if (! $a->unitsConflict || $a->unit === null) {
+            return false;
+        }
+
+        return ! in_array($a->unit, $this->unitKeys($b), true) && array_intersect($this->unitKeys($a), $this->unitKeys($b)) !== [];
     }
 
     /** agree · neighbour · differ · missing */
@@ -304,19 +366,33 @@ final class AddressMatchScorer
     // ── wording & ranking ────────────────────────────────────────────────────────────
 
     /** @param array<string,string> $col */
-    private function possibleReasons(AddressFacts $a, AddressFacts $b, array $col, bool $erfAnchor, bool $schemeAnchor, bool $streetAnchor, bool $unitOneSide): array
+    private function possibleReasons(AddressFacts $a, AddressFacts $b, array $col, bool $erfAnchor, bool $schemeAnchor, bool $streetAnchor, bool $unitOneSide, bool $weakUnit = false, bool $schemeStreetAnchor = false, bool $unitStreetAnchor = false): array
     {
         $r = [];
+        $captureHasUnit = $this->unitKeys($a) !== [];
         if ($streetAnchor && $col['suburb'] === 'neighbour') {
             $r[] = 'Same street number and street, but CoreX has it under the neighbouring suburb ' . trim((string) $b->suburbText) . '.';
         } elseif ($streetAnchor && $col['type'] === 'differ') {
             $r[] = 'Same street number and suburb; the street type differs (' . $a->streetType . ' / ' . $b->streetType . ').';
         } elseif ($streetAnchor && $unitOneSide) {
-            $r[] = 'Same street number, street and suburb, but this record has no unit number — it may be a different unit.';
+            $r[] = $captureHasUnit
+                ? 'Same address, no unit number - may be a different unit'
+                : 'Same street number, street and suburb, but this record has a unit number and the CMA page shows none - it may be a different unit.';
         } elseif ($streetAnchor && $col['street'] === 'partial') {
             $r[] = 'Same street number and suburb; the street name only partly matches.';
         } elseif ($streetAnchor && $col['suburb'] === 'missing') {
             $r[] = 'Same street number and street; the suburb is not on file for one of them.';
+        }
+        if ($unitStreetAnchor) {
+            $r[] = 'Same unit, street and suburb; the street number is not on file for one of them.';
+        }
+        if ($schemeStreetAnchor) {
+            $r[] = $captureHasUnit && $unitOneSide
+                ? 'Same address, no unit number - may be a different unit'
+                : 'Same sectional scheme, street and suburb; the street number is not on file for one of them.';
+        }
+        if ($weakUnit) {
+            $r[] = 'The unit matches the flat/unit number but not the section number on the CMA page - please check.';
         }
         if ($schemeAnchor) {
             $r[] = $col['suburb'] === 'neighbour'

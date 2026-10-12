@@ -1073,6 +1073,58 @@ async function testPrecheck_propertyMatch_bannerUsesServerSummary(filePath, labe
     reveal.wasClicked() === false, 'reveal icon fired');
 }
 
+// ── v3.11.0 — the ranked list: every match, best first, with a count ───────────────────────────────
+const RANKED_RESPONSE = {
+  status: 'exists', match_count: 3,
+  matches: [
+    { rank: 1, rank_group: 'exact', rank_label: 'Same property - the owner surname Pretorius matches', owner_surname_match: true,
+      source: 'property', property_id: 21729, tracked_property_id: null, address: 'Unit 6, Du Bantry, Colin Street, Uvongo Beach',
+      summary: 'On CoreX as a property (Active). Same sectional scheme and section/unit number (6).', reason: 'Same sectional scheme and section/unit number (6).',
+      match_type: 'property', confident: true, tier: 'exact', deeplink: 'https://example.test/corex/properties/21729',
+      matched_on: ['scheme', 'unit', 'suburb'] },
+    { rank: 2, rank_group: 'possible', rank_label: 'Possible match - some of the address agrees and nothing contradicts it',
+      source: 'property', property_id: 30001, tracked_property_id: null, address: 'Unit 6, Du Bantry Court, Colin Street',
+      match_type: 'property', confident: false, tier: 'possible', deeplink: 'https://example.test/corex/properties/30001' },
+    { rank: 3, rank_group: 'no_unit', rank_label: 'Same address, no unit number - may be a different unit',
+      source: 'property', property_id: 15815, tracked_property_id: null, address: '77 Colin Street, UVONGO BEACH',
+      match_type: 'property', confident: false, tier: 'possible', deeplink: 'https://example.test/corex/properties/15815' },
+  ],
+};
+
+function runRankedListHelperTests() {
+  const rows = loadStandaloneFunction(NEW_FILE, 'describeRankedRow');
+  const count = loadStandaloneFunction(NEW_FILE, 'describeMatchCount');
+  check('describeMatchCount — one match says nothing, several say how many and "best first"',
+    count({ matches: [{}] }) === '' && count({ matches: [{}, {}, {}] }) === ' — 3 matches, best first' && count({}) === '', 'wrong count wording');
+  const weak = rows(RANKED_RESPONSE.matches[2], 2);
+  check('describeRankedRow — the no-unit row carries the exact label and is marked weaker',
+    weak.n === 3 && weak.weak === true && weak.label === 'Same address, no unit number - may be a different unit' && /77 Colin Street/.test(weak.address), `row=${JSON.stringify(weak)}`);
+  const top = rows(RANKED_RESPONSE.matches[0], 0);
+  check('describeRankedRow — an exact row is not marked weaker', top.weak === false && top.n === 1, `row=${JSON.stringify(top)}`);
+}
+
+async function testPrecheck_rankedList_bannerShowsAllMatchesWithCountAndLabels(filePath, label) {
+  const doc = buildCmaInfoDocument(PARK_ST_PROPERTY_FIELDS_FROZEN, PARK_ST_SALE_FIELDS);
+  const reveal = addRevealIcon(doc, '7505125800088');
+  const chromeMock = makeChromeMockForPrecheck({ precheckResponse: RANKED_RESPONSE });
+  loadContentScript(filePath, doc, chromeMock);
+
+  doc.getElementById('corex-deeds-capture-btn').click();
+  await sleep(1000);
+  const banner = doc.getElementById('corex-deeds-precheck-banner');
+  const text = banner ? banner.textContent : '';
+  check(`[${label}] ranked list — the title carries the count`, /Already in CoreX — 3 matches, best first/.test(text), `banner=${JSON.stringify(text)}`);
+  check(`[${label}] ranked list — the best match is shown with its plain rank label`,
+    /Unit 6, Du Bantry, Colin Street, Uvongo Beach/.test(text) && /owner surname Pretorius matches/.test(text), `banner=${JSON.stringify(text)}`);
+  check(`[${label}] ranked list — the weaker matches are listed below with their labels`,
+    /2\. Unit 6, Du Bantry Court, Colin Street/.test(text) && /3\. 77 Colin Street, UVONGO BEACH — Same address, no unit number - may be a different unit/.test(text)
+      && text.indexOf('Du Bantry Court') < text.indexOf('77 Colin Street'), `banner=${JSON.stringify(text)}`);
+  const cancelBtn = findBannerControl(doc, 'Cancel');
+  if (cancelBtn) cancelBtn.click();
+  await sleep(100);
+  check(`[${label}] ranked list + Cancel — the paid reveal icon was NEVER clicked`, reveal.wasClicked() === false, 'reveal icon fired');
+}
+
 // ── v3.9.0 — structured address matching: the three tiers in the extension ─────────────────────────
 const ADDRESS_POSSIBLE_RESPONSE = {
   status: 'possible_match',
@@ -1458,6 +1510,8 @@ async function main() {
   runSameStreetNoteTests();
   await testPrecheck_notFoundWithSameStreet_isNonBlocking(NEW_FILE, 'NEW 3.8.1');
   await testPrecheck_propertyMatch_bannerUsesServerSummary(NEW_FILE, 'NEW 3.8.1');
+  runRankedListHelperTests();
+  await testPrecheck_rankedList_bannerShowsAllMatchesWithCountAndLabels(NEW_FILE, 'NEW 3.11.0');
   console.log('=== v3.9.0 — structured address matching: the three tiers ===');
   await testPrecheck_addressPossible_showsEachColumnAndTheTwoAnswers(NEW_FILE, 'NEW 3.9.0');
   await testPrecheck_addressPossible_differentContinuesTheCapture(NEW_FILE, 'NEW 3.9.0');
