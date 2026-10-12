@@ -282,6 +282,7 @@
     } elseif (request()->routeIs(
         'corex.settings*',
         'corex.features.*',
+        'admin.users*',
         'admin.settings.document-types.*',
         'admin.p24-suburbs.*',
         'deals-v2.settings.service-types.*'
@@ -2639,11 +2640,11 @@
         </div>
         @endif
 
-        {{-- Settings (slide-panel group) — Settings page + Features page. Johan 2026-10-12: Features moved out of the
+        {{-- Settings (slide-panel group) — Settings page + Features page + Users. Johan 2026-10-12: Features moved out of the
              Settings page into its own page, and both now live under one "Settings" sub menu. Each child keeps its OWN
-             permission (Settings = access_settings, Features = agency_features.manage); the group shows when the user
+             permission (Settings = access_settings, Features = agency_features.manage, Users = manage_users); the group shows when the user
              holds either. Spec: features-page.md. --}}
-        @if($user && $user->hasAnyPermission(['access_settings', 'agency_features.manage']))
+        @if($user && $user->hasAnyPermission(['access_settings', 'agency_features.manage', 'manage_users']))
         <div>
             <button type="button" @click="push('settings')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'settings' ? 'active' : '' }}">
@@ -2668,6 +2669,11 @@
 
                 @permission('agency_features.manage')
                 <a href="{{ route('corex.features.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.features.*') ? 'active' : '' }}">Features</a>
+                @endpermission
+
+                {{-- Users — user management (/admin/users). Johan 2026-10-12: a dedicated entry in the Settings sub menu. --}}
+                @permission('manage_users')
+                <a href="{{ route('admin.users') }}" class="corex-nav-subitem {{ request()->routeIs('admin.users*') ? 'active' : '' }}">Users</a>
                 @endpermission
             </div>
         </div>

@@ -150,6 +150,8 @@ final class FeaturesPageTest extends TestCase
         $this->assertNotEmpty($group, 'the Settings group panel must exist');
         $this->assertStringContainsString("route('corex.settings')", $group[1]);
         $this->assertStringContainsString("route('corex.features.index')", $group[1]);
+        $this->assertStringContainsString("route('admin.users')", $group[1]);
+        $this->assertMatchesRegularExpression("/@permission\\('manage_users'\\)\\s*<a href=\"\\{\\{ route\\('admin\\.users'\\) \\}\\}\"/", $group[1]);
 
         // Features no longer sits in the Company group.
         preg_match('#<div class="corex-nav-panel-title">Company</div>(.*?)</div>\s*</div>#s', $sidebar, $company);
