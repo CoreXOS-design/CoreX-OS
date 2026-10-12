@@ -407,6 +407,17 @@ return [
         ['key' => 'viewing_packs.edit',          'label' => 'Edit',                        'section' => 'viewing-packs',    'type' => 'action',  'module' => 'viewing_packs',    'sort_order' => 12],
         ['key' => 'viewing_packs.archive',       'label' => 'Archive',                     'section' => 'viewing-packs',    'type' => 'action',  'module' => 'viewing_packs',    'sort_order' => 13],
 
+        // ── Title Deed Register (AT-450) ──
+        ['key' => 'access_title_deeds',          'label' => 'Access Title Deeds',          'section' => 'title-deeds',      'type' => 'access',  'module' => 'title_deeds',      'sort_order' => 1],
+        ['key' => 'title_deeds.view',            'label' => 'View',                        'section' => 'title-deeds',      'type' => 'action',  'module' => 'title_deeds',      'sort_order' => 10],
+        ['key' => 'title_deeds.create',          'label' => 'Log a received deed',         'section' => 'title-deeds',      'type' => 'action',  'module' => 'title_deeds',      'sort_order' => 11],
+        ['key' => 'title_deeds.edit',            'label' => 'Edit (and upload the scan)',  'section' => 'title-deeds',      'type' => 'action',  'module' => 'title_deeds',      'sort_order' => 12],
+        ['key' => 'title_deeds.archive',         'label' => 'Archive / restore',           'section' => 'title-deeds',      'type' => 'action',  'module' => 'title_deeds',      'sort_order' => 13],
+        ['key' => 'title_deeds.notify',          'label' => 'Notify owners / resend or replace the PIN', 'section' => 'title-deeds', 'type' => 'action', 'module' => 'title_deeds', 'sort_order' => 14],
+        ['key' => 'title_deeds.handover',        'label' => 'Hand a deed over to its owner', 'section' => 'title-deeds',    'type' => 'action',  'module' => 'title_deeds',      'sort_order' => 15],
+        ['key' => 'title_deeds.override',        'label' => 'Release a deed although an owner\'s contact details changed recently', 'section' => 'title-deeds', 'type' => 'action', 'module' => 'title_deeds', 'sort_order' => 16],
+        ['key' => 'title_deeds.manage_settings', 'label' => 'Manage Title Deed settings',  'section' => 'title-deeds',      'type' => 'action',  'module' => 'title_deeds',      'sort_order' => 17],
+
         // ── Filing Register ──
         ['key' => 'access_filing_register',      'label' => 'Access Filing Register',      'section' => 'filing-register',  'type' => 'access',  'module' => 'filing',           'sort_order' => 1],
         ['key' => 'filing.view',                 'label' => 'View',                        'section' => 'filing-register',  'type' => 'action',  'module' => 'filing',           'sort_order' => 10],
@@ -1080,6 +1091,9 @@ return [
                 'ppra_employment_letters.receive',
                 'access_filing_register',
                 'filing.view', 'filing.create', 'filing.edit',
+                // Title Deed Register (AT-450) - a branch manager runs it for their branch, and holds the override.
+                'access_title_deeds', 'title_deeds.view', 'title_deeds.create', 'title_deeds.edit', 'title_deeds.archive',
+                'title_deeds.notify', 'title_deeds.handover', 'title_deeds.override',
                 'access_misfiled_documents', 'misfiled_documents.refile',
                 'access_commercial_evaluations',
                 'commercial_evals.view', 'commercial_evals.create', 'commercial_evals.edit',
@@ -1222,6 +1236,8 @@ return [
                 'ppra_employment_letters.receive',
                 'access_filing_register',
                 'filing.view', 'filing.create',
+                // Title Deed Register (AT-450) - own scope (scope_defaults); no archive, no override, no settings.
+                'access_title_deeds', 'title_deeds.view', 'title_deeds.create', 'title_deeds.edit', 'title_deeds.notify', 'title_deeds.handover',
                 'access_commercial_evaluations',
                 'commercial_evals.view', 'commercial_evals.create',
                 'access_sales_documents',
@@ -1304,6 +1320,7 @@ return [
                 'documents.view', 'templates.view', 'clauses.view', 'packs.view',
                 'access_presentations', 'presentations.view',
                 'access_filing_register', 'filing.view',
+                'access_title_deeds', 'title_deeds.view',
                 'access_commercial_evaluations', 'commercial_evals.view',
                 'access_sales_documents', 'sales_docs.view',
                 'access_calculators', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai', 'access_flow_map',
@@ -1356,6 +1373,8 @@ return [
                 // no way to see or start their letter — not even the My Portal nav
                 // entry appeared. own scope for .view via scope_defaults fallback.
                 'ppra_employment_letters.view', 'ppra_employment_letters.create',
+                // Title Deed Register (AT-450) - the office runs the register: everything except the override and the settings.
+                'access_title_deeds', 'title_deeds.view', 'title_deeds.create', 'title_deeds.edit', 'title_deeds.archive', 'title_deeds.notify', 'title_deeds.handover',
             ],
         ],
 

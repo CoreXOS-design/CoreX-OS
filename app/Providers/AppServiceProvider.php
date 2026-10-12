@@ -289,6 +289,8 @@ class AppServiceProvider extends ServiceProvider
         // matching Agency Timeline item. SYNC on purpose (see AgencyFeatureToggled).
         Event::listen(\App\Events\Platform\AgencyContractSigned::class, \App\Listeners\Platform\CompleteTimelineItemsOnTrigger::class);
         Event::listen(\App\Events\Platform\AgencySetupWizardCompleted::class, \App\Listeners\Platform\CompleteTimelineItemsOnTrigger::class);
+        // AT-450 — a collected title deed tells the responsible agent and emails every owner. SYNC and failure-isolated inside the listener.
+        Event::listen(\App\Events\TitleDeeds\TitleDeedCollected::class, \App\Listeners\TitleDeeds\NotifyOnTitleDeedCollected::class);
         // AT-118 — a session-scoped communications access grant dies at logout.
         Event::listen(Logout::class, \App\Listeners\Communications\RevokeCommsGrantsOnLogout::class);
 

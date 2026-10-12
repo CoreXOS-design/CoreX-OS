@@ -266,6 +266,14 @@ return [
         'nav_permission' => ['access_filing_register'], 'sidebar_section' => 'tools',
         'settings_section' => null, 'route_prefixes' => ['filing-register'], 'global_flag' => null,
     ],
+    'title-deeds' => [
+        'label' => 'Title Deeds', 'category' => 'Documents & E-Sign',
+        'explain' => 'The register of title deeds the attorneys send to the agency: who was told, and exactly when and by whom each one was collected.',
+        'affects' => 'Whether Title Deeds appears in Tools. Off hides it; the register data is kept.',
+        'default' => true, 'core' => false, 'depends_on' => [],
+        'nav_permission' => ['access_title_deeds'], 'sidebar_section' => 'tools',
+        'settings_section' => null, 'route_prefixes' => ['title-deeds'], 'global_flag' => null,
+    ],
 
     // ── Compliance ──
     'compliance' => [
