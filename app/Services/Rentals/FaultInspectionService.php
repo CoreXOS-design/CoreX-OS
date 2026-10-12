@@ -23,7 +23,13 @@ class FaultInspectionService
 {
     public const CREW_KEY = 'crew';
 
-    public function __construct(private OwnerAuthoritySettings $settings, private RentalAuthorisationService $authorisations) {}
+    public function __construct(private RentalAuthorisationService $authorisations) {}
+
+    /** The most the owner lets the agent pay for a call-out without asking - read ONLY through the owner-settings resolver (null = must ask the owner). */
+    private function calloutAllowance(Property $property): ?float
+    {
+        return RentalOwnerFaultSettings::for($property)->calloutAllowedUpTo();
+    }
 
     // ───────────────────────── can the agent send them on their own authority? ─────────────────────────
 
@@ -32,7 +38,7 @@ class FaultInspectionService
      */
     public function evaluate(Property $property, string $name, string $status, ?float $fee): array
     {
-        $allowance = $this->settings->calloutAllowance($property);
+        $allowance = $this->calloutAllowance($property);
         $base = ['status' => $status, 'fee' => $fee, 'allowance' => $allowance];
 
         if ($status === AgencyServiceProvider::CALLOUT_NO) {

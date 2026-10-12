@@ -20,7 +20,8 @@ use App\Models\RentalWorkOrder;
 use App\Models\Scopes\AgencyScope;
 use App\Models\User;
 use App\Services\Rentals\FaultInspectionService;
-use App\Services\Rentals\OwnerAuthoritySettings;
+use App\Models\RentalPropertyFaultSetting;
+use App\Services\Rentals\RentalOwnerFaultSettings;
 use App\Services\Rentals\RentalAuthorisationService;
 use App\Services\Rentals\RentalMailDispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -112,12 +113,13 @@ final class AuthorityFlowTest extends TestCase
         ], $over));
     }
 
-    private function allowance(?float $amount): void
+    /** The OWNER's call-out permission for this property, as the owner-settings build stores it (confirmed by the owner = standing authority). */
+    private function allowance(?float $amount, string $status = RentalPropertyFaultSetting::STATUS_CONFIRMED): void
     {
-        $this->app->bind(OwnerAuthoritySettings::class, fn () => new class($amount) extends OwnerAuthoritySettings {
-            public function __construct(private ?float $a) {}
-            public function calloutAllowance(\App\Models\Property $property): ?float { return $this->a; }
-        });
+        RentalPropertyFaultSetting::withoutGlobalScopes()->updateOrCreate(['property_id' => $this->property->id], [
+            'agency_id' => $this->agency->id, 'status' => $status, 'repair_limit' => 1500, 'emergency_limit' => null,
+            'callout_mode' => $amount === null ? 'no' : 'yes', 'callout_limit' => $amount, 'version' => 1,
+        ]);
     }
 
     private function inspect(RentalFaultReport $f, AgencyServiceProvider $p)
@@ -127,12 +129,17 @@ final class AuthorityFlowTest extends TestCase
 
     // ── the owner's settings are read through ONE resolver ───────────────────
 
-    public function test_the_resolver_reads_the_existing_limit_and_treats_the_unbuilt_settings_as_ask_the_owner(): void
+    public function test_the_fault_flow_reads_the_owners_permission_only_through_the_owner_settings_resolver(): void
     {
-        $r = app(OwnerAuthoritySettings::class);
-        $this->assertSame(1500.0, $r->repairLimit($this->property));
-        $this->assertNull($r->emergencyLimit($this->property), 'not set = ask the owner');
-        $this->assertNull($r->calloutAllowance($this->property), 'not set = ask the owner');
+        // nothing recorded -> not set -> ask the owner
+        $this->assertNull(RentalOwnerFaultSettings::for($this->property)->calloutAllowedUpTo());
+        $this->allowance(1000.0);
+        $this->assertSame(1000.0, RentalOwnerFaultSettings::for($this->property)->calloutAllowedUpTo());
+        // an owner who does not agree (disputed) gives no authority at all
+        $this->allowance(1000.0, RentalPropertyFaultSetting::STATUS_DISPUTED);
+        $this->assertNull(RentalOwnerFaultSettings::for($this->property)->calloutAllowedUpTo());
+        $f = $this->fault();
+        $this->inspect($f, $this->supplier('Fee Plumbing', 'yes', 750))->assertSessionHasErrors('rental_fault_report');
     }
 
     // ── the call-out rule ────────────────────────────────────────────────────
@@ -156,7 +163,6 @@ final class AuthorityFlowTest extends TestCase
 
         // the owner's permission covers it (boundary: equal is covered, one rand over is not)
         $this->allowance(1000.0);
-        $svc = app(FaultInspectionService::class);
         $this->assertTrue($svc->evaluate($this->property, 'Sam', 'yes', 750.0)['allowed']);
         $this->assertSame(RentalAuthorisation::BASIS_AGENT_CALLOUT_SETTING, $svc->evaluate($this->property, 'Sam', 'yes', 1000.0)['basis']);
         $this->assertFalse($svc->evaluate($this->property, 'Sam', 'yes', 1001.0)['allowed']);

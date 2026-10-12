@@ -132,6 +132,102 @@ class ClientLandlordRentalsController extends Controller
      * (`RentalFaultType::category`/`urgency`) without a second, free-form
      * set of fields with nowhere on `rental_fault_reports` to live.
      */
+    /**
+     * .ai/specs/rentals-faults-work-orders.md section 22.4 - the owner's "How I want faults handled" for one of THEIR properties: what is recorded,
+     * who recorded it and on what basis, the agency's suggestion (only while nothing is recorded), who looks at faults first (read-only), the history.
+     */
+    public function faultSettingsShow(Request $request, int $property): JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+        $propertyModel = $this->scope->landlordProperty($contact, $property);
+        if (! $propertyModel) {
+            return response()->json(['message' => 'Property not found.'], 404);
+        }
+
+        return response()->json(['fault_settings' => $this->faultSettingsPayload($propertyModel)]);
+    }
+
+    /** The owner saves all three answers as their own (a changed value is logged as a change; confirming what is recorded is logged as a confirmation). */
+    public function faultSettingsSave(Request $request, int $property): JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+        $propertyModel = $this->scope->landlordProperty($contact, $property);
+        if (! $propertyModel) {
+            return response()->json(['message' => 'Property not found.'], 404);
+        }
+        $data = $request->validate([
+            'repair_limit' => ['required', 'numeric', 'min:0', 'max:99999999.99'],
+            'emergency_limit' => ['required', 'numeric', 'min:0', 'max:99999999.99'],
+            'callout_mode' => ['required', 'in:yes,no'],
+            'callout_limit' => ['nullable', 'required_if:callout_mode,yes', 'numeric', 'gt:0', 'max:99999999.99'],
+        ], [
+            'repair_limit.required' => 'Enter an amount for repairs (R0 if you want to be asked every time).',
+            'emergency_limit.required' => 'Enter an amount for emergency repairs (R0 if you want to be asked every time).',
+            'callout_mode.required' => 'Choose Yes or No for call-out fees.',
+            'callout_limit.required_if' => 'Enter the call-out amount you allow, or choose No.',
+        ]);
+
+        $result = app(\App\Services\Rentals\RentalOwnerFaultSettingsService::class)->ownerConfirm($propertyModel, $contact, $data);
+
+        return response()->json(['ok' => true, 'result' => $result, 'fault_settings' => $this->faultSettingsPayload($propertyModel->fresh())]);
+    }
+
+    /** "Ask for a change" to who looks at faults first: nothing changes by itself; both lease agents are told. */
+    public function faultSettingsChangeRequest(Request $request, int $property): JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+        $propertyModel = $this->scope->landlordProperty($contact, $property);
+        if (! $propertyModel) {
+            return response()->json(['message' => 'Property not found.'], 404);
+        }
+        $data = $request->validate(['note' => 'nullable|string|max:1000']);
+        app(\App\Services\Rentals\RentalOwnerFaultSettingsService::class)->requestFirstResponderChange($propertyModel, $contact, $data['note'] ?? null);
+
+        return response()->json(['ok' => true, 'fault_settings' => $this->faultSettingsPayload($propertyModel->fresh())]);
+    }
+
+    /** @return array<string, mixed> */
+    private function faultSettingsPayload(\App\Models\Property $property): array
+    {
+        $svc = app(\App\Services\Rentals\RentalOwnerFaultSettingsService::class);
+        $r = \App\Services\Rentals\RentalOwnerFaultSettings::for($property);
+        $row = $r->row();
+        $status = $r->status();
+        $suggested = $status === 'not_set';
+        $shown = $suggested ? $r->proposed() : $r->values();
+        $basis = $row?->capture_basis;
+
+        return [
+            'property_id' => $property->id,
+            'address' => $property->buildDisplayAddress(),
+            'status' => $status,
+            'status_label' => match ($status) {
+                'confirmed_by_owner' => 'Confirmed by you',
+                'captured_by_agent' => 'Recorded by your agent - please confirm or change it',
+                'disputed' => 'You told us you do not agree - confirm your own settings below',
+                default => 'Not set yet - until you set these, your agent will ask you before every decision',
+            },
+            'version' => $r->version(),
+            'values' => $shown,
+            'suggested' => $suggested,
+            'captured_line' => ($row && $basis) ? ($r->capturedBy() ?: 'Your agent') . ' recorded this' . ($row->captured_at ? ' on ' . $row->captured_at->format('j M Y') : '')
+                . ($basis === 'carried_over' ? ' - carried over from the existing work terms' : ' - you told us by ' . strtolower((string) $row->basisLabel()) . ($row->capture_occurred_at ? ' on ' . $row->capture_occurred_at->format('j M Y') : ''))
+                . ($row->capture_note && $basis !== 'carried_over' ? '. Note: "' . $row->capture_note . '"' : '') . '.' : null,
+            'confirmed_at' => $r->confirmedAt()?->toIso8601String(),
+            'first_responders' => $r->firstResponders(null)->map(fn ($f) => ['name' => $f['name'], 'kind_label' => $f['kind_label'], 'tell_label' => $f['tell_label']])->values(),
+            'history' => $svc->history($property, 12)->values(),
+        ];
+    }
+
     public function faultTypes(Request $request, int $property): JsonResponse
     {
         $contact = $this->resolvePortalContact($request);

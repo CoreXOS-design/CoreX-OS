@@ -249,6 +249,10 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::get('/properties/{property}', [ClientLandlordRentalsController::class, 'propertyShow'])->name('properties.show');
             // §15 (AT-447 follow-up) — "Request work / report a problem."
             Route::get('/properties/{property}/fault-types', [ClientLandlordRentalsController::class, 'faultTypes'])->name('fault-types.index');
+            // rentals-faults-work-orders.md section 22 - the owner's "How I want faults handled" per property.
+            Route::get('/properties/{property}/fault-settings', [ClientLandlordRentalsController::class, 'faultSettingsShow'])->whereNumber('property')->name('fault-settings.show');
+            Route::post('/properties/{property}/fault-settings', [ClientLandlordRentalsController::class, 'faultSettingsSave'])->whereNumber('property')->name('fault-settings.save');
+            Route::post('/properties/{property}/fault-settings/change-request', [ClientLandlordRentalsController::class, 'faultSettingsChangeRequest'])->whereNumber('property')->name('fault-settings.change-request');
             Route::post('/properties/{property}/fault-reports', [ClientLandlordRentalsController::class, 'faultReportStore'])->middleware('portal.photos')->name('fault-reports.store');
             Route::get('/fault-reports', [ClientLandlordRentalsController::class, 'faultReports'])->name('fault-reports.index');
             Route::get('/fault-reports/{faultReport}', [ClientLandlordRentalsController::class, 'faultReportShow'])->whereNumber('faultReport')->name('fault-reports.show');

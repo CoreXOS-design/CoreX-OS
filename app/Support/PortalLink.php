@@ -31,7 +31,7 @@ final class PortalLink
     public const VIEW_OWNER = 'owner';
 
     /** Target keys the portal understands, in the order they are written. */
-    public const TARGETS = ['fault', 'wo', 'insp', 'lease', 'docs'];
+    public const TARGETS = ['fault', 'wo', 'insp', 'lease', 'docs', 'handling'];
 
     /** A link for a known contact (the usual case: the mail is going to $contact->email). */
     public static function forContact(Contact $contact, string $view, array $target = []): string

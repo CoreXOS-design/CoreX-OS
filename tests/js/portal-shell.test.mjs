@@ -431,7 +431,7 @@ test('first load, signed out: no button on the page starts disabled - Continue i
   assert.equal(p.login.step, 'email');
   assert.equal(alpineSetsDisabled(continueExpr(), p), false, 'Continue is enabled');
   for (const expr of [...bladeSrc.matchAll(/:disabled="([^"]*)"/g)].map((m) => m[1])) {
-    const on = alpineSetsDisabled(expr, p, { w: { id: 1 }, v: { id: 1 }, f: { id: 1 } });
+    const on = alpineSetsDisabled(expr, p, { w: { id: 1 }, v: { id: 1 }, f: { id: 1 }, p: { id: 1 } });
     assert.notEqual(on, true, `:disabled="${expr}" is ON at first load`);
   }
 });

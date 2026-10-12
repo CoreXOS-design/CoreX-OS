@@ -414,6 +414,52 @@
                                             <a class="link" href="#" @click.prevent="loadPropertyDetail(p.id)">View activity →</a>
                                             <button class="btn btn-primary" style="width:auto;margin-top:0;padding:8px 12px;" @click="startLandlordFaultReport(p.id)" data-request-work>Request work</button>
                                         </div>
+                                        {{-- rentals-faults-work-orders.md section 22.4 - "How I want faults handled": the owner's OWN answers for this property --}}
+                                        <div data-handling-section :data-handling-property="p.id" style="margin-top:12px; padding-top:12px; border-top:1px solid #eef1f6;">
+                                            <div class="row">
+                                                <strong>How I want faults handled</strong>
+                                                <span class="badge" x-show="handling[p.id] && handling[p.id].data" x-text="handling[p.id] && handling[p.id].data ? ({confirmed_by_owner:'Confirmed', captured_by_agent:'Please confirm', disputed:'Not agreed', not_set:'Not set'}[handling[p.id].data.status]) : ''" data-handling-badge></span>
+                                            </div>
+                                            <p x-show="!handling[p.id] || !handling[p.id].open"><a class="link" href="#" @click.prevent="toggleHandling(p.id)" data-open-handling>Open - what my agent may do without asking me →</a></p>
+                                            <div x-show="handling[p.id] && handling[p.id].open && handling[p.id].data" x-cloak data-handling-body>
+                                                <p class="muted" x-text="handling[p.id] && handling[p.id].data ? handling[p.id].data.status_label : ''" data-handling-status></p>
+                                                <p class="muted" x-show="handling[p.id] && handling[p.id].data && handling[p.id].data.captured_line" x-text="handling[p.id] && handling[p.id].data ? handling[p.id].data.captured_line : ''" data-handling-captured></p>
+                                                <p class="muted" x-show="handling[p.id] && handling[p.id].data && handling[p.id].data.suggested" data-handling-suggested>The repair amount below is only a suggestion from your agency. It does not count until you confirm it.</p>
+                                                <template x-if="handling[p.id] && handling[p.id].form">
+                                                    <div>
+                                                        <label>Repairs my agent may authorise without asking me: up to R</label>
+                                                        <input type="number" min="0" step="0.01" inputmode="decimal" x-model="handling[p.id].form.repair_limit" data-h-repair>
+                                                        <label>Emergency repairs my agent may authorise without asking me: up to R</label>
+                                                        <input type="number" min="0" step="0.01" inputmode="decimal" x-model="handling[p.id].form.emergency_limit" data-h-emergency>
+                                                        <label>May my agent send a contractor who charges a call-out fee without asking me first?</label>
+                                                        <select x-model="handling[p.id].form.callout_mode" data-h-callout>
+                                                            <option value="">Choose...</option>
+                                                            <option value="yes">Yes, up to an amount</option>
+                                                            <option value="no">No - ask me first</option>
+                                                        </select>
+                                                        <template x-if="handling[p.id].form.callout_mode === 'yes'">
+                                                            <div><label>Call-out fees up to R</label><input type="number" min="0.01" step="0.01" inputmode="decimal" x-model="handling[p.id].form.callout_limit" data-h-callout-limit></div>
+                                                        </template>
+                                                        <p class="muted" style="margin-top:10px;" data-handling-responders>
+                                                            Who looks at faults first:
+                                                            <span x-text="handling[p.id].data.first_responders.length ? handling[p.id].data.first_responders.map(f => f.name + ' (' + f.kind_label + ')').join(', then ') : 'nobody has been set up'"></span>
+                                                        </p>
+                                                        <p x-show="handling[p.id].error" class="error" style="color:var(--danger);" x-text="handling[p.id].error" data-handling-error></p>
+                                                        <p x-show="handling[p.id].msg" style="color:var(--ok);font-weight:700;" x-text="handling[p.id].msg" data-handling-msg></p>
+                                                        <div class="btn-pair">
+                                                            <button class="btn btn-primary" :disabled="!!(handling[p.id] && handling[p.id].busy)" @click="saveHandling(p.id)" data-confirm-handling>Confirm these</button>
+                                                            <button class="btn btn-outline" :disabled="!!(handling[p.id] && handling[p.id].busy)" @click="requestResponderChange(p.id)" data-ask-responder-change>Ask for a change to who looks first</button>
+                                                        </div>
+                                                        <div x-show="handling[p.id].data.history.length" style="margin-top:12px;" data-handling-history>
+                                                            <p class="muted"><strong>What has been recorded</strong></p>
+                                                            <template x-for="h in handling[p.id].data.history" :key="h.at + h.text">
+                                                                <p class="muted" style="margin:4px 0;" x-text="h.at + ' - ' + h.text"></p>
+                                                            </template>
+                                                        </div>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </div>
                                     </div>
                                 </template>
                                 <template x-if="propertyDetail">
@@ -751,6 +797,7 @@ function rentalsPortal() {
         busy: {},
         session: { authenticated: false },
         me: null,          // who /client/me says is signed in
+        handling: {},   // section 22: per property id -> {open, data, form, busy, error, msg}
         linkIssue: null,   // {kind:'email'|'fault', masked} when the link is not for this account
         sessionChanged: false,   // another tab signed somebody else in (or out): this page stops acting as the person it shows
         linkEmail: '',     // the address the link was written for ('' when it names nobody)
@@ -897,6 +944,7 @@ function rentalsPortal() {
             const qs = new URLSearchParams(window.location.search);
             const num = (k) => parseInt(qs.get(k) || '', 10) || 0;
             const linkedFault = parseInt(qs.get('fault') || '', 10) || 0, linkedWo = num('wo'), linkedInsp = num('insp'), linkedLease = num('lease'), linkedDocs = qs.get('docs') === '1';
+            const linkedHandling = num('handling');   // section 22: "Open my settings" in the owner's email lands on that property's "How I want faults handled"
             const wanted = { owner: 'landlord', tenant: 'tenant' }[qs.get('as')] || (linkedFault > 0 && !qs.get('as') ? 'landlord' : null);   // old owner fault links had no side: they were always the owner's
             if (wanted) {
                 if (!roles.includes(wanted)) { this.linkIssue = { kind: (!qs.get('as') ? 'fault' : 'view'), masked: null, wanted }; return; }
@@ -905,7 +953,13 @@ function rentalsPortal() {
             }
 
             if (this.activeRole === 'landlord') {
-                this.landlordTab = linkedFault > 0 ? 'faults' : (linkedWo > 0 ? 'jobs' : (linkedDocs ? 'documents' : 'home'));
+                this.landlordTab = linkedFault > 0 ? 'faults' : (linkedWo > 0 ? 'jobs' : (linkedDocs ? 'documents' : (linkedHandling > 0 ? 'properties' : 'home')));
+                if (linkedHandling > 0) {
+                    await this.loadLandlordProperties();
+                    if (!this.landlordProperties.some((p) => p.id === linkedHandling)) { this.linkIssue = { kind: 'fault', masked: null }; return; }
+                    await this.toggleHandling(linkedHandling, true);
+                    this.$nextTick(() => { const el = document.querySelector('[data-handling-property="' + linkedHandling + '"]'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+                }
                 if (linkedFault > 0) {
                     // lands on that exact fault with the decision controls; a person with no part in that repair is told so
                     const opened = await portalFetch('/api/v1/client/rentals/landlord/fault-reports/' + linkedFault);
@@ -1297,6 +1351,34 @@ function rentalsPortal() {
         async loadLandlordProperties() {
             const r = await portalFetch('/api/v1/client/rentals/landlord/properties');
             if (r.ok) this.landlordProperties = r.data.properties;
+        },
+        // rentals-faults-work-orders.md section 22 - "How I want faults handled". One call to read, one to save; the server decides what counts.
+        setHandling(id, patch) { this.handling = Object.assign({}, this.handling, { [id]: Object.assign({}, this.handling[id] || {}, patch) }); },
+        async toggleHandling(id, forceOpen = false) {
+            const cur = this.handling[id];
+            if (cur && cur.open && !forceOpen) { this.setHandling(id, { open: false }); return; }
+            this.setHandling(id, { open: true, busy: true, error: null, msg: null });
+            const r = await portalFetch('/api/v1/client/rentals/landlord/properties/' + id + '/fault-settings');
+            if (!r.ok) { this.setHandling(id, { busy: false, error: 'Could not load this. Please try again.' }); return; }
+            const d = r.data.fault_settings, v = d.values || {};
+            this.setHandling(id, { busy: false, data: d, form: { repair_limit: v.repair_limit ?? '', emergency_limit: v.emergency_limit ?? '', callout_mode: v.callout_mode || '', callout_limit: v.callout_limit ?? '' } });
+        },
+        async saveHandling(id) {
+            const h = this.handling[id]; if (!h || h.busy) return;
+            this.setHandling(id, { busy: true, error: null, msg: null });
+            const r = await portalFetch('/api/v1/client/rentals/landlord/properties/' + id + '/fault-settings', { method: 'POST', body: JSON.stringify(h.form), key: 'handling-' + id + '-' + Date.now() });
+            if (!r.ok) { this.setHandling(id, { busy: false, error: r.data?.errors ? Object.values(r.data.errors)[0][0] : (r.data?.message || 'Could not save this. Please try again.') }); return; }
+            const d = r.data.fault_settings, v = d.values || {};
+            this.setHandling(id, { busy: false, data: d, form: { repair_limit: v.repair_limit ?? '', emergency_limit: v.emergency_limit ?? '', callout_mode: v.callout_mode || '', callout_limit: v.callout_limit ?? '' },
+                msg: r.data.result === 'unchanged' ? 'Nothing changed - these are already confirmed.' : 'Saved. Your agent will use these.' });
+        },
+        async requestResponderChange(id) {
+            const h = this.handling[id]; if (!h || h.busy) return;
+            const note = window.corexConfirm ? await window.corexConfirm({ title: 'Ask for a change', message: 'Tell your agent what you would like changed about who looks at faults first.', confirmLabel: 'Send', input: { label: 'What would you like changed? (optional)', required: false } }) : '';
+            if (note === false) return;
+            this.setHandling(id, { busy: true, error: null, msg: null });
+            const r = await portalFetch('/api/v1/client/rentals/landlord/properties/' + id + '/fault-settings/change-request', { method: 'POST', body: JSON.stringify({ note: typeof note === 'string' ? note : '' }), key: 'handling-ask-' + id + '-' + Date.now() });
+            this.setHandling(id, r.ok ? { busy: false, data: r.data.fault_settings, msg: 'Sent. Your agent has been told you would like a change.' } : { busy: false, error: 'Could not send this. Please try again.' });
         },
         async loadPropertyDetail(id) {
             const r = await portalFetch('/api/v1/client/rentals/landlord/properties/' + id);
