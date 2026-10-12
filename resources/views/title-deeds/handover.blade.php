@@ -1,9 +1,5 @@
 @extends('layouts.corex-app')
 
-@push('head')
-    @vite(['resources/js/esign-signature-pad.js'])
-@endpush
-
 @section('corex-content')
 @php
     $s = $ctx['settings'];
@@ -17,6 +13,7 @@
     $repOpen = $s['representatives_allowed'] && $s['rep_mode'] !== 'refuse';
     $startMode = old('method', ($s['pin_required'] && $pin['issued'] && ! $pin['locked']) ? 'pin' : 'id_check');
     $blocked = $ovr['needed'] && ! $ovr['can'];
+    $hasLink = (bool) $link;
 @endphp
 <div class="w-full max-w-2xl space-y-4"
      x-data="titleDeedHandover({
@@ -24,7 +21,10 @@
         collectorType: @js(old('collector_type', 'owner')),
         consent: @js($consent),
         pollUrl: @js($pollUrl),
+        signingPollUrl: @js($signingPollUrl),
+        linkState: @js($linkState),
         sigRequired: @js($s['signature_required']),
+        showUrl: @js(route('title-deeds.show', $deed->id)),
      })">
 
     <div class="rounded-md px-5 py-4 corex-page-banner">
@@ -33,8 +33,9 @@
         <div class="text-sm" style="color: var(--text-secondary);">{{ collect($owners)->pluck('name')->implode(', ') }}</div>
     </div>
 
-    @if(session('error'))<div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">{{ session('error') }}</div>@endif
-    @if(session('success'))<div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">{{ session('success') }}</div>@endif
+    @foreach(['success' => 'green', 'error' => 'crimson', 'info' => 'amber'] as $key => $colour)
+        @if(session($key))<div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-{{ $colour }}) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-{{ $colour }}) 30%, transparent); color: var(--text-primary);">{{ session($key) }}</div>@endif
+    @endforeach
     @if($errors->any())<div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);"><ul class="list-disc list-inside">@foreach($errors->all() as $e)<li>{{ $e }}</li>@endforeach</ul></div>@endif
 
     @if($ovr['needed'])
@@ -46,6 +47,67 @@
     </div>
     @endif
 
+@if($hasLink)
+    {{-- ═════════ The collector is signing on their own phone ═════════ --}}
+    <div class="rounded-md p-4 space-y-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <div>
+            <div class="text-sm font-semibold" style="color: var(--text-primary);">Signing link for {{ $link->collector_name }}</div>
+            <div class="text-sm mt-1" aria-live="polite" data-link-status>
+                <template x-if="linkState.state === 'waiting'"><span style="color: var(--text-secondary);">Waiting for {{ $link->collector_name }} to sign on their phone&hellip; <span x-text="linkState.expires_at ? '(valid until ' + new Date(linkState.expires_at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) + ')' : ''"></span></span></template>
+                <template x-if="linkState.state === 'signed'"><span style="color: var(--ds-green); font-weight: 600;">Signed by <span x-text="linkState.signed_name"></span> at <span x-text="linkState.signed_at"></span></span></template>
+                <template x-if="linkState.state === 'expired'"><span style="color: var(--ds-crimson);">This link has run out. Cancel it and generate a new one.</span></template>
+                <template x-if="linkState.state === 'cancelled'"><span style="color: var(--ds-crimson);">This link was cancelled.</span></template>
+            </div>
+        </div>
+
+        @if($link->isLive())
+        <div class="space-y-3">
+            @if($link->collector_type === 'representative')
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <form method="POST" action="{{ route('title-deeds.signing-link.email', [$deed->id, $link->id]) }}" class="space-y-1">
+                    @csrf <input type="hidden" name="_form_token" value="{{ $tokens['link_email'] }}">
+                    <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="send_email">Email for the link</label>
+                    <input id="send_email" name="send_email" type="email" maxlength="191" value="{{ old('send_email', $link->send_email) }}" class="{{ $input }}" style="{{ $inputStyle }}">
+                    <button type="submit" class="corex-btn-outline text-xs">Email link</button>
+                </form>
+                <form method="POST" action="{{ route('title-deeds.signing-link.whatsapp', [$deed->id, $link->id]) }}" class="space-y-1">
+                    @csrf <input type="hidden" name="_form_token" value="{{ $tokens['link_whatsapp'] }}">
+                    <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="send_mobile">Mobile for WhatsApp</label>
+                    <input id="send_mobile" name="send_mobile" type="tel" maxlength="40" value="{{ old('send_mobile', $link->send_mobile) }}" class="{{ $input }}" style="{{ $inputStyle }}">
+                    <button type="submit" class="corex-btn-outline text-xs">Prepare WhatsApp</button>
+                </form>
+            </div>
+            @else
+            <div class="flex flex-wrap items-center gap-2">
+                <form method="POST" action="{{ route('title-deeds.signing-link.email', [$deed->id, $link->id]) }}">@csrf <input type="hidden" name="_form_token" value="{{ $tokens['link_email'] }}"><button type="submit" class="corex-btn-outline text-xs">Email link</button></form>
+                <form method="POST" action="{{ route('title-deeds.signing-link.whatsapp', [$deed->id, $link->id]) }}">@csrf <input type="hidden" name="_form_token" value="{{ $tokens['link_whatsapp'] }}"><button type="submit" class="corex-btn-outline text-xs">Prepare WhatsApp</button></form>
+            </div>
+            @endif
+
+            @if($linkQr)
+            <details>
+                <summary class="text-sm font-semibold cursor-pointer" style="color: var(--brand-icon);">Show QR code to scan</summary>
+                <img src="{{ $linkQr }}" alt="QR code for the signing link" class="mt-2 rounded-md" style="width: 220px; height: 220px; background: #fff; padding: 6px;">
+            </details>
+            @endif
+        </div>
+        @endif
+
+        <div class="flex flex-wrap items-center gap-3 pt-1" style="border-top: 1px solid var(--border);">
+            <form method="POST" action="{{ route('title-deeds.handover.submit', $deed->id) }}" @submit="submitting = true">
+                @csrf
+                <input type="hidden" name="_form_token" value="{{ $tokens['handover_link'] }}">
+                <input type="hidden" name="signing_link_id" value="{{ $link->id }}">
+                <button type="submit" class="corex-btn-primary text-base py-3 px-6" :disabled="linkState.state !== 'signed' || submitting" @if($blocked) disabled @endif>Hand the deed over</button>
+            </form>
+            <form method="POST" action="{{ route('title-deeds.signing-link.cancel', [$deed->id, $link->id]) }}">@csrf
+                <x-confirm-submit title="Cancel the signing link" message="The link stops working{{ $link->status === 'signed' ? ' and the collector\'s signature is discarded' : '' }}. You can sign on this screen or generate a new link." confirm-label="Cancel the link" :danger="true" class="corex-btn-outline text-xs">Cancel link</x-confirm-submit>
+            </form>
+        </div>
+    </div>
+
+    @include('title-deeds._prepared-whatsapp', ['prepared' => $prepared, 'deed' => $deed])
+@else
     {{-- How is it being handed over? --}}
     <div class="grid grid-cols-3 gap-2 text-sm" role="tablist">
         <button type="button" class="rounded-md px-2 py-3 font-semibold" :style="mode === 'pin' ? 'background: var(--brand-icon); color: #fff;' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'" @click="mode = 'pin'">Has the PIN</button>
@@ -64,6 +126,7 @@
             <div class="text-sm font-semibold" style="color: var(--text-primary);">Who is collecting</div>
             <form method="POST" action="{{ route('title-deeds.consent.request', $deed->id) }}" id="rep-form" class="space-y-3">
                 @csrf
+                <input type="hidden" name="_form_token" value="{{ $tokens['consent'] }}">
                 <div>
                     <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="rep_name">Full name</label>
                     <input id="rep_name" name="rep_name" type="text" maxlength="191" value="{{ old('rep_name') }}" x-model="rep.name" class="{{ $input }}" style="{{ $inputStyle }}" :readonly="consentLocksRep">
@@ -109,6 +172,7 @@
             <form method="POST" action="{{ route('title-deeds.consent.phone', $deed->id) }}" class="space-y-3 mt-3"
                   x-data="{ owner: '', numbers: @js(collect($owners)->mapWithKeys(fn ($o) => [(string) $o['contact_id'] => collect($o['numbers'])->map(fn ($masked, $id) => ['id' => $id, 'masked' => $masked])->values()])->all()) }">
                 @csrf
+                <input type="hidden" name="_form_token" value="{{ $tokens['phone_consent'] }}">
                 <input type="hidden" name="rep_name" :value="rep.name"><input type="hidden" name="rep_id_number" :value="rep.id"><input type="hidden" name="rep_relationship" :value="rep.rel">
                 <div>
                     <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="called_contact_id">Owner you called</label>
@@ -142,13 +206,14 @@
     </div>
 
     {{-- The handover itself --}}
-    <form method="POST" action="{{ route('title-deeds.handover.submit', $deed->id) }}" enctype="multipart/form-data"
+    <form method="POST" action="{{ route('title-deeds.handover.submit', $deed->id) }}" enctype="multipart/form-data" id="handover-form"
           class="rounded-md p-4 space-y-4" style="background: var(--surface); border: 1px solid var(--border);"
           @submit="beforeSubmit($event)">
         @csrf
+        <input type="hidden" name="_form_token" value="{{ $tokens['handover'] }}">
         <input type="hidden" name="method" :value="mode">
         <input type="hidden" name="consent_id" :value="mode === 'representative' && consent.state === 'approved' ? consent.consent_id : ''">
-        <input type="hidden" name="signature_image" x-ref="sigImage">
+        <input type="hidden" name="signature_image" x-ref="sigImage" id="signature_image">
         <input type="hidden" name="rep_name" :value="mode === 'representative' || (mode === 'pin' && collectorType === 'representative') ? rep.name : ''">
         <input type="hidden" name="rep_id_number" :value="mode === 'representative' || (mode === 'pin' && collectorType === 'representative') ? rep.id : ''">
         <input type="hidden" name="rep_relationship" :value="mode === 'representative' || (mode === 'pin' && collectorType === 'representative') ? rep.rel : ''">
@@ -221,18 +286,40 @@
         </div>
         @endif
 
-        {{-- Collector signs --}}
+        {{-- Collector signs on THIS screen --}}
         <div class="space-y-3">
             <div>
                 <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="typed_name">Collector's full name{{ $s['signature_required'] ? '' : ' (optional)' }}</label>
-                <input id="typed_name" name="typed_name" type="text" maxlength="191" autocomplete="off" value="{{ old('typed_name') }}" class="{{ $input }}" style="{{ $inputStyle }}" @if($s['signature_required']) required @endif>
+                <input id="typed_name" name="typed_name" type="text" maxlength="191" autocomplete="off" value="{{ old('typed_name') }}" class="{{ $input }}" style="{{ $inputStyle }}">
             </div>
             <div>
                 <label class="{{ $lbl }}" style="color: var(--text-secondary);">Collector signs here{{ $s['signature_required'] ? '' : ' (optional)' }}</label>
-                <canvas x-ref="pad" class="w-full block rounded-md" style="height:180px; touch-action:none; background:#fff; border: 1px solid var(--border);"></canvas>
-                <button type="button" @click="clearPad()" class="mt-1 text-xs underline" style="color: var(--text-muted);">Clear</button>
+                <canvas x-ref="pad" id="td-signature-pad" class="w-full block rounded-md" style="height:180px; touch-action:none; background:#fff; border: 1px solid var(--border);" aria-label="Signature box"></canvas>
+                <div class="flex items-center justify-between">
+                    <button type="button" @click="clearPad()" class="mt-1 text-xs underline" style="color: var(--text-muted);">Clear</button>
+                    <span x-show="padFailed" x-cloak class="text-xs" style="color: var(--ds-crimson);">The signature box could not start. Reload this page, or use the signing link below.</span>
+                </div>
             </div>
         </div>
+
+        @if($signByLink)
+        <details class="rounded-md p-3" style="background: var(--surface-2); border: 1px solid var(--border);" @if($errors->any() && old('send_email')) open @endif>
+            <summary class="text-sm font-semibold cursor-pointer" style="color: var(--text-primary);">Collector signs on their own phone instead</summary>
+            <div class="mt-3 space-y-3">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" x-show="mode === 'representative' || (mode === 'pin' && collectorType === 'representative')" x-cloak>
+                    <div>
+                        <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="send_email_new">Their email (for the link)</label>
+                        <input id="send_email_new" name="send_email" type="email" maxlength="191" value="{{ old('send_email') }}" class="{{ $input }}" style="{{ $inputStyle }}">
+                    </div>
+                    <div>
+                        <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="send_mobile_new">Their mobile (for WhatsApp)</label>
+                        <input id="send_mobile_new" name="send_mobile" type="tel" maxlength="40" value="{{ old('send_mobile') }}" class="{{ $input }}" style="{{ $inputStyle }}">
+                    </div>
+                </div>
+                <button type="submit" formaction="{{ route('title-deeds.signing-link.generate', $deed->id) }}" data-link="1" class="corex-btn-outline text-sm">Generate signing link</button>
+            </div>
+        </details>
+        @endif
 
         @if($ovr['needed'] && $ovr['can'])
         <div>
@@ -241,28 +328,44 @@
         </div>
         @endif
 
-        <p class="text-sm" style="color: var(--ds-crimson);" x-show="clientError" x-cloak x-text="clientError"></p>
+        <p class="text-sm" style="color: var(--ds-crimson);" x-show="clientError" x-cloak x-text="clientError" id="client-error"></p>
 
-        <button type="submit" class="corex-btn-primary w-full text-base py-3" :disabled="submitting || !canSubmit()" @if($blocked) disabled @endif>
+        <button type="submit" id="handover-submit" class="corex-btn-primary w-full text-base py-3" :disabled="submitting || !canSubmit()" @if($blocked) disabled @endif>
             <span x-text="submitting ? 'Saving…' : 'Hand the deed over'"></span>
         </button>
     </form>
+@endif
 </div>
 
+@include('title-deeds._signature-pad')
 <script>
     function titleDeedHandover(cfg) {
         return {
-            mode: cfg.mode, collectorType: cfg.collectorType, consent: cfg.consent, pad: null, submitting: false, clientError: '',
+            mode: cfg.mode, collectorType: cfg.collectorType, consent: cfg.consent, linkState: cfg.linkState || { state: 'none' },
+            submitting: false, clientError: '', padFailed: false, padEmpty: true,
             rep: { name: @js(old('rep_name', '')), id: @js(old('rep_id_number', '')), rel: @js(old('rep_relationship', '')) },
-            timer: null,
             init() {
-                this.$nextTick(() => this.setupPad());
                 if (this.consent.state === 'approved' || this.consent.state === 'waiting') {
-                    this.rep = { name: this.consent.rep_name || this.rep.name, id: this.rep.id, rel: this.rep.rel };
+                    this.rep = Object.assign({}, this.rep, { name: this.consent.rep_name || this.rep.name });
                 }
-                this.startPolling();
-                document.addEventListener('visibilitychange', () => { if (!document.hidden) this.poll(); });
+                this.$nextTick(() => this.setupPad());
+                setInterval(() => {
+                    if (document.hidden) return;
+                    if (this.consent.state === 'waiting') this.pollConsent();
+                    if (this.linkState && this.linkState.state === 'waiting') this.pollLink();
+                }, 5000);
+                document.addEventListener('visibilitychange', () => { if (!document.hidden) { this.pollLink(); } });
             },
+            // The pad is NOT stored in this reactive object (Alpine would wrap it in a proxy): it lives in window.tdPads, looked up from the canvas.
+            padApi() { const c = this.$refs.pad; return c && window.tdSignaturePad ? window.tdSignaturePad.of(c) : null; },
+            setupPad() {
+                const c = this.$refs.pad;
+                if (!c) return;
+                if (!window.tdSignaturePad) { this.padFailed = true; return; }
+                window.tdSignaturePad.attach(c, { onChange: (empty) => { this.padEmpty = empty; this.clientError = ''; } });
+                setTimeout(() => { const p = this.padApi(); if (!p || !p.ready()) this.padFailed = true; }, 1500);
+            },
+            clearPad() { const p = this.padApi(); if (p) p.clear(); },
             get consentLocksRep() { return this.consent.state === 'waiting' || this.consent.state === 'approved'; },
             canSubmit() {
                 @if($s['rep_mode'] === 'owner_consent')
@@ -271,34 +374,39 @@
                 return true;
             },
             untilText() { return this.consent.until ? new Date(this.consent.until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''; },
-            startPolling() {
-                this.timer = setInterval(() => { if (!document.hidden && this.consent.state === 'waiting') this.poll(); }, 5000);
-            },
-            async poll() {
+            async pollConsent() {
                 try {
                     const res = await fetch(cfg.pollUrl, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' });
                     if (!res.ok) return;
                     const data = await res.json();
-                    if (data.collected) { window.location.href = @js(route('title-deeds.show', $deed->id)); return; }
+                    if (data.collected) { window.location.href = cfg.showUrl; return; }
                     this.consent = Object.assign({}, this.consent, data);
                 } catch (e) { /* the next tick tries again */ }
             },
-            setupPad() {
-                const canvas = this.$refs.pad;
-                if (!canvas || !window.SignaturePad) return;
-                const ratio = Math.max(window.devicePixelRatio || 1, 1);
-                canvas.width = canvas.offsetWidth * ratio;
-                canvas.height = canvas.offsetHeight * ratio;
-                canvas.getContext('2d').scale(ratio, ratio);
-                this.pad = new window.SignaturePad(canvas, { penColor: '#111827', backgroundColor: 'rgba(255,255,255,0)' });
+            async pollLink() {
+                if (!cfg.signingPollUrl || !this.linkState || this.linkState.state === 'none') return;
+                try {
+                    const res = await fetch(cfg.signingPollUrl, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' });
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    if (data.collected) { window.location.href = cfg.showUrl; return; }
+                    this.linkState = Object.assign({}, this.linkState, data);
+                } catch (e) { /* the next tick tries again */ }
             },
-            clearPad() { if (this.pad) this.pad.clear(); },
             beforeSubmit(e) {
                 this.clientError = '';
-                if (cfg.sigRequired && (!this.pad || this.pad.isEmpty())) {
-                    e.preventDefault(); this.clientError = 'The collector needs to sign on the screen.'; return;
+                const viaLink = e.submitter && e.submitter.dataset && e.submitter.dataset.link === '1';
+                if (viaLink) { this.submitting = false; return; }          // generating a signing link needs no signature on this screen
+                const name = (document.getElementById('typed_name') || {}).value || '';
+                if (cfg.sigRequired && name.trim().length < 2) { e.preventDefault(); this.clientError = "Type the collector's full name before they sign."; return; }
+                const p = this.padApi();
+                const failed = !p || !p.ready();
+                if (cfg.sigRequired && (failed || p.isEmpty())) {
+                    e.preventDefault();
+                    this.clientError = failed ? 'The signature box could not start. Reload this page, or use "Collector signs on their own phone instead".' : 'Nothing has been drawn in the signature box yet - draw the collector\'s signature with the mouse or a finger.';
+                    return;
                 }
-                this.$refs.sigImage.value = (this.pad && !this.pad.isEmpty()) ? this.pad.toDataURL('image/png') : '';
+                this.$refs.sigImage.value = p && !p.isEmpty() ? p.toDataURL() : '';
                 this.submitting = true;
             },
         };

@@ -34,7 +34,7 @@ final class TitleDeedNotifyTest extends TitleDeedTestCase
     {
         $deed = $this->deed();
 
-        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id))->assertRedirect(route('title-deeds.show', $deed->id))->assertSessionHas('success');
+        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id), $this->tk('notify', $deed))->assertRedirect(route('title-deeds.show', $deed->id))->assertSessionHas('success');
 
         $this->assertCount(2, $this->notices(), 'one email per owner (two different addresses)');
         $rows = TitleDeedEvent::where('title_deed_id', $deed->id)->get();
@@ -53,7 +53,7 @@ final class TitleDeedNotifyTest extends TitleDeedTestCase
     public function test_the_pin_is_stored_hashed_and_the_owner_email_carries_it(): void
     {
         $deed = $this->deed();
-        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id));
+        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id), $this->tk('notify', $deed));
 
         $sent = $this->notices();
         $pin = $sent->first()->pin;
@@ -77,7 +77,7 @@ final class TitleDeedNotifyTest extends TitleDeedTestCase
         $noMobile = $this->contact('Pieter', 'Botha', phone: null);
         $deed = $this->deed([$noEmail, $noMobile]);
 
-        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id))->assertSessionHas('success');
+        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id), $this->tk('notify', $deed))->assertSessionHas('success');
 
         $this->assertCount(1, $this->notices(), 'only the owner with an email is emailed');
         $rows = TitleDeedEvent::where('title_deed_id', $deed->id)->get();
@@ -91,7 +91,7 @@ final class TitleDeedNotifyTest extends TitleDeedTestCase
     {
         $c = $this->contact('Nomsa', 'Zulu', email: 'not an email');
         $deed = $this->deed([$c]);
-        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id));
+        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id), $this->tk('notify', $deed));
         $this->assertCount(0, $this->notices());
         $this->assertSame('skipped', TitleDeedEvent::where('channel', 'email')->first()->status);
     }
@@ -102,7 +102,7 @@ final class TitleDeedNotifyTest extends TitleDeedTestCase
         $b = $this->contact('Sipho', 'Mkhize', email: 'family.mkhize@example.test');
         $deed = $this->deed([$a, $b]);
 
-        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id));
+        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id), $this->tk('notify', $deed));
 
         $this->assertCount(1, $this->notices());
         $this->assertSame('Thandi Mkhize and Sipho Mkhize', $this->notices()->first()->recipientName);
@@ -119,7 +119,7 @@ final class TitleDeedNotifyTest extends TitleDeedTestCase
         $deed = $this->deed([$a, $b]);
         $b->delete();
 
-        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id));
+        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id), $this->tk('notify', $deed));
 
         $this->assertCount(1, $this->notices());
         $this->assertStringContainsString('archived', TitleDeedEvent::where('contact_id', $b->id)->first()->error);
@@ -129,7 +129,7 @@ final class TitleDeedNotifyTest extends TitleDeedTestCase
     {
         $deed = $this->deed([$this->contact('Thandi', 'Mkhize', email: 'thandi@example.test', phone: '0821234567')]);
 
-        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id), ['email' => 'attacker@evil.test', 'to' => 'attacker@evil.test', 'phone' => '0829999999']);
+        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id), $this->tk('notify', $deed, null, ['email' => 'attacker@evil.test', 'to' => 'attacker@evil.test', 'phone' => '0829999999']));
 
         $email = TitleDeedEvent::where('channel', 'email')->first();
         $this->assertSame('t***@example.test', $email->destination_masked);
@@ -137,7 +137,7 @@ final class TitleDeedNotifyTest extends TitleDeedTestCase
         $this->assertStringEndsWith('4567', $wa->destination_masked);
         $this->assertStringNotContainsString('9999', (string) $wa->destination_masked);
         // and the prepared WhatsApp opens on the STORED number
-        $response = $this->actingAs($this->admin)->get(route('title-deeds.events.whatsapp', [$deed->id, $wa->id]));
+        $response = $this->actingAs($this->admin)->post(route('title-deeds.events.open', [$deed->id, $wa->id]));
         $location = $response->headers->get('Location');
         $this->assertStringStartsWith('https://wa.me/27821234567?text=', $location);
         $this->assertStringContainsString(rawurlencode($this->notices()->first()->pin), $location);
@@ -148,13 +148,20 @@ final class TitleDeedNotifyTest extends TitleDeedTestCase
         $onlyPhone = $this->contact('Lerato', 'Khumalo', email: null, phone: '0731112222');
         $deed = $this->deed([$onlyPhone]);
 
-        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id));
+        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id), $this->tk('notify', $deed));
         $this->assertSame('received', $deed->fresh()->status, 'nothing was actually sent yet - the status does not move');
 
         $event = TitleDeedEvent::where('channel', 'whatsapp')->firstOrFail();
         $this->assertSame('prepared', $event->status);
         $this->assertNull($event->confirmed_at);
 
+        // Confirming before anyone opened WhatsApp is refused by the server.
+        $this->actingAs($this->admin)->post(route('title-deeds.events.confirm', [$deed->id, $event->id]))->assertSessionHas('error');
+        $this->assertSame('prepared', $event->fresh()->status);
+        $this->actingAs($this->admin)->post(route('title-deeds.events.open', [$deed->id, $event->id]));
+        $this->assertSame('opened', $event->fresh()->status);
+        $this->assertSame($this->admin->id, (int) $event->fresh()->opened_by_user_id);
+        $this->assertSame('received', $deed->fresh()->status, 'opened is not sent: the owner is still not notified');
         $this->actingAs($this->admin)->post(route('title-deeds.events.confirm', [$deed->id, $event->id]))->assertSessionHas('success');
         $this->actingAs($this->admin)->post(route('title-deeds.events.confirm', [$deed->id, $event->id]))->assertSessionHas('success');
 
@@ -168,15 +175,15 @@ final class TitleDeedNotifyTest extends TitleDeedTestCase
     public function test_resend_sends_the_same_pin_and_a_new_pin_cancels_the_old_one(): void
     {
         $deed = $this->deed([$this->contact('Thandi', 'Mkhize')]);
-        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id));
+        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id), $this->tk('notify', $deed));
         $first = $this->notices()->first()->pin;
 
-        $this->actingAs($this->admin)->post(route('title-deeds.pin.resend', $deed->id))->assertSessionHas('success');
+        $this->actingAs($this->admin)->post(route('title-deeds.pin.resend', $deed->id), $this->tk('pin_resend', $deed))->assertSessionHas('success');
         $this->assertSame($first, $this->notices()->last()->pin, 'resend sends the SAME PIN');
         $this->assertSame(1, $deed->fresh()->pin_version);
         $this->assertSame(1, TitleDeedEvent::where('kind', 'pin_resend')->where('channel', 'email')->count());
 
-        $this->actingAs($this->admin)->post(route('title-deeds.pin.new', $deed->id))->assertSessionHas('success');
+        $this->actingAs($this->admin)->post(route('title-deeds.pin.new', $deed->id), $this->tk('pin_new', $deed))->assertSessionHas('success');
         $second = $this->notices()->last()->pin;
         $this->assertNotSame($first, $second);
         $this->assertSame(2, $deed->fresh()->pin_version);
@@ -192,18 +199,18 @@ final class TitleDeedNotifyTest extends TitleDeedTestCase
         TitleDeedSetting::create(['agency_id' => $this->agencyId, 'pin_required' => false]);
         $deed = $this->deed([$this->contact('Thandi', 'Mkhize')]);
 
-        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id))->assertSessionHas('success');
+        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id), $this->tk('notify', $deed))->assertSessionHas('success');
 
         $this->assertNull($this->notices()->first()->pin);
         $this->assertSame(0, $deed->fresh()->pin_version);
-        $this->actingAs($this->admin)->post(route('title-deeds.pin.new', $deed->id))->assertSessionHas('error');
+        $this->actingAs($this->admin)->post(route('title-deeds.pin.new', $deed->id), $this->tk('pin_new', $deed))->assertSessionHas('error');
     }
 
     public function test_a_deed_with_nobody_reachable_says_so_and_does_not_move(): void
     {
         $c = $this->contact('Thandi', 'Mkhize', email: null, phone: null);
         $deed = $this->deed([$c]);
-        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id))->assertSessionHas('error');
+        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id), $this->tk('notify', $deed))->assertSessionHas('error');
         $this->assertSame('received', $deed->fresh()->status);
     }
 
@@ -211,9 +218,9 @@ final class TitleDeedNotifyTest extends TitleDeedTestCase
     {
         $deed = $this->deed();
         $deed->forceFill(['status' => 'collected', 'collected_at' => now()])->save();
-        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id))->assertSessionHas('error');
-        $this->actingAs($this->admin)->post(route('title-deeds.pin.resend', $deed->id))->assertSessionHas('error');
-        $this->actingAs($this->admin)->post(route('title-deeds.pin.new', $deed->id))->assertSessionHas('error');
+        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id), $this->tk('notify', $deed))->assertSessionHas('error');
+        $this->actingAs($this->admin)->post(route('title-deeds.pin.resend', $deed->id), $this->tk('pin_resend', $deed))->assertSessionHas('error');
+        $this->actingAs($this->admin)->post(route('title-deeds.pin.new', $deed->id), $this->tk('pin_new', $deed))->assertSessionHas('error');
         $this->assertCount(0, $this->notices());
         $this->expectException(TitleDeedException::class);
         app(TitleDeedNotifier::class)->notifyOwners($this->admin, $deed);
@@ -223,15 +230,15 @@ final class TitleDeedNotifyTest extends TitleDeedTestCase
     {
         $deed = $this->deed();
         $deed->delete();
-        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id))->assertNotFound();
+        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id), $this->tk('notify', $deed))->assertNotFound();
     }
 
     public function test_notifying_needs_the_notify_permission(): void
     {
         $deed = $this->deed();
         $viewer = $this->userWith(['access_title_deeds', 'title_deeds.view']);
-        $this->actingAs($viewer)->post(route('title-deeds.notify', $deed->id))->assertForbidden();
-        $this->actingAs($viewer)->post(route('title-deeds.pin.new', $deed->id))->assertForbidden();
+        $this->actingAs($viewer)->post(route('title-deeds.notify', $deed->id), $this->tk('notify', $deed))->assertForbidden();
+        $this->actingAs($viewer)->post(route('title-deeds.pin.new', $deed->id), $this->tk('pin_new', $deed))->assertForbidden();
         $this->assertCount(0, $this->notices());
     }
 
@@ -241,7 +248,7 @@ final class TitleDeedNotifyTest extends TitleDeedTestCase
         $lock = \Illuminate\Support\Facades\Cache::lock('title-deed-notice:' . $deed->id, 30);
         $this->assertTrue($lock->get());
 
-        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id))->assertSessionHas('error');
+        $this->actingAs($this->admin)->post(route('title-deeds.notify', $deed->id), $this->tk('notify', $deed))->assertSessionHas('error');
         $this->assertCount(0, $this->notices());
         $lock->release();
     }

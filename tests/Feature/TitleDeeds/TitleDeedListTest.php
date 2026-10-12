@@ -134,9 +134,9 @@ final class TitleDeedListTest extends TitleDeedTestCase
         }
         $page1 = $this->actingAs($this->admin)->get(route('title-deeds.index'))->getContent();
         $page2 = $this->actingAs($this->admin)->get(route('title-deeds.index', ['page' => 2]))->getContent();
-        $this->assertSame(50, substr_count($page1, '<tr style="border-top: 1px solid var(--border);">'));
+        $this->assertSame(50, substr_count($page1, 'data-row-actions>'));
         $this->assertStringContainsString('of 55', $page1);
-        $this->assertSame(5, substr_count($page2, '<tr style="border-top: 1px solid var(--border);">'));
+        $this->assertSame(5, substr_count($page2, 'data-row-actions>'));
     }
 
     public function test_csv_export_follows_the_filters_and_neutralises_formulas(): void

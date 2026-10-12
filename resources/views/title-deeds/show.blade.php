@@ -6,7 +6,7 @@
     $collected = $deed->isCollected();
     $receipt = $deed->receipt;
     $label = 'block text-xs font-medium mb-0.5';
-    $evStatus = ['sent' => 'Sent', 'failed' => 'Failed', 'skipped' => 'Skipped', 'prepared' => 'Waiting to be sent'];
+    $evStatus = ['sent' => 'Sent', 'failed' => 'Failed', 'skipped' => 'Skipped', 'prepared' => 'Waiting to be opened', 'opened' => 'Opened - not yet marked as sent', 'not_sent' => 'Not sent'];
 @endphp
 <div class="w-full space-y-5">
 
@@ -24,17 +24,17 @@
                     @if($can['handover'])<a href="{{ route('title-deeds.handover', $deed->id) }}" class="corex-btn-primary text-xs">Hand over</a>@endif
                     @if($can['notify'])
                         @if($deed->status === 'received' || ! $settings['pin_required'] || ! $settings['pin_issued'] || $settings['locked'])
-                        <form method="POST" action="{{ route('title-deeds.notify', $deed->id) }}">@csrf
+                        <form method="POST" action="{{ route('title-deeds.notify', $deed->id) }}">@csrf <input type="hidden" name="_form_token" value="{{ $tokens['notify'] }}">
                             <button type="submit" class="corex-btn-outline text-xs" @if($settings['locked'] && $settings['pin_required']) disabled title="The PIN is locked - issue a new PIN" @endif>{{ $deed->status === 'received' ? 'Notify owners' : 'Notify owners again' }}</button>
                         </form>
                         @endif
                         @if($settings['pin_required'] && $settings['pin_issued'] && ! $settings['locked'])
-                        <form method="POST" action="{{ route('title-deeds.pin.resend', $deed->id) }}">@csrf
+                        <form method="POST" action="{{ route('title-deeds.pin.resend', $deed->id) }}">@csrf <input type="hidden" name="_form_token" value="{{ $tokens['pin_resend'] }}">
                             <button type="submit" class="corex-btn-outline text-xs">Resend PIN</button>
                         </form>
                         @endif
                         @if($settings['pin_required'])
-                        <form method="POST" action="{{ route('title-deeds.pin.new', $deed->id) }}">@csrf
+                        <form method="POST" action="{{ route('title-deeds.pin.new', $deed->id) }}">@csrf <input type="hidden" name="_form_token" value="{{ $tokens['pin_new'] }}">
                             <x-confirm-submit title="Issue a new PIN" message="The old PIN will stop working and the new one will be sent to every owner. Continue?" confirm-label="Issue new PIN" class="corex-btn-outline text-xs">New PIN</x-confirm-submit>
                         </form>
                         @endif
@@ -85,7 +85,10 @@
                 <div><dt class="{{ $label }}" style="color: var(--text-secondary);">Branch</dt><dd style="color: var(--text-primary);">{{ $deed->branch?->name ?? '—' }}</dd></div>
                 <div><dt class="{{ $label }}" style="color: var(--text-secondary);">Received</dt><dd style="color: var(--text-primary);">{{ $deed->received_at?->format('d M Y') }}</dd></div>
                 <div><dt class="{{ $label }}" style="color: var(--text-secondary);">Attorney firm</dt><dd style="color: var(--text-primary);">{{ $deed->attorney_firm ?: '—' }}</dd></div>
-                <div><dt class="{{ $label }}" style="color: var(--text-secondary);">Kept at</dt><dd style="color: var(--text-primary);">{{ $deed->storage_location ?: '—' }}</dd></div>
+                <div><dt class="{{ $label }}" style="color: var(--text-secondary);">Kept at</dt><dd style="color: var(--text-primary);">{{ $deed->storage_display ?: '—' }}</dd></div>
+                @if($deed->listingAgent)<div><dt class="{{ $label }}" style="color: var(--text-secondary);">Listing agent</dt><dd style="color: var(--text-primary);">{{ $deed->listingAgent->name }}</dd></div>@endif
+                @if($additionalAgents->isNotEmpty())<div><dt class="{{ $label }}" style="color: var(--text-secondary);">Also told on collection</dt><dd style="color: var(--text-primary);">{{ $additionalAgents->pluck('name')->implode(', ') }}</dd></div>@endif
+                @if($dealLabel)<div class="col-span-2"><dt class="{{ $label }}" style="color: var(--text-secondary);">Deal</dt><dd style="color: var(--text-primary);">@if($deal)<a href="{{ route('deals-dr2.pipeline.view', $deal->id) }}" class="font-semibold no-underline hover:underline" style="color: var(--brand-icon);">{{ $dealLabel }}</a>@else {{ $dealLabel }} @endif</dd></div>@endif
                 @if($deed->notified_at)<div><dt class="{{ $label }}" style="color: var(--text-secondary);">Owner first notified</dt><dd style="color: var(--text-primary);">{{ $deed->notified_at->format('d M Y H:i') }}</dd></div>@endif
             </dl>
             @if($deed->notes)
@@ -108,6 +111,14 @@
             @else
                 <div class="text-sm" style="color: var(--text-muted);">No scan.</div>
             @endif
+            @if($earlierScans->isNotEmpty())
+            <div class="text-xs space-y-0.5" style="color: var(--text-muted);">
+                <div class="font-medium" style="color: var(--text-secondary);">Earlier scans</div>
+                @foreach($earlierScans as $old)
+                    <div><a href="{{ route('title-deeds.scan.earlier', [$deed->id, $old->id]) }}" class="no-underline hover:underline" style="color: var(--brand-icon);">{{ $old->original_name }}</a> &middot; {{ $old->created_at?->format('d M Y') }}</div>
+                @endforeach
+            </div>
+            @endif
             @if($can['edit'] && ! $archived && ! $collected)
             <form method="POST" action="{{ route('title-deeds.scan.upload', $deed->id) }}" enctype="multipart/form-data" class="space-y-2">
                 @csrf
@@ -125,6 +136,7 @@
             <div><dt class="{{ $label }}" style="color: var(--text-secondary);">By</dt><dd style="color: var(--text-primary);">{{ $receipt->collector_name }}@if($receipt->collector_type === 'representative') <span class="text-xs" style="color: var(--text-muted);">({{ $receipt->collector_relationship }})</span>@endif</dd></div>
             <div><dt class="{{ $label }}" style="color: var(--text-secondary);">When</dt><dd style="color: var(--text-primary);">{{ $deed->collected_at?->format('d M Y H:i') }}</dd></div>
             <div><dt class="{{ $label }}" style="color: var(--text-secondary);">Verified by</dt><dd style="color: var(--text-primary);">{{ $receipt->methodLabel() }}</dd></div>
+            <div><dt class="{{ $label }}" style="color: var(--text-secondary);">Signed</dt><dd style="color: var(--text-primary);">{{ ($receipt->signed_via ?? 'screen') === 'link' ? 'On their own phone, from a link' : 'On the staff screen' }}</dd></div>
             <div><dt class="{{ $label }}" style="color: var(--text-secondary);">Handed over by</dt><dd style="color: var(--text-primary);">{{ $receipt->recordedBy?->name ?? '—' }}</dd></div>
             @if($receipt->collector_id_number)<div><dt class="{{ $label }}" style="color: var(--text-secondary);">Collector ID number</dt><dd style="color: var(--text-primary);">{{ $receipt->collector_id_number }}</dd></div>@endif
             @if($receipt->id_number_seen)<div><dt class="{{ $label }}" style="color: var(--text-secondary);">ID number seen</dt><dd style="color: var(--text-primary);">{{ $receipt->id_number_seen }}</dd></div>@endif
@@ -158,6 +170,7 @@
                         <td class="px-4 py-2">
                             <span style="color: {{ $ev->status === 'sent' ? 'var(--ds-green)' : ($ev->status === 'failed' ? 'var(--ds-crimson)' : 'var(--text-secondary)') }};">{{ $evStatus[$ev->status] ?? $ev->status }}</span>
                             @if($ev->error)<div class="text-xs" style="color: var(--text-muted);">{{ $ev->error }}</div>@endif
+                            @if($ev->opened_at)<div class="text-xs" style="color: var(--text-muted);">Opened by {{ $ev->openedBy?->name ?? '—' }} at {{ $ev->opened_at->format('H:i') }}@if($ev->confirmed_at) · confirmed sent by {{ $ev->user?->name ?? '—' }} at {{ $ev->confirmed_at->format('H:i') }}@elseif($ev->status === 'not_sent') · not sent (by {{ $ev->user?->name ?? '—' }})@endif</div>@endif
                         </td>
                         <td class="px-4 py-2">{{ $ev->user?->name ?? 'System' }}</td>
                     </tr>

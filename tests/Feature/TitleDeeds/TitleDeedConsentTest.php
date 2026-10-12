@@ -36,7 +36,7 @@ final class TitleDeedConsentTest extends TitleDeedTestCase
 
     private function request(TitleDeed $deed, array $rep = self::REP)
     {
-        return $this->actingAs($this->admin)->from(route('title-deeds.handover', $deed->id))->post(route('title-deeds.consent.request', $deed->id), $rep);
+        return $this->actingAs($this->admin)->from(route('title-deeds.handover', $deed->id))->post(route('title-deeds.consent.request', $deed->id), $this->tk('consent', $deed) + $rep);
     }
 
     /** @return array<int,string> contact_id => raw token, read from the emails that carried them */
@@ -52,7 +52,7 @@ final class TitleDeedConsentTest extends TitleDeedTestCase
 
     private function handover(TitleDeed $deed, array $body)
     {
-        return $this->actingAs($this->admin)->from(route('title-deeds.handover', $deed->id))->post(route('title-deeds.handover.submit', $deed->id), array_merge([
+        return $this->actingAs($this->admin)->from(route('title-deeds.handover', $deed->id))->post(route('title-deeds.handover.submit', $deed->id), $this->tk('handover', $deed) + array_merge([
             'method' => 'representative', 'typed_name' => 'Busisiwe Mkhize', 'signature_image' => $this->pngDataUri(),
         ], $body));
     }
@@ -82,7 +82,7 @@ final class TitleDeedConsentTest extends TitleDeedTestCase
 
         // the prepared WhatsApp opens on the stored number with the link in it
         $wa = TitleDeedEvent::where('kind', 'consent_request')->where('channel', 'whatsapp')->first();
-        $loc = $this->actingAs($this->admin)->get(route('title-deeds.events.whatsapp', [$deed->id, $wa->id]))->headers->get('Location');
+        $loc = $this->actingAs($this->admin)->post(route('title-deeds.events.open', [$deed->id, $wa->id]))->headers->get('Location');
         $this->assertStringStartsWith('https://wa.me/27', $loc);
         $this->assertStringContainsString(rawurlencode('Busisiwe Mkhize, ID ending 4321'), $loc);
     }
@@ -330,7 +330,7 @@ final class TitleDeedConsentTest extends TitleDeedTestCase
     {
         $deed = $this->deed();
         $phoneId = (int) DB::table('contact_phones')->where('contact_id', $deed->owners->first()->contact_id)->value('id');
-        $this->actingAs($this->admin)->post(route('title-deeds.consent.phone', $deed->id), $this->phoneBody($deed, $phoneId))->assertSessionHas('error');
+        $this->actingAs($this->admin)->post(route('title-deeds.consent.phone', $deed->id), $this->tk('phone_consent', $deed) + $this->phoneBody($deed, $phoneId))->assertSessionHas('error');
         $this->assertSame(0, TitleDeedConsent::count());
     }
 
@@ -345,10 +345,10 @@ final class TitleDeedConsentTest extends TitleDeedTestCase
         ]);
 
         // a number that is not one of the owner's stored numbers is refused - it can never be typed
-        $this->actingAs($this->admin)->post(route('title-deeds.consent.phone', $deed->id), $this->phoneBody($deed, $phoneId + 999))->assertSessionHas('error');
+        $this->actingAs($this->admin)->post(route('title-deeds.consent.phone', $deed->id), $this->tk('phone_consent', $deed) + $this->phoneBody($deed, $phoneId + 999))->assertSessionHas('error');
         $this->assertSame(0, TitleDeedConsent::count());
 
-        $this->actingAs($this->admin)->post(route('title-deeds.consent.phone', $deed->id), $this->phoneBody($deed, $phoneId))->assertSessionHas('success');
+        $this->actingAs($this->admin)->post(route('title-deeds.consent.phone', $deed->id), $this->tk('phone_consent', $deed) + $this->phoneBody($deed, $phoneId))->assertSessionHas('success');
         $consent = TitleDeedConsent::firstOrFail();
         $this->assertSame('phone', $consent->channel);
         $this->assertSame('approved', $consent->status);
@@ -370,7 +370,7 @@ final class TitleDeedConsentTest extends TitleDeedTestCase
         ]);
         $body = $this->phoneBody($deed, $phoneId);
         $body['called_at'] = now()->addHour()->format('Y-m-d\TH:i');
-        $this->actingAs($this->admin)->post(route('title-deeds.consent.phone', $deed->id), $body)->assertSessionHas('error');
+        $this->actingAs($this->admin)->post(route('title-deeds.consent.phone', $deed->id), $this->tk('phone_consent', $deed) + $body)->assertSessionHas('error');
         $this->assertSame(0, TitleDeedConsent::count());
     }
 }

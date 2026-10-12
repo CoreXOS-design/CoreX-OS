@@ -11,12 +11,15 @@
         'phone_consent_allowed' => 'Allow consent by phone call',
         'authority_letter_required' => 'Authority letter for a representative without the PIN',
         'collector_id_photo_required' => 'Photo of the collector\'s ID',
+        'notify_listing_agent' => 'Tell the deal\'s listing agent when a deed is collected',
+        'sign_by_link_enabled' => 'Collector may sign on their own phone from a link',
     ];
     $numbers = [
         'pin_lock_attempts' => 'Wrong PIN attempts before the PIN locks',
         'consent_validity_minutes' => 'Owner confirmation lasts (minutes)',
         'reminder_days' => 'Remind owners every (days)',
         'max_reminders' => 'Most reminders per deed (0 = none)',
+        'signing_link_minutes' => 'Signing link lasts (minutes)',
         'contact_changed_block_days' => 'Extra check after an owner\'s email or phone changed (days, 0 = off)',
     ];
 @endphp
@@ -61,6 +64,11 @@
 
         <button type="submit" class="corex-btn-primary">Save</button>
     </form>
+
+    <div class="rounded-md p-4 flex items-center justify-between" style="background: var(--surface); border: 1px solid var(--border);">
+        <span class="text-sm font-medium" style="color: var(--text-primary);">Storage locations</span>
+        <a href="{{ route('corex.settings.title-deeds.locations') }}" class="corex-btn-outline text-xs">Manage</a>
+    </div>
     @endif
 </div>
 @endsection

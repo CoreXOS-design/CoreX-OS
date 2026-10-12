@@ -26,9 +26,9 @@ final class TitleDeedRecordTest extends TitleDeedTestCase
         $a = $this->contact('Thandi', 'Mkhize');
         $b = $this->contact('Sipho', 'Mkhize');
 
-        $this->actingAs($this->admin)->post(route('title-deeds.store'), [
+        $this->actingAs($this->admin)->post(route('title-deeds.store'), $this->tk('create') + [
             'property_id' => $property->id, 'owner_ids' => [$a->id, $b->id], 'agent_id' => $this->agent->id, 'branch_id' => $this->branchA->id,
-            'attorney_firm' => 'Shepstone & Wylie', 'received_at' => now()->subDay()->toDateString(), 'storage_location' => 'Safe 2', 'notes' => 'Bond cancelled',
+            'attorney_firm' => 'Shepstone & Wylie', 'received_at' => now()->subDay()->toDateString(), 'storage_location_id' => $this->location->id, 'notes' => 'Bond cancelled',
         ])->assertRedirect();
 
         $deed = TitleDeed::firstOrFail();
@@ -44,13 +44,13 @@ final class TitleDeedRecordTest extends TitleDeedTestCase
         $property = $this->property();
         $a = $this->contact('Thandi', 'Mkhize');
 
-        $this->actingAs($this->admin)->post(route('title-deeds.store'), [
-            'property_id' => $property->id, 'owner_ids' => [$a->id], 'received_at' => now()->toDateString(),
+        $this->actingAs($this->admin)->post(route('title-deeds.store'), $this->tk('create') + [
+            'property_id' => $property->id, 'owner_ids' => [$a->id], 'received_at' => now()->toDateString(), 'storage_location_id' => $this->location->id,
         ])->assertRedirect();
 
         $deed = TitleDeed::firstOrFail();
         $this->assertNull($deed->attorney_firm);
-        $this->assertNull($deed->storage_location);
+        $this->assertSame($this->location->id, (int) $deed->storage_location_id);
         $this->assertNull($deed->notes);
         $this->assertNotNull($deed->agent_id);   // derived from the property
         $this->assertNotNull($deed->branch_id);
@@ -58,7 +58,7 @@ final class TitleDeedRecordTest extends TitleDeedTestCase
 
     public function test_no_owner_is_refused_with_a_plain_message(): void
     {
-        $response = $this->actingAs($this->admin)->from(route('title-deeds.create'))->post(route('title-deeds.store'), [
+        $response = $this->actingAs($this->admin)->from(route('title-deeds.create'))->post(route('title-deeds.store'), $this->tk('create') + [
             'property_id' => $this->property()->id, 'received_at' => now()->toDateString(),
         ]);
         $response->assertSessionHasErrors('owner_ids');
@@ -68,10 +68,10 @@ final class TitleDeedRecordTest extends TitleDeedTestCase
     public function test_a_malformed_or_future_date_and_a_missing_property_are_refused(): void
     {
         $a = $this->contact('Thandi', 'Mkhize');
-        $this->actingAs($this->admin)->post(route('title-deeds.store'), ['property_id' => $this->property()->id, 'owner_ids' => [$a->id], 'received_at' => 'not-a-date'])->assertSessionHasErrors('received_at');
-        $this->actingAs($this->admin)->post(route('title-deeds.store'), ['property_id' => $this->property()->id, 'owner_ids' => [$a->id], 'received_at' => now()->addDays(3)->toDateString()])->assertSessionHasErrors('received_at');
-        $this->actingAs($this->admin)->post(route('title-deeds.store'), ['owner_ids' => [$a->id], 'received_at' => now()->toDateString()])->assertSessionHasErrors('property_id');
-        $this->actingAs($this->admin)->post(route('title-deeds.store'), ['property_id' => 999999, 'owner_ids' => [$a->id], 'received_at' => now()->toDateString()])->assertSessionHasErrors('property_id');
+        $this->actingAs($this->admin)->post(route('title-deeds.store'), $this->tk('create') + ['property_id' => $this->property()->id, 'owner_ids' => [$a->id], 'received_at' => 'not-a-date'])->assertSessionHasErrors('received_at');
+        $this->actingAs($this->admin)->post(route('title-deeds.store'), $this->tk('create') + ['property_id' => $this->property()->id, 'owner_ids' => [$a->id], 'received_at' => now()->addDays(3)->toDateString()])->assertSessionHasErrors('received_at');
+        $this->actingAs($this->admin)->post(route('title-deeds.store'), $this->tk('create') + ['owner_ids' => [$a->id], 'received_at' => now()->toDateString()])->assertSessionHasErrors('property_id');
+        $this->actingAs($this->admin)->post(route('title-deeds.store'), $this->tk('create') + ['property_id' => 999999, 'owner_ids' => [$a->id], 'received_at' => now()->toDateString()])->assertSessionHasErrors('property_id');
         $this->assertSame(0, TitleDeed::count());
     }
 
@@ -80,7 +80,7 @@ final class TitleDeedRecordTest extends TitleDeedTestCase
         $other = $this->makeAgency('Cape Town');
         $foreign = $this->contact('Zara', 'Naidoo', agencyId: $other);
 
-        $this->actingAs($this->agent)->post(route('title-deeds.store'), [
+        $this->actingAs($this->agent)->post(route('title-deeds.store'), $this->tk('create') + [
             'property_id' => $this->property()->id, 'owner_ids' => [$foreign->id], 'received_at' => now()->toDateString(),
         ]);
         $this->assertSame(0, TitleDeed::count());
@@ -110,7 +110,7 @@ final class TitleDeedRecordTest extends TitleDeedTestCase
 
         $svc->update($this->admin, $deed, [
             'property_id' => $deed->property_id, 'owner_ids' => $deed->owners->pluck('contact_id')->all(), 'received_at' => $deed->received_at->toDateString(),
-            'attorney_firm' => 'Cox Yeats', 'storage_location' => 'Strongroom',
+            'attorney_firm' => 'Cox Yeats', 'storage_location_id' => $this->location->id,
         ]);
         $this->assertSame('Cox Yeats', $deed->fresh()->attorney_firm);
         $this->assertTrue(TitleDeedAuditLog::where('title_deed_id', $deed->id)->where('event', 'edited')->exists());

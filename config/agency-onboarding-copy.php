@@ -703,6 +703,8 @@ return [
             // AT-450 — Title Deed Register. Same saver as Settings -> Title Deeds; every field is has()-guarded (§6.1).
             ['controller' => TitleDeedSettingsController::class, 'method' => 'save'],
         ],
+        // AT-450 round 2 - the agency's own list of title deed storage locations (a list editor, so it sits outside the form).
+        'aux_partial' => 'agency-setup.steps.title-deed-locations',
         'controls' => [
             ['key' => 'properties_per_page', 'source' => 'perf', 'type' => 'number', 'default' => 24, 'min' => 1, 'max' => 200,
              'label' => 'Properties per page',
@@ -796,6 +798,21 @@ return [
              'label' => 'Photo of the collector\'s ID',
              'explain' => 'Staff photograph the collector\'s ID document at the handover. It is kept privately with the record.',
              'affects' => 'Whether a handover can be completed without a photo of the collector\'s ID.'],
+
+            ['key' => 'notify_listing_agent', 'source' => 'title_deeds', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Tell the deal\'s listing agent when a deed is collected',
+             'explain' => 'When a title deed came from a deal in the Deal Register, the responsible agent (the selling agent, who works with the buyer) is always told when it is collected. With this on, the deal\'s listing agent (who worked with the seller) is told too.',
+             'affects' => 'Whether the listing agent gets a notification when a title deed linked to their deal is collected.'],
+
+            ['key' => 'sign_by_link_enabled', 'source' => 'title_deeds', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Collector may sign on their own phone from a link',
+             'explain' => 'Besides signing on the staff member\'s screen, the collector can be sent a one-time link (by email, WhatsApp or a QR code) and sign on their own phone. The PIN, ID check or owner consent still has to be done first.',
+             'affects' => 'Whether staff see a "Generate signing link" option on the handover screen.'],
+
+            ['key' => 'signing_link_minutes', 'source' => 'title_deeds', 'type' => 'number', 'default' => 30, 'min' => 5, 'max' => 1440,
+             'label' => 'How long a signing link lasts (minutes)',
+             'explain' => 'A signing link works once, and stops working after this long.',
+             'affects' => 'How long the collector has to open the link and sign.'],
 
             ['key' => 'pin_lock_attempts', 'source' => 'title_deeds', 'type' => 'number', 'default' => 5, 'min' => 1, 'max' => 20,
              'label' => 'Wrong PIN attempts before the PIN locks',

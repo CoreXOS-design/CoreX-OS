@@ -99,6 +99,8 @@ class AgencySetupWizardController extends Controller
         'mic_property_type'   => ['step' => 'market_intelligence', 'label' => 'Property types', 'placeholder' => 'e.g. Vacant Land'],
         'mic_bedroom_segment' => ['step' => 'market_intelligence', 'label' => 'Bedroom segments', 'placeholder' => 'e.g. 3 Bed'],
         'mic_price_band'      => ['step' => 'market_intelligence', 'label' => 'Price bands', 'placeholder' => 'e.g. Entry Level'],
+        // AT-450 round 2 - the Title Deed Register's storage locations (Properties step), same controller as the settings screen.
+        'title_deed_location' => ['step' => 'properties', 'label' => 'Title deed storage locations', 'placeholder' => 'e.g. Safe 2'],
     ];
 
     private function stepData(string $step, Agency $agency): array
@@ -121,6 +123,8 @@ class AgencySetupWizardController extends Controller
             // list Company Settings → Other Agency Stock offers (spec §6).
             'properties' => [
                 'agencyRoles' => \App\Models\Role::allRoles($agency->id),
+                'titleDeedLocations' => \App\Models\TitleDeeds\TitleDeedStorageLocation::withoutGlobalScopes()
+                    ->where('agency_id', $agency->id)->whereNull('deleted_at')->ordered()->get(),
             ],
             'branches' => [
                 'branches' => \App\Models\Branch::orderBy('name')->get(),
@@ -365,6 +369,8 @@ class AgencySetupWizardController extends Controller
                 app(\App\Http\Controllers\Settings\Prospecting\BedroomSegmentsController::class)->store($request);
             } elseif ($collection === 'mic_price_band') {
                 app(\App\Http\Controllers\Settings\Prospecting\PriceBandsController::class)->store($request);
+            } elseif ($collection === 'title_deed_location') {
+                app(\App\Http\Controllers\TitleDeeds\TitleDeedLocationController::class)->store($request);
             }
         } catch (ValidationException $e) {
             throw $e;
@@ -416,6 +422,8 @@ class AgencySetupWizardController extends Controller
             } elseif ($collection === 'mic_price_band') {
                 $band = \App\Models\Prospecting\PriceBand::findOrFail($id);
                 app(\App\Http\Controllers\Settings\Prospecting\PriceBandsController::class)->archive($request, $band);
+            } elseif ($collection === 'title_deed_location') {
+                app(\App\Http\Controllers\TitleDeeds\TitleDeedLocationController::class)->destroy($request, $id);
             }
         } catch (HttpException $e) {
             if (!in_array($e->getStatusCode(), [403, 404], true)) {
