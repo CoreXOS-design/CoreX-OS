@@ -47,6 +47,8 @@ class RentalWorkOrder extends Model
     public const BASIS_OWNER_DECISION = 'owner_decision';
     public const BASIS_VARIATION_TOLERANCE = 'variation_tolerance';
     public const BASIS_EMERGENCY = 'emergency_owner_agreed';
+    /** AT-452 round 3 (§20): within the emergency limit the agent may approve alone (an emergency declared with a reason). */
+    public const BASIS_EMERGENCY_LIMIT = 'emergency_limit';
     /** Work already under way when §17 was deployed — never blocked by the new guard (§17.6.5). */
     public const BASIS_LEGACY_GRANDFATHERED = 'legacy_grandfathered';
 
@@ -136,6 +138,12 @@ class RentalWorkOrder extends Model
         'approved_amount',
         'approval_basis',
         'emergency_approval_id',
+        // AT-452 round 3 (§20) - an emergency the agent declared (with a reason), the quote-first mark, and the ceiling an owner's approval set.
+        'emergency_declared_at',
+        'emergency_declared_by_user_id',
+        'emergency_declared_reason',
+        'quote_first',
+        'owner_approved_up_to',
         // §17.9.1a — per-work-order override of the agency's external-quote fee (null = inherit).
         'external_markup_type',
         'external_markup_value',
@@ -152,10 +160,19 @@ class RentalWorkOrder extends Model
         // the contractor's final invoice for an external one — never the agency's own cost.
         'cost_amount' => 'decimal:2',
         'approved_amount' => 'decimal:2',
+        'owner_approved_up_to' => 'decimal:2',
+        'emergency_declared_at' => 'datetime',
+        'quote_first' => 'boolean',
         'external_markup_value' => 'decimal:2',
         'tenant_confirmed_at' => 'datetime',
         'tenant_confirmed_fixed' => 'boolean',
     ];
+
+    /** AT-452 round 3 (§20) - did the agent declare this an emergency (with a reason)? Only then does the emergency limit apply. */
+    public function isDeclaredEmergency(): bool
+    {
+        return $this->emergency_declared_at !== null && trim((string) $this->emergency_declared_reason) !== '';
+    }
 
     public function property(): BelongsTo
     {
@@ -414,6 +431,7 @@ class RentalWorkOrder extends Model
         $words = match ($decision?->basis ?? $this->approval_basis) {
             self::BASIS_OWNER_DECISION => 'the owner approved the quote',
             self::BASIS_NO_APPROVAL_LIMIT => "within the owner's no-approval limit",
+            self::BASIS_EMERGENCY_LIMIT => "an emergency within the agent's emergency limit",
             self::BASIS_VARIATION_TOLERANCE => "within the owner's agreed tolerance",
             self::BASIS_EMERGENCY => 'emergency work agreed by the owner',
             default => 'the owner\'s approval is on file',
@@ -427,6 +445,7 @@ class RentalWorkOrder extends Model
     {
         return match ($this->approval_basis) {
             self::BASIS_NO_APPROVAL_LIMIT => "Within the owner's no-approval limit",
+            self::BASIS_EMERGENCY_LIMIT => "An emergency, within the agent's emergency limit",
             self::BASIS_OWNER_DECISION => 'Approved by the owner',
             self::BASIS_VARIATION_TOLERANCE => "Within the owner's agreed tolerance",
             self::BASIS_EMERGENCY => 'Approved as emergency work',
@@ -603,6 +622,12 @@ class RentalWorkOrder extends Model
         app(\App\Services\Rentals\RentalApprovalGateService::class)->recordOwnerDecision(
             $this, $decision === self::APPROVAL_APPROVED, $recordedBy, (string) $attributes['evidence_type'], $selectedQuote, $approval->decided_at,
         );
+
+        // AT-452 round 3 (§20.2): the owner approving the quote of a "quote first" repair is also the fault's approval.
+        if ($decision === self::APPROVAL_APPROVED && $this->quote_first) {
+            \App\Models\RentalFaultReport::withoutGlobalScopes()->where('rental_work_order_id', $this->id)->first()
+                ?->approveViaQuote($recordedBy, (string) $attributes['evidence_type'], $attributes['evidence_text'] ?? null);
+        }
 
         return $approval;
     }
@@ -855,9 +880,19 @@ class RentalWorkOrder extends Model
      */
     public function spendThreshold(): float
     {
-        return $this->property
+        $ordinary = $this->property
             ? RentalWorkOrderSetting::thresholdFor($this->property)
             : RentalWorkOrderSetting::spendThresholdFor($this->agency_id);
+        // AT-452 round 3 (§20): a job the agent declared an emergency (with a reason) is held to the emergency limit - never to less than the ordinary one.
+        if ($this->isDeclaredEmergency()) {
+            $emergency = $this->property
+                ? RentalWorkOrderSetting::emergencyThresholdFor($this->property)
+                : RentalWorkOrderSetting::emergencySpendThresholdFor($this->agency_id);
+
+            return max($ordinary, $emergency);
+        }
+
+        return $ordinary;
     }
 
     /**

@@ -195,6 +195,11 @@ class RentalWorkOrderService
                 }
             }
 
+            // AT-452 round 3 (§20.2): "get a quote first" and the amount the owner approved travel with the work order.
+            if ($locked->quote_first_at !== null || $locked->owner_approved_up_to !== null) {
+                $workOrder->forceFill(['quote_first' => $locked->quote_first_at !== null, 'owner_approved_up_to' => $locked->owner_approved_up_to])->save();
+            }
+
             // The photos the owner saw travel with the work order (same stored pictures, not copies of the files).
             foreach ($draft['photos'] as $photo) {
                 $workOrder->photos()->create([

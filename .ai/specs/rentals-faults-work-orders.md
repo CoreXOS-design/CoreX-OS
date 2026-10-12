@@ -1257,3 +1257,51 @@ The two contractor popups opened from the fault / work order pages speak the age
 | Add <type> to an existing contractor — contractor with none | no fields of work yet | no trades yet |
 
 Unchanged on purpose: the title "Add <type> to an existing contractor", its sub-heading, search, "already does this", the trade-list lines, Save / Cancel, the confirmation "<type> added to <contractor>", and the third popup (contact details).
+
+## 20. AT-452 round 3 — no work without authority (Johan's ruling, 12 Oct 2026)
+
+**The rule.** No repair work is ever done without authority. Authority is exactly one of three things:
+- **A. Within the agent's limit.** Two limits, never hard-coded, both set where the existing limit is set (agency default in Settings → Rental work orders and the Setup Wizard; per-property override on the property's work terms, with the change log):
+  - "Repairs the agent may approve without asking the owner – up to R___" (the existing no-approval limit, relabelled; default R500).
+  - NEW "Emergency repairs the agent may approve without asking the owner – up to R___" (default R2,000; `rental_work_order_settings.emergency_spend_threshold`, `properties.rental_emergency_spend_threshold`, change-log field `emergency_limit`).
+  - A job counts against the emergency limit **only** when the agent has declared it an emergency **with a reason** (`rental_work_orders.emergency_declared_at / _by_user_id / _reason`). The limit that applies to a declared emergency is the larger of the two (an emergency can never be held to LESS than an ordinary job). The owner is always informed at the start and at completion.
+- **B. The owner decides on their link / portal** (exists).
+- **C. NEW – the agent records the owner's decision** ("Record the owner's decision"), where the owner's link decision is awaited. Anything over the applicable limit with neither B nor C cannot proceed: the buttons are disabled and a plain reason line says why (`RentalApprovalGateService::authoriseToProceed` note, shown on the work order and job card).
+
+### 20.1 What changes for the four things that existed
+| Before (step-1 report) | Now |
+|---|---|
+| One "No-approval spend limit" | Relabelled "Repairs the agent may approve without asking the owner" + the new emergency limit beside it (settings page, wizard, property terms, change log). |
+| "Emergency approval" panel = the office records the owner's agreement, no amount, no limit | The record form is REPLACED by the new popup. The panel now only (1) declares an emergency (reason required) and (2) shows/voids OLD records, which keep working. |
+| "Go ahead now and tell the owner" had no limit and the emergency tick needed no reason | Stays only for authority A: needs the owner version; the emergency tick needs a reason; the gate then applies the ordinary or emergency limit to what is priced. Wording no longer says "informed, not asked" for anything over a limit. |
+| Three agent forms that record the owner's decision (fault "Record decision on the owner's behalf", work order quote, emergency) with no owner picked, no amount | ONE popup, one ledger. The two old approval endpoints stay for compatibility but obey the new agency switch. |
+
+### 20.2 The ledger — `rental_recorded_owner_decisions`
+One row per recorded decision, never edited. Columns: agency, `rental_fault_report_id` or `rental_work_order_id`, `step` (`fault_decision` | `quote_approval`), `owner_contact_id` (one of the lease's owners), `decision` (`approved` | `get_quote_first` | `declined`), `approved_up_to` (R, nullable), `told_via` (`email` | `whatsapp` | `phone_call`), `told_at`, `note` (required), `proof_path` (optional upload), `recorded_by_user_id`, `superseded_at` / `superseded_by` (`recorded:<id>` or `owner`), `created_at`. Only the supersede columns are ever written after creation.
+- **Options by step (same as the owner's link):** fault step = Approved / Get a quote first / Declined; quote step = Approved / Declined. The owner's own link now also offers "Get a quote first" at the fault step, so both routes match.
+- **Approved at the fault step** also carries "who arranges the repair" exactly as the owner's link does (our agency / a contractor from our list / the owner's own contractor + name + phone) and an optional "Approved up to R___" that lets a later quote up to that amount through without asking again.
+- **Approved at the quote step:** "Approved up to R___" defaults to the quote's amount and may not be LESS than it (prevented, plain message). With no quote yet (an emergency) the amount is required — nothing is ever authorised without a ceiling.
+- **Declined** needs a reason: the required note.
+- Decline / approve effects are produced by the SAME writers the owner's link uses (`RentalFaultReport::recordApproval`, `RentalWorkOrder::recordApproval`), so the next steps and the notifications to both lease agents, the tenant and the contractor are identical. The recording agent is not alerted about their own click (AT-451 rule).
+- **Get a quote first:** the fault stays waiting. A work order may be raised (`quote_first_at` on the fault; `quote_first` on the work order); its quote ALWAYS goes to the owner, whatever its size. When the owner (link, or recorded) approves that quote the fault itself becomes approved (route: agency appoints); a declined quote leaves the fault waiting for another quote. On the owner's side the fault reads "Waiting for a quote", never "Needs your decision".
+
+### 20.3 Supersede and lock
+- A recorded decision may be replaced by a **new recorded decision** or by **the owner's own decision**, only **until a work order exists** (for "Get a quote first": until the quote is approved/declined — it never locks the fault, the quote carries the next decision). After a work order exists the fault decision is locked. A recorded quote-step decision is replaced like a normal quote decision (the existing rule: a different selected quote supersedes it).
+- The old row is never changed except `superseded_at/_by`; the history shows both, in order.
+
+### 20.4 What the owner sees
+- In place of the decision buttons, on the fault and on the work order, in the portal and on the emailed link: **"Authorised by your agent <name> on your instruction, given by <phone call / WhatsApp / email> on <date time>."** + the note + "Query this" (a note that alerts both lease agents). A small "Decide for myself instead" opens the normal buttons while superseding is still allowed.
+- The owner is emailed the same sentence immediately (safeguard) under the existing owner-notice setting (`notify_landlord_on_decision_needed`).
+- "Get a quote first" reads: "Your agent recorded that you asked for a quote first, given by <via> on <date time>. The quote will come to you to approve."
+
+### 20.5 The switch
+Agency setting **"Agents may record an owner's decision for them" (Yes/No, default Yes)** — `rental_work_order_settings.agents_may_record_owner_decisions`, on the settings page and in the Setup Wizard. No: the button is not shown and the endpoint refuses with a plain line.
+
+### 20.6 History wording (plain)
+- Fault/work order: "<agent> recorded the owner's decision: Approved up to R3 000, told to them by phone call on 12 Oct 2026 14:05 ('<note>')." / "…replaced the owner's earlier decision of <date>." / "The owner decided on their own link, replacing the decision recorded by <agent> on <date>."
+- Emergency: "<agent> declared this an emergency: <reason>."
+
+### 20.7 Not in this round / decisions on the record
+- The emergency limit default (R2,000) and "larger of the two" are my call, stated here; both are per-agency settings.
+- Old emergency records (recorded before this round) stay valid and voidable; no data migration.
+- Wizard: both new settings are in the Setup Wizard (§10a); nothing is left out.

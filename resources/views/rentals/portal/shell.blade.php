@@ -487,8 +487,20 @@
                                                 <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.thumb_url || ph.url" :alt="ph.photo_type + ' photo'" loading="lazy" decoding="async"></a>
                                             </template>
                                         </div>
+                                        {{-- AT-452 round 3 (§20.4) - an agent recorded the owner's decision on this quote: the sentence, the note, "Query this", and "Decide for myself instead". --}}
+                                        <template x-if="w.recorded_decision">
+                                            <div data-wo-recorded-decision style="margin-top:10px; padding-top:10px; border-top:1px solid #eef1f6;">
+                                                <p data-recorded-sentence x-text="w.recorded_decision.sentence"></p>
+                                                <p class="muted" data-recorded-note x-text="'What your agent wrote down: ' + w.recorded_decision.note"></p>
+                                                <label>Query this</label>
+                                                <textarea rows="2" maxlength="1000" x-model="woQueryNote[w.id]" placeholder="Not what you told your agent? Ask or say so here" data-wo-query-note></textarea>
+                                                <p class="muted" x-show="woQuerySent[w.id]" data-query-sent>Sent &mdash; your agent has been told.</p>
+                                                <button class="btn btn-outline" :disabled="!!((woQueryNote[w.id] || '').trim().length < 3 || busy['woq' + w.id])" @click="sendWoQuery(w.id)" data-wo-query-send>Send my question</button>
+                                                <button class="btn btn-outline" x-show="w.recorded_decision.can_override && !woOverride[w.id]" @click="woOverride[w.id] = true" data-wo-decide-myself>Decide for myself instead</button>
+                                            </div>
+                                        </template>
                                         {{-- A quote waiting on the owner lives on ITS work order (was the Decisions tab). --}}
-                                        <template x-if="w.owner_approval_status === 'pending'">
+                                        <template x-if="w.owner_approval_status === 'pending' || (w.recorded_decision && woOverride[w.id])">
                                             <div data-wo-decision style="margin-top:10px; padding-top:10px; border-top:1px solid #eef1f6;">
                                                 <p class="badge" style="background:#fdecea; color:#b3261e;">Needs your decision</p>
                                                 <p class="muted">Quote: <strong x-text="money(w.owner_facing_amount)" data-wo-quote-amount></strong></p>
@@ -776,7 +788,7 @@ function rentalsPortal() {
         landlordProperties: [], propertyDetail: null,
         landlordFaults: [],
         faultDetail: null,
-        faultForm: { decision: '', handled_by: '', contractor_name: '', contractor_phone: '', agency_service_provider_id: '', note: '', error: null, busy: false },
+        faultForm: { decision: '', handled_by: '', contractor_name: '', contractor_phone: '', agency_service_provider_id: '', note: '', error: null, busy: false, override: false },
         apptDraft: {},
         // BUILD 3 — the portal's Jobs are work orders (§17.3.5); the "is this finished?" answer form (§17.10.4).
         workOrders: [], declineOpen: {}, declineNote: {}, declineError: {}, answerForm: null, answerBusy: false, answerError: null, answerKeys: {},
@@ -1325,7 +1337,8 @@ function rentalsPortal() {
             window.CorexPhotoViewer.open({ photos: JSON.parse(JSON.stringify(list)), index: index || 0, editable: false, returnFocus: ev && ev.currentTarget ? ev.currentTarget : null });
         },
         async openFault(id) {
-            this.faultForm = { decision: '', handled_by: '', contractor_name: '', contractor_phone: '', agency_service_provider_id: '', note: '', error: null, busy: false };
+            this.faultForm = { decision: '', handled_by: '', contractor_name: '', contractor_phone: '', agency_service_provider_id: '', note: '', error: null, busy: false, override: false };
+            this.queryForm = { note: '', busy: false, error: null, sent: false };
             const r = await portalFetch('/api/v1/client/rentals/landlord/fault-reports/' + id);
             if (r.ok) {
                 this.faultDetail = r.data.fault_report;
@@ -1339,7 +1352,7 @@ function rentalsPortal() {
             if (f.decision === 'approve' && !f.handled_by) { f.error = 'Please say who should handle the repair.'; return; }
             if (f.handled_by === 'list' && !f.agency_service_provider_id) { f.error = 'Please choose a contractor.'; return; }
             f.busy = true;
-            const body = { decision: f.decision, note: f.note };
+            const body = { decision: f.decision, note: f.decision === 'quote_first' ? '' : f.note };
             if (f.decision === 'approve') {
                 body.handled_by = f.handled_by;
                 if (f.handled_by === 'own') { body.contractor_name = f.contractor_name; body.contractor_phone = f.contractor_phone; }
@@ -1351,6 +1364,16 @@ function rentalsPortal() {
             else f.error = r.data?.message || 'Could not record your decision.';
         },
         // Declining a quote needs the owner's reason (the agent is told it); an empty one is refused here with a plain sentence.
+        // AT-452 round 3 (§20.4) - "Query this" on a decision an agent recorded for the owner on a work order (a note, not a decision).
+        woQueryNote: {}, woQuerySent: {}, woOverride: {},
+        async sendWoQuery(id) {
+            const note = String(this.woQueryNote[id] || '').trim();
+            if (note.length < 3 || this.busy['woq' + id]) return;
+            this.busy['woq' + id] = true;
+            const r = await portalFetch('/api/v1/client/rentals/landlord/work-orders/' + id + '/query', { method: 'POST', body: JSON.stringify({ note }), key: 'woq-' + id + '-' + note.length + '-' + Date.now() });
+            this.busy['woq' + id] = false;
+            if (r.ok) { this.woQueryNote[id] = ''; this.woQuerySent[id] = true; } else { this.say(r.data?.message || 'Could not send. Please try again.'); }
+        },
         async sendDecline(id) {
             const reason = String(this.declineNote[id] || '').trim();
             if (reason.length < 3) { this.declineError[id] = 'Please tell us why, so we can get you a better quote.'; return; }

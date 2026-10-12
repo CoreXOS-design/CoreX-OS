@@ -298,7 +298,7 @@ class RentalJobCardController extends Controller
             'openPriceRequest' => $rentalJobCard->priceRequests->firstWhere('status', \App\Models\RentalJobCardPriceRequest::STATUS_OPEN),
             'submittedPriceRequest' => $rentalJobCard->priceRequests->firstWhere('status', \App\Models\RentalJobCardPriceRequest::STATUS_SUBMITTED),
             // AT-442 fix #6 — same figure RentalWorkOrderController::show() already surfaces.
-            'noApprovalThreshold' => RentalWorkOrderSetting::thresholdFor($rentalJobCard->property),
+            'noApprovalThreshold' => $rentalJobCard->workOrder?->spendThreshold() ?? RentalWorkOrderSetting::thresholdFor($rentalJobCard->property),
             // J3/J5: the ONE answer to "which stage is this card in and what can be pressed now".
             'stage' => app(\App\Services\Rentals\RentalJobCardStageService::class)->forCard($rentalJobCard),
             'crews' => RentalCrew::query()->active()->orderBy('name')->get(),
@@ -689,7 +689,7 @@ class RentalJobCardController extends Controller
         if ($workOrder && $workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_PENDING) {
             $message = $revision > 1 ? "Revised quote (Rev {$revision}) sent to the owner — it replaces the earlier one." : 'Quote sent to the owner.';
         } else {
-            $limit = \App\Models\RentalWorkOrderSetting::thresholdFor($rentalJobCard->property);
+            $limit = $rentalJobCard->workOrder?->spendThreshold() ?? \App\Models\RentalWorkOrderSetting::thresholdFor($rentalJobCard->property);
             $message = "Price confirmed - it is within the owner's no-approval limit (R" . number_format($limit, 2) . '), so it is approved automatically. Nothing was sent to the owner.';
         }
 

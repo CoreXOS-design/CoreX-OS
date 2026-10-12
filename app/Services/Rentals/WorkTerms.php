@@ -20,6 +20,9 @@ final class WorkTerms
         /** Term (ii): an increase of up to this % above the approved amount is auto-approved. 0 = never. */
         public readonly float $variationPct,
         public readonly string $pctSource,
+        /** AT-452 round 3 (§20): the emergency limit (agent-declared emergencies only), with where it came from. */
+        public readonly float $emergencyLimit = 0.0,
+        public readonly string $emergencySource = self::SOURCE_CONSTANT,
     ) {
     }
 }

@@ -4249,6 +4249,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_fault_reports.send_to_owner')->name('corex.rental-fault-reports.send-to-owner');
         Route::post('/{rentalFaultReport}/request-approval', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'requestApproval'])
             ->middleware('permission:rental_fault_reports.send_to_owner')->name('corex.rental-fault-reports.request-approval');
+        Route::post('/{rentalFaultReport}/owner-decision', [\App\Http\Controllers\CoreX\RentalOwnerDecisionController::class, 'storeForFault'])
+            ->middleware('permission:rental_fault_reports.record_approval')->name('corex.rental-fault-reports.owner-decision.store');
         Route::post('/{rentalFaultReport}/approval', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'recordApproval'])
             ->middleware('permission:rental_fault_reports.record_approval')->name('corex.rental-fault-reports.approval.store');
         Route::post('/{rentalFaultReport}/outcome', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'setOutcome'])
@@ -4287,6 +4289,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{rentalWorkOrder}/pdf', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'pdf'])->name('corex.rental-work-orders.pdf');
         Route::put('/{rentalWorkOrder}', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'update'])
             ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.update');
+        Route::post('/{rentalWorkOrder}/owner-decision', [\App\Http\Controllers\CoreX\RentalOwnerDecisionController::class, 'storeForWorkOrder'])
+            ->middleware('permission:rental_work_orders.record_approval')->name('corex.rental-work-orders.owner-decision.store');
+        Route::post('/{rentalWorkOrder}/declare-emergency', [\App\Http\Controllers\CoreX\RentalOwnerDecisionController::class, 'declareEmergency'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.declare-emergency');
         Route::post('/{rentalWorkOrder}/approval', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'recordApproval'])
             ->middleware('permission:rental_work_orders.record_approval')->name('corex.rental-work-orders.approval.store');
         Route::post('/{rentalWorkOrder}/assign-supplier', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'assignSupplier'])

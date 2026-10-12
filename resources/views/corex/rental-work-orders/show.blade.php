@@ -58,7 +58,11 @@
             @elseif(! $selectedQuote && $workOrder->quotes->isNotEmpty())
                 <div class="font-medium" style="color: var(--ds-crimson, #b3261e);" data-quote-not-selected>No quote chosen yet &mdash; the owner has not been asked, and the work order cannot be sent. Choose the quote below with its Select button.</div>
             @elseif(! $selectedQuote)
-                <div>Capture {{ $nextContractor }}'s quote below and select it. If the quote is <strong>R{{ number_format($noApprovalThreshold, 2) }} or less</strong> (this property's no-approval limit) it is approved automatically and you can send the work order. If it is <strong>more</strong>, it goes to the owner for approval first, and the work order cannot be sent until they approve.</div>
+                @if($workOrder->quote_first)
+                    <div data-quote-first-next>Capture {{ $nextContractor }}'s quote below and select it. The owner asked for a quote first, so <strong>whatever it costs</strong> it goes to the owner to approve (on their link, or you record what they told you) before the work order can be sent.</div>
+                @else
+                    <div>Capture {{ $nextContractor }}'s quote below and select it. If the quote is <strong>R{{ number_format($noApprovalThreshold, 2) }} or less</strong> (what you may approve without asking the owner{{ $workOrder->isDeclaredEmergency() ? ' - the emergency limit' : '' }}) it is approved automatically and you can send the work order. If it is <strong>more</strong>, it goes to the owner for approval first, and the work order cannot be sent until they approve it on their link, or you record their decision.</div>
+                @endif
             @elseif($workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_PENDING)
                 <div class="font-medium" data-quote-sent-to-owner>Quote sent to {{ app(\App\Services\Rentals\RentalWorkOrderService::class)->ownerNames($workOrder) ?: 'the owner' }} for approval.</div>
                 <div>The quote of <strong>R{{ number_format($selectedQuote->ownerFacingAmount(), 2) }}</strong> is over this property's no-approval limit of R{{ number_format($noApprovalThreshold, 2) }}. You can send the work order to {{ $nextContractor }} once they approve.</div>
@@ -257,7 +261,7 @@
          internal job card's own quote-to-owner lives on its own screen. --}}
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Quotes</h2>
-        <p class="text-xs" style="color: var(--text-muted);">No-approval spend limit for this property: R{{ number_format($noApprovalThreshold, 2) }}. Select a quote at or under this and it's approved automatically; over it, owner approval is required below.</p>
+        <p class="text-xs" style="color: var(--text-muted);">What you may approve without asking the owner{{ $workOrder->isDeclaredEmergency() ? ' (emergency limit)' : '' }}: R{{ number_format($noApprovalThreshold, 2) }}. Select a quote at or under this and it's approved automatically; over it, the owner must approve it - on their link, or you record their decision.</p>
         @if($workOrder->quotes->isEmpty())
             <p class="text-xs" style="color: var(--text-muted);">No quotes captured yet.</p>
         @else
@@ -469,34 +473,7 @@
                 @endforeach
             </ul>
         @endif
-        @permission('rental_work_orders.record_approval')
-        @if($workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_PENDING)
-        <button type="button" onclick="document.getElementById('wo-approval-form').classList.toggle('hidden')" class="corex-btn-outline text-xs">Record decision on the owner's behalf</button>
-        <form id="wo-approval-form" method="POST" action="{{ route('corex.rental-work-orders.approval.store', $workOrder) }}" class="hidden space-y-3 pt-2" x-data="{ decision: 'approved' }">
-            @csrf
-            <div>
-                <label class="text-xs font-medium">Decision</label>
-                <select name="decision" required x-model="decision" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-                    <option value="approved">Approved</option>
-                    <option value="declined">Declined</option>
-                </select>
-            </div>
-            <div>
-                <label class="text-xs font-medium">Evidence</label>
-                <select name="evidence_type" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-                    <option value="whatsapp">WhatsApp reply</option>
-                    <option value="email">Email</option>
-                    <option value="verbal_note">Verbal (undocumented)</option>
-                </select>
-            </div>
-            <div>
-                <label class="text-xs font-medium"><span x-show="decision === 'declined'" x-cloak data-decline-reason-label>Reason for declining (required)</span><span x-show="decision !== 'declined'">What the owner said</span></label>
-                <textarea name="evidence_text" required rows="2" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);"></textarea>
-            </div>
-            <x-confirm-submit title="Record the owner's decision" message="Record this decision on the owner's behalf? It goes on the record with the evidence you give." confirm-label="Record decision">Save decision</x-confirm-submit>
-        </form>
-        @endif
-        @endpermission
+        {{-- AT-452 round 3 (§20): recording the owner's decision is the popup in the Approval panel above. --}}
     </div>
     @endif
 

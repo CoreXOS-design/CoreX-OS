@@ -709,6 +709,9 @@ class AgencySetupWizardController extends Controller
                     // BUILD 1 END
                     // BUILD 2 BEGIN — approvals keys
                     'variation_tolerance_percent' => \App\Models\RentalWorkOrderSetting::variationTolerancePercentFor($agency->id),
+                    // AT-452 round 3 (§20)
+                    'emergency_spend_threshold' => \App\Models\RentalWorkOrderSetting::emergencySpendThresholdFor($agency->id),
+                    'agents_may_record_owner_decisions' => \App\Models\RentalWorkOrderSetting::agentsMayRecordOwnerDecisionsFor($agency->id),
                     'notify_landlord_on_auto_variation' => \App\Models\RentalWorkOrderSetting::notifyLandlordOnAutoVariationFor($agency->id),
                     'external_quote_markup_type' => \App\Models\RentalWorkOrderSetting::externalQuoteMarkupTypeFor($agency->id),
                     'external_quote_markup_value' => \App\Models\RentalWorkOrderSetting::externalQuoteMarkupValueFor($agency->id),

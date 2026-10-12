@@ -26,6 +26,9 @@ class RentalEmergencyApprovalController extends Controller
     public function store(Request $request, RentalApprovalGateService $gate, RentalWorkOrder $rentalWorkOrder): RedirectResponse
     {
         $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
+        if (! app(\App\Services\Rentals\RentalOwnerDecisionService::class)->enabled($rentalWorkOrder->agency_id)) {
+            return back()->withErrors(['emergency' => "Recording an owner's decision is switched off for this agency."]);
+        }
 
         $validated = $request->validate([
             'approved_by_name' => ['required', 'string', 'max:191'],

@@ -38,6 +38,7 @@ class RentalApprovalDecision extends Model
     public const TERM_VARIATION_TOLERANCE = 'variation_tolerance';
     public const TERM_OWNER_DECISION = 'owner_decision';
     public const TERM_EMERGENCY = 'emergency';
+    public const TERM_EMERGENCY_LIMIT = 'emergency_limit';
 
     public const SOURCE_PROPERTY = 'property';
     public const SOURCE_AGENCY_DEFAULT = 'agency_default';

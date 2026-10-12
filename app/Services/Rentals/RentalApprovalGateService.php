@@ -66,7 +66,15 @@ class RentalApprovalGateService
                 : WorkTerms::SOURCE_CONSTANT;
         }
 
-        return new WorkTerms($limit, $limitSource, $pct, $pctSource);
+        if ($property->rental_emergency_spend_threshold !== null) {
+            $emergency = (float) $property->rental_emergency_spend_threshold;
+            $emergencySource = WorkTerms::SOURCE_PROPERTY;
+        } else {
+            $emergency = RentalWorkOrderSetting::emergencySpendThresholdFor($property->agency_id);
+            $emergencySource = RentalWorkOrderSetting::hasAgencyEmergencyThreshold($property->agency_id) ? WorkTerms::SOURCE_AGENCY_DEFAULT : WorkTerms::SOURCE_CONSTANT;
+        }
+
+        return new WorkTerms($limit, $limitSource, $pct, $pctSource, $emergency, $emergencySource);
     }
 
     /** Same terms for a work order whose property row is somehow unavailable: the agency defaults only. */
@@ -81,7 +89,31 @@ class RentalApprovalGateService
             RentalWorkOrderSetting::hasAgencySpendThreshold($workOrder->agency_id) ? WorkTerms::SOURCE_AGENCY_DEFAULT : WorkTerms::SOURCE_CONSTANT,
             RentalWorkOrderSetting::variationTolerancePercentFor($workOrder->agency_id),
             RentalWorkOrderSetting::hasAgencyVariationTolerance($workOrder->agency_id) ? WorkTerms::SOURCE_AGENCY_DEFAULT : WorkTerms::SOURCE_CONSTANT,
+            RentalWorkOrderSetting::emergencySpendThresholdFor($workOrder->agency_id),
+            RentalWorkOrderSetting::hasAgencyEmergencyThreshold($workOrder->agency_id) ? WorkTerms::SOURCE_AGENCY_DEFAULT : WorkTerms::SOURCE_CONSTANT,
         );
+    }
+
+    /**
+     * AT-452 round 3 (§20) - the limit THIS job is held to. An emergency the agent declared (with a reason) is held to the emergency limit - never
+     * to less than the ordinary one, so an emergency can never be stricter than a routine job. Everything else is held to the ordinary limit.
+     *
+     * @return array{limit: float, key: string, source: string, basis: string, label: string, why: string}
+     */
+    public function limitFor(RentalWorkOrder $workOrder, WorkTerms $terms): array
+    {
+        if ($workOrder->isDeclaredEmergency() && $terms->emergencyLimit > $terms->noApprovalLimit) {
+            return [
+                'limit' => $terms->emergencyLimit, 'key' => RentalApprovalDecision::TERM_EMERGENCY_LIMIT, 'source' => $terms->emergencySource,
+                'basis' => RentalWorkOrder::BASIS_EMERGENCY_LIMIT, 'label' => "the agent's emergency limit",
+                'why' => ' (declared an emergency: ' . trim((string) $workOrder->emergency_declared_reason) . ')',
+            ];
+        }
+
+        return [
+            'limit' => $terms->noApprovalLimit, 'key' => RentalApprovalDecision::TERM_NO_APPROVAL_LIMIT, 'source' => $terms->limitSource,
+            'basis' => RentalWorkOrder::BASIS_NO_APPROVAL_LIMIT, 'label' => "the owner's no-approval limit", 'why' => '',
+        ];
     }
 
     // ───────────────────────── first quote ─────────────────────────
@@ -95,37 +127,71 @@ class RentalApprovalGateService
     {
         $terms = $this->termsForWorkOrder($workOrder);
         $amount = round($ownerFacingAmount, 2);
+        $lim = $this->limitFor($workOrder, $terms);
+        $ceiling = $workOrder->owner_approved_up_to !== null ? (float) $workOrder->owner_approved_up_to : null;
 
-        if ($amount <= $terms->noApprovalLimit) {
+        if ($workOrder->quote_first) {
+            // AT-452 round 3 (§20.2) - the owner asked for a quote first: whatever the quote is, it goes to the owner.
+            $decision = new GateDecision(
+                authorised: false,
+                decision: RentalApprovalDecision::DECISION_NEEDS_OWNER,
+                basis: null,
+                termKey: RentalApprovalDecision::TERM_OWNER_DECISION,
+                termValue: null,
+                termSource: RentalApprovalDecision::SOURCE_OWNER,
+                amountTested: $amount,
+                limitAmount: null,
+                note: $this->money($amount) . ' — the owner asked for a quote first, so this quote goes to the owner to approve.',
+            );
+            $workOrder->forceFill(['owner_approval_status' => RentalWorkOrder::APPROVAL_PENDING, 'approved_amount' => null, 'approval_basis' => null])->save();
+        } elseif ($amount <= $lim['limit']) {
             $decision = new GateDecision(
                 authorised: true,
                 decision: RentalApprovalDecision::DECISION_AUTO_APPROVED,
-                basis: RentalWorkOrder::BASIS_NO_APPROVAL_LIMIT,
-                termKey: RentalApprovalDecision::TERM_NO_APPROVAL_LIMIT,
-                termValue: $terms->noApprovalLimit,
-                termSource: $terms->limitSource,
+                basis: $lim['basis'],
+                termKey: $lim['key'],
+                termValue: $lim['limit'],
+                termSource: $lim['source'],
                 amountTested: $amount,
-                limitAmount: $terms->noApprovalLimit,
-                note: 'Auto-approved on ' . $this->when() . ' — ' . $this->money($amount) . " is within the owner's no-approval limit of "
-                    . $this->money($terms->noApprovalLimit) . ' ' . $this->sourceLabel($terms->limitSource),
+                limitAmount: $lim['limit'],
+                note: 'Auto-approved on ' . $this->when() . ' — ' . $this->money($amount) . ' is within ' . $lim['label'] . ' of '
+                    . $this->money($lim['limit']) . ' ' . $this->sourceLabel($lim['source']) . $lim['why'],
             );
             $workOrder->forceFill([
                 'owner_approval_status' => RentalWorkOrder::APPROVAL_NOT_REQUIRED,
                 'approved_amount' => $amount,
-                'approval_basis' => RentalWorkOrder::BASIS_NO_APPROVAL_LIMIT,
+                'approval_basis' => $lim['basis'],
+            ])->save();
+        } elseif ($ceiling !== null && $amount <= $ceiling) {
+            // AT-452 round 3 (§20.2) - the owner (on their link, or the agent recording their word) approved the repair up to an amount.
+            $decision = new GateDecision(
+                authorised: true,
+                decision: RentalApprovalDecision::DECISION_APPROVED,
+                basis: RentalWorkOrder::BASIS_OWNER_DECISION,
+                termKey: RentalApprovalDecision::TERM_OWNER_DECISION,
+                termValue: $ceiling,
+                termSource: RentalApprovalDecision::SOURCE_OWNER,
+                amountTested: $amount,
+                limitAmount: $ceiling,
+                note: $this->money($amount) . ' is within the ' . $this->money($ceiling) . ' the owner approved for this repair.',
+            );
+            $workOrder->forceFill([
+                'owner_approval_status' => RentalWorkOrder::APPROVAL_APPROVED,
+                'approved_amount' => $amount,
+                'approval_basis' => RentalWorkOrder::BASIS_OWNER_DECISION,
             ])->save();
         } else {
             $decision = new GateDecision(
                 authorised: false,
                 decision: RentalApprovalDecision::DECISION_NEEDS_OWNER,
                 basis: null,
-                termKey: RentalApprovalDecision::TERM_NO_APPROVAL_LIMIT,
-                termValue: $terms->noApprovalLimit,
-                termSource: $terms->limitSource,
+                termKey: $lim['key'],
+                termValue: $lim['limit'],
+                termSource: $lim['source'],
                 amountTested: $amount,
-                limitAmount: $terms->noApprovalLimit,
-                note: $this->money($amount) . " is above the owner's no-approval limit of " . $this->money($terms->noApprovalLimit)
-                    . ' ' . $this->sourceLabel($terms->limitSource) . ' — the owner is asked to approve it.',
+                limitAmount: $lim['limit'],
+                note: $this->money($amount) . ' is above ' . $lim['label'] . ' of ' . $this->money($lim['limit'])
+                    . ' ' . $this->sourceLabel($lim['source']) . ' — the owner is asked to approve it.',
             );
             $workOrder->forceFill([
                 'owner_approval_status' => RentalWorkOrder::APPROVAL_PENDING,
@@ -706,7 +772,7 @@ class RentalApprovalGateService
             return new GateDecision(true, 'no_change', $workOrder->approval_basis ?? RentalWorkOrder::BASIS_OWNER_DECISION, note: 'The owner approved this work.');
         }
         if ($status === RentalWorkOrder::APPROVAL_PENDING) {
-            return new GateDecision(false, RentalApprovalDecision::DECISION_BLOCKED, note: 'This job has not been approved by the owner yet — it is waiting for the owner\'s decision.');
+            return new GateDecision(false, RentalApprovalDecision::DECISION_BLOCKED, note: 'This job has not been approved by the owner yet — it is waiting for the owner\'s decision. It can go on once the owner approves it on their link, or you record what the owner told you.');
         }
         if ($status === RentalWorkOrder::APPROVAL_DECLINED) {
             return new GateDecision(false, RentalApprovalDecision::DECISION_BLOCKED, note: 'The owner declined this work.');
@@ -733,30 +799,37 @@ class RentalApprovalGateService
             $amount = round($this->vat->inclusiveTotal($card), 2);
             if ($amount > 0) {
                 $terms = $this->termsForWorkOrder($workOrder);
-                if ($amount <= $terms->noApprovalLimit) {
+                $lim = $this->limitFor($workOrder, $terms);
+                $ceiling = $workOrder->owner_approved_up_to !== null ? (float) $workOrder->owner_approved_up_to : null;
+                if ($amount <= $lim['limit'] && ! $workOrder->quote_first) {
                     $decision = new GateDecision(
                         authorised: true,
                         decision: RentalApprovalDecision::DECISION_AUTO_APPROVED,
-                        basis: RentalWorkOrder::BASIS_NO_APPROVAL_LIMIT,
-                        termKey: RentalApprovalDecision::TERM_NO_APPROVAL_LIMIT,
-                        termValue: $terms->noApprovalLimit,
-                        termSource: $terms->limitSource,
+                        basis: $lim['basis'],
+                        termKey: $lim['key'],
+                        termValue: $lim['limit'],
+                        termSource: $lim['source'],
                         amountTested: $amount,
-                        limitAmount: $terms->noApprovalLimit,
-                        note: 'Auto-approved on ' . $this->when() . ' — ' . $this->money($amount) . " is within the owner's no-approval limit of "
-                            . $this->money($terms->noApprovalLimit) . ' ' . $this->sourceLabel($terms->limitSource),
+                        limitAmount: $lim['limit'],
+                        note: 'Auto-approved on ' . $this->when() . ' — ' . $this->money($amount) . ' is within ' . $lim['label'] . ' of '
+                            . $this->money($lim['limit']) . ' ' . $this->sourceLabel($lim['source']) . $lim['why'],
                     );
                     if ($record) {
-                        $workOrder->forceFill(['approved_amount' => $amount, 'approval_basis' => RentalWorkOrder::BASIS_NO_APPROVAL_LIMIT])->save();
+                        $workOrder->forceFill(['approved_amount' => $amount, 'approval_basis' => $lim['basis']])->save();
                         $this->record($workOrder, $decision, null);
                     }
 
                     return $decision;
                 }
+                if ($ceiling !== null && $amount <= $ceiling && ! $workOrder->quote_first) {
+                    return new GateDecision(true, 'no_change', RentalWorkOrder::BASIS_OWNER_DECISION, amountTested: $amount, limitAmount: $ceiling,
+                        note: $this->money($amount) . ' is within the ' . $this->money($ceiling) . ' the owner approved for this repair.');
+                }
 
-                return new GateDecision(false, RentalApprovalDecision::DECISION_BLOCKED, amountTested: $amount, limitAmount: $terms->noApprovalLimit,
-                    note: 'This job (' . $this->money($amount) . ") is above the owner's no-approval limit of " . $this->money($terms->noApprovalLimit)
-                        . ' — send the quote to the owner and wait for the approval before the work starts.');
+                return new GateDecision(false, RentalApprovalDecision::DECISION_BLOCKED, amountTested: $amount, limitAmount: $lim['limit'],
+                    note: 'This job (' . $this->money($amount) . ') is above ' . $lim['label'] . ' of ' . $this->money($lim['limit'])
+                        . ($workOrder->isDeclaredEmergency() ? '' : ' (if it is an emergency, say so and why - the emergency limit is ' . $this->money($terms->emergencyLimit) . ')')
+                        . ' — it cannot go ahead until the owner approves it on their link, or you record the owner\'s decision.');
             }
         }
 

@@ -14,8 +14,8 @@
      until opened (an emergency is the exception, not a step). An agreement already on record always shows. --}}
 @if($emActive || $emVoided->isNotEmpty() || ($isOpen && $workOrder->owner_approval_status !== \App\Models\RentalWorkOrder::APPROVAL_APPROVED && ! in_array($workOrder->status, [\App\Models\RentalWorkOrder::STATUS_IN_PROGRESS, \App\Models\RentalWorkOrder::STATUS_DISPUTED], true)))
 <div id="emergency-panel" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
-    <details @if($emActive || $errors->has('emergency')) open @endif data-emergency-collapse>
-    <summary class="text-sm font-semibold cursor-pointer">Emergency approval <span class="font-normal text-xs" style="color: var(--text-muted);">&mdash; only if the work cannot wait for the owner</span></summary>
+    <details @if($emActive || $errors->has('emergency') || $errors->has('owner_decision') || $workOrder->isDeclaredEmergency()) open @endif data-emergency-collapse>
+    <summary class="text-sm font-semibold cursor-pointer">Emergency <span class="font-normal text-xs" style="color: var(--text-muted);">&mdash; only if the work cannot wait for the owner</span></summary>
 
     @if($emActive)
         <div class="text-sm space-y-1">
@@ -48,68 +48,33 @@
         @endif
         @endpermission
     @elseif($isOpen)
-        <p class="text-xs" style="color: var(--text-muted);">
-            For genuine emergencies only. The crew phones the office with the reason; the office phones or messages the owner; once the owner has agreed,
-            record it here and the work can go ahead. Nothing about cost is recorded — it is settled afterwards.
-        </p>
-        @permission('rental_work_orders.record_emergency_approval')
-        <details @if($errors->has('emergency') || old('approved_by_name')) open @endif>
-            <summary class="corex-btn-primary text-xs cursor-pointer" style="display:inline-block;">Record owner's emergency approval</summary>
-            <form method="POST" action="{{ route('corex.rental-work-orders.emergency-approval.store', $workOrder) }}" enctype="multipart/form-data" class="space-y-3 pt-3">
-                @csrf
-                @error('emergency')<div class="text-xs" style="color: var(--ds-crimson);">{{ $message }}</div>@enderror
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                        <label class="text-xs font-medium">Who at the owner's end agreed? (required)</label>
-                        <input type="text" name="approved_by_name" required maxlength="191" value="{{ old('approved_by_name') }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-                        @error('approved_by_name')<div class="text-xs" style="color: var(--ds-crimson);">{{ $message }}</div>@enderror
-                    </div>
-                    <div>
-                        <label class="text-xs font-medium">Owner on file (optional)</label>
-                        <select name="owner_contact_id" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-                            <option value="">— not listed —</option>
-                            @foreach($ownerContacts as $oc)
-                                <option value="{{ $oc->id }}" @selected((string) old('owner_contact_id') === (string) $oc->id)>{{ $oc->full_name }}</option>
-                            @endforeach
-                        </select>
-                    </div>
-                    <div>
-                        <label class="text-xs font-medium">How did the owner agree? (required)</label>
-                        <select name="approved_via" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-                            @foreach(\App\Models\RentalEmergencyApproval::VIAS as $via)
-                                <option value="{{ $via }}" @selected(old('approved_via') === $via)>{{ $emViaLabel($via) }}</option>
-                            @endforeach
-                        </select>
-                    </div>
-                    <div>
-                        <label class="text-xs font-medium">When did the owner agree? (required)</label>
-                        <input type="datetime-local" name="approved_at" required value="{{ old('approved_at', now()->setTimezone($emTz)->format('Y-m-d\TH:i')) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-                        @error('approved_at')<div class="text-xs" style="color: var(--ds-crimson);">{{ $message }}</div>@enderror
-                    </div>
-                    <div class="sm:col-span-2">
-                        <label class="text-xs font-medium">Why is it an emergency? (required)</label>
-                        <textarea name="reason" required rows="2" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('reason') }}</textarea>
-                        @error('reason')<div class="text-xs" style="color: var(--ds-crimson);">{{ $message }}</div>@enderror
-                    </div>
-                    <div>
-                        <label class="text-xs font-medium">Who phoned the office about it? (optional)</label>
-                        <input type="text" name="reported_by_crew_name" maxlength="191" value="{{ old('reported_by_crew_name') }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-                    </div>
-                    <div>
-                        <label class="text-xs font-medium">Attachment (optional — e.g. a WhatsApp screenshot)</label>
-                        <input type="file" name="attachment" accept="image/*,.pdf" class="w-full text-xs mt-1">
-                    </div>
-                    <div class="sm:col-span-2">
-                        <label class="text-xs font-medium">Notes (optional)</label>
-                        <textarea name="notes" rows="2" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('notes') }}</textarea>
-                    </div>
+        {{-- AT-452 round 3 (§20): an emergency is DECLARED here, with a reason - that is what lets the emergency limit apply. The owner's own word is recorded with
+             "Record the owner's decision" (Approval panel above); the old record-the-agreement form is gone, old records stay (above) and can still be voided. --}}
+        @if($workOrder->isDeclaredEmergency())
+            <div class="text-sm space-y-1" data-emergency-declared>
+                <span class="ds-badge ds-badge-warning">Declared an emergency</span>
+                <div><span style="color: var(--text-muted);">Reason:</span> {{ $workOrder->emergency_declared_reason }}</div>
+                <div class="text-xs" style="color: var(--text-muted);">
+                    Declared by {{ \App\Models\User::withoutGlobalScopes()->find($workOrder->emergency_declared_by_user_id)?->name ?? 'a former user' }} on {{ $workOrder->emergency_declared_at?->copy()->setTimezone($emTz)->format('j M Y H:i') }}.
+                    The emergency limit now applies: R{{ number_format($workOrder->spendThreshold(), 2) }}. Above that the owner must approve (their link, or record what they told you).
                 </div>
-                <button type="submit" class="corex-btn-primary text-xs">Record the owner's agreement</button>
-            </form>
-        </details>
+            </div>
         @else
-            <p class="text-xs" style="color: var(--text-muted);">Only staff with the emergency-approval permission can record this.</p>
-        @endpermission
+            <p class="text-xs" style="color: var(--text-muted);">
+                For genuine emergencies only. Declaring an emergency (with the reason) lets you approve the repair yourself up to the emergency limit
+                (R{{ number_format(max($workOrder->spendThreshold(), (float) ($workOrder->property ? \App\Models\RentalWorkOrderSetting::emergencyThresholdFor($workOrder->property) : \App\Models\RentalWorkOrderSetting::emergencySpendThresholdFor($workOrder->agency_id))), 2) }});
+                the owner is told at the start and when it is finished. Above the limit the owner must approve it.
+            </p>
+            @permission('rental_work_orders.create')
+            <form method="POST" action="{{ route('corex.rental-work-orders.declare-emergency', $workOrder) }}" class="space-y-2" data-declare-emergency-form>
+                @csrf
+                @error('owner_decision')<div class="text-xs" style="color: var(--ds-crimson);">{{ $message }}</div>@enderror
+                <label class="text-xs font-medium" for="wo-emergency-reason">Why is this an emergency? (required)</label>
+                <textarea id="wo-emergency-reason" name="emergency_reason" required rows="2" maxlength="2000" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" data-emergency-reason>{{ old('emergency_reason') }}</textarea>
+                <x-confirm-submit title="Declare an emergency?" message="Only for a real emergency. The emergency limit then applies to this job and the reason goes on the record under your name." confirm-label="Declare an emergency" data-declare-emergency>This is an emergency</x-confirm-submit>
+            </form>
+            @endpermission
+        @endif
     @endif
 
     @if($emVoided->isNotEmpty())

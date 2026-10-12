@@ -103,15 +103,21 @@
 
     @if(($secondary ?? false) && ($goAhead ?? false))
         {{-- AT-452 round 2 (item I): before the owner has been sent the fault - the agent goes ahead and the owner is TOLD (informed, not asked), in one step --}}
-        <label class="flex items-center gap-2 text-sm" data-emergency-row><input type="checkbox" name="emergency" value="1"> This is an emergency</label>
+        <div x-data="{ em: {{ old('emergency') ? 'true' : 'false' }} }" class="space-y-1" data-emergency-row>
+            <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="emergency" value="1" x-model="em" data-emergency-tick> This is an emergency</label>
+            <div x-show="em" x-cloak>
+                <label class="text-xs font-medium" for="emergency-reason">Why is it an emergency? (required - the emergency limit of R{{ number_format($emergencyLimit ?? $noApprovalLimit, 2) }} applies only with a reason)</label>
+                <textarea id="emergency-reason" name="emergency_reason" rows="2" maxlength="2000" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);" x-bind:required="em" data-emergency-reason>{{ old('emergency_reason') }}</textarea>
+            </div>
+        </div>
         <x-confirm-submit title="Go ahead and tell the owner?"
-            message="Go ahead now without waiting for the owner? Only for an emergency, or a small job inside this property's no-approval spend limit (R{{ number_format($noApprovalLimit, 2) }}). The owner is told straight away what you arranged - they are informed, not asked. Anything above the limit still needs the owner's approval before work starts."
+            message="Go ahead now without waiting for the owner? This is for a repair you may approve alone: up to R{{ number_format($noApprovalLimit, 2) }}, or up to R{{ number_format($emergencyLimit ?? $noApprovalLimit, 2) }} if it is an emergency and you have given the reason. The owner is told straight away what you arranged. Anything above that cannot go on until the owner approves it on their link, or you record their decision."
             confirm-label="Go ahead and tell the owner" data-raise-submit data-go-ahead-submit
             x-bind:disabled="!!(who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER }}' && !picked)">Go ahead and tell the owner</x-confirm-submit>
     @elseif($secondary ?? false)
         {{-- before the owner has decided: a deliberate, confirmed step --}}
         <x-confirm-submit title="Create a work order before the owner has decided?"
-            message="Only do this for an emergency, or for a small job inside this property's no-approval spend limit (R{{ number_format($noApprovalLimit, 2) }}). Anything above the limit still needs the owner's approval before work starts, and emergency work needs the owner's agreement recorded on the work order."
+            message="The work can only start once it is covered: up to R{{ number_format($noApprovalLimit, 2) }} (or R{{ number_format($emergencyLimit ?? $noApprovalLimit, 2) }} if you declare an emergency with a reason on the work order), or when the owner approves it - on their link, or you record what they told you."
             confirm-label="Create work order" data-raise-submit
             x-bind:disabled="!!(who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER }}' && !picked)">Create work order</x-confirm-submit>
     @else

@@ -107,6 +107,11 @@ class RentalFaultReportService
     {
         $property = $fault->property()->withoutGlobalScopes()->first();
         $limit = $property ? (float) \App\Models\RentalWorkOrderSetting::thresholdFor($property) : (float) \App\Models\RentalWorkOrderSetting::spendThresholdFor($fault->agency_id);
+        if ($emergency) {
+            // AT-452 round 3 (§20): a declared emergency is held to the emergency limit - never to less than the ordinary one
+            $emergencyLimit = $property ? (float) \App\Models\RentalWorkOrderSetting::emergencyThresholdFor($property) : (float) \App\Models\RentalWorkOrderSetting::emergencySpendThresholdFor($fault->agency_id);
+            $limit = max($limit, $emergencyLimit);
+        }
         $fault->forceFill([
             'arranged_by_agent_at' => now(),
             'arranged_by_user_id' => $by->id,
@@ -114,7 +119,7 @@ class RentalFaultReportService
             'arranged_limit_amount' => $limit,
         ])->save();
         $fault->recordHistory(\App\Models\RentalFaultReportUpdate::TYPE_ARRANGED_BY_AGENT, $by,
-            'The agent went ahead' . ($emergency ? ' as an emergency' : ' under the R' . number_format($limit, 2, '.', ' ') . ' no-approval limit') . ' and the owner was told (informed, not asked).');
+            'The agent went ahead' . ($emergency ? ' as an emergency, within the R' . number_format($limit, 2, '.', ' ') . ' emergency limit' : ' within the R' . number_format($limit, 2, '.', ' ') . ' the agent may approve without asking the owner') . ' and the owner was told. Anything above that amount still needs the owner\'s approval.');
         app(RentalPortalNotificationService::class)->notifyLandlordInformed($fault->fresh());
 
         return $fault->fresh();

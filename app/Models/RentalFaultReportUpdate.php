@@ -39,6 +39,11 @@ class RentalFaultReportUpdate extends Model
     /** AT-452 item 9 - the agent confirmed sending to the owner while no contractor covered this type of work. */
     /** Item I - the agent went ahead under the no-approval limit / as an emergency and the owner was told. */
     public const TYPE_ARRANGED_BY_AGENT = 'arranged_by_agent';
+    // AT-452 round 3 (§20)
+    public const TYPE_OWNER_DECISION_RECORDED = 'owner_decision_recorded';
+    public const TYPE_OWNER_DECISION_SUPERSEDED = 'owner_decision_superseded';
+    public const TYPE_EMERGENCY_DECLARED = 'emergency_declared';
+    public const TYPE_OWNER_QUOTE_FIRST = 'owner_quote_first';
     /** Item I - the owner's "Query this" note on a fault they were informed about. */
     public const TYPE_OWNER_QUERY = 'owner_query';
     public const TYPE_SENT_WITHOUT_CONTRACTOR = 'sent_without_contractor';

@@ -10,6 +10,9 @@
     $apNotifyAuto = \App\Models\RentalWorkOrderSetting::notifyLandlordOnAutoVariationFor($apAgencyId);
     $apFeeType = \App\Models\RentalWorkOrderSetting::externalQuoteMarkupTypeFor($apAgencyId);
     $apFeeValue = \App\Models\RentalWorkOrderSetting::externalQuoteMarkupValueFor($apAgencyId);
+    $apEmergency = \App\Models\RentalWorkOrderSetting::emergencySpendThresholdFor($apAgencyId);
+    $apEmergencyDefault = \App\Models\RentalWorkOrderSetting::DEFAULT_EMERGENCY_SPEND_THRESHOLD;
+    $apMayRecord = \App\Models\RentalWorkOrderSetting::agentsMayRecordOwnerDecisionsFor($apAgencyId);
 @endphp
 <form method="POST" action="{{ route('corex.settings.rental-work-orders.approvals') }}" class="space-y-3" id="approvals-settings">
     @csrf
@@ -19,13 +22,34 @@
         </div>
         <div class="p-5 space-y-5">
             <div>
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Emergency repairs the agent may approve without asking the owner - up to R</label>
+                <input type="number" name="emergency_spend_threshold" value="{{ old('emergency_spend_threshold', $apEmergency) }}"
+                       min="0" max="99999999.99" step="0.01" data-emergency-limit
+                       class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs mt-2" style="color: var(--text-muted);">
+                    Default R{{ number_format($apEmergencyDefault, 2) }}. Counts only when the agent ticks "This is an emergency" and gives a reason; the owner is told at the start
+                    and when the work is finished. Never lower than the ordinary limit above. A property can have its own figure on its work terms.
+                </p>
+            </div>
+            <div>
+                <input type="hidden" name="agents_may_record_owner_decisions" value="0">
+                <label class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-primary);">
+                    <input type="checkbox" name="agents_may_record_owner_decisions" value="1" @checked(old('agents_may_record_owner_decisions', $apMayRecord)) data-agents-may-record>
+                    Agents may record an owner's decision for them
+                </label>
+                <p class="text-xs mt-2" style="color: var(--text-muted);">
+                    On by default. When the owner tells the agent their decision by phone, WhatsApp or email, the agent records it (who, how, when, what was said, optional proof);
+                    the owner is emailed what was written down and can query it. Off: only the owner's own link can approve work above the limits.
+                </p>
+            </div>
+            <div>
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Extra work the owner is not asked about (% above what they approved)</label>
                 <input type="number" name="variation_tolerance_percent" value="{{ old('variation_tolerance_percent', rtrim(rtrim(number_format($apTolerance, 2, '.', ''), '0'), '.') ?: '0') }}"
                        min="0" max="100" step="0.5"
                        class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
                 <p class="text-xs mt-2" style="color: var(--text-muted);">
                     Default 0 %: every increase after the owner has approved goes back to the owner. A property can carry its own figure, agreed with its owner, on its Rental tab.
-                    The owner's no-approval spend limit above is separate, and emergency work always needs the owner to agree.
+                    The limits for what the agent may approve alone are separate.
                 </p>
             </div>
             <div>

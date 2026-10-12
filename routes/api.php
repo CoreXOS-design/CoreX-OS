@@ -256,6 +256,7 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::post('/fault-reports/{faultReport}/decision', [ClientLandlordRentalsController::class, 'faultReportDecision'])->name('fault-reports.decision');
             Route::get('/work-orders', [ClientLandlordRentalsController::class, 'workOrders'])->name('work-orders.index');
             Route::post('/work-orders/{workOrder}/decision', [ClientLandlordRentalsController::class, 'workOrderDecision'])->name('work-orders.decision');
+            Route::post('/work-orders/{workOrder}/query', [ClientLandlordRentalsController::class, 'workOrderQuery'])->whereNumber('workOrder')->name('work-orders.query');
             // W6 (8 Oct 2026): the owner may book the appointment and report progress on their work order.
             Route::post('/work-orders/{workOrder}/appointment', [ClientLandlordRentalsController::class, 'workOrderAppointment'])->whereNumber('workOrder')->name('work-orders.appointment');
             Route::post('/work-orders/{workOrder}/progress', [ClientLandlordRentalsController::class, 'workOrderProgress'])->whereNumber('workOrder')->name('work-orders.progress');

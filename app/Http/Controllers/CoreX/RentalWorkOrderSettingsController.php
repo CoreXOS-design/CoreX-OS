@@ -127,7 +127,11 @@ class RentalWorkOrderSettingsController extends Controller
             'notify_landlord_on_auto_variation' => ['nullable', 'boolean'],
             'external_quote_markup_type' => ['nullable', 'in:' . RentalWorkOrderSetting::EXTERNAL_MARKUP_PERCENT . ',' . RentalWorkOrderSetting::EXTERNAL_MARKUP_AMOUNT],
             'external_quote_markup_value' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
+            // AT-452 round 3 (§20) - both has()-guarded below, like every field of this saver.
+            'emergency_spend_threshold' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
+            'agents_may_record_owner_decisions' => ['nullable', 'boolean'],
         ], [
+            'emergency_spend_threshold.numeric' => 'The emergency limit must be an amount in rand.',
             'variation_tolerance_percent.max' => 'The tolerance cannot be more than 100 %.',
             'external_quote_markup_value.numeric' => 'The fee must be a number (0 switches it off).',
         ]);
@@ -138,6 +142,12 @@ class RentalWorkOrderSettingsController extends Controller
         }
         if ($request->has('notify_landlord_on_auto_variation')) {
             $data['notify_landlord_on_auto_variation'] = $request->boolean('notify_landlord_on_auto_variation');
+        }
+        if ($request->has('emergency_spend_threshold') && ($validated['emergency_spend_threshold'] ?? null) !== null) {
+            $data['emergency_spend_threshold'] = round((float) $validated['emergency_spend_threshold'], 2);
+        }
+        if ($request->has('agents_may_record_owner_decisions')) {
+            $data['agents_may_record_owner_decisions'] = $request->boolean('agents_may_record_owner_decisions');
         }
         if ($request->has('external_quote_markup_type') && ($validated['external_quote_markup_type'] ?? null) !== null) {
             $data['external_quote_markup_type'] = $validated['external_quote_markup_type'];

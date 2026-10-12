@@ -248,7 +248,8 @@ class ClientLandlordRentalsController extends Controller
                 'status_label' => $f->ownerStatusLabel(),
                 'owner_approval_status' => $f->owner_approval_status,
                 // Waiting on THIS owner: the Faults tab marks it and counts it.
-                'needs_decision' => $f->owner_approval_status === RentalFaultReport::APPROVAL_PENDING,
+                'needs_decision' => $f->owner_approval_status === RentalFaultReport::APPROVAL_PENDING && $f->quote_first_at === null,   // AT-452 round 3: a fault waiting for a quote is not a decision
+                'quote_first' => $f->quote_first_at !== null,
                 'work_order_id' => $f->rental_work_order_id,
                 'reported_at' => $f->reported_at?->toIso8601String(),
                 // AT-452 round 2 (G) - closed ones are one collapsed line each; open ones stay expanded.
@@ -409,7 +410,9 @@ class ClientLandlordRentalsController extends Controller
         }
 
         $version = $fault->ownerVersion();
-        $awaiting = $fault->owner_approval_status === RentalFaultReport::APPROVAL_PENDING;
+        // AT-452 round 3 (§20): "get a quote first" is waiting for the QUOTE, not a decision; a decision an agent recorded replaces the buttons by its sentence.
+        $recorded = app(\App\Services\Rentals\RentalOwnerDecisionService::class)->ownerPayload($fault);
+        $awaiting = $fault->owner_approval_status === RentalFaultReport::APPROVAL_PENDING && $fault->quote_first_at === null;
         $summary = $fault->decisionSummary();
 
         return response()->json(['fault_report' => [
@@ -437,6 +440,9 @@ class ClientLandlordRentalsController extends Controller
             'reported_at' => $fault->reported_at?->toIso8601String(),
             'sent_to_owner_at' => $fault->sent_to_owner_at?->toIso8601String(),
             'awaiting_decision' => $awaiting,
+            'recorded_decision' => $recorded,
+            'quote_first' => $fault->quote_first_at !== null
+                ? ['at' => $fault->quote_first_at->toIso8601String(), 'text' => 'You asked for a quote first. Your agent will get one and send it to you to approve.'] : null,
             // The supplier list for THIS type of work (empty = the owner is offered the other routes only).
             'contractors' => $awaiting ? app(RentalFaultContractorService::class)->optionsFor($fault)->values() : [],
             // AT-452 item 9 - the SAME test the agent's warning on the fault page uses; the note under the contractor choice reads this.
@@ -528,7 +534,8 @@ class ClientLandlordRentalsController extends Controller
         if (! $fault) {
             return response()->json(['message' => 'Fault report not found.'], 404);
         }
-        if (! $fault->isArrangedByAgent()) {
+        $recordedOnFault = app(\App\Services\Rentals\RentalOwnerDecisionService::class)->rowsFor($fault)->isNotEmpty();
+        if (! $fault->isArrangedByAgent() && ! $recordedOnFault) {
             return response()->json(['message' => 'There is nothing to query on this one.'], 422);
         }
         $data = $request->validate(['note' => 'required|string|min:3|max:1000']);
@@ -548,6 +555,33 @@ class ClientLandlordRentalsController extends Controller
         }
 
         return response()->json(['ok' => true, 'arranged' => $this->arrangedFor($fault->fresh())], 201);
+    }
+
+    /**
+     * AT-452 round 3 (§20.4) - "Query this" on a work order decision an agent recorded for the owner: a note, not a decision; both lease agents are
+     * told and it is written to the work order's history.
+     */
+    public function workOrderQuery(Request $request, int $workOrder): JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+        $order = $this->scope->landlordWorkOrder($contact, $workOrder);
+        if (! $order) {
+            return response()->json(['message' => 'Work order not found.'], 404);
+        }
+        if (app(\App\Services\Rentals\RentalOwnerDecisionService::class)->rowsFor($order)->isEmpty()) {
+            return response()->json(['message' => 'There is nothing to query on this one.'], 422);
+        }
+        $data = $request->validate(['note' => 'required|string|min:3|max:1000']);
+        $who = trim((string) ($contact->first_name . ' ' . $contact->last_name));
+        $order->updates()->create(['agency_id' => $order->agency_id, 'update_type' => 'owner_query', 'note' => $who . ' (owner) asked: ' . trim($data['note'])]);
+        app(\App\Services\Rentals\RentalWorkOrderService::class)->notifyAgentOfOwnerAction(
+            $order->fresh(), 'rental_work_order.owner_query', 'The owner has a question about a decision recorded for them', $order->title . ': ' . mb_substr(trim($data['note']), 0, 200), now()
+        );
+
+        return response()->json(['ok' => true], 201);
     }
 
     /** "Reported before on <date> ..." for the owner's decision screen - linked only to an earlier report this owner can open themselves. */
@@ -583,13 +617,16 @@ class ClientLandlordRentalsController extends Controller
             return response()->json(['message' => 'Fault report not found.'], 404);
         }
 
-        // §17.6.6 - a decision is only taken on a record that is actually waiting for one.
-        if ($fault->owner_approval_status !== RentalFaultReport::APPROVAL_PENDING) {
+        // §17.6.6 - a decision is only taken on a record that is actually waiting for one. AT-452 round 3 (§20.3): a decision the AGENT recorded for
+        // the owner can still be replaced by the owner's own, until a work order exists.
+        $ownerDecisions = app(\App\Services\Rentals\RentalOwnerDecisionService::class);
+        $replacesRecorded = $fault->owner_approval_status !== RentalFaultReport::APPROVAL_PENDING;
+        if ($replacesRecorded && ! ($ownerDecisions->activeFor($fault) && ! $fault->hasLiveWorkOrder())) {
             return response()->json(['message' => 'This is not waiting for your decision any more.'], 422);
         }
 
         $data = $request->validate([
-            'decision' => 'required|in:approve,decline,approve_agency_appoints,approve_owner_handles',
+            'decision' => 'required|in:approve,decline,approve_agency_appoints,approve_owner_handles,quote_first',
             'handled_by' => 'nullable|in:own,list,agency',
             'contractor_name' => 'nullable|string|max:191',
             'contractor_phone' => 'nullable|string|max:40',
@@ -605,6 +642,24 @@ class ClientLandlordRentalsController extends Controller
         } elseif ($data['decision'] === 'approve_agency_appoints') {
             $data['decision'] = 'approve';
             $handledBy = $handledBy ?: (! empty($data['agency_service_provider_id']) ? 'list' : 'agency');
+        }
+
+        if ($data['decision'] === 'quote_first') {
+            // AT-452 round 3 (§20.2) - "Get a quote first": the fault stays waiting, the quote comes to the owner to approve.
+            try {
+                \Illuminate\Support\Facades\DB::transaction(function () use ($fault, $contact, $data, $replacesRecorded, $ownerDecisions) {
+                    if ($replacesRecorded && ! $ownerDecisions->releaseForOwnerDecision($fault)) {
+                        throw new \LogicException('This is not waiting for your decision any more.');
+                    }
+                    $fault->refresh()->markQuoteFirst($contact, 'The owner asked for a quote first on their link.' . (trim((string) ($data['note'] ?? '')) !== '' ? ' They wrote: ' . trim((string) $data['note']) : ''));
+                });
+            } catch (\Throwable $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
+
+            return response()->json(['fault_report' => [
+                'id' => $fault->id, 'status' => $fault->status, 'status_label' => $fault->fresh()->ownerStatusLabel(), 'owner_approval_status' => $fault->owner_approval_status, 'quote_first' => true,
+            ]]);
         }
 
         if ($data['decision'] === 'decline') {
@@ -628,15 +683,20 @@ class ClientLandlordRentalsController extends Controller
         }
 
         try {
-            $fault->recordApproval($contact, [
-                'decision' => $decision,
-                'approval_route' => $route,
-                'evidence_type' => \App\Models\RentalApproval::EVIDENCE_PORTAL,
-                'evidence_text' => $data['note'] ?? null,
-                'contractor_name' => $handledBy === 'own' ? ($data['contractor_name'] ?? null) : null,
-                'contractor_phone' => $handledBy === 'own' ? ($data['contractor_phone'] ?? null) : null,
-                'agency_service_provider_id' => $handledBy === 'list' ? ($data['agency_service_provider_id'] ?? null) : null,
-            ]);
+            \Illuminate\Support\Facades\DB::transaction(function () use ($fault, $contact, $decision, $route, $handledBy, $data, $replacesRecorded, $ownerDecisions) {
+                if ($replacesRecorded && ! $ownerDecisions->releaseForOwnerDecision($fault)) {
+                    throw new \LogicException('This is not waiting for your decision any more.');
+                }
+                $fault->recordApproval($contact, [
+                    'decision' => $decision,
+                    'approval_route' => $route,
+                    'evidence_type' => \App\Models\RentalApproval::EVIDENCE_PORTAL,
+                    'evidence_text' => $data['note'] ?? null,
+                    'contractor_name' => $handledBy === 'own' ? ($data['contractor_name'] ?? null) : null,
+                    'contractor_phone' => $handledBy === 'own' ? ($data['contractor_phone'] ?? null) : null,
+                    'agency_service_provider_id' => $handledBy === 'list' ? ($data['agency_service_provider_id'] ?? null) : null,
+                ]);
+            });
         } catch (\Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
@@ -734,8 +794,11 @@ class ClientLandlordRentalsController extends Controller
             return response()->json(['message' => 'Work order not found.'], 404);
         }
 
-        // §17.6.6 — a decision is only taken on a record that is actually waiting for one.
-        if ($order->owner_approval_status !== RentalWorkOrder::APPROVAL_PENDING) {
+        // §17.6.6 — a decision is only taken on a record that is actually waiting for one. AT-452 round 3 (§20.3): a decision the agent recorded for the
+        // owner can still be replaced by the owner's own until the work starts.
+        $ownerDecisions = app(\App\Services\Rentals\RentalOwnerDecisionService::class);
+        $replacesRecorded = $order->owner_approval_status !== RentalWorkOrder::APPROVAL_PENDING;
+        if ($replacesRecorded && ! ($ownerDecisions->activeFor($order) && ! in_array($order->status, [RentalWorkOrder::STATUS_IN_PROGRESS, RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true))) {
             return response()->json(['message' => 'This is not waiting for your decision any more.'], 422);
         }
 
@@ -746,11 +809,16 @@ class ClientLandlordRentalsController extends Controller
         ]);
 
         try {
-            $order->recordApproval($contact, [
-                'decision' => $data['decision'] === 'approve' ? RentalWorkOrder::APPROVAL_APPROVED : RentalWorkOrder::APPROVAL_DECLINED,
-                'evidence_type' => \App\Models\RentalApproval::EVIDENCE_PORTAL,
-                'evidence_text' => $data['note'] ?? null,
-            ]);
+            \Illuminate\Support\Facades\DB::transaction(function () use ($order, $contact, $data, $replacesRecorded, $ownerDecisions) {
+                if ($replacesRecorded && ! $ownerDecisions->releaseForOwnerDecision($order)) {
+                    throw new \LogicException('This is not waiting for your decision any more.');
+                }
+                $order->recordApproval($contact, [
+                    'decision' => $data['decision'] === 'approve' ? RentalWorkOrder::APPROVAL_APPROVED : RentalWorkOrder::APPROVAL_DECLINED,
+                    'evidence_type' => \App\Models\RentalApproval::EVIDENCE_PORTAL,
+                    'evidence_text' => $data['note'] ?? null,
+                ]);
+            });
         } catch (\Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }

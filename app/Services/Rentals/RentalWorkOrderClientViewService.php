@@ -280,6 +280,9 @@ class RentalWorkOrderClientViewService
                 ? (float) $workOrder->cost_amount
                 : ($selected?->ownerFacingAmount());
             $payload['owner_approval_status'] = $workOrder->owner_approval_status;
+            // AT-452 round 3 (§20.4): a decision an agent recorded for the owner on this work order (the sentence, the note, whether the owner may still replace it)
+            $payload['recorded_decision'] = app(\App\Services\Rentals\RentalOwnerDecisionService::class)->ownerPayload($workOrder);
+            $payload['quote_first'] = (bool) $workOrder->quote_first;
             // What the owner may PRESS on this work order's progress, decided here with the same rules the buttons are checked against on
             // the server (recordOwnerProgress / recordOwnerReportedDone) - so the portal shows only buttons that will work, and says why when none do.
             $reportedFinished = $this->reportedFinished($workOrder);

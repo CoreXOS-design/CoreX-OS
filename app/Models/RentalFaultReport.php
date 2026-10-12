@@ -93,6 +93,8 @@ class RentalFaultReport extends Model
         'rental_work_order_id',
         'follows_fault_report_id',
         'arranged_by_agent_at',
+        'quote_first_at',
+        'owner_approved_up_to',
         'arranged_by_user_id',
         'arranged_basis',
         'arranged_limit_amount',
@@ -136,6 +138,8 @@ class RentalFaultReport extends Model
         'resolved_at' => 'datetime',
         'cancelled_at' => 'datetime',
         'arranged_by_agent_at' => 'datetime',
+        'quote_first_at' => 'datetime',
+        'owner_approved_up_to' => 'decimal:2',
         'arranged_limit_amount' => 'decimal:2',
     ];
 
@@ -265,6 +269,10 @@ class RentalFaultReport extends Model
                     RentalFaultReportUpdate::TYPE_RESTORED => 'Restored',
                     RentalFaultReportUpdate::TYPE_NOTE => 'Note added',
                     RentalFaultReportUpdate::TYPE_ARRANGED_BY_AGENT => 'Went ahead - owner informed',
+                    RentalFaultReportUpdate::TYPE_OWNER_DECISION_RECORDED => "Owner's decision recorded",
+                    RentalFaultReportUpdate::TYPE_OWNER_DECISION_SUPERSEDED => "Owner's decision replaced",
+                    RentalFaultReportUpdate::TYPE_EMERGENCY_DECLARED => 'Declared an emergency',
+                    RentalFaultReportUpdate::TYPE_OWNER_QUOTE_FIRST => 'Owner asked for a quote first',
                     RentalFaultReportUpdate::TYPE_OWNER_QUERY => 'Owner asked a question',
                     RentalFaultReportUpdate::TYPE_PHOTO_MARK_ADDED => 'Photo mark added',
                     RentalFaultReportUpdate::TYPE_PHOTO_MARK_CHANGED => 'Photo mark changed',
@@ -453,7 +461,7 @@ class RentalFaultReport extends Model
 
         return match ($this->status) {
             self::STATUS_REPORTED, self::STATUS_UNDER_REVIEW => 'With your agent',
-            self::STATUS_AWAITING_APPROVAL => 'Waiting for your decision',
+            self::STATUS_AWAITING_APPROVAL => $this->quote_first_at ? 'Waiting for a quote' : 'Waiting for your decision',
             self::STATUS_APPROVED, self::STATUS_DECLINED, self::STATUS_OWNER_HANDLING => 'You decided',
             default => $this->statusLabel(),
         };
@@ -634,11 +642,14 @@ class RentalFaultReport extends Model
         if (! $this->isArrangedByAgent()) {
             return null;
         }
+        $limit = number_format((float) $this->arranged_limit_amount, 2, '.', ' ');
         if ($this->arranged_basis === self::ARRANGED_EMERGENCY) {
-            return 'Your agent arranged this repair as an emergency.';
+            $reason = $this->rental_work_order_id ? trim((string) RentalWorkOrder::withoutGlobalScopes()->whereKey($this->rental_work_order_id)->value('emergency_declared_reason')) : '';
+
+            return 'Your agent arranged this repair as an emergency' . ($reason !== '' ? ' (' . $reason . ')' : '') . ', within the R' . $limit . ' emergency limit. Anything above that needs your approval first.';
         }
 
-        return 'Your agent arranged this repair under your R' . number_format((float) $this->arranged_limit_amount, 2, '.', ' ') . ' no-approval limit.';
+        return 'Your agent arranged this repair under your R' . $limit . ' no-approval limit. Anything above that needs your approval first.';
     }
 
     /** The earlier report this one follows (the tenant-resolved one a "Report it again" / "Have this repaired anyway" came from). */
@@ -689,6 +700,54 @@ class RentalFaultReport extends Model
         }
 
         return null;
+    }
+
+    /**
+     * AT-452 round 3 (§20.2) - "Get a quote first": the owner (on their link, or the agent recording their word) wants to see a quote before
+     * deciding. The fault stays waiting; a work order may be raised and its quote ALWAYS goes to the owner. Both lease agents are told (never the
+     * staff member who recorded it).
+     */
+    public function markQuoteFirst(User|Contact $by, string $text, ?\Illuminate\Support\Carbon $at = null): void
+    {
+        $this->forceFill(['quote_first_at' => $at ?? now(), 'owner_approved_up_to' => null])->save();
+        $this->logUpdate(RentalFaultReportUpdate::TYPE_OWNER_QUOTE_FIRST, $by instanceof User ? $by : null, $text);
+
+        try {
+            $property = $this->property()->withoutGlobalScopes()->first();
+            if (! $property) {
+                return;
+            }
+            $recipients = app(\App\Services\Rentals\LeaseAgentService::class)->recipientsForEvent($this->lease, $property, (int) $this->agency_id, $by instanceof User ? $by : null);
+            foreach ($recipients as $agent) {
+                app(\App\Services\CommandCenter\NotificationDispatcher::class)->fire($agent, 'rental_fault_report.owner_decided', $this, [
+                    'title' => 'Owner asked for a quote first - ' . $property->buildDisplayAddress(),
+                    'body' => $this->title . ' - create the work order and get a quote; it goes to the owner to approve.',
+                    'action_url' => route('corex.rental-fault-reports.show', ['rentalFaultReport' => $this->id, 'create_work_order' => 1]),
+                    'severity' => 'info',
+                    'threshold_hit_at' => now(),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Quote first: could not notify the agents', ['fault_report_id' => $this->id, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * AT-452 round 3 (§20.2) - the owner approved the quote of a "quote first" repair (on their link, or recorded): the fault itself is now approved
+     * (the agency appoints). Called from RentalWorkOrder::recordApproval(). The fault keeps its work-order status.
+     */
+    public function approveViaQuote(User|Contact $by, string $evidenceType, ?string $text): void
+    {
+        if ($this->quote_first_at === null || $this->owner_approval_status === self::APPROVAL_APPROVED) {
+            return;
+        }
+        $this->approvals()->create([
+            'agency_id' => $this->agency_id, 'decision' => RentalApproval::DECISION_APPROVED, 'approval_route' => self::ROUTE_AGENCY_APPOINTS,
+            'contractor_source' => RentalApproval::CONTRACTOR_AGENCY, 'evidence_type' => $evidenceType, 'evidence_text' => $text, 'decided_at' => now(),
+            'recorded_by_user_id' => $by instanceof User ? $by->id : null, 'recorded_by_contact_id' => $by instanceof Contact ? $by->id : null,
+        ]);
+        $this->forceFill(['owner_approval_status' => self::APPROVAL_APPROVED, 'approval_route' => self::ROUTE_AGENCY_APPOINTS, 'quote_first_at' => null])->save();
+        $this->logUpdate(RentalFaultReportUpdate::TYPE_STATUS_CHANGE, $by instanceof User ? $by : null, 'The owner approved the quote, so the repair is approved.');
     }
 
     /** The decision that settled this fault (latest row of the append-only log), or null while undecided. */
@@ -830,6 +889,7 @@ class RentalFaultReport extends Model
                 'status' => $newStatus,
                 'owner_approval_status' => $decision === self::APPROVAL_APPROVED ? self::APPROVAL_APPROVED : self::APPROVAL_DECLINED,
                 'approval_route' => $route,
+                'quote_first_at' => null,   // AT-452 round 3: a real decision ends "get a quote first"
             ])->save();
 
             // AT-445 - .ai/specs/rental-portal-access.md §6.

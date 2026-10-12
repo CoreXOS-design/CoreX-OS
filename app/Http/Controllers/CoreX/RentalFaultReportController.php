@@ -571,6 +571,9 @@ class RentalFaultReportController extends Controller
     public function recordApproval(Request $request, RentalFaultReportService $service, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
         $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+        if (! app(\App\Services\Rentals\RentalOwnerDecisionService::class)->enabled($rentalFaultReport->agency_id)) {
+            return back()->withErrors(['rental_fault_report' => "Recording an owner's decision is switched off for this agency."]);
+        }
 
         $validated = $request->validate([
             'decision' => ['required', 'in:' . implode(',', [
@@ -704,6 +707,8 @@ class RentalFaultReportController extends Controller
             // the internal crew to put on the job card (optional; checked against the agency's active crews by the service)
             'rental_crew_id' => ['nullable', 'integer'],
             'emergency' => ['nullable', 'boolean'],
+            // AT-452 round 3 (§20): an emergency is only an emergency with a reason - the emergency limit applies to nothing else.
+            'emergency_reason' => ['nullable', 'string', 'max:2000'],
         ]);
         // A chosen contractor with no explicit "who" means the agency's contractor; nothing at all keeps the old default (internal crew).
         $validated['assignment_type'] = $validated['assignment_type']
@@ -714,6 +719,10 @@ class RentalFaultReportController extends Controller
         // moment the work order exists the fault is arranged-by-agent and the owner is told.
         $goAhead = in_array($rentalFaultReport->status, [RentalFaultReport::STATUS_REPORTED, RentalFaultReport::STATUS_UNDER_REVIEW], true) && $rentalFaultReport->decision() === null
             && ($validated['assignment_type'] ?? null) !== \App\Models\RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR;
+        $isEmergency = $goAhead && (bool) ($validated['emergency'] ?? false);
+        if ($isEmergency && trim((string) ($validated['emergency_reason'] ?? '')) === '') {
+            return back()->withErrors(['rental_fault_report' => 'Say why this is an emergency - the reason is required. Without it the ordinary limit applies.'])->withInput();
+        }
         if ($goAhead && $rentalFaultReport->owner_version_saved_at === null) {
             return back()->withErrors(['rental_fault_report' => 'Prepare the owner version first (check the wording and photos the owner will see) - the owner is told straight away when you go ahead.']);
         }
@@ -735,7 +744,10 @@ class RentalFaultReportController extends Controller
 
         $told = '';
         if ($goAhead) {
-            app(RentalFaultReportService::class)->arrangeByAgent($rentalFaultReport->fresh(), $request->user(), (bool) ($validated['emergency'] ?? false));
+            if ($isEmergency) {
+                app(\App\Services\Rentals\RentalOwnerDecisionService::class)->declareEmergency($made['work_order'], $request->user(), (string) $validated['emergency_reason']);
+            }
+            app(RentalFaultReportService::class)->arrangeByAgent($rentalFaultReport->fresh(), $request->user(), $isEmergency);
             $told = ' The owner has been told.';
         }
 

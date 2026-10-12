@@ -22,13 +22,18 @@
         \App\Services\Rentals\WorkTerms::SOURCE_AGENCY_DEFAULT => 'agency default',
         default => 'built-in default',
     };
-    $wtFieldLabel = fn (string $field) => $field === \App\Models\RentalPropertyWorkTermChange::FIELD_NO_APPROVAL_LIMIT ? 'No-approval limit' : 'Variation tolerance';
+    $wtAgencyEmergency = \App\Models\RentalWorkOrderSetting::emergencySpendThresholdFor($property->agency_id);
+    $wtFieldLabel = fn (string $field) => match ($field) {
+        \App\Models\RentalPropertyWorkTermChange::FIELD_NO_APPROVAL_LIMIT => 'Repairs the agent may approve without asking the owner',
+        \App\Models\RentalPropertyWorkTermChange::FIELD_EMERGENCY_LIMIT => 'Emergency repairs the agent may approve without asking the owner',
+        default => 'Variation tolerance',
+    };
     $wtFormat = function (string $field, $value) {
         if ($value === null) {
             return 'agency default';
         }
 
-        return $field === \App\Models\RentalPropertyWorkTermChange::FIELD_NO_APPROVAL_LIMIT
+        return in_array($field, [\App\Models\RentalPropertyWorkTermChange::FIELD_NO_APPROVAL_LIMIT, \App\Models\RentalPropertyWorkTermChange::FIELD_EMERGENCY_LIMIT], true)
             ? 'R' . number_format((float) $value, 2)
             : rtrim(rtrim(number_format((float) $value, 2, '.', ''), '0'), '.') . ' %';
     };
@@ -37,15 +42,16 @@
     <div>
         <strong>Work terms agreed with the owner</strong>
         <p class="text-xs mt-1" style="color: var(--text-muted);">
-            What this owner has agreed for repairs and maintenance on this property. Work up to the no-approval limit goes ahead without asking the owner;
-            extra work up to the tolerance above what the owner approved goes ahead and the owner is told; anything beyond that waits for the owner.
-            Emergency work always needs the owner to agree.
+            What this owner has agreed for repairs and maintenance on this property. Repairs up to the first limit go ahead without asking the owner;
+            a repair the agent has declared an emergency (with a reason) may go up to the emergency limit; the owner is always told. Extra work up to the
+            tolerance above what the owner approved goes ahead and the owner is told. Anything above the limit waits for the owner - on their link, or
+            the agent records what the owner told them.
         </p>
     </div>
 
-    @if($errors->has('no_approval_limit') || $errors->has('variation_tolerance') || $errors->has('agreed_with'))
+    @if($errors->has('no_approval_limit') || $errors->has('emergency_limit') || $errors->has('variation_tolerance') || $errors->has('agreed_with'))
         <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
-            @foreach(['no_approval_limit', 'variation_tolerance', 'agreed_with'] as $wtErrKey)
+            @foreach(['no_approval_limit', 'emergency_limit', 'variation_tolerance', 'agreed_with'] as $wtErrKey)
                 @error($wtErrKey)<div>{{ $message }}</div>@enderror
             @endforeach
         </div>
@@ -57,13 +63,23 @@
         @method('PUT')
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-                <label class="prop-label" for="wt-limit">No-approval limit (R, per job)</label>
+                <label class="prop-label" for="wt-limit">Repairs the agent may approve without asking the owner - up to R (per job)</label>
                 <input id="wt-limit" type="number" name="no_approval_limit" min="0" max="99999999.99" step="0.01"
                        value="{{ old('no_approval_limit', $property->rental_no_approval_spend_threshold) }}"
                        placeholder="Agency default" class="prop-input prop-field-money">
                 <p class="text-xs mt-1" style="color: var(--text-muted);">
                     In force: <strong>R{{ number_format($wtTerms->noApprovalLimit, 2) }}</strong> ({{ $wtSourceText($wtTerms->limitSource) }}).
                     Agency default: R{{ number_format($wtAgencyLimit, 2) }}. Leave blank to use the agency default.
+                </p>
+            </div>
+            <div>
+                <label class="prop-label" for="wt-emergency">Emergency repairs the agent may approve without asking the owner - up to R (per job)</label>
+                <input id="wt-emergency" type="number" name="emergency_limit" min="0" max="99999999.99" step="0.01"
+                       value="{{ old('emergency_limit', $property->rental_emergency_spend_threshold) }}"
+                       placeholder="Agency default" class="prop-input prop-field-money">
+                <p class="text-xs mt-1" style="color: var(--text-muted);">
+                    In force: <strong>R{{ number_format($wtTerms->emergencyLimit, 2) }}</strong> ({{ $wtSourceText($wtTerms->emergencySource) }}).
+                    Agency default: R{{ number_format($wtAgencyEmergency, 2) }}. Only when the agent ticks "This is an emergency" and gives a reason. Leave blank to use the agency default.
                 </p>
             </div>
             <div>
@@ -95,7 +111,8 @@
     </form>
     @else
         <div class="text-xs space-y-1">
-            <div>No-approval limit: <strong>R{{ number_format($wtTerms->noApprovalLimit, 2) }}</strong> ({{ $wtSourceText($wtTerms->limitSource) }})</div>
+            <div>Repairs the agent may approve without asking the owner: <strong>R{{ number_format($wtTerms->noApprovalLimit, 2) }}</strong> ({{ $wtSourceText($wtTerms->limitSource) }})</div>
+            <div>Emergency repairs the agent may approve without asking the owner: <strong>R{{ number_format($wtTerms->emergencyLimit, 2) }}</strong> ({{ $wtSourceText($wtTerms->emergencySource) }})</div>
             <div>Variation tolerance: <strong>{{ rtrim(rtrim(number_format($wtTerms->variationPct, 2, '.', ''), '0'), '.') }} %</strong> ({{ $wtSourceText($wtTerms->pctSource) }})</div>
             @if($property->rental_work_terms_updated_at)
                 <div style="color: var(--text-muted);">Last changed by {{ $wtUpdatedBy?->name ?? 'a former user' }} on {{ $property->rental_work_terms_updated_at->format('j M Y H:i') }}.</div>

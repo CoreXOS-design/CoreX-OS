@@ -18,6 +18,8 @@ class RentalPropertyWorkTermChange extends Model
 
     public const FIELD_NO_APPROVAL_LIMIT = 'no_approval_limit';
     public const FIELD_VARIATION_TOLERANCE = 'variation_tolerance';
+    /** AT-452 round 3 (§20) - the emergency limit the agent may approve alone. */
+    public const FIELD_EMERGENCY_LIMIT = 'emergency_limit';
 
     protected $fillable = [
         'agency_id',

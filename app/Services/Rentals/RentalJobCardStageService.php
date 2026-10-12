@@ -40,7 +40,8 @@ class RentalJobCardStageService
         $pricesOn = RentalWorkOrderSetting::capturePricesOnJobCardsFor($card->agency_id);
         $vat = app(RentalJobCardVatService::class);
         $amount = round($vat->inclusiveTotal($card), 2);
-        $limit = $card->property ? RentalWorkOrderSetting::thresholdFor($card->property) : RentalWorkOrderSetting::spendThresholdFor($card->agency_id);
+        $limit = $workOrder ? $workOrder->spendThreshold()   // the limit THIS job is held to (the emergency limit for a declared emergency)
+            : ($card->property ? RentalWorkOrderSetting::thresholdFor($card->property) : RentalWorkOrderSetting::spendThresholdFor($card->agency_id));
         $hasLines = $card->acceptedLines()->exists();
         $unpriced = $pricesOn ? $card->acceptedLines()->whereNull('line_total')->count() : 0;
         $authorised = $open ? app(RentalApprovalGateService::class)->authoriseCard($card, false)->authorised : false;

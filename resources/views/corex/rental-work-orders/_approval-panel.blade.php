@@ -24,6 +24,8 @@
         @else
             <span class="ds-badge ds-badge-muted">No approval needed yet</span>
         @endif
+        @if($workOrder->isDeclaredEmergency())<span class="ds-badge ds-badge-warning" data-declared-emergency-badge>Emergency declared</span>@endif
+        @if($workOrder->quote_first)<span class="ds-badge ds-badge-info" data-quote-first-badge>Owner asked for a quote first</span>@endif
         @if($apOpenVariation)<span class="ds-badge ds-badge-warning">Variation awaiting owner</span>@endif
         @if($apAutoCount > 0)<span class="ds-badge ds-badge-info">{{ $apAutoCount }} extra{{ $apAutoCount > 1 ? 's' : '' }} auto-approved</span>@endif
     </div>
@@ -50,6 +52,12 @@
             Work cannot start yet: {{ $proceed->note }}
         @endif
     </p>
+    {{-- AT-452 round 3 (§20): authority C - record what the owner told you (replaces the old "Record decision on the owner's behalf" form). --}}
+    @if($isOpen)
+        @permission('rental_work_orders.record_approval')
+            @include('corex.rental-owner-decision._record', ['subject' => $workOrder])
+        @endpermission
+    @endif
 </div>
 
 @include('corex.rental-work-orders._variation-panel')

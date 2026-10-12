@@ -20,6 +20,7 @@
             default => 'in_progress',
         };
         $noApprovalLimit = $faultReport->property ? \App\Models\RentalWorkOrderSetting::thresholdFor($faultReport->property) : \App\Models\RentalWorkOrderSetting::spendThresholdFor($faultReport->agency_id);
+        $emergencyLimit = max((float) $noApprovalLimit, (float) ($faultReport->property ? \App\Models\RentalWorkOrderSetting::emergencyThresholdFor($faultReport->property) : \App\Models\RentalWorkOrderSetting::emergencySpendThresholdFor($faultReport->agency_id)));
     $statusBadgeClass = match ($faultReport->status) {
         'resolved' => 'ds-badge-success',
         'reported', 'under_review', 'awaiting_approval' => 'ds-badge-info',
@@ -95,11 +96,18 @@
         </div>
     @endif
 
-    {{-- AT-452 round 2 (item I) - the agent went ahead; the owner was told, not asked. --}}
+    {{-- AT-452 round 3 (§20.2) - the owner asked for a quote first. --}}
+    @if($faultReport->quote_first_at)
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, var(--surface)); border: 1px solid var(--ds-amber, #f59e0b);" data-quote-first-banner>
+            <strong>The owner asked for a quote first.</strong> The fault stays waiting. Create the work order, get the quote and put it to the owner - it goes to them to approve whatever it costs.
+        </div>
+    @endif
+
+    {{-- AT-452 round 2 (item I) - the agent went ahead; the owner was told. --}}
     @if($faultReport->isArrangedByAgent())
         <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-blue, #2563eb) 8%, var(--surface)); border: 1px solid var(--ds-blue, #2563eb);" data-arranged-by-agent>
             <strong>The owner was told on {{ $faultReport->arranged_by_agent_at?->format('j M Y H:i') }}.</strong>
-            {{ $faultReport->arrangedText() }} They are informed, not asked &mdash; they can send you a question from their portal, and you are told when they do. If the amount goes over the limit the owner's approval is asked for on the work order as usual.
+            {{ $faultReport->arrangedText() }} They can send you a question from their portal, and you are told when they do. If the amount goes over the limit the work cannot go on until the owner approves it on their link, or you record their decision.
         </div>
     @endif
 
@@ -346,14 +354,19 @@
                     @if($stage === 'prepare')
                         {{-- AT-452 round 2 (item I) - the owner is told the moment the agent goes ahead: so what they will read must be prepared first (the owner version above). --}}
                         <button type="button" onclick="document.getElementById('raise-work-order-form').classList.toggle('hidden')" class="underline" style="color: var(--text-muted);" data-go-ahead-toggle>Go ahead now and tell the owner</button>
-                        <span style="color: var(--text-muted);"> - only for an emergency, or a small job inside this property's no-approval spend limit (R{{ number_format($noApprovalLimit, 2) }}). The owner is informed straight away, not asked.</span>
+                        <span style="color: var(--text-muted);"> - only for a repair you may approve without asking the owner: up to R{{ number_format($noApprovalLimit, 2) }}, or up to R{{ number_format($emergencyLimit, 2) }} for an emergency (you must give the reason). The owner is told straight away. Anything above that needs the owner - on their link, or you record what they told you.</span>
                         @if($faultReport->owner_version_saved_at === null)
                             <span class="font-semibold" data-go-ahead-needs-version> Save the owner version above first - it is what the owner will read.</span>
                         @endif
                         @include('corex.rental-fault-reports._raise-work-order-form', ['secondary' => true, 'goAhead' => true])
                     @else
-                        <button type="button" onclick="document.getElementById('raise-work-order-form').classList.toggle('hidden')" class="underline" style="color: var(--text-muted);">Start a work order before the owner decides</button>
-                        <span style="color: var(--text-muted);"> - only for an emergency, or a small job inside this property's no-approval spend limit (R{{ number_format($noApprovalLimit, 2) }}).</span>
+                        @if($faultReport->quote_first_at)
+                            <button type="button" onclick="document.getElementById('raise-work-order-form').classList.toggle('hidden')" class="underline" style="color: var(--text-muted);" data-quote-first-create>Create the work order and get the quote</button>
+                            <span style="color: var(--text-muted);"> - the owner asked for a quote first, so the quote goes to the owner to approve, whatever it costs.</span>
+                        @else
+                            <button type="button" onclick="document.getElementById('raise-work-order-form').classList.toggle('hidden')" class="underline" style="color: var(--text-muted);">Start a work order before the owner decides</button>
+                            <span style="color: var(--text-muted);"> - the work can only start once it is covered: up to R{{ number_format($noApprovalLimit, 2) }} (R{{ number_format($emergencyLimit, 2) }} if you declare an emergency with a reason), or the owner approves it - on their link, or you record what they told you.</span>
+                        @endif
                         @include('corex.rental-fault-reports._raise-work-order-form', ['secondary' => true])
                     @endif
                 </div>
@@ -398,81 +411,9 @@
         @endpermission
 
 
+        {{-- AT-452 round 3 (§20): ONE way to record what the owner told you - the popup (replaces the old inline form). --}}
         @permission('rental_fault_reports.record_approval')
-            @if(! $decisionSummary && $faultReport->rental_work_order_id === null && $stage === 'with_owner')
-            <p class="text-xs" style="color: var(--text-muted);" data-waiting-for-owner>Waiting for the owner. If they have told you their decision another way, record it for them.</p>
-            <button type="button" onclick="document.getElementById('record-approval-form').classList.toggle('hidden')" class="corex-btn-outline text-xs">Record decision on the owner's behalf</button>
-            <form id="record-approval-form" method="POST" action="{{ route('corex.rental-fault-reports.approval.store', $faultReport) }}" enctype="multipart/form-data" class="hidden space-y-3 pt-2" x-data="{ cq: '', decision: '{{ old('decision', 'approved') }}', route: '{{ old('approval_route', 'agency_appoints') }}' }">
-                @csrf
-                <p class="text-xs" style="color: var(--text-muted);">Use this when the owner has told you their decision by phone, WhatsApp, email or in person. If the owner decides on their portal link, the decision appears here by itself.</p>
-                <div>
-                    <label class="text-xs font-medium">Decision</label>
-                    <select name="decision" x-model="decision" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-                        <option value="approved">Approved</option>
-                        <option value="declined">Declined</option>
-                    </select>
-                </div>
-                <div x-show="decision === 'approved'" x-cloak class="space-y-3">
-                    <div>
-                        <label class="text-xs font-medium">Who appoints the contractor?</label>
-                        <div class="flex flex-wrap gap-4 mt-1 text-sm">
-                            <label class="flex items-center gap-2"><input type="radio" name="approval_route" value="owner_handles" x-model="route"> The owner</label>
-                            <label class="flex items-center gap-2"><input type="radio" name="approval_route" value="agency_appoints" x-model="route"> The agency</label>
-                        </div>
-                    </div>
-                    <div x-show="route === 'owner_handles'" x-cloak class="grid grid-cols-2 gap-3">
-                        <div>
-                            <label class="text-xs font-medium">Owner's contractor &mdash; name <span class="font-normal" style="color: var(--text-muted);">(optional)</span></label>
-                            <input type="text" name="contractor_name" maxlength="191" value="{{ old('contractor_name') }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-                        </div>
-                        <div>
-                            <label class="text-xs font-medium">Phone <span class="font-normal" style="color: var(--text-muted);">(optional)</span></label>
-                            <input type="text" name="contractor_phone" maxlength="40" value="{{ old('contractor_phone') }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-                        </div>
-                    </div>
-                    <div x-show="route === 'agency_appoints'" x-cloak>
-                        <label class="text-xs font-medium">Contractor <span class="font-normal" style="color: var(--text-muted);">({{ $faultReport->faultType?->category ? 'your suppliers for ' . $faultReport->faultType->category : 'all your contractors - this fault has no type yet' }})</span></label>
-                        @if($contractors->isNotEmpty())
-                            <input type="search" x-model="cq" placeholder="Search contractors by name or phone" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);" data-decision-contractor-search>
-                            <div class="space-y-1 mt-1" data-decision-contractor-list>
-                                <label class="flex items-center gap-2 text-sm"><input type="radio" name="agency_service_provider_id" value="" @checked(old('agency_service_provider_id') === null || old('agency_service_provider_id') === '')> Choose later</label>
-                                @foreach($contractors as $c)
-                                    <label class="flex items-center gap-2 text-sm rounded-md px-2 py-1" style="border: 1px solid var(--border);" data-search="{{ mb_strtolower($c['name'] . ' ' . $c['phone']) }}"
-                                           x-show="cq === '' || $el.dataset.search.indexOf(cq.toLowerCase()) !== -1">
-                                        <input type="radio" name="agency_service_provider_id" value="{{ $c['id'] }}" @checked((string) old('agency_service_provider_id') === (string) $c['id'])>
-                                        <span class="font-medium">{{ $c['name'] }}</span>@if($c['phone'])<span class="text-xs" style="color: var(--text-muted);">{{ $c['phone'] }}</span>@endif
-                                    </label>
-                                @endforeach
-                            </div>
-                        @else
-                            <p class="text-xs mt-1" style="color: var(--text-muted);">No suppliers are set up yet. Add one under Suppliers, or save the decision now and choose the contractor afterwards.</p>
-                        @endif
-                    </div>
-                </div>
-                <div>
-                    <label class="text-xs font-medium">How was it agreed?</label>
-                    <select name="evidence_type" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-                        <option value="whatsapp">WhatsApp reply</option>
-                        <option value="email">Email</option>
-                        <option value="verbal_note">Verbal / phone / in person</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="text-xs font-medium"><span x-show="decision === 'declined'" x-cloak>Reason for declining (required)</span><span x-show="decision !== 'declined'">What the owner said</span></label>
-                    <textarea name="evidence_text" required rows="2" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('evidence_text') }}</textarea>
-                </div>
-                <div>
-                    <label class="text-xs font-medium">Screenshot (optional)</label>
-                    <input type="file" name="evidence_file" accept="image/*" class="text-xs">
-                </div>
-                <div class="flex flex-wrap gap-2">
-                    <x-confirm-submit title="Record the owner's decision" message="A decision can only be recorded once and cannot be changed afterwards. Record it now?" confirm-label="Record decision">Save decision</x-confirm-submit>
-                    @permission('rental_fault_reports.raise_work_order')
-                        <span x-show="decision === 'approved'" x-cloak><x-confirm-submit title="Record the decision and appoint the contractor" message="A decision can only be recorded once and cannot be changed afterwards. Record it and go on to appoint the contractor?" confirm-label="Record and appoint" name="after" value="create_work_order" class="corex-btn-outline text-xs">Save decision and appoint contractor</x-confirm-submit></span>
-                    @endpermission
-                </div>
-            </form>
-            @endif
+            @include('corex.rental-owner-decision._record', ['subject' => $faultReport, 'contractors' => $contractors ?? []])
         @endpermission
     </div>
     @endif

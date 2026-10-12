@@ -88,11 +88,26 @@
             </section>
         </template>
 
+        {{-- AT-452 round 3 (§20.4) - an agent recorded the owner's decision (or the owner asked for a quote first): the sentence, the agent's note, "Query this". --}}
+        <template x-if="faultDetail.recorded_decision || faultDetail.quote_first">
+            <section class="sec" data-fault-section="recorded-decision">
+                <h3>Recorded for you</h3>
+                <p style="margin:0 0 6px;" data-recorded-sentence x-text="faultDetail.recorded_decision ? faultDetail.recorded_decision.sentence : faultDetail.quote_first.text"></p>
+                <p class="muted" style="margin:0 0 6px;" x-show="faultDetail.recorded_decision" data-recorded-note x-text="faultDetail.recorded_decision ? 'What your agent wrote down: ' + faultDetail.recorded_decision.note : ''"></p>
+                <label style="margin-top:8px;" x-show="faultDetail.recorded_decision">Query this</label>
+                <textarea rows="2" maxlength="1000" x-show="faultDetail.recorded_decision" x-model="queryForm.note" placeholder="Not what you told your agent? Ask or say so here" data-query-note></textarea>
+                <p class="error" x-show="queryForm.error" x-text="queryForm.error"></p>
+                <p class="muted" x-show="queryForm.sent" data-query-sent>Sent &mdash; your agent has been told.</p>
+                <button class="btn btn-outline" x-show="faultDetail.recorded_decision" :disabled="!!(queryForm.busy || queryForm.note.trim().length < 3)" @click="sendQuery()" data-query-send>Send my question</button>
+                <button class="btn btn-outline" x-show="!faultForm.override && ((faultDetail.recorded_decision && faultDetail.recorded_decision.can_override) || (faultDetail.quote_first && !faultDetail.recorded_decision))" @click="faultForm.override = true" data-decide-myself>Decide for myself instead</button>
+            </section>
+        </template>
+
         {{-- 5. Your decision: the answer once made, or the controls while it is waiting --}}
-        <template x-if="faultDetail.decision || faultDetail.awaiting_decision">
+        <template x-if="(faultDetail.decision && !faultDetail.recorded_decision) || faultDetail.awaiting_decision || faultForm.override">
             <section class="sec" data-fault-section="decision">
                 <h3>Your decision</h3>
-                <template x-if="faultDetail.decision">
+                <template x-if="faultDetail.decision && !faultDetail.recorded_decision && !faultForm.override">
                     <div>
                         <p><strong x-text="faultDetail.decision.decision === 'approved' ? 'You approved this repair.' : 'This repair was declined.'"></strong></p>
                         <p class="muted" x-show="faultDetail.decision.reason" x-text="'Reason: ' + faultDetail.decision.reason"></p>
@@ -100,14 +115,16 @@
                         <p class="muted" x-text="faultDetail.decision.how + ' · ' + new Date(faultDetail.decision.at).toLocaleString()"></p>
                     </div>
                 </template>
-                <template x-if="faultDetail.awaiting_decision">
+                <template x-if="faultDetail.awaiting_decision || faultForm.override">
                     <div>
-                        <label style="margin-top:0;">Approve or decline?</label>
+                        <label style="margin-top:0;">Approve, get a quote first, or decline?</label>
                         <select x-model="faultForm.decision">
                             <option value="">Choose…</option>
                             <option value="approve">Approve</option>
+                            <option value="quote_first">Get a quote first</option>
                             <option value="decline">Decline</option>
                         </select>
+                        <p class="muted" x-show="faultForm.decision === 'quote_first'" data-quote-first-help>Your agent will get a quote and send it to you. You decide on the quote, whatever it costs.</p>
                         <template x-if="faultForm.decision === 'decline'">
                             <div>
                                 <label>Why are you declining? (required)</label>

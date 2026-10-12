@@ -16,6 +16,9 @@ class RentalWorkOrderSetting extends Model
 
     public const DEFAULT_OVERDUE_REMINDER_DAYS = 3;
     public const DEFAULT_NO_APPROVAL_SPEND_THRESHOLD = 500.00;
+    /** AT-452 round 3 (§20) - what an agent may approve alone when the job is a declared emergency (with a reason). */
+    public const DEFAULT_EMERGENCY_SPEND_THRESHOLD = 2000.00;
+    public const DEFAULT_AGENTS_MAY_RECORD_OWNER_DECISIONS = true;
     public const DEFAULT_COMPLETION_REQUIRES_PHOTO = false;
     /** AT-442 — whether prices are used at all on internal job cards. Default ON. */
     public const DEFAULT_CAPTURE_PRICES_ON_JOB_CARDS = true;
@@ -74,6 +77,8 @@ class RentalWorkOrderSetting extends Model
         'completion_requires_photo',
         'overdue_reminder_days',
         'no_approval_spend_threshold',
+        'emergency_spend_threshold',
+        'agents_may_record_owner_decisions',
         'capture_prices_on_job_cards',
         'show_costs_on_printed_job_card',
         'default_parts_markup_percent',
@@ -96,6 +101,8 @@ class RentalWorkOrderSetting extends Model
         'completion_requires_photo' => 'boolean',
         'overdue_reminder_days' => 'integer',
         'no_approval_spend_threshold' => 'decimal:2',
+        'emergency_spend_threshold' => 'decimal:2',
+        'agents_may_record_owner_decisions' => 'boolean',
         'capture_prices_on_job_cards' => 'boolean',
         'show_costs_on_printed_job_card' => 'boolean',
         'default_parts_markup_percent' => 'decimal:2',
@@ -168,6 +175,38 @@ class RentalWorkOrderSetting extends Model
         }
 
         return self::spendThresholdFor($property->agency_id);
+    }
+
+    /** AT-452 round 3 (§20) - the agency default for the emergency limit, read-time, never written until an agency sets one. */
+    public static function emergencySpendThresholdFor(?int $agencyId): float
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_EMERGENCY_SPEND_THRESHOLD;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('emergency_spend_threshold');
+
+        return $value !== null ? (float) $value : self::DEFAULT_EMERGENCY_SPEND_THRESHOLD;
+    }
+
+    /** The property's own emergency limit when set, else the agency default - the one resolver the gate uses. */
+    public static function emergencyThresholdFor(Property $property): float
+    {
+        if ($property->rental_emergency_spend_threshold !== null) {
+            return (float) $property->rental_emergency_spend_threshold;
+        }
+
+        return self::emergencySpendThresholdFor($property->agency_id);
+    }
+
+    public static function hasAgencyEmergencyThreshold(?int $agencyId): bool
+    {
+        return self::rawFor($agencyId, 'emergency_spend_threshold') !== null;
+    }
+
+    /** AT-452 round 3 (§20.5) - "Agents may record an owner's decision for them" (default Yes). */
+    public static function agentsMayRecordOwnerDecisionsFor(?int $agencyId): bool
+    {
+        return self::boolFor($agencyId, 'agents_may_record_owner_decisions', self::DEFAULT_AGENTS_MAY_RECORD_OWNER_DECISIONS);
     }
 
     /** AT-442 — with this off, no price columns or totals appear anywhere on a job card. */

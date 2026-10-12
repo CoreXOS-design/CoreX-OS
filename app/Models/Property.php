@@ -912,6 +912,7 @@ class Property extends Model
         // (superseding the 2026-09-26 lease ruling). Null means "use the
         // agency default" (RentalWorkOrderSetting::thresholdFor()).
         'rental_no_approval_spend_threshold',
+        'rental_emergency_spend_threshold',
         // §17.6.1 — the second owner work term (variation tolerance %, null = agency default) and who/when
         // either term was last changed. Edited only through the work-terms panel (Build 2).
         'rental_variation_tolerance_percent',
@@ -1146,6 +1147,7 @@ class Property extends Model
         'admin_fee'           => 'float',
         'marketing_fee'       => 'float',
         'rental_no_approval_spend_threshold' => 'float',
+        'rental_emergency_spend_threshold' => 'float',
         'rental_variation_tolerance_percent' => 'float',
         'rental_work_terms_updated_at' => 'datetime',
         'latitude'                => 'decimal:7',
