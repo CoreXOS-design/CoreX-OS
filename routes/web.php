@@ -6719,7 +6719,8 @@ Route::prefix('fica')->middleware('throttle:30,1')->group(function () {
 
 // Portal capture ingest endpoint (outside presentation prefix — extension posts here)
 // Uses auth.portal_capture: session auth OR bearer token (for Chrome extension)
-Route::middleware(['auth.portal_capture'])->post('/portal-captures/ingest', [\App\Http\Controllers\Presentation\PortalCaptureController::class, 'ingest'])
+// AT-449 audit: same permission + feature as the presentation Portal Captures screens it feeds.
+Route::middleware(['auth.portal_capture', 'permission:access_presentations', 'feature:presentations'])->post('/portal-captures/ingest', [\App\Http\Controllers\Presentation\PortalCaptureController::class, 'ingest'])
     ->name('portal-captures.ingest');
 
 // WhatsApp capture ingest (AT-34). Per-device Bearer token (auth.wa_capture).

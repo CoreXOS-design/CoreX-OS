@@ -471,14 +471,17 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
         Route::get('/prospecting/check-search', [ProspectingApiController::class, 'checkSearch'])->name('v1.prospecting.check-search');
 
         // ── CMA / deeds capture (phase 1) — mirrors the portal-capture ingest. ──
-        Route::post('/deeds-capture', [\App\Http\Controllers\Api\DeedsCaptureController::class, 'store'])->name('v1.deeds-capture');
+        // AT-449 audit: the Chrome extension posts to these three with only a valid token — no permission check.
+        // They now require the same key as the Deeds Capture screen they feed (deeds_capture.access), so a user
+        // who cannot open that screen cannot push records into it.
+        Route::post('/deeds-capture', [\App\Http\Controllers\Api\DeedsCaptureController::class, 'store'])->middleware('permission:deeds_capture.access')->name('v1.deeds-capture');
 
         // ── TVA (The Virtual Agent) contact capture — mirrors deeds-capture. ──
-        Route::post('/tva-contact-capture', [\App\Http\Controllers\Api\TvaContactCaptureController::class, 'store'])->name('v1.tva-contact-capture');
+        Route::post('/tva-contact-capture', [\App\Http\Controllers\Api\TvaContactCaptureController::class, 'store'])->middleware('permission:deeds_capture.access')->name('v1.tva-contact-capture');
 
         // ── TVA company DIRECTORSHIP capture — directors → natural-person
         //    contacts linked to the company entity contact (representatives). ──
-        Route::post('/tva-company-directors', [\App\Http\Controllers\Api\TvaCompanyDirectorsController::class, 'store'])->name('v1.tva-company-directors');
+        Route::post('/tva-company-directors', [\App\Http\Controllers\Api\TvaCompanyDirectorsController::class, 'store'])->middleware('permission:deeds_capture.access')->name('v1.tva-company-directors');
 
         // ── Properties — portal pull ───────────────────────────────
         // AT-267 — pulls a listing off a portal INTO a property. Same rule, same reason: no

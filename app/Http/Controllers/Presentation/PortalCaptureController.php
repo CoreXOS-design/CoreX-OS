@@ -31,7 +31,10 @@ class PortalCaptureController extends Controller
             'extractor_version'  => 'required|string|max:50',
             'html'               => 'required|string',
             'screenshot'         => 'nullable|string', // base64 PNG
-            'presentation_id'    => 'nullable|integer|exists:presentations,id',
+            // AT-449 audit: a bare exists:presentations,id accepted ANY agency's presentation id, letting a
+            // capture be attached to another agency's presentation. Restrict to the caller's own agency.
+            'presentation_id'    => ['nullable', 'integer', \Illuminate\Validation\Rule::exists('presentations', 'id')
+                                        ->where('agency_id', $request->user()?->effectiveAgencyId())],
             'parse_status'       => 'required|string|in:parsed,unparsed_jsonld_missing,unparsed_error',
             'extracted_fields'   => 'nullable|array',
             'jsonld'             => 'nullable|array',
