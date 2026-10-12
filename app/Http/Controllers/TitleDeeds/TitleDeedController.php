@@ -73,7 +73,7 @@ class TitleDeedController extends Controller
             $out = fopen('php://output', 'w');
             fwrite($out, "\xEF\xBB\xBF");   // BOM so Excel reads UTF-8
             fputcsv($out, $headers);
-            $query->with(['agent', 'branch', 'owners.contact', 'receipt'])->chunk(200, function ($chunk) use ($out) {
+            $query->chunk(200, function ($chunk) use ($out) {
                 foreach ($chunk as $d) {
                     fputcsv($out, array_map([$this, 'csvCell'], [
                         $d->property_display,
@@ -395,7 +395,7 @@ class TitleDeedController extends Controller
 
     private function filtered(User $user, array $f)
     {
-        $query = TitleDeed::query()->visibleTo($user)->with(['agent', 'branch', 'owners.contact', 'receipt']);
+        $query = TitleDeed::query()->visibleTo($user)->with(['agent', 'branch', 'property', 'owners.contact', 'receipt']);
 
         if ($f['status'] === 'archived') {
             $query->onlyTrashed();
