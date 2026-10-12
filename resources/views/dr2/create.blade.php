@@ -1101,7 +1101,7 @@
                 const ineligibleRows = props.filter(p => p.eligible === false);
 
                 const makeOption = p => {
-                    const label = p.label + (p.ref ? ' (Ref ' + p.ref + ')' : '');
+                    const label = p.label + (p.ref ? ' (Ref ' + p.ref + ')' : '') + (p.status === 'Other Agency Stock' ? ' — Other Agency Stock' : ''); // AT-453 labelled, still selectable
                     const opt = new Option(label, p.id);
                     opt.dataset.address = p.label;
                     opt.dataset.price = p.price ?? '';
@@ -1163,6 +1163,11 @@
     const statusBadge = (row) => {
         const on = row.on_market !== false && row.status !== undefined ? row.on_market !== false : true;
         const label = (row.status || (on ? 'on market' : 'off market')).replace(/_/g, ' ');
+        // AT-453 — another agency's listing is selectable (we bring the buyer to a deal on it) but is
+        // never shown as our own live green "on market" stock: its own amber "Other Agency Stock" badge.
+        if (row.status === 'other_agency_stock') {
+            return '<span data-oas-badge style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;padding:.05rem .35rem;border-radius:.35rem;color:#92400e;background:#fffbeb;">Other Agency Stock</span>';
+        }
         const col = on ? '#065f46' : '#b91c1c';
         const bg  = on ? '#ecfdf5' : '#fef2f2';
         return '<span style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;padding:.05rem .35rem;border-radius:.35rem;color:' + col + ';background:' + bg + ';">' + esc(label) + '</span>';
