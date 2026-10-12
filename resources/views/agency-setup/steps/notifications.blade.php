@@ -90,6 +90,13 @@
                        class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                 <p class="text-[11px] mt-1" style="color:var(--text-muted);">Only fires if the digest toggle above is on.</p>
             </div>
+            <div>
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Check for new alerts every (seconds)</label>
+                <input type="number" name="alert_poll_seconds" min="15" max="600" step="1"
+                       value="{{ old('alert_poll_seconds', $d->alert_poll_seconds ?? 30) }}"
+                       class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                <p class="text-[11px] mt-1" style="color:var(--text-muted);">How quickly a new fault, lead or approval pops up on a screen that is already open. The lowest allowed is 15.</p>
+            </div>
         </div>
     </div>
 

@@ -1990,6 +1990,59 @@ Route::middleware(['auth', 'permission:access_filing_register', 'feature:filing-
     Route::get('/filing-register/search/property/{property}/suggestions', [\App\Http\Controllers\DocumentFilingController::class, 'propertySuggestions'])->name('filing-register.search.property-suggestions');
 });
 
+// ===== TITLE DEED REGISTER (AT-450) — .ai/specs/title-deed-register.md =====
+// A sibling of the Filing Register. Every route resolves the deed through TitleDeed::visibleTo() (OWN / BRANCH / AGENCY) in its
+// controller; the permission here is the first gate, not the only one.
+Route::middleware(['auth', 'permission:access_title_deeds', 'feature:title-deeds'])->prefix('title-deeds')->name('title-deeds.')->group(function () {
+    $c = \App\Http\Controllers\TitleDeeds\TitleDeedController::class;
+    $h = \App\Http\Controllers\TitleDeeds\TitleDeedHandoverController::class;
+
+    Route::get('/', [$c, 'index'])->middleware('permission:title_deeds.view')->name('index');
+    Route::get('/export', [$c, 'export'])->middleware('permission:title_deeds.view')->name('export');
+    Route::get('/create', [$c, 'create'])->middleware('permission:title_deeds.create')->name('create');
+    Route::post('/', [$c, 'store'])->middleware('permission:title_deeds.create')->name('store');
+
+    // The record's own pickers (own gate: never the deal or filing endpoints).
+    Route::get('/search/properties', [$c, 'searchProperties'])->middleware('permission:title_deeds.create,title_deeds.edit')->name('search.properties');
+    Route::get('/search/property/{property}/suggestions', [$c, 'propertySuggestions'])->whereNumber('property')->middleware('permission:title_deeds.create,title_deeds.edit')->name('search.property-suggestions');
+    Route::get('/search/contacts', [$c, 'searchContacts'])->middleware('permission:title_deeds.create,title_deeds.edit')->name('search.contacts');
+
+    Route::get('/{id}', [$c, 'show'])->whereNumber('id')->middleware('permission:title_deeds.view')->name('show');
+    Route::get('/{id}/edit', [$c, 'edit'])->whereNumber('id')->middleware('permission:title_deeds.edit')->name('edit');
+    Route::put('/{id}', [$c, 'update'])->whereNumber('id')->middleware('permission:title_deeds.edit')->name('update');
+    Route::delete('/{id}', [$c, 'destroy'])->whereNumber('id')->middleware('permission:title_deeds.archive')->name('destroy');
+    Route::post('/{id}/restore', [$c, 'restore'])->whereNumber('id')->middleware('permission:title_deeds.archive')->name('restore');
+
+    Route::post('/{id}/scan', [$c, 'uploadScan'])->whereNumber('id')->middleware('permission:title_deeds.edit')->name('scan.upload');
+    Route::get('/{id}/scan', [$c, 'downloadScan'])->whereNumber('id')->middleware('permission:title_deeds.view')->name('scan.download');
+    Route::get('/{id}/receipt-file/{kind}', [$c, 'receiptFile'])->whereNumber('id')->middleware('permission:title_deeds.view')->name('receipt.file');
+
+    Route::post('/{id}/notify', [$c, 'notify'])->whereNumber('id')->middleware('permission:title_deeds.notify')->name('notify');
+    Route::post('/{id}/pin/resend', [$c, 'resendPin'])->whereNumber('id')->middleware('permission:title_deeds.notify')->name('pin.resend');
+    Route::post('/{id}/pin/new', [$c, 'newPin'])->whereNumber('id')->middleware('permission:title_deeds.notify')->name('pin.new');
+    Route::get('/{id}/events/{event}/whatsapp', [$c, 'openWhatsapp'])->whereNumber(['id', 'event'])->middleware('permission:title_deeds.notify,title_deeds.handover')->name('events.whatsapp');
+    Route::post('/{id}/events/{event}/confirm', [$c, 'confirmWhatsapp'])->whereNumber(['id', 'event'])->middleware('permission:title_deeds.notify,title_deeds.handover')->name('events.confirm');
+
+    Route::get('/{id}/handover', [$h, 'show'])->whereNumber('id')->middleware('permission:title_deeds.handover')->name('handover');
+    Route::post('/{id}/handover', [$h, 'submit'])->whereNumber('id')->middleware('permission:title_deeds.handover')->name('handover.submit');
+    Route::post('/{id}/consent', [$h, 'requestConsent'])->whereNumber('id')->middleware('permission:title_deeds.handover')->name('consent.request');
+    Route::post('/{id}/consent/phone', [$h, 'phoneConsent'])->whereNumber('id')->middleware('permission:title_deeds.handover')->name('consent.phone');
+    Route::post('/{id}/consent/{consent}/cancel', [$h, 'cancelConsent'])->whereNumber(['id', 'consent'])->middleware('permission:title_deeds.handover')->name('consent.cancel');
+});
+
+// What the handover screen polls while it waits for an owner. Under /api/v1 so it is listed in the Admin API catalogue.
+Route::middleware(['auth', 'permission:title_deeds.handover', 'feature:title-deeds'])
+    ->get('/api/v1/title-deeds/{id}/consent-status', [\App\Http\Controllers\TitleDeeds\TitleDeedHandoverController::class, 'consentStatus'])
+    ->whereNumber('id')->name('api.v1.title-deeds.consent-status');
+
+// An owner's personal consent link: public, no login, the token is the credential (stored hashed, single use, expiring).
+Route::prefix('title-deed-consent')->group(function () {
+    Route::get('/{token}', [\App\Http\Controllers\TitleDeeds\TitleDeedConsentPublicController::class, 'show'])
+        ->middleware('throttle:30,1')->name('title-deeds.consent.show');
+    Route::post('/{token}', [\App\Http\Controllers\TitleDeeds\TitleDeedConsentPublicController::class, 'respond'])
+        ->middleware('throttle:10,1')->name('title-deeds.consent.respond');
+});
+
 // ===== NEXUS OS ROUTES =====
 use App\Http\Controllers\CoreX\PlaceholderController as CoreXPlaceholderController;
 use App\Http\Controllers\CommandCenter\DashboardController as CommandCenterDashboardController;
@@ -2019,6 +2072,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->paginate(30);
         return view('command-center.notifications', ['notifications' => $notifications]);
     })->name('command-center.notifications');
+
+    // AT-451 — "all alerts switched off": the warning bar's two buttons act on the LOGGED-IN user only (no id in the URL);
+    // the agency list and its per-user actions need manage_users and resolve the user inside the viewer's scoped query.
+    Route::post('/alerts/bar/turn-on', [\App\Http\Controllers\CoreX\AlertSwitchController::class, 'barTurnOn'])->name('corex.alerts.bar.turn-on');
+    Route::post('/alerts/bar/keep-off', [\App\Http\Controllers\CoreX\AlertSwitchController::class, 'barKeepOff'])->name('corex.alerts.bar.keep-off');
+    Route::get('/alerts-off', [\App\Http\Controllers\CoreX\AlertSwitchController::class, 'index'])
+        ->middleware('permission:manage_users')->name('corex.alerts-off.index');
+    Route::post('/alerts-off/{user}/turn-on', [\App\Http\Controllers\CoreX\AlertSwitchController::class, 'turnOn'])
+        ->middleware('permission:manage_users')->whereNumber('user')->name('corex.alerts-off.turn-on');
+    Route::post('/alerts-off/{user}/accept', [\App\Http\Controllers\CoreX\AlertSwitchController::class, 'accept'])
+        ->middleware('permission:manage_users')->whereNumber('user')->name('corex.alerts-off.accept');
+
     Route::post('/notifications/mark-all-read', function () {
         \Illuminate\Support\Facades\DB::table('notifications')
             ->where('notifiable_type', 'App\\Models\\User')
@@ -3125,6 +3190,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.edit');
     Route::post('/settings/rental-applications', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'update'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.update');
+    // AT-450 — Title Deed Register settings (also saved by the Setup Wizard through the same saver).
+    Route::get('/settings/title-deeds', [\App\Http\Controllers\TitleDeeds\TitleDeedSettingsController::class, 'edit'])
+        ->middleware(['permission:title_deeds.manage_settings', 'agency.required'])->name('corex.settings.title-deeds.edit');
+    Route::post('/settings/title-deeds', [\App\Http\Controllers\TitleDeeds\TitleDeedSettingsController::class, 'update'])
+        ->middleware(['permission:title_deeds.manage_settings', 'agency.required'])->name('corex.settings.title-deeds.update');
     // .ai/specs/leases.md §5.2 — expiry-notice window, agency-configurable, default 60 days.
     Route::get('/settings/leases', [\App\Http\Controllers\CoreX\LeaseSettingsController::class, 'edit'])
         ->middleware('permission:leases.manage_settings')->name('corex.settings.leases.edit');

@@ -1435,8 +1435,20 @@ class SettingsController extends Controller
             'task_due_reminders', 'overdue_daily_digest', 'digest_time',
             'default_calendar_view', 'weekend_visible', 'notify_in_app', 'notify_email',
             'notify_push', 'open_hours_enabled', 'open_hours_start', 'open_hours_end',
-            'min_minutes_between_same',
+            'min_minutes_between_same', 'alert_poll_seconds',
         ]);
+
+        // AT-451 — how often staff browsers check for a new alert to pop up. Absent = this form never showed the field
+        // (leave it alone); blank = back to the default (30). Whole seconds, 15 to 600.
+        if ($request->has('alert_poll_seconds')) {
+            $request->validate(
+                ['alert_poll_seconds' => ['nullable', 'integer', 'min:' . \App\Services\CommandCenter\AlertSwitchService::MIN_POLL_SECONDS, 'max:' . \App\Services\CommandCenter\AlertSwitchService::MAX_POLL_SECONDS]],
+                ['alert_poll_seconds.*' => 'Check for new alerts every: enter a whole number of seconds between ' . \App\Services\CommandCenter\AlertSwitchService::MIN_POLL_SECONDS . ' and ' . \App\Services\CommandCenter\AlertSwitchService::MAX_POLL_SECONDS . ', or leave it blank for the default.']
+            );
+            $data['alert_poll_seconds'] = ($request->input('alert_poll_seconds') === null || $request->input('alert_poll_seconds') === '')
+                ? null
+                : (int) $request->input('alert_poll_seconds');
+        }
 
         foreach (['open_hours_start', 'open_hours_end'] as $t) {
             if (!empty($data[$t])) $data[$t] = substr($data[$t], 0, 5);

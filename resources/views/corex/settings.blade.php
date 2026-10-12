@@ -123,6 +123,9 @@
                     $can('rental_inventories.manage_settings')
                         ? ['key'=>'rental-inventory-settings', 'label'=>'Inventory', 'type'=>'link', 'href'=>route('corex.settings.rental-inventory.edit'), 'keywords'=>'inventory contents furnished move-in move-out disposition present short damaged missing rental sale baseline preset']
                         : null,
+                    $can('title_deeds.manage_settings')
+                        ? ['key'=>'title-deeds-settings', 'label'=>'Title Deeds', 'type'=>'link', 'href'=>route('corex.settings.title-deeds.edit'), 'keywords'=>'title deed register pin collection representative consent phone authority letter id photo signature reminder lock attempts contact changed']
+                        : null,
                     $can('rental_work_orders.manage_settings')
                         ? ['key'=>'rental-work-orders-settings', 'label'=>'Rental Work Orders', 'type'=>'link', 'href'=>route('corex.settings.rental-work-orders.edit'), 'keywords'=>'work order spend threshold no approval owner authorisation fault job card markup variation dispute crew link price capture printed costs']
                         : null,
@@ -3933,6 +3936,17 @@
                                             <input type="checkbox" name="weekend_visible" value="1" {{ ($agencyDashboardSettings->weekend_visible ?? false) ? 'checked' : '' }} class="rounded">
                                             Show weekends
                                         </label>
+                                    </div>
+                                </div>
+
+                                {{-- AT-451 — how often a staff browser checks for a new alert to pop up. Same saver as the rest. --}}
+                                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary);">Check for new alerts every (seconds)</label>
+                                        <input type="number" name="alert_poll_seconds" min="15" max="600" step="1"
+                                               value="{{ old('alert_poll_seconds', $agencyDashboardSettings->alert_poll_seconds ?? 30) }}"
+                                               class="w-full px-3 py-2 rounded-md text-sm border" style="background:var(--surface); border-color:var(--border-default); color:var(--text-primary);">
+                                        <p class="text-xs mt-1" style="color:var(--text-muted);">How quickly a new fault, lead or approval pops up on a screen that is already open. 30 suits most agencies; the lowest allowed is 15.</p>
                                     </div>
                                 </div>
                             </div>

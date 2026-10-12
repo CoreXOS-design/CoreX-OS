@@ -3,6 +3,7 @@
 namespace App\Services\CommandCenter;
 
 use App\Models\CommandCenter\NotificationDispatchLog;
+use App\Models\NotificationDropLog;
 use App\Models\User;
 use App\Notifications\PillarEventNotification;
 use App\Services\Push\PushNotificationService;
@@ -96,6 +97,14 @@ class NotificationDispatcher
         if ($eff['channel_in_app']) $channels[] = 'database';
         if ($eff['channel_email'])  $channels[] = 'mail';
         if ($eff['channel_push'])   $channels[] = 'fcm';
+
+        // AT-451 — the user wants NOTHING on any channel (in-app, email and push all off). The alert is still dropped,
+        // exactly as before; the change is that the drop leaves a row, so it is never silent again.
+        if (empty($channels)) {
+            $this->recordDrop($user, $eventKey, $eff['event_type'], $subject, $args, NotificationDropLog::REASON_ALL_CHANNELS_OFF);
+
+            return false;
+        }
 
         // AT-235 (S0 / C11) — …intersected with what this event type SUPPORTS.
         //
@@ -310,5 +319,47 @@ class NotificationDispatcher
         }
 
         return true;
+    }
+
+    /**
+     * AT-451 — one ledger row for an alert dropped because the recipient has every channel off. At most one row per
+     * (user, event, subject, threshold): a scanner re-offering the same persistent fact every half hour must not fill
+     * this table (the 1.9M-row lesson in dispatch() above). Never allowed to break the dispatch itself.
+     */
+    private function recordDrop(User $user, string $eventKey, $eventType, Model $subject, array $args, string $reason): void
+    {
+        try {
+            $threshold = $args['threshold_hit_at'] ?? null;
+            $subjectType = $subject->getMorphClass();
+            $subjectId = $subject->getKey();
+
+            $existing = NotificationDropLog::query()
+                ->where('user_id', $user->id)
+                ->where('event_key', $eventKey)
+                ->where('subject_type', $subjectType)
+                ->where('subject_id', $subjectId);
+            if ($threshold !== null) {
+                $existing->where('threshold_hit_at', '>=', $threshold);
+            } else {
+                $existing->where('dropped_at', '>=', now()->startOfDay());
+            }
+            if ($existing->exists()) {
+                return;
+            }
+
+            NotificationDropLog::create([
+                'agency_id' => $user->effectiveAgencyId() ?: $user->agency_id,
+                'user_id' => $user->id,
+                'notification_event_type_id' => $eventType?->id,
+                'event_key' => $eventKey,
+                'subject_type' => $subjectType,
+                'subject_id' => $subjectId,
+                'reason' => $reason,
+                'threshold_hit_at' => $threshold,
+                'dropped_at' => now(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Could not record a dropped notification', ['user' => $user->id, 'key' => $eventKey, 'error' => $e->getMessage()]);
+        }
     }
 }

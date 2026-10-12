@@ -12,6 +12,7 @@ use App\Http\Controllers\CoreX\RentalInventorySettingsController;
 use App\Http\Controllers\CoreX\RentalWorkOrderSettingsController;
 use App\Http\Controllers\CoreX\SettingsController;
 use App\Http\Controllers\Settings\Prospecting\StaleRulesController;
+use App\Http\Controllers\TitleDeeds\TitleDeedSettingsController;
 
 /**
  * Agency Onboarding Setup Wizard — content + control map (single source of truth).
@@ -1175,6 +1176,8 @@ return [
             // inside it (the roles via their `_submitted` marker), so a post that
             // never rendered them leaves the saved values alone (§6.1).
             ['controller' => SettingsController::class, 'method' => 'updateOtherAgencyStock'],
+            // AT-450 — Title Deed Register. Same saver as Settings -> Title Deeds; every field is has()-guarded (§6.1).
+            ['controller' => TitleDeedSettingsController::class, 'method' => 'save'],
         ],
         'controls' => [
             ['key' => 'properties_per_page', 'source' => 'perf', 'type' => 'number', 'default' => 24, 'min' => 1, 'max' => 200,
@@ -1232,6 +1235,69 @@ return [
              'label' => 'Import consent wording',
              'explain' => 'Before an agent imports another agency\'s listing, they must tick a box confirming they have that agency\'s permission. This is the sentence beside that box. Leave it blank to use the standard wording (shown greyed out below); write your own if your agency\'s policy needs different words.',
              'affects' => 'The exact words the agent agrees to on the import screen of the Chrome tool. The wording as it stood is saved with each import, so changing it later never rewrites an earlier consent.'],
+            // ── Title Deed Register (AT-450) - .ai/specs/title-deed-register.md §9 ──
+            ['key' => 'pin_required', 'source' => 'title_deeds', 'type' => 'toggle', 'default' => 1,
+             'heading' => 'Title deeds',
+             'label' => 'Collection PIN',
+             'explain' => 'When a title deed arrives from the attorneys, the owner is told it is at the office and given a PIN. With this on, the deed is only released to someone who can give that PIN.',
+             'affects' => 'Whether the owner\'s notice carries a PIN that the person collecting has to quote, or the deed is released after an ID check or the owners\' consent instead.'],
+
+            ['key' => 'signature_required', 'source' => 'title_deeds', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Collector signs on screen',
+             'explain' => 'The person collecting signs on the phone or tablet at the moment they take the deed. Their name, the time, the device and the signature are kept on the record.',
+             'affects' => 'Whether a handover can be completed without the collector\'s signature on the screen.'],
+
+            ['key' => 'representatives_allowed', 'source' => 'title_deeds', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Someone may collect on the owner\'s behalf',
+             'explain' => 'A representative can collect a deed for the owner when they give their own name, ID number and relationship to the owner.',
+             'affects' => 'Whether staff can hand a title deed to anyone other than the owners themselves.'],
+
+            ['key' => 'rep_without_pin_mode', 'source' => 'title_deeds', 'type' => 'select', 'default' => 'owner_consent',
+             'options' => ['refuse' => 'Refuse - they must have the PIN', 'owner_consent' => 'Ask the owners to confirm by link', 'consent_or_letter' => 'Owners\' confirmation or a signed authority letter'],
+             'label' => 'A representative who does not have the PIN',
+             'explain' => 'What staff may do when someone arrives to collect for the owner but cannot give the PIN.',
+             'affects' => 'Whether such a person is turned away, or every owner is emailed a link to approve or decline them, or a signed authority letter is accepted instead.'],
+
+            ['key' => 'phone_consent_allowed', 'source' => 'title_deeds', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Allow consent by phone call',
+             'explain' => 'Staff may phone an owner on a number stored on their contact, and record that the owner agreed to the named representative collecting.',
+             'affects' => 'Whether a recorded phone call counts as the owner\'s consent, as well as the approval link.'],
+
+            ['key' => 'authority_letter_required', 'source' => 'title_deeds', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Authority letter for every representative without the PIN',
+             'explain' => 'The owner\'s signed letter authorising the representative is uploaded at the handover, on top of any consent.',
+             'affects' => 'Whether a handover to a representative without the PIN is blocked until a letter is uploaded.'],
+
+            ['key' => 'collector_id_photo_required', 'source' => 'title_deeds', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Photo of the collector\'s ID',
+             'explain' => 'Staff photograph the collector\'s ID document at the handover. It is kept privately with the record.',
+             'affects' => 'Whether a handover can be completed without a photo of the collector\'s ID.'],
+
+            ['key' => 'pin_lock_attempts', 'source' => 'title_deeds', 'type' => 'number', 'default' => 5, 'min' => 1, 'max' => 20,
+             'label' => 'Wrong PIN attempts before the PIN locks',
+             'explain' => 'After this many wrong PINs on one deed the PIN stops working. Staff can issue a new PIN to the owners, or hand the deed over another way.',
+             'affects' => 'How many guesses someone gets at a deed\'s PIN before it is locked.'],
+
+            ['key' => 'consent_validity_minutes', 'source' => 'title_deeds', 'type' => 'number', 'default' => 60, 'min' => 5, 'max' => 1440,
+             'label' => 'How long an owner\'s confirmation lasts (minutes)',
+             'explain' => 'The link sent to the owners works for this long, and once an owner approves, the person can collect for this long.',
+             'affects' => 'How quickly the owner has to answer, and how long the approved person has to finish the handover.'],
+
+            ['key' => 'reminder_days', 'source' => 'title_deeds', 'type' => 'number', 'default' => 14, 'min' => 1, 'max' => 365,
+             'label' => 'Remind owners every (days)',
+             'explain' => 'If a deed has not been collected, the owners are emailed a reminder this many days after the last notice, and again each time this many days pass.',
+             'affects' => 'How often an owner who has not collected is reminded by email.'],
+
+            ['key' => 'max_reminders', 'source' => 'title_deeds', 'type' => 'number', 'default' => 3, 'min' => 0, 'max' => 20,
+             'label' => 'Most reminders per deed',
+             'explain' => 'Reminders stop after this many. Set to 0 to send no reminders at all.',
+             'affects' => 'How many reminder emails an owner can receive for one deed.'],
+
+            ['key' => 'contact_changed_block_days', 'source' => 'title_deeds', 'type' => 'number', 'default' => 7, 'min' => 0, 'max' => 365,
+             'label' => 'Extra check after an owner\'s email or phone changed (days)',
+             'explain' => 'If an owner\'s email address or phone number was changed within this many days, only someone with permission to override can release the deed, and they must give a reason. Set to 0 to switch this off.',
+             'affects' => 'Whether a deed can be released straight away when the details used to reach its owner were changed very recently.'],
+
         ],
     ],
 

@@ -56,6 +56,8 @@
 
 <div class="w-full space-y-4 ul" x-data="usersLedger()" x-ref="root">
 
+    @include('corex.alerts-off._summary-line')
+
     {{-- Page header (Ledger — AT-422; spec .ai/specs/users-pages-restyle.md) --}}
     <div class="ul-top">
         <h1 class="ul-title">Users <span>{{ number_format($totalUsers) }} {{ $totalUsers === 1 ? 'person' : 'people' }}</span></h1>

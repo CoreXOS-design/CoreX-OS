@@ -248,7 +248,7 @@
                 </div>
                 @include('corex.rental-fault-reports._no-contractor-warning')
                 <div class="flex flex-wrap gap-2">
-                    <button type="submit" class="corex-btn-outline text-xs">Save owner version</button>
+                    <button type="submit" class="corex-btn-outline text-xs">Save draft</button>
                     @permission('rental_fault_reports.send_to_owner')
                         @if($noContractor)
                             <x-confirm-submit title="Send without a contractor?" message="Send without a contractor for {{ $typeName }}?" confirm-label="Send without a contractor" name="send_now" value="1">Save and send to owner</x-confirm-submit>
