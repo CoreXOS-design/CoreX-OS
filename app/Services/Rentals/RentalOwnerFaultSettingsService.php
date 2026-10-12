@@ -127,10 +127,11 @@ class RentalOwnerFaultSettingsService
 
         if ($result === 'recorded') {
             $name = trim($owner->first_name . ' ' . $owner->last_name) ?: 'The owner';
-            $this->alertAgents($property, 'rental_fault_settings.disputed', $row,
-                'Owner does not agree with the fault-handling settings - ' . $property->buildDisplayAddress(),
-                $name . ' pressed "I do not agree" on the settings recorded for this property' . ($row->dispute_note ? ': "' . $row->dispute_note . '"' : '.')
-                . ' Until they confirm, or you record new evidence, every decision goes to the owner.');
+            $title = 'Owner does not agree with the fault-handling settings - ' . $property->buildDisplayAddress();
+            $body = $name . ' pressed "I do not agree" on the settings recorded for this property' . ($row->dispute_note ? ': "' . $row->dispute_note . '"' : '.')
+                . ' Until they confirm, or you record new evidence, every decision goes to the owner.';
+            $this->alertAgents($property, 'rental_fault_settings.disputed', $row, $title, $body);
+            $this->emailAgents($property, $title, $body);
         }
 
         return $result;
@@ -238,6 +239,19 @@ class RentalOwnerFaultSettingsService
             }
         } catch (\Throwable $e) {
             Log::warning('Owner fault-settings alert failed', ['property' => $property->id, 'event' => $event, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /** A dispute is also EMAILED to both lease agents directly (in-app alone depends on each agent's own notification switches). */
+    private function emailAgents(Property $property, string $title, string $body): void
+    {
+        try {
+            $agents = app(LeaseAgentService::class)->recipientsForEvent($this->leaseOf($property), $property, (int) $property->agency_id, null);
+            foreach ($agents->filter(fn ($a) => $a->email)->unique('email') as $agent) {
+                Mail::to($agent->email)->send(new \App\Mail\Rentals\RentalFaultSettingsDisputedMail($agent->name, $title, $body, route('corex.properties.show', $property) . '?tab=rental'));
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Owner fault-settings dispute email failed', ['property' => $property->id, 'error' => $e->getMessage()]);
         }
     }
 

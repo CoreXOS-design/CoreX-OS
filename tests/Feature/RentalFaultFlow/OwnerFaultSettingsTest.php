@@ -417,6 +417,11 @@ final class OwnerFaultSettingsTest extends TestCase
         $this->assertEqualsCanonicalizing([[$this->ownerAgent->id, 'rental_fault_settings.disputed'], [$this->tenantAgent->id, 'rental_fault_settings.disputed']], $this->alerts, 'BOTH lease agents are told');
         $this->assertSame('disputed', $this->resolver()->status());
         $this->assertNull($this->resolver()->repairLimit());
+        // ... and both agents are EMAILED as well (in-app alone depends on each agent's own switches)
+        Mail::assertQueued(\App\Mail\Rentals\RentalFaultSettingsDisputedMail::class, 2);
+        foreach ([$this->ownerAgent, $this->tenantAgent] as $a) {
+            Mail::assertQueued(\App\Mail\Rentals\RentalFaultSettingsDisputedMail::class, fn ($m) => $m->hasTo($a->email) && str_contains($m->body, 'R1 500 is too much'));
+        }
 
         // pressing it again says so and tells nobody twice
         $this->alerts = [];
