@@ -325,7 +325,8 @@ class PropertyController extends Controller
         } elseif ($status === 'on_market') {
             // On-market = live stock (for_sale incl. sub-labels, under_offer, …),
             // i.e. NOT terminal/draft. Single source of truth on the model.
-            $query->whereNotIn('status', Property::OFF_MARKET_STATUSES);
+            // AT-453 — Other Agency Stock is on-market for Core Matches but is not OUR stock.
+            $query->whereNotIn('status', Property::OFF_MARKET_STATUSES)->ownStock();
         } elseif ($status === 'rented_out') {
             // AT-401 — the Rentals-lens equivalent of the sale side's "Sold"
             // tab/filter. Not a single literal status value: real data on the
@@ -419,9 +420,13 @@ class PropertyController extends Controller
         // set (single source of truth on the model). Values are code constants,
         // never user input, so direct interpolation is safe.
         $offMarketIn = "'" . implode("','", Property::OFF_MARKET_STATUSES) . "'";
+        // AT-453 — one definition of "our own stock" (Property::scopeOwnStock): Total and On Market
+        // never count Other Agency Stock; it gets its own tile (other_agency).
+        $oasSlug = Property::STATUS_OTHER_AGENCY_STOCK;
         $agg = (clone $query)->selectRaw(
-            "COUNT(*) as total,"
-            . " SUM(CASE WHEN status NOT IN ($offMarketIn) THEN 1 ELSE 0 END) as active,"
+            "SUM(CASE WHEN COALESCE(status, '') <> '$oasSlug' THEN 1 ELSE 0 END) as total,"
+            . " SUM(CASE WHEN status NOT IN ($offMarketIn) AND status <> '$oasSlug' THEN 1 ELSE 0 END) as active,"
+            . " SUM(CASE WHEN status = '$oasSlug' THEN 1 ELSE 0 END) as other_agency,"
             . " SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft,"
             . " SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold,"
             // AT-401 — Rentals-lens "Rented Out" tile. Same case-insensitive
@@ -440,6 +445,7 @@ class PropertyController extends Controller
         )->first();
         $stats = [
             'total'      => (int) ($agg->total ?? 0),
+            'otherAgency'=> (int) ($agg->other_agency ?? 0),
             'active'     => (int) ($agg->active ?? 0),
             'draft'      => (int) ($agg->draft ?? 0),
             'sold'       => (int) ($agg->sold ?? 0),
@@ -754,7 +760,13 @@ class PropertyController extends Controller
             }
         }
 
+        // AT-453 — the status option + 'Other agency' tile show only where Other Agency Stock is on for
+        // this viewer (the agency's role-visibility setting, spec §6; default = every role).
+        $showOtherAgencyStock = ! $isRentalEntry && ! ($isAuctionEntry ?? false) && ! $importedStock
+            && \App\Services\Properties\OtherAgencyStockVisibility::canSee($user);
+
         return view('corex.properties.index', compact(
+            'showOtherAgencyStock',
             'properties', 'stats', 'scope', 'status', 'search',
             'filterAgentIds', 'agentList', 'selectedAgents', 'canPickAgent',
             'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode',

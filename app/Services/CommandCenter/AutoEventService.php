@@ -183,6 +183,7 @@ class AutoEventService
                 $q->whereNull('status')
                   ->orWhereNotIn('status', Property::OFF_MARKET_STATUSES);
             })
+            ->ownStock() // AT-453 — no chase events for another agency's listing
             ->chunk(50, function ($properties) use (&$count) {
                 foreach ($properties as $property) {
                     // Only create if no events exist for this property yet
@@ -229,6 +230,7 @@ class AutoEventService
                 $q->whereNull('status')
                   ->orWhereNotIn('status', Property::OFF_MARKET_STATUSES);
             })
+            ->ownStock() // AT-453 — no "needs attention" flag for another agency's listing
             // Compliant stock (e.g. P24 go-live imports) is vetted/established
             // and must not be flagged "needs attention" — that flooded the
             // cockpit with hundreds of idle prompts for freshly imported,

@@ -47,6 +47,9 @@ class OtherAgencyStockImportService
             }
 
             $property->allowOtherAgencyStockContentWrite = true;
+            // AT-453 — another agency's listing has no mandate of ours to chase: no "Upload signed
+            // mandate / owner ID / proof of ownership" tasks (AutoEventService::onPropertyCreated()).
+            $property->skipNewListingAutomation = true;
 
             // .ai/specs/other-agency-stock.md §3b — the importing agent owns it
             // (drives OWN/BRANCH/AGENCY scoping as usual), on a fresh import AND

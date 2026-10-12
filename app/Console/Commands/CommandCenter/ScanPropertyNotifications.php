@@ -28,6 +28,7 @@ class ScanPropertyNotifications extends Command
                 // agents about listings another agency had already sold (AT-350).
                 $q->whereNull('status')->orWhereNotIn('status', Property::OFF_MARKET_STATUSES);
             })
+            ->ownStock() // AT-453 — no alerts about another agency's listing
             ->chunkById(200, function ($props) use ($prefs, $dispatcher, $hasDocs) {
                 foreach ($props as $property) {
                     $agent = User::find($property->agent_id);
