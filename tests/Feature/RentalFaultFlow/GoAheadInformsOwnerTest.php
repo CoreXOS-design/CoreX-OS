@@ -176,15 +176,15 @@ final class GoAheadInformsOwnerTest extends TestCase
     {
         $f = $this->prepared(false);
         $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $f))->assertOk()->getContent();
-        $this->assertStringContainsString('Go ahead now and tell the owner', $html);
+        $this->assertStringContainsString('Approve within agent limit', $html);
         $this->assertStringContainsString('data-go-ahead-needs-version', $html);
 
         $f->saveOwnerVersion(['owner_title' => 'T', 'owner_description' => 'D'], $this->agent);
         $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $f->fresh()))->getContent();
         $this->assertStringNotContainsString('data-go-ahead-needs-version', $html);
-        $this->assertStringContainsString('Go ahead and tell the owner', $html);
+        $this->assertStringContainsString('Approve within agent limit', $html);
         $this->assertStringContainsString('data-emergency-row', $html);
-        $this->assertStringContainsString('informed, not asked', $html);
+        $this->assertStringContainsString('told, not asked', $html);
     }
 
     public function test_the_agent_sees_that_the_owner_was_told(): void
@@ -194,7 +194,7 @@ final class GoAheadInformsOwnerTest extends TestCase
         $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $f->fresh()))->getContent();
         $this->assertStringContainsString('data-arranged-by-agent', $html);
         $this->assertStringContainsString('The owner was told on', $html);
-        $this->assertStringContainsString('Went ahead - owner informed', $html);
+        $this->assertStringContainsString('Approved within agent limit - owner told', $html);
     }
 
     public function test_when_the_cost_goes_over_the_limit_the_normal_owner_approval_still_applies_and_the_owner_sees_it(): void

@@ -22,7 +22,29 @@
                     <span x-show="faultDetail.tenant_description" x-text="' The tenant wrote: ' + faultDetail.tenant_description"></span>
                 </p>
                 <p class="muted" x-show="faultDetail.repair_asked" data-repair-asked>Owner asked for a repair on <span x-text="fmtDay(faultDetail.repair_asked && faultDetail.repair_asked.at)"></span> &mdash; <a class="link" href="#" @click.prevent="openFault(faultDetail.repair_asked.id)">see the request</a></p>
-                <button class="btn btn-outline" x-show="!faultDetail.repair_asked" data-repair-anyway @click="repairAnyway(faultDetail)">Have this repaired anyway</button>
+                <p class="muted" x-show="faultDetail.repair_asked && faultDetail.repair_asked.owner_comment" data-owner-comment-readback>
+                    <strong>Your comment to your agent:</strong> <span x-text="faultDetail.repair_asked && faultDetail.repair_asked.owner_comment ? faultDetail.repair_asked.owner_comment.text : ''"></span>
+                    <span x-text="faultDetail.repair_asked && faultDetail.repair_asked.owner_comment ? ' (' + fmtDay(faultDetail.repair_asked.owner_comment.at) + ')' : ''"></span>
+                </p>
+                <button class="btn btn-primary" x-show="!faultDetail.repair_asked && !repairForm.open" data-repair-anyway @click="openRepairRequest(faultDetail)">Have this repaired anyway</button>
+                {{-- AT-452 (§19.12) - the tenant's report, READ-ONLY, then the owner's own comment box. The owner can never edit what the tenant wrote. --}}
+                <template x-if="repairForm.open && !faultDetail.repair_asked">
+                    <div data-repair-request-form style="margin-top:10px; padding-top:10px; border-top:1px solid #eef1f6;">
+                        <h3 style="margin-top:0;">What the tenant reported</h3>
+                        <div data-tenant-report style="background:#f6f8fb; border-radius:10px; padding:10px 12px;">
+                            <p style="margin:0 0 6px; white-space:pre-line;" data-tenant-report-text x-text="faultDetail.tenant_report && faultDetail.tenant_report.text ? faultDetail.tenant_report.text : 'The tenant did not write anything - they pressed &quot;That fixed it&quot; after reading the suggested steps.'"></p>
+                            <p class="muted" style="margin:0;" data-tenant-report-date x-text="'Reported ' + fmtDay(faultDetail.tenant_report ? faultDetail.tenant_report.at : faultDetail.reported_at)"></p>
+                            <div class="photo-grid" x-show="faultDetail.tenant_report && faultDetail.tenant_report.photos && faultDetail.tenant_report.photos.length" data-tenant-report-photos>
+                                <template x-for="(ph, i) in ((faultDetail.tenant_report && faultDetail.tenant_report.photos) || [])" :key="ph.id"><button type="button" class="photo-btn" :aria-label="'Open photo ' + (i + 1)" @click="openPhotos(faultDetail.tenant_report.photos, i, $event)"><img :src="ph.thumb_url || ph.url" alt="Photo the tenant sent" loading="lazy" decoding="async"></button></template>
+                            </div>
+                        </div>
+                        <label for="owner-comment-repair">Your comment to your agent (optional)</label>
+                        <textarea id="owner-comment-repair" rows="3" maxlength="2000" x-model="repairForm.comment" data-owner-comment-input></textarea>
+                        <p class="error" x-show="repairForm.error" x-text="repairForm.error"></p>
+                        <button class="btn btn-primary" :disabled="!!(repairForm.busy)" @click="submitRepairRequest()" data-repair-submit x-text="repairForm.busy ? 'Sending…' : 'Ask my agent to have this repaired'"></button>
+                        <button class="btn btn-outline" @click="repairForm.open = false" data-repair-cancel>Back</button>
+                    </div>
+                </template>
             </section>
         </template>
 
@@ -98,6 +120,7 @@
                         <p class="muted" x-show="faultDetail.decision.reason" x-text="'Reason: ' + faultDetail.decision.reason"></p>
                         <p class="muted" x-show="faultDetail.decision.contractor" x-text="faultDetail.decision.contractor"></p>
                         <p class="muted" x-text="faultDetail.decision.how + ' · ' + new Date(faultDetail.decision.at).toLocaleString()"></p>
+                        <p class="muted" x-show="faultDetail.owner_comment" data-owner-comment-readback><strong>Your comment to your agent:</strong> <span x-text="faultDetail.owner_comment ? faultDetail.owner_comment.text : ''"></span></p>
                     </div>
                 </template>
                 <template x-if="faultDetail.awaiting_decision">
@@ -108,12 +131,6 @@
                             <option value="approve">Approve</option>
                             <option value="decline">Decline</option>
                         </select>
-                        <template x-if="faultForm.decision === 'decline'">
-                            <div>
-                                <label>Why are you declining? (required)</label>
-                                <textarea rows="3" x-model="faultForm.note"></textarea>
-                            </div>
-                        </template>
                         <template x-if="faultForm.decision === 'approve'">
                             <div>
                                 <label>Who should handle the repair?</label>
@@ -143,6 +160,13 @@
                                         </select>
                                     </div>
                                 </template>
+                            </div>
+                        </template>
+                        {{-- AT-452 (§19.12) - the owner's own comment to the agent, for every decision (for a decline it is the reason, and it is required). --}}
+                        <template x-if="faultForm.decision">
+                            <div data-owner-comment-box>
+                                <label for="owner-comment-decision" data-owner-comment-label x-text="faultForm.decision === 'decline' ? 'Your comment to your agent (required - please tell us why you are declining)' : 'Your comment to your agent (optional)'"></label>
+                                <textarea id="owner-comment-decision" rows="3" maxlength="2000" x-model="faultForm.note" data-owner-comment-input></textarea>
                             </div>
                         </template>
                         <p class="error" x-show="faultForm.error" x-text="faultForm.error"></p>

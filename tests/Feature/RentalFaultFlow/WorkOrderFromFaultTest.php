@@ -332,8 +332,8 @@ final class WorkOrderFromFaultTest extends TestCase
         $this->assertStringNotContainsString('record-approval-form', $html);
         $this->assertStringNotContainsString('Save outcome', $html, 'no Outcome yet');
         $this->assertStringContainsString('data-early-work-order', $html);
-        $this->assertStringContainsString('Go ahead now and tell the owner', $html, 'AT-452 item I: the early path tells the owner');
-        $this->assertStringContainsString('no-approval spend limit (R500.00)', $html);
+        $this->assertStringContainsString('Approve within agent limit', $html, 'AT-452 item I: the early path tells the owner');
+        $this->assertStringContainsString('agent limit (R500.00)', $html);
         $this->assertStringNotContainsString('name="title"', $html);
         $this->assertStringNotContainsString('name="description"', $html);
     }

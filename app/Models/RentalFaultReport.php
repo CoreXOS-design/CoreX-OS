@@ -93,6 +93,9 @@ class RentalFaultReport extends Model
         'rental_work_order_id',
         'follows_fault_report_id',
         'arranged_by_agent_at',
+        'owner_comment',
+        'owner_comment_by_contact_id',
+        'owner_commented_at',
         'arranged_by_user_id',
         'arranged_basis',
         'arranged_limit_amount',
@@ -136,6 +139,7 @@ class RentalFaultReport extends Model
         'resolved_at' => 'datetime',
         'cancelled_at' => 'datetime',
         'arranged_by_agent_at' => 'datetime',
+        'owner_commented_at' => 'datetime',
         'arranged_limit_amount' => 'decimal:2',
     ];
 
@@ -180,6 +184,39 @@ class RentalFaultReport extends Model
     }
 
     /** Same reasoning as property() above — the reporting tenant/landlord contact may be archived. */
+    public function ownerCommentBy(): BelongsTo
+    {
+        return $this->belongsTo(Contact::class, 'owner_comment_by_contact_id')->withoutGlobalScopes();
+    }
+
+    /**
+     * AT-452 (§19.12) - the owner's own comment to their agent ("Your comment to your agent"): who, when, what. Null when none. Separate from the
+     * tenant's report and from the agent's own note to the owner - it is the OWNER's words only, stored once on the fault they were written for.
+     *
+     * @return array{text:string, by:string, at:?\Illuminate\Support\Carbon}|null
+     */
+    public function ownerComment(): ?array
+    {
+        $text = trim((string) $this->owner_comment);
+        if ($text === '') {
+            return null;
+        }
+        $c = $this->ownerCommentBy;
+
+        return ['text' => $text, 'by' => $c ? trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '')) : 'The owner', 'at' => $this->owner_commented_at];
+    }
+
+    /** Save the owner's comment (owner name + date/time) and say so in the history, in plain words. A blank comment changes nothing. */
+    public function recordOwnerComment(Contact $owner, ?string $text, string $context = 'wrote'): void
+    {
+        $text = trim((string) $text);
+        if ($text === '') {
+            return;
+        }
+        $this->forceFill(['owner_comment' => $text, 'owner_comment_by_contact_id' => $owner->id, 'owner_commented_at' => now()])->save();
+        $this->logUpdate(RentalFaultReportUpdate::TYPE_OWNER_COMMENT, null, trim(($owner->first_name ?? '') . ' ' . ($owner->last_name ?? '')) . ' (owner) ' . $context . ': ' . $text);
+    }
+
     public function reportedByContact(): BelongsTo
     {
         return $this->belongsTo(Contact::class, 'reported_by_contact_id')->withTrashed();
@@ -264,8 +301,10 @@ class RentalFaultReport extends Model
                     RentalFaultReportUpdate::TYPE_ARCHIVED => 'Archived',
                     RentalFaultReportUpdate::TYPE_RESTORED => 'Restored',
                     RentalFaultReportUpdate::TYPE_NOTE => 'Note added',
-                    RentalFaultReportUpdate::TYPE_ARRANGED_BY_AGENT => 'Went ahead - owner informed',
+                    RentalFaultReportUpdate::TYPE_ARRANGED_BY_AGENT => 'Approved within agent limit - owner told',
                     RentalFaultReportUpdate::TYPE_OWNER_QUERY => 'Owner asked a question',
+                    RentalFaultReportUpdate::TYPE_OWNER_REPAIR_REQUEST => 'Owner asked for a repair',
+                    RentalFaultReportUpdate::TYPE_OWNER_COMMENT => "Owner's comment",
                     RentalFaultReportUpdate::TYPE_PHOTO_MARK_ADDED => 'Photo mark added',
                     RentalFaultReportUpdate::TYPE_PHOTO_MARK_CHANGED => 'Photo mark changed',
                     RentalFaultReportUpdate::TYPE_PHOTO_MARK_REMOVED => 'Photo mark removed',

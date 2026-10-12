@@ -715,7 +715,7 @@ class RentalFaultReportController extends Controller
         $goAhead = in_array($rentalFaultReport->status, [RentalFaultReport::STATUS_REPORTED, RentalFaultReport::STATUS_UNDER_REVIEW], true) && $rentalFaultReport->decision() === null
             && ($validated['assignment_type'] ?? null) !== \App\Models\RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR;
         if ($goAhead && $rentalFaultReport->owner_version_saved_at === null) {
-            return back()->withErrors(['rental_fault_report' => 'Prepare the owner version first (check the wording and photos the owner will see) - the owner is told straight away when you go ahead.']);
+            return back()->withErrors(['rental_fault_report' => 'Prepare the owner version first (check the wording and photos the owner will see) - the owner is told straight away when you approve within your limit.']);
         }
 
         try {

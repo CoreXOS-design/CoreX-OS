@@ -102,12 +102,12 @@
     @endif
 
     @if(($secondary ?? false) && ($goAhead ?? false))
-        {{-- AT-452 round 2 (item I): before the owner has been sent the fault - the agent goes ahead and the owner is TOLD (informed, not asked), in one step --}}
+        {{-- AT-452 round 2 (item I): before the owner has been sent the fault - the agent approves within their limit and the owner is TOLD, in one step --}}
         <label class="flex items-center gap-2 text-sm" data-emergency-row><input type="checkbox" name="emergency" value="1"> This is an emergency</label>
-        <x-confirm-submit title="Go ahead and tell the owner?"
-            message="Go ahead now without waiting for the owner? Only for an emergency, or a small job inside this property's no-approval spend limit (R{{ number_format($noApprovalLimit, 2) }}). The owner is told straight away what you arranged - they are informed, not asked. Anything above the limit still needs the owner's approval before work starts."
-            confirm-label="Go ahead and tell the owner" data-raise-submit data-go-ahead-submit
-            x-bind:disabled="!!(who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER }}' && !picked)">Go ahead and tell the owner</x-confirm-submit>
+        <x-confirm-submit title="Approve within agent limit"
+            message="Approve this repair within your agent limit (R{{ number_format($noApprovalLimit, 2) }}) without waiting for the owner? The owner is told straight away what you arranged - told, not asked. Anything above the limit still needs the owner's approval before work starts."
+            confirm-label="Approve within agent limit" data-raise-submit data-go-ahead-submit
+            x-bind:disabled="!!(who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER }}' && !picked)">Approve within agent limit</x-confirm-submit>
     @elseif($secondary ?? false)
         {{-- before the owner has decided: a deliberate, confirmed step --}}
         <x-confirm-submit title="Create a work order before the owner has decided?"

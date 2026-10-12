@@ -437,6 +437,7 @@ class ClientLandlordRentalsController extends Controller
             'reported_at' => $fault->reported_at?->toIso8601String(),
             'sent_to_owner_at' => $fault->sent_to_owner_at?->toIso8601String(),
             'awaiting_decision' => $awaiting,
+            'owner_comment' => ($oc = $fault->ownerComment()) ? ['text' => $oc['text'], 'by' => $oc['by'], 'at' => $oc['at']?->toIso8601String()] : null,
             // The supplier list for THIS type of work (empty = the owner is offered the other routes only).
             'contractors' => $awaiting ? app(RentalFaultContractorService::class)->optionsFor($fault)->values() : [],
             // AT-452 item 9 - the SAME test the agent's warning on the fault page uses; the note under the contractor choice reads this.
@@ -478,7 +479,14 @@ class ClientLandlordRentalsController extends Controller
             'advice' => ($f->faultType && $property) ? app(\App\Services\Rentals\RentalFaultTypePortalView::class)->adviceFor($f->faultType, $property) : null,
             'tenant_description' => trim((string) $f->description) !== '' ? trim((string) $f->description) : null,
             // "Owner asked for a repair on <date>" + the link to the new request (visible to this owner: they raised it, or it follows their own report)
-            'repair_asked' => $repair ? ['id' => $repair->id, 'at' => ($repair->reported_at ?? $repair->created_at)?->toIso8601String()] : null,
+            'repair_asked' => $repair ? ['id' => $repair->id, 'at' => ($repair->reported_at ?? $repair->created_at)?->toIso8601String(),
+                'owner_comment' => ($c = $repair->ownerComment()) ? ['text' => $c['text'], 'by' => $c['by'], 'at' => $c['at']?->toIso8601String()] : null] : null,
+            // AT-452 (§19.12) - "What the tenant reported", READ-ONLY: their words, the date, their photos (if any). Nothing here is ever written by the owner.
+            'tenant_report' => [
+                'text' => trim((string) $f->description) !== '' ? trim((string) $f->description) : null,
+                'at' => ($f->reported_at ?? $f->created_at)?->toIso8601String(),
+                'photos' => app(\App\Services\Rentals\RentalFaultPhotoAnnotationService::class)->payload($f, $f->photos()->get(), \App\Services\Rentals\RentalFaultPhotoAnnotationService::AUDIENCE_OWNER),
+            ],
         ];
     }
 
@@ -512,6 +520,31 @@ class ClientLandlordRentalsController extends Controller
             'queries' => $fault->updates()->where('update_type', \App\Models\RentalFaultReportUpdate::TYPE_OWNER_QUERY)->orderBy('id')->get(['note', 'created_at'])
                 ->map(fn ($u) => ['note' => $u->note, 'at' => $u->created_at?->toIso8601String()])->values()->all(),
         ];
+    }
+
+    /**
+     * AT-452 (§19.12) - "Ask my agent to have this repaired": the owner's request on a fault the tenant resolved themselves, with their own optional
+     * comment. The tenant's report is never changed (this route writes only to the NEW request it raises).
+     */
+    public function faultReportRepairRequest(Request $request, int $faultReport): JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+        $fault = $this->scope->landlordFaultReport($contact, $faultReport);
+        if (! $fault) {
+            return response()->json(['message' => 'Fault report not found.'], 404);
+        }
+        $data = $request->validate(['comment' => 'nullable|string|max:2000']);
+
+        try {
+            $new = $this->faultReportService->raiseOwnerRepairRequest($fault, $contact, $data['comment'] ?? null);
+        } catch (\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['fault_report' => ['id' => $new->id, 'title' => $new->title, 'status' => $new->status], 'repair_asked' => ['id' => $new->id, 'at' => $new->reported_at?->toIso8601String()]], 201);
     }
 
     /**
@@ -640,6 +673,10 @@ class ClientLandlordRentalsController extends Controller
         } catch (\Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
+
+        // AT-452 (§19.12): whatever the owner wrote (the reason for a decline, or an optional note on an approval) is ALSO their comment to the agent -
+        // saved with their name and the time, shown to the agent in its own block and read back to the owner.
+        $fault->refresh()->recordOwnerComment($contact, $data['note'] ?? null, 'wrote with their decision');
 
         return response()->json(['fault_report' => [
             'id' => $fault->id,

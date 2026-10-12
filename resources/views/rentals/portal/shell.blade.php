@@ -655,7 +655,8 @@
                                                                     <span x-show="f.tenant_description" x-text="' The tenant wrote: ' + f.tenant_description"></span>
                                                                 </p>
                                                                 <p class="muted" style="margin:0 0 6px;" x-show="f.repair_asked" data-repair-asked>Owner asked for a repair on <span x-text="fmtDay(f.repair_asked && f.repair_asked.at)"></span> &mdash; <a class="link" href="#" @click.prevent="openFault(f.repair_asked.id)">see the request</a></p>
-                                                                <button type="button" class="btn btn-outline" style="width:auto;margin-top:0;padding:8px 12px;" x-show="!f.repair_asked" data-repair-anyway @click="repairAnyway(f)">Have this repaired anyway</button>
+                                                                <p class="muted" style="margin:0 0 6px;" x-show="f.repair_asked && f.repair_asked.owner_comment" data-owner-comment-readback><strong>Your comment to your agent:</strong> <span x-text="f.repair_asked && f.repair_asked.owner_comment ? f.repair_asked.owner_comment.text : ''"></span></p>
+                                                                <button type="button" class="btn btn-primary" x-show="!f.repair_asked" data-repair-anyway @click="openRepairRequest(f)">Have this repaired anyway</button>
                                                             </div>
                                                         </template>
                                                         <template x-if="!f.self_resolved">
@@ -1209,19 +1210,22 @@ function rentalsPortal() {
             if (r.ok) { f.arranged = r.data.arranged; q.note = ''; q.sent = true; } else { q.error = r.data?.message || (r.data?.errors ? Object.values(r.data.errors)[0][0] : 'Could not send. Please try again.'); }
         },
         // AT-452 round 2 (F-OWNER) - "Have this repaired anyway": the owner's existing Request-work flow, pre-filled from the resolved report and linked to it.
-        async repairAnyway(f) {
-            this.faultDetail = null;
-            this.landlordTab = 'faults';
-            await this.startLandlordFaultReport(f.property_id);
-            const w = this.landlordFaultWizard;
-            if (!w || !w.property) return;
-            w.faultTypeId = f.fault_type_id ? String(f.fault_type_id) : '';
-            this.selectLandlordFaultType();
-            w.showAid = false;
-            w.title = f.type_name || f.title;
-            w.description = 'Follows the report of ' + this.fmtDay(f.reported_at) + ' that the tenant resolved themselves.';
-            w.followsFaultId = f.id;
-            this.$nextTick(() => { const el = document.querySelector('[data-landlord-fault-wizard]'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+        // AT-452 (§19.12) - "Have this repaired anyway": shows the tenant's report READ-ONLY, then the owner's own comment box; "Ask my agent to have this repaired"
+        // raises the linked request for the agent (the tenant's report is never touched).
+        repairForm: { open: false, comment: '', busy: false, error: null },
+        async openRepairRequest(f) {
+            if (!this.faultDetail || this.faultDetail.id !== f.id) { await this.openFault(f.id); }
+            this.repairForm = { open: true, comment: '', busy: false, error: null };
+            this.$nextTick(() => { const el = document.querySelector('[data-repair-request-form]'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); });
+        },
+        async submitRepairRequest() {
+            const f = this.faultDetail, r = this.repairForm;
+            if (!f || r.busy) return;
+            r.busy = true; r.error = null;
+            const res = await portalFetch('/api/v1/client/rentals/landlord/fault-reports/' + f.id + '/repair-request', { method: 'POST', body: JSON.stringify({ comment: r.comment }), key: 'repair-' + f.id });
+            r.busy = false;
+            if (res.ok) { this.repairForm = { open: false, comment: '', busy: false, error: null }; await this.openFault(f.id); this.loadLandlordFaults(); }
+            else r.error = res.data?.message || (res.data?.errors ? Object.values(res.data.errors)[0][0] : 'Could not send this. Please try again.');
         },
         // AT-452 round 2 (F) - "Still a problem? Report it again" on a fault the tenant fixed themselves: a NEW report of the same type, straight to the
         // form (they have already read and tried the advice). The old record stays as it was.
@@ -1326,6 +1330,7 @@ function rentalsPortal() {
         },
         async openFault(id) {
             this.faultForm = { decision: '', handled_by: '', contractor_name: '', contractor_phone: '', agency_service_provider_id: '', note: '', error: null, busy: false };
+            if (this.repairForm && this.repairForm.open && this.faultDetail && this.faultDetail.id !== id) { this.repairForm = { open: false, comment: '', busy: false, error: null }; }
             const r = await portalFetch('/api/v1/client/rentals/landlord/fault-reports/' + id);
             if (r.ok) {
                 this.faultDetail = r.data.fault_report;

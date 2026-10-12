@@ -41,6 +41,9 @@ class RentalFaultReportUpdate extends Model
     public const TYPE_ARRANGED_BY_AGENT = 'arranged_by_agent';
     /** Item I - the owner's "Query this" note on a fault they were informed about. */
     public const TYPE_OWNER_QUERY = 'owner_query';
+    // AT-452 (§19.12) - the owner asked for a repair of a fault the tenant resolved, with their own comment
+    public const TYPE_OWNER_REPAIR_REQUEST = 'owner_repair_request';
+    public const TYPE_OWNER_COMMENT = 'owner_comment';
     public const TYPE_SENT_WITHOUT_CONTRACTOR = 'sent_without_contractor';
 
     protected $fillable = [

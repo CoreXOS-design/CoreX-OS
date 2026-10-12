@@ -39,7 +39,7 @@
      Order show precedent: every line of space is data the agent needs or a
      control they act on. Two-column below the header: record + actions
      left, photos/history right. --}}
-<div class="p-6 max-w-7xl mx-auto space-y-4">
+<div class="p-6 max-w-7xl mx-auto space-y-4 cx-equal-btns">
     {{-- (the success message is the layout's toast - J8: it is not repeated here as a second banner) --}}
     {{-- §17.3.2 / §17.10.6 — a refused "Create work order" or a refused "repaired" outcome says WHY, in plain words. --}}
     @if($errors->any())
@@ -87,11 +87,20 @@
                     @permission('rental_fault_reports.create')
                     <form method="POST" action="{{ route('corex.rental-fault-reports.repair-anyway', $faultReport) }}">
                         @csrf
-                        <button type="submit" class="corex-btn-outline text-xs" data-repair-anyway>Have this repaired anyway</button>
+                        <button type="submit" class="corex-btn-primary text-xs" data-repair-anyway>Have this repaired anyway</button>
                     </form>
                     @endpermission
                 @endif
             </div>
+        </div>
+    @endif
+
+    {{-- AT-452 (§19.12) - the owner's OWN words to their agent: who, when, what. Separate from the tenant's report and from the agent's note to the owner. --}}
+    @if($ownerCommentBlock = $faultReport->ownerComment())
+        <div class="rounded-md px-4 py-3 text-sm space-y-1" style="background: color-mix(in srgb, var(--ds-blue, #2563eb) 8%, var(--surface)); border: 1px solid var(--ds-blue, #2563eb);" data-owner-comment>
+            <div class="text-xs font-semibold">Owner's comment</div>
+            <div class="text-xs" style="color: var(--text-muted);">{{ $ownerCommentBlock['by'] }}@if($ownerCommentBlock['at']) &middot; {{ $ownerCommentBlock['at']->format('j M Y H:i') }}@endif</div>
+            <div style="white-space: pre-line;" data-owner-comment-text>{{ $ownerCommentBlock['text'] }}</div>
         </div>
     @endif
 
@@ -290,7 +299,7 @@
                     <textarea name="owner_agent_note" rows="3" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);" placeholder="e.g. I recommend we approve this - a plumber can fix it this week.">{{ old('owner_agent_note', $faultReport->owner_agent_note) }}</textarea>
                 </div>
                 @include('corex.rental-fault-reports._no-contractor-warning')
-                <div class="flex flex-wrap gap-2">
+                <div class="cx-action-row" data-owner-version-actions>
                     <button type="submit" class="corex-btn-outline text-xs">Save draft</button>
                     @permission('rental_fault_reports.send_to_owner')
                         {{-- both variants exist while a contractor is missing, so adding one in the popup swaps the dialog without a reload --}}
@@ -301,7 +310,18 @@
                             <x-confirm-submit title="Send to the owner" message="Send this to the owner now? They will see it in their portal and be emailed." confirm-label="Send to owner" name="send_now" value="1">Save and send to owner</x-confirm-submit>
                         @endif
                     @endpermission
+                    {{-- AT-452 (§19.13) - the agent's own authority, a proper button in the same row (was a tiny text link): reveals who does the work, then its own confirm step. --}}
+                    @permission('rental_fault_reports.raise_work_order')
+                        @if($stage === 'prepare' && $faultReport->workOrderBlockReason() === null)
+                            <button type="button" class="corex-btn-outline text-xs" onclick="document.getElementById('raise-work-order-form').classList.toggle('hidden')" data-go-ahead-toggle @if($faultReport->owner_version_saved_at === null) disabled title="Save the owner version first - it is what the owner will read." @endif>Approve within agent limit</button>
+                        @endif
+                    @endpermission
                 </div>
+                @permission('rental_fault_reports.raise_work_order')
+                    @if($stage === 'prepare' && $faultReport->workOrderBlockReason() === null)
+                        <p class="text-xs" style="color: var(--text-muted);" data-agent-limit-line>For a repair inside this property's agent limit (R{{ number_format($noApprovalLimit, 2) }}). The owner is told, not asked.@if($faultReport->owner_version_saved_at === null) <span class="font-semibold" data-go-ahead-needs-version>Save the owner version first.</span>@endif</p>
+                    @endif
+                @endpermission
             </form>
             @if($faultReport->owner_version_saved_at)
                 @permission('rental_fault_reports.send_to_owner')
@@ -344,12 +364,7 @@
             @if(in_array($stage, ['prepare', 'with_owner'], true) && $faultReport->workOrderBlockReason() === null)
                 <div class="pt-3 text-xs space-y-2" style="border-top: 1px solid var(--border);" data-early-work-order>
                     @if($stage === 'prepare')
-                        {{-- AT-452 round 2 (item I) - the owner is told the moment the agent goes ahead: so what they will read must be prepared first (the owner version above). --}}
-                        <button type="button" onclick="document.getElementById('raise-work-order-form').classList.toggle('hidden')" class="underline" style="color: var(--text-muted);" data-go-ahead-toggle>Go ahead now and tell the owner</button>
-                        <span style="color: var(--text-muted);"> - only for an emergency, or a small job inside this property's no-approval spend limit (R{{ number_format($noApprovalLimit, 2) }}). The owner is informed straight away, not asked.</span>
-                        @if($faultReport->owner_version_saved_at === null)
-                            <span class="font-semibold" data-go-ahead-needs-version> Save the owner version above first - it is what the owner will read.</span>
-                        @endif
+                        {{-- the button that opens this is in the owner-version action row above ("Approve within agent limit") --}}
                         @include('corex.rental-fault-reports._raise-work-order-form', ['secondary' => true, 'goAhead' => true])
                     @else
                         <button type="button" onclick="document.getElementById('raise-work-order-form').classList.toggle('hidden')" class="underline" style="color: var(--text-muted);">Start a work order before the owner decides</button>

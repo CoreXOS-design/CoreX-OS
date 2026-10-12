@@ -98,6 +98,44 @@ class RentalFaultReportService
     }
 
     /**
+     * AT-452 (§19.12) - the OWNER presses "Ask my agent to have this repaired" on a fault the tenant resolved themselves, with an optional comment of
+     * their own. A NEW request is raised (the resolved report is never changed - its text, date and photos stay exactly as the tenant left them),
+     * linked to it, carrying the owner's comment with their name and the time. Both lease agents are told like for any new fault. One live request
+     * at a time: asking again is refused with a plain sentence.
+     */
+    public function raiseOwnerRepairRequest(RentalFaultReport $resolved, \App\Models\Contact $owner, ?string $comment): RentalFaultReport
+    {
+        if (! $resolved->isTenantSelfResolved()) {
+            throw new \LogicException('Only a fault the tenant resolved themselves can be followed up this way.');
+        }
+        if ($resolved->followUps()->where('status', '!=', RentalFaultReport::STATUS_CANCELLED)->exists()) {
+            throw new \LogicException('A repair has already been asked for on this one.');
+        }
+        $property = $resolved->property()->withoutGlobalScopes()->firstOrFail();
+        $note = 'Follows the report of ' . ($resolved->reported_at ?? $resolved->created_at)->format('j M Y') . ' that the tenant resolved themselves.';
+
+        $new = $this->report($property, [
+            'lease_id' => $resolved->lease_id,
+            'rental_fault_type_id' => $resolved->rental_fault_type_id,
+            'reported_by_type' => RentalFaultReport::REPORTED_BY_LANDLORD,
+            'reported_by_contact_id' => $owner->id,
+            'reported_channel' => RentalFaultReport::CHANNEL_APP,
+            'title' => $resolved->title,
+            'description' => trim($note . ' ' . (string) $resolved->description),
+            'follows_fault_report_id' => $resolved->id,
+        ]);
+        $who = trim(($owner->first_name ?? '') . ' ' . ($owner->last_name ?? ''));
+        $text = trim((string) $comment);
+        $new->recordHistory(\App\Models\RentalFaultReportUpdate::TYPE_OWNER_REPAIR_REQUEST, null, $who . ' (owner) asked for this to be repaired' . ($text !== '' ? ' and wrote: ' . $text : '.'));
+        $resolved->recordHistory(\App\Models\RentalFaultReportUpdate::TYPE_OWNER_REPAIR_REQUEST, null, $who . ' (owner) asked for a repair - request #' . $new->id . ($text !== '' ? ' - they wrote: ' . $text : '.'));
+        if ($text !== '') {
+            $new->forceFill(['owner_comment' => $text, 'owner_comment_by_contact_id' => $owner->id, 'owner_commented_at' => now()])->save();
+        }
+
+        return $new->fresh();
+    }
+
+    /**
      * AT-452 round 2 (item I, Johan 12 Oct 2026: "any fault, even if it is in the repair limit, still needs to go to the owner") - the agent went
      * ahead without waiting for the owner (an emergency, or a small job inside the property's no-approval limit). The owner is INFORMED, not
      * asked: the fault appears in their portal as "Arranged by your agent" (never under "Needs your decision"), with the agent's prepared version, and
@@ -114,7 +152,7 @@ class RentalFaultReportService
             'arranged_limit_amount' => $limit,
         ])->save();
         $fault->recordHistory(\App\Models\RentalFaultReportUpdate::TYPE_ARRANGED_BY_AGENT, $by,
-            'The agent went ahead' . ($emergency ? ' as an emergency' : ' under the R' . number_format($limit, 2, '.', ' ') . ' no-approval limit') . ' and the owner was told (informed, not asked).');
+            'The agent approved this within their limit' . ($emergency ? ' as an emergency' : ' (R' . number_format($limit, 2, '.', ' ') . ')') . ' and the owner was told, not asked.');
         app(RentalPortalNotificationService::class)->notifyLandlordInformed($fault->fresh());
 
         return $fault->fresh();
