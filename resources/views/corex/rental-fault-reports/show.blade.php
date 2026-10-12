@@ -19,7 +19,8 @@
             \App\Models\RentalFaultReport::STATUS_DECLINED => 'declined',
             default => 'in_progress',
         };
-        $noApprovalLimit = $faultReport->property ? \App\Models\RentalWorkOrderSetting::thresholdFor($faultReport->property) : \App\Models\RentalWorkOrderSetting::spendThresholdFor($faultReport->agency_id);
+        // section 22.2: the owner's repair limit is read ONLY through the owner-settings resolver (null = the agent must ask the owner)
+        $ownerRepairLimit = $faultReport->property ? \App\Services\Rentals\RentalOwnerFaultSettings::for($faultReport->property)->repairLimit() : null;
     $statusBadgeClass = match ($faultReport->status) {
         'resolved' => 'ds-badge-success',
         'reported', 'under_review', 'awaiting_approval' => 'ds-badge-info',
@@ -104,7 +105,7 @@
         <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green, #16a34a) 9%, var(--surface)); border: 1px solid var(--ds-green, #16a34a);" data-requested-by-owner>
             <strong>Requested by the owner.</strong>
             {{ $faultReport->reportedByContact ? trim($faultReport->reportedByContact->first_name . ' ' . $faultReport->reportedByContact->last_name) : 'The owner' }} asked the agency to arrange this on {{ ($faultReport->reported_at ?? $faultReport->created_at)?->format('j M Y H:i') }}.
-            Their instruction is their authority to go to a quote &mdash; they are not asked to approve it again. A quote above this property's agent limit (R{{ number_format($noApprovalLimit, 2) }}) still goes to them to approve.
+            Their instruction is their authority to go to a quote &mdash; they are not asked to approve it again. @if($ownerRepairLimit !== null)A quote above the owner's repair limit (R{{ number_format($ownerRepairLimit, 2) }}) still goes to them to approve.@else Every quote goes to them to approve - they have not set a repair limit.@endif
         </div>
     @endif
 

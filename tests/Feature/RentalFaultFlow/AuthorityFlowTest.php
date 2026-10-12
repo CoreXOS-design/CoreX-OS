@@ -283,6 +283,11 @@ final class AuthorityFlowTest extends TestCase
         $this->assertTrue($show['awaiting_decision']);
         $this->assertSame('Fee Plumbing', $show['proposed']['name']);
         $this->assertSame('Call-out fee: R750', $show['proposed']['callout'], "the owner sees the fee BEFORE they choose");
+        $f2 = $this->fault();
+        $free = $this->supplier('Free Plumbing', 'no');
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.send-to-owner-to-authorise', $f2), ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $free->id])->assertRedirect();
+        Sanctum::actingAs($this->login($this->landlord), ['client']);
+        $this->assertSame('No call-out fee.', $this->getJson("/api/v1/client/rentals/landlord/fault-reports/{$f2->id}")->json('fault_report.proposed.callout'));
 
         // a second press is refused
         $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.send-to-owner-to-authorise', $f), ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $p->id])

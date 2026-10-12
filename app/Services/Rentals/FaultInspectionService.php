@@ -201,7 +201,7 @@ class FaultInspectionService
             $by->name . ' sent this to the owner to authorise' . ($label ? ' - proposed: ' . $label : '') . '.');
     }
 
-    /** What the owner reads about the contractor the agent proposed: name and call-out fee line (never for a crew or when nobody was proposed). */
+    /** What the owner reads about the contractor the agent proposed: name and the call-out line (a crew has none; null when nobody was proposed). */
     public function proposedFor(RentalFaultReport $fault): ?array
     {
         if ($fault->proposed_assignment === null) {
@@ -212,6 +212,16 @@ class FaultInspectionService
         }
         $p = $fault->proposed_supplier_id ? AgencyServiceProvider::withoutGlobalScopes()->where('agency_id', $fault->agency_id)->find($fault->proposed_supplier_id) : null;
 
-        return $p ? ['name' => (string) $p->name, 'callout' => $p->calloutFeeLine()] : null;
+        if (! $p) {
+            return null;
+        }
+        // the owner is told what the visit costs BEFORE they choose: the fee, or plainly that there is none / that it is not known
+        $callout = match ($p->calloutFeeStatus()) {
+            AgencyServiceProvider::CALLOUT_YES => $p->calloutFeeLine(),
+            AgencyServiceProvider::CALLOUT_NO => 'No call-out fee.',
+            default => 'Call-out fee not known.',
+        };
+
+        return ['name' => (string) $p->name, 'callout' => $callout];
     }
 }

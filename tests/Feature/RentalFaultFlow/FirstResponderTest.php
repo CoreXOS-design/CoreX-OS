@@ -348,7 +348,8 @@ final class FirstResponderTest extends TestCase
         $this->assertNull($fault->fresh()->rental_work_order_id);
         Mail::assertNothingQueued();
 
-        // "Send to owner to authorise" sends the fault to the owner with the caretaker proposed
+        // "Send to owner to authorise" sends the fault to the owner with the caretaker proposed (the owner version must be saved first)
+        $fault->saveOwnerVersion(['owner_title' => 'Tap', 'owner_description' => 'Drips'], $this->agent);
         $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.send-to-owner-to-authorise', $fault), ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $this->caretaker->id])->assertRedirect();
         $f = $fault->fresh();
         $this->assertSame(RentalFaultReport::STATUS_AWAITING_APPROVAL, $f->status);

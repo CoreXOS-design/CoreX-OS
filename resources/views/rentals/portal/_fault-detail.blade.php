@@ -133,7 +133,7 @@
                     <div>
                         {{-- section 22.4 - who the agent would send, and what the visit costs, BEFORE the owner chooses --}}
                         <template x-if="faultDetail.proposed">
-                            <p data-proposed-inspector style="margin:0 0 8px;"><strong>Your agent suggests:</strong> <span x-text="faultDetail.proposed.name"></span><span x-show="faultDetail.proposed.callout" x-text="' - ' + (faultDetail.proposed.callout || '')" data-proposed-callout></span><span x-show="!faultDetail.proposed.callout"> - no call-out fee is known.</span></p>
+                            <p data-proposed-inspector style="margin:0 0 8px;"><strong>Your agent suggests:</strong> <span x-text="faultDetail.proposed.name"></span><span x-show="faultDetail.proposed.callout" x-text="' - ' + (faultDetail.proposed.callout || '')" data-proposed-callout></span></p>
                         </template>
                         <label style="margin-top:0;">What would you like to do?</label>
                         <select x-model="faultForm.decision" data-owner-decision-select>
