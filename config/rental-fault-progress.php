@@ -20,6 +20,7 @@ return [
     'arranged_limit' => ['tenant' => 'Repair arranged', 'owner' => 'Arranged by your agent under your no-approval limit', 'agent' => 'Went ahead under the owner\'s no-approval limit'],
     'arranged_inspect' => ['tenant' => 'Someone is coming to look', 'owner' => 'Your agent sent someone to look and quote', 'agent' => 'Sent to look and quote on your authority'],
     'arranged_emergency' => ['tenant' => 'Repair arranged', 'owner' => 'Arranged by your agent as an emergency', 'agent' => 'Went ahead as an emergency'],
+    'owner_instructed' => ['tenant' => 'Owner approved', 'owner' => 'Recorded on your instruction', 'agent' => 'Owner approved (recorded by an agent)'],
     'owner_approved' => ['tenant' => 'Owner approved', 'owner' => 'You approved', 'agent' => 'Owner approved'],
     // The tenant NEVER sees the owner's reason or the agent's notes - only this neutral line.
     'not_approved' => ['tenant' => 'Not approved — your agent will contact you', 'owner' => 'You declined', 'agent' => 'Owner declined'],

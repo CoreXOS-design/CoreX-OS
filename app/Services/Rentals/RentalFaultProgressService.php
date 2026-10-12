@@ -85,7 +85,9 @@ class RentalFaultProgressService
                 default => 'arranged_limit',
             }, $fault->arranged_by_agent_at);
         } else {
-            $push('owner_decided', 'owner_approved', $decidedAt);
+            // section 22: a decision an AGENT recorded on the owner's instruction is not "You approved" - say what it was
+            $captured = $decision && $decision->evidence_type !== RentalApproval::EVIDENCE_PORTAL;
+            $push('owner_decided', $captured ? 'owner_instructed' : 'owner_approved', $decidedAt);
         }
 
         $ended = null;
