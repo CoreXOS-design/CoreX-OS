@@ -2651,6 +2651,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/', [\App\Http\Controllers\Compliance\FicaController::class, 'store'])->name('store');
     });
 
+    // Quick Links W1 (Johan 2026-10-12, quick-links.md §8-1): whoever may SEND a FICA form may also RESEND one, so an agent is
+    // not blind after sending. Compliance staff keep it via access_compliance. FicaController@resend still applies
+    // authorizeAgency() — own/branch/agency scope — so a sender can only resend within their own visibility.
+    Route::middleware(['permission:compliance.fica.send,access_compliance', 'agency.required', 'feature:compliance'])->prefix('compliance/fica')->name('compliance.fica.')->group(function () {
+        Route::post('/{submission}/resend', [\App\Http\Controllers\Compliance\FicaController::class, 'resend'])->name('resend');
+    });
+
     Route::middleware(['permission:access_compliance', 'agency.required', 'feature:compliance'])->prefix('compliance/fica')->name('compliance.fica.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\FicaController::class, 'index'])->name('index');
         Route::get('/create', [\App\Http\Controllers\Compliance\FicaController::class, 'create'])->name('create');
@@ -2677,7 +2684,6 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{submission}/return-to-referrer', [\App\Http\Controllers\Compliance\FicaController::class, 'returnToReferrer'])->name('return-to-referrer');
         Route::post('/{submission}/reject', [\App\Http\Controllers\Compliance\FicaController::class, 'reject'])->name('reject');
         Route::post('/{submission}/request-corrections', [\App\Http\Controllers\Compliance\FicaController::class, 'requestCorrections'])->name('request-corrections');
-        Route::post('/{submission}/resend', [\App\Http\Controllers\Compliance\FicaController::class, 'resend'])->name('resend');
         Route::post('/{submission}/cancel', [\App\Http\Controllers\Compliance\FicaController::class, 'cancel'])->name('cancel');
         Route::post('/{submission}/resubmit-corrections', [\App\Http\Controllers\Compliance\FicaController::class, 'resubmitCorrections'])->name('resubmit-corrections');
         Route::post('/{submission}/reopen', [\App\Http\Controllers\Compliance\FicaController::class, 'reopenRejected'])->name('reopen');
@@ -4023,6 +4029,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:manage_compliance_officer')->name('corex.settings.fica-officers.mlros');
     Route::post('/settings/fica-officers/{appointment}/end', [\App\Http\Controllers\Compliance\FicaOfficerAppointmentsController::class, 'endAppointment'])
         ->middleware('permission:manage_compliance_officer')->name('corex.settings.fica-officers.end');
+    // Quick Links W1 — FICA request link life + "expiring" threshold (agency settings; also in the Setup Wizard's Compliance step).
+    Route::post('/settings/fica-request', [\App\Http\Controllers\Compliance\FicaOfficerAppointmentsController::class, 'saveRequestSettings'])
+        ->middleware('permission:manage_compliance_officer')->name('corex.settings.fica-request.save');
     Route::post('/settings/fica-referral', [\App\Http\Controllers\Compliance\FicaOfficerAppointmentsController::class, 'saveReferralSettings'])
         ->middleware('permission:manage_compliance_officer')->name('corex.settings.fica-referral.save');
 

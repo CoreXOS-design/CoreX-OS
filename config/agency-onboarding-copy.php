@@ -904,6 +904,9 @@ return [
             // spec §5.1. Guarded internally by the 'fica_referral_settings_present'
             // hidden marker (§6.1) — the partial always renders it.
             ['controller' => FicaOfficerAppointmentsController::class, 'method' => 'saveReferralSettings'],
+            // Quick Links W1 — FICA link life + "expiring" threshold (quick-links.md §8-4). Plain number inputs that are
+            // only written when posted (§6.1), so a subset post can never wipe the other value.
+            ['controller' => FicaOfficerAppointmentsController::class, 'method' => 'saveRequestSettings'],
             // PPRA Inspection Pack Phase E — item (j), .ai/specs/ppra-inspection-pack.md
             // §6.7/§10a. A required <select> always posts a value, so no §6.1
             // has()-guard is needed here (that rule protects optional checkboxes only).
@@ -919,6 +922,14 @@ return [
              'label' => 'Financial year starts in',
              'explain' => 'The month your agency\'s financial year begins — used by the PPRA Inspection Pack to bound its "current financial year" sales and rentals list.',
              'affects' => 'Which sales and rentals count as "this financial year" on the PPRA Inspection Pack (Admin → PPRA Inspection Pack). Does not affect any other report.'],
+            ['key' => 'fica_link_days', 'source' => 'agency', 'type' => 'number', 'default' => 14, 'min' => 1, 'max' => 90,
+             'label' => 'FICA link is valid for (days)',
+             'explain' => 'When an agent sends a client a FICA form by email, the secure link in that email stops working after this many days.',
+             'affects' => 'How long a client has to fill in a FICA form before the agent has to resend it. Links already sent keep the life they were sent with.'],
+            ['key' => 'fica_expiring_after_months', 'source' => 'agency', 'type' => 'number', 'default' => 11, 'min' => 1, 'max' => 60,
+             'label' => 'Show FICA as "expiring" after (months)',
+             'explain' => 'How many months after a FICA is approved before CoreX starts showing that contact\'s FICA as expiring.',
+             'affects' => 'When the FICA chip on a contact turns amber and prompts the agent to send a new FICA form.'],
             // PPRA Inspection Pack Phase F — .ai/specs/ppra-inspection-pack.md
             // §4.6a/§6.8a. Plain number inputs always post a value, so no §6.1
             // has()-guard is needed here either.

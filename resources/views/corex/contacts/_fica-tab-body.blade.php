@@ -5,6 +5,9 @@
      assigned, so the isNotEmpty() check reading it threw "Undefined
      variable" on every contact page. No logic changed here. --}}
 
+{{-- Quick Links W1 — the same chip + Send/Resend as the header, so the property page's "Verify FICA" link lands on a tab that can act. --}}
+<div class="mb-4" data-fica-tab-quick-link>@include('corex.contacts._fica-quick-link', ['modalKey' => '-tab'])</div>
+
 {{-- FICA status indicator --}}
 @php
     $ficaDocs = $contact->signedDocuments()

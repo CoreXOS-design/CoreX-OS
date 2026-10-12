@@ -28,4 +28,6 @@
           style="background:{{ $commTint }}; color:#fff;">
         {{ $commMeta['label'] }}
     </span>
+    {{-- Quick Links W1 — FICA status + Send/Resend (spec quick-links.md §4) --}}
+    @include('corex.contacts._fica-quick-link')
 </div>

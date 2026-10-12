@@ -1,6 +1,6 @@
 # Quick Links — a status chip + one-click action on every record page
 
-> **Status: DRAFT SPEC for Johan's review. No code written.** Requested by Johan 2026-10-12.
+> **Status: APPROVED by Johan 2026-10-12 (decisions in §8). Wave 0 + Wave 1 BUILT on QA2; Waves 2–4 not started.** Requested by Johan 2026-10-12.
 > Builds on `.ai/investigations/contact-property-quick-actions-2026-09-28.md` (Andre) and a four-way read-only audit of the
 > whole system done 2026-10-12 (contacts / properties / deals & documents / rentals, compliance, admin, dashboards).
 > Audit findings marked *(unverified)* were read from routes and model names, not from every Blade file — confirm on build.
@@ -198,7 +198,10 @@ Pre-fill is **read-only input convenience**: the receiving screen still applies 
 - **Wave 3:** rentals, compliance queues, Today-page tiles, people/admin.
 - **Wave 4:** Medium/Low rows. Each wave is its own commit set, tested one file at a time, and goes to Andre on QA2 before Staging.
 
-## 8. Decisions needed from Johan (business, not technical)
+## 8. Decisions (Johan, 2026-10-12)
+
+**Answered:** 1 = yes (senders may also resend and see status of their own requests); 2 = chip only, no blocking; 3 = wave order confirmed; 4 = yes, agency settings (+ Setup Wizard). The original questions follow.
+
 1. May anyone who can *send* a FICA form (agents, branch managers, admins) also **resend** it and **see the status of the requests they sent**, without being given the whole Compliance module? (Recommended: yes — otherwise an agent can send but is blind afterwards.)
 2. Should a missing/expired FICA **block** anything from the contact page (e.g. sending a mandate for signature), or only show the chip? (Recommended: chip only for now.)
 3. Wave order: confirm FICA first, then "book viewing / pre-approval / readiness" (Wave 2 H rows), then rentals.
@@ -221,3 +224,13 @@ Default-role check done: `agent` and `branch_manager` already hold `compliance.f
 **Modify:** `resources/views/corex/contacts/_header-badges.blade.php` (or `_header-actions`), `_fica-tab-body.blade.php`;
 `app/Http/Controllers/Compliance/FicaController.php` (`store`/`resend`: return-to-contact, duplicate guard, scope); `routes/web.php`
 (move resend/status behind `compliance.fica.send` only if 8-1 approved); contact list partial for row chip; `.ai/specs/compliance.md`; `.ai/CHAT_STARTER.md`.
+
+## 12. Wave 0 + 1 — as built (2026-10-12)
+- **Shared:** `resources/views/components/quick-link.blade.php` (`<x-quick-link>`: chip + slot for the action; optional `href`). Rules in `App\Support\Compliance\FicaQuickState` (pure, unit-tested); `Contact::ficaQuickState()` for one contact, `Contact::ficaQuickStatesFor()` batch-loads a whole list page in 2 queries. `Contact::ficaStatus()` unchanged except it now reads the agency's expiring-months setting.
+- **Contact page:** chip in the header badges + at the top of the FICA tab (`corex/contacts/_fica-quick-link.blade.php`; pop-up asks for an email only when the contact has none). **Buyer Hub header** carries the same chip. **Contact list:** a chip per row, linking to the contact's FICA tab (Send/Resend live on the contact, not in each row — keeps the list light).
+- **Property "Verify FICA" gate (§4.4):** not changed on the property side. Its link already lands on the contact's FICA tab, which now has the chip + Send/Resend, so the dead end is closed without a second pop-up. (Deviation from §4.4's "opens the pop-up on the property page".)
+- **Send/Resend (§4.3):** `compliance.fica.store` and `.resend` accept `return_to=contact` and come back to the contact (an agent without `access_compliance` is no longer sent to a 403 list after the email goes out). One live request per contact: a request still waiting on the client is refused (use Resend); an expired waiting one does not block a new one. Contact lookup is scoped (own/branch/agency): out-of-scope contact = 404. `resend` moved to the `compliance.fica.send` OR `access_compliance` gate (decision 8-1); `authorizeAgency()` still limits a sender to FICAs inside their own visibility scope.
+- **Agency settings (decision 8-4):** `agencies.fica_link_days` (default 14, 1–90) and `agencies.fica_expiring_after_months` (default 11, 1–60). Used by send, resend and request-corrections (link life) and by every FICA status (expiring point). Edited under Settings → FICA officers ("FICA requests — link life & expiry", `corex.settings.fica-request.save`, gate `manage_compliance_officer`) **and** in the Setup Wizard's Compliance step (saver `FicaOfficerAppointmentsController@saveRequestSettings`, has()-guarded per field, §6.1). Rule 10a satisfied.
+- **Not changed (report-only):** other 14-day links (e-sign signing tokens, rental-application tokens) are separate flows and keep their fixed life. The FICA tab's pre-existing View/PDF buttons still point into the `access_compliance` group (an agent without it still gets a 403 there) — the chip/status itself no longer depends on them.
+- **Owed:** `database/schema/mysql-schema.sql` snapshot refresh (`php artisan schema:dump` + DEFINER strip) for migration `2026_10_18_000100_add_fica_request_settings_to_agencies` — needs a migrated DB; the migration runs on top of the snapshot meanwhile. **Deploy:** `php artisan migrate` (adds the two columns, defaults = old behaviour).
+- **Tests:** `tests/Unit/Compliance/FicaQuickStateTest.php` (every chip state), `tests/Feature/QuickLinks/ContactFicaQuickLinkTest.php` (agent send/resend/no-403, duplicate guard, scope, no-email, link life, threshold, feature off, list batching, settings + wizard).

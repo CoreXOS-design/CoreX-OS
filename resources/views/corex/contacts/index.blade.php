@@ -812,6 +812,14 @@
                                 {{ $badgeName }}
                             </span>
                             @endforeach
+                            {{-- Quick Links W1 — FICA chip (batch-loaded in the controller); click goes to the contact's FICA tab where Send/Resend lives. --}}
+                            @if(! $isRestricted && isset($ficaQuickByContact[$contact->id]))
+                            <x-quick-link :tone="$ficaQuickByContact[$contact->id]['tone']"
+                                          :label="$ficaQuickByContact[$contact->id]['label']"
+                                          :title="$ficaQuickByContact[$contact->id]['detail']"
+                                          :href="route('corex.contacts.show', ['contact' => $contact, 'tab' => 'fica'])"
+                                          data-fica-quick-link="{{ $ficaQuickByContact[$contact->id]['key'] }}" />
+                            @endif
                         </div>
                         <div class="mt-1 flex flex-wrap gap-x-4 gap-y-1">
                             <span class="text-xs flex items-center gap-1" style="color:var(--text-secondary);">

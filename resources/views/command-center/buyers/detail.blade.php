@@ -101,6 +101,8 @@
                         <span class="ds-badge ds-badge-warning"
                               title="On the pipeline but has no countable wishlist (search criteria removed), so this {{ $isRentalContact ? 'tenant' : 'buyer' }} is excluded from all match figures. Add a wishlist to include them.">Not in figures</span>
                     @endunless
+                    {{-- Quick Links W1 — FICA status + Send/Resend (spec quick-links.md §4.4) --}}
+                    @include('corex.contacts._fica-quick-link', ['contact' => $buyer, 'modalKey' => '-hub'])
                 </div>
             </div>
             <div class="flex flex-wrap items-center justify-end gap-2">
