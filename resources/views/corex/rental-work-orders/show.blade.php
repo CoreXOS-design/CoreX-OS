@@ -314,7 +314,7 @@
                                     <label class="text-xs">Supplier</label><br>
                                     <select name="agency_service_provider_id" required class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
                                         @foreach(\App\Models\DealV2\AgencyServiceProvider::active()->maintenanceContractors()->pickerOrder()->get() as $provider)
-                                            <option value="{{ $provider->id }}" @selected($quote->agency_service_provider_id === $provider->id)>{{ $provider->name }}</option>
+                                            <option value="{{ $provider->id }}" @selected($quote->agency_service_provider_id === $provider->id)>{{ $provider->name }} - {{ $provider->calloutFeeSuffix() }}</option>
                                         @endforeach
                                     </select>
                                 </div>
@@ -366,12 +366,16 @@
             <div class="grid grid-cols-2 gap-2">
                 <div>
                     <label class="text-xs">Supplier</label><br>
-                    <select name="agency_service_provider_id" required class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
+                    @php($quotePickList = \App\Models\DealV2\AgencyServiceProvider::active()->maintenanceContractors()->pickerOrder()->get())
+                    <div x-data="{ chosen: '{{ (int) old('agency_service_provider_id', $workOrder->agency_service_provider_id) ?: '' }}' }" class="space-y-1">
+                    <select name="agency_service_provider_id" required x-model="chosen" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
                         <option value="">Select…</option>
-                        @foreach(\App\Models\DealV2\AgencyServiceProvider::active()->maintenanceContractors()->pickerOrder()->get() as $provider)
-                            <option value="{{ $provider->id }}" @selected((int) old('agency_service_provider_id', $workOrder->agency_service_provider_id) === (int) $provider->id)>{{ $provider->name }}</option>
+                        @foreach($quotePickList as $provider)
+                            <option value="{{ $provider->id }}" @selected((int) old('agency_service_provider_id', $workOrder->agency_service_provider_id) === (int) $provider->id)>{{ $provider->name }} - {{ $provider->calloutFeeSuffix() }}</option>
                         @endforeach
                     </select>
+                    @include('partials.contractor-inspect-choice', ['notices' => \App\Models\DealV2\AgencyServiceProvider::noticeMap($quotePickList), 'model' => 'chosen'])
+                    </div>
                 </div>
                 <div>
                     <label class="text-xs">Amount (R)</label>
@@ -526,6 +530,7 @@
                     <div class="text-sm"><strong data-supplier-name>{{ $prov->name }}</strong>
                         <span class="text-xs" style="color: var(--text-muted);">{{ $ct['email'] ?: 'no email' }} &middot; {{ $ct['phone'] ?: 'no mobile' }}</span>
                     </div>
+                    <p class="text-xs" data-supplier-callout="{{ $prov->calloutFeeStatus() }}">Call-out fee: <strong>@if($prov->calloutFeeStatus() === 'yes'){{ \App\Models\DealV2\AgencyServiceProvider::formatRand($prov->calloutFeeAmount()) }}@if($prov->calloutFeeNote()) ({{ $prov->calloutFeeNote() }})@endif @elseif($prov->calloutFeeStatus() === 'no')none @else not known &mdash; check before sending @endif</strong></p>
 
                     @if($js['sent'])
                         <p class="text-xs" data-job-sent><span class="ds-badge ds-badge-success">Job sent</span>
@@ -588,7 +593,7 @@
                 {{-- choose / change the contractor: the SAME single rule as the owner portal and the pre-send warning --}}
                 <details class="text-xs" @if(! $prov) open @endif>
                     <summary class="cursor-pointer font-semibold" data-choose-contractor>{{ $prov ? 'Choose a different contractor' : 'Choose the contractor' }}</summary>
-                    <form method="POST" action="{{ route('corex.rental-work-orders.contractor.appoint', $workOrder) }}" class="space-y-2 pt-2">
+                    <form method="POST" action="{{ route('corex.rental-work-orders.contractor.appoint', $workOrder) }}" class="space-y-2 pt-2" x-data="{ chosenContractor: '{{ (int) $workOrder->agency_service_provider_id ?: '' }}' }">
                         @csrf
                         @if($classes['suits']->isEmpty() && $classes['category'])
                             <p class="font-semibold" data-no-contractor-suits>No contractor loaded for {{ $classes['type'] ?: $classes['category'] }}.
@@ -605,14 +610,16 @@
                                 <div class="font-semibold pt-1" data-contractor-group>{{ $classes['category'] ? $group['label'] : 'Contractors' }}</div>
                                 @foreach($group['rows'] as $c)
                                     <label class="flex items-center gap-2 rounded-md px-2 py-1" style="border: 1px solid var(--border);" data-contractor-row="{{ $c['id'] }}">
-                                        <input type="radio" name="agency_service_provider_id" value="{{ $c['id'] }}" @checked((int) $workOrder->agency_service_provider_id === $c['id'])>
+                                        <input type="radio" name="agency_service_provider_id" value="{{ $c['id'] }}" x-model="chosenContractor" @checked((int) $workOrder->agency_service_provider_id === $c['id'])>
                                         <span class="font-medium">{{ $c['name'] }}</span>
                                         @if($c['trades'])<span style="color: var(--text-muted);">{{ $c['trades'] }}</span>@endif
                                         @if(! $c['has_contact'])<span class="ds-badge ds-badge-danger" data-no-contact-details>no contact details</span>@endif
+                                        <span style="color: var(--text-muted);" data-callout-suffix="{{ $c['callout_status'] }}">- {{ $c['callout'] }}</span>
                                     </label>
                                 @endforeach
                             @endif
                         @endforeach
+                        @include('partials.contractor-inspect-choice', ['notices' => $classes['suits']->concat($classes['others'])->mapWithKeys(fn ($c) => [(string) $c['id'] => ['name' => $c['name'], 'text' => $c['callout_notice'], 'status' => $c['callout_status']]])->all(), 'model' => 'chosenContractor'])
                         <button type="submit" class="corex-btn-outline text-xs" data-appoint-contractor-submit>Choose and send the job</button>
                     </form>
                 </details>

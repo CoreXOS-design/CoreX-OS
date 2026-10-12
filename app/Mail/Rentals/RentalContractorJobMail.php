@@ -46,7 +46,13 @@ class RentalContractorJobMail extends RentalMaintenanceMail
 
     protected function viewData(): array
     {
+        // .ai/specs/rentals-faults-work-orders.md §20.4 - the call-out fee on our records, stated only when the supplier charges one
+        $supplier = $this->workOrder->supplier()->withoutGlobalScopes()->withTrashed()->first();
+        $fee = $supplier?->calloutFeeAmount();
+
         return [
+            'calloutFee' => $fee !== null ? \App\Models\DealV2\AgencyServiceProvider::formatRand($fee) : null,
+            'calloutNote' => $supplier?->calloutFeeNote(),
             'contractorName' => $this->contractorName ?: 'there',
             'title' => $this->workOrder->title,
             'description' => $this->workOrder->description,

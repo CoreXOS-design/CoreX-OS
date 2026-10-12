@@ -82,11 +82,15 @@
                         @if($c['trades'])<span class="text-xs" style="color: var(--text-muted);">{{ $c['trades'] }}</span>@endif
                         @if($c['phone'])<span class="text-xs" style="color: var(--text-muted);">{{ $c['phone'] }}</span>@endif
                         @if(! ($c['has_contact'] ?? true))<span class="ds-badge ds-badge-danger" data-no-contact-details>no contact details</span>@endif
+                        @if(isset($c['callout']))<span class="text-xs" style="color: var(--text-muted);" data-callout-suffix="{{ $c['callout_status'] }}">- {{ $c['callout'] }}</span>@endif
                     </label>
                 @endforeach
             @empty
                 <p class="text-xs" style="color: var(--text-muted);">No contractors are set up yet. Add one under Suppliers, or use the internal crew.</p>
             @endforelse
+            {{-- §20 - shown the moment a contractor is chosen, before the agent confirms. No blocking. --}}
+            @include('partials.contractor-inspect-choice', ['notices' => collect($contractorPicker)->mapWithKeys(fn ($c) => [(string) $c['id'] => ['name' => $c['name'], 'text' => $c['callout_notice'], 'status' => $c['callout_status']]])->all(), 'model' => 'picked'])
+        </div>
         </div>
 
         <div x-show="who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR }}'" x-cloak class="grid grid-cols-2 gap-3">

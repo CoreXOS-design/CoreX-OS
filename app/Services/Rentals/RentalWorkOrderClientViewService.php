@@ -143,6 +143,7 @@ class RentalWorkOrderClientViewService
             'stage_label' => $this->stageLabel($workOrder, $audience),
             'who_label' => $internal ? RentalWorkOrderSetting::internalTeamLabelFor($workOrder->agency_id) : ($ownerContractor ? ($audience === self::AUDIENCE_LANDLORD ? 'Your contractor' : "Owner's contractor") : 'Contractor arranged by the agency'),
             'contractor_name' => $this->contractorNameFor($workOrder, $audience),
+            'contractor_callout' => $this->calloutLineFor($workOrder, $audience),
             'appointment_at' => $this->appointmentAt($workOrder)?->toIso8601String(),
             'appointment_note' => $this->appointmentAt($workOrder) ? $workOrder->appointment_note : null,
             'completed_at' => $workOrder->completed_at?->toIso8601String(),
@@ -179,6 +180,19 @@ class RentalWorkOrderClientViewService
         $decision = app(\App\Services\Rentals\RentalApprovalGateService::class)->authoriseToProceed($workOrder, false);
 
         return $decision->authorised ? null : $decision->note;
+    }
+
+    /**
+     * .ai/specs/rentals-faults-work-orders.md §20.4 - "Call-out fee: R750 (note)" for the OWNER only, and only when the appointed outside
+     * contractor charges one. The tenant never sees a fee; an owner's own contractor has no fee on our records.
+     */
+    private function calloutLineFor(RentalWorkOrder $workOrder, string $audience): ?string
+    {
+        if ($audience !== self::AUDIENCE_LANDLORD || $workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL || $workOrder->isOwnerContractor()) {
+            return null;
+        }
+
+        return $workOrder->supplier()->withoutGlobalScopes()->withTrashed()->first()?->calloutFeeLine();
     }
 
     /** The contractor's name as THIS audience may read it: the tenant is not given an outside contractor's name before the job is approved. */
@@ -242,6 +256,7 @@ class RentalWorkOrderClientViewService
             'who' => $internal ? 'our_team' : ($ownerContractor ? 'owner_contractor' : 'external_contractor'),
             'who_label' => $internal ? RentalWorkOrderSetting::internalTeamLabelFor($workOrder->agency_id) : ($ownerContractor ? ($audience === self::AUDIENCE_LANDLORD ? 'Your contractor' : "Owner's contractor") : 'Contractor arranged by the agency'),
             'contractor_name' => $this->contractorNameFor($workOrder, $audience),
+            'contractor_callout' => $this->calloutLineFor($workOrder, $audience),
             'contractor_phone' => ($ownerContractor && $audience === self::AUDIENCE_LANDLORD) ? ($workOrder->contractor_phone ?: null) : null,
             // W2: the appointment for the repair. `scheduled_at` is kept for older consumers of this endpoint.
             'appointment_at' => $appointment?->toIso8601String(),

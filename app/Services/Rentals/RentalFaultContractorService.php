@@ -86,6 +86,8 @@ class RentalFaultContractorService
                 'email' => $contact['email'], 'mobile' => $contact['phone'], 'has_contact' => $contact['has_contact'],
                 'trades' => ($trades[$p->id] ?? collect())->map(fn ($t) => $labels[$t->service_type] ?? $t->service_type)->unique()->implode(', '),
                 'suits' => $category === '' ? true : $ticked->contains((int) $p->id),
+                // .ai/specs/rentals-faults-work-orders.md §20 - the call-out fee, as the picker shows it (the supplier's own methods are the only source)
+                'callout' => $p->calloutFeeSuffix(), 'callout_status' => $p->calloutFeeStatus(), 'callout_amount' => $p->calloutFeeAmount(), 'callout_notice' => $p->calloutFeeNotice(),
             ];
         });
 

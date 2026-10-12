@@ -1277,3 +1277,42 @@ Unchanged on purpose: the title "Add <type> to an existing contractor", its sub-
 - **Owner "Request work" form (owner only; the tenant's form is unchanged).** An owner instructs, they do not troubleshoot: the type dropdown stays, the self-help ("Before you request work", "That fixed it") is gone. Heading **"Ask your agent to arrange work"**; fields **What needs doing** (type), **Details**, **Photos (optional)**, **Your comment to your agent (optional)**; button **"Send work request to my agent"**; after sending: **"Sent to your agent. They will arrange a contractor and a quote."** There is no title box - the type's name (or the start of the details) is the title; a type or some details are required.
 - **What reaches the agent.** The fault is flagged **"Requested by the owner"** (banner on the fault page; alert "Work requested by the owner - <address>" to both lease agents, opening straight onto the create-work-order step). The owner's instruction IS their authority to go to a quote: the fault is born approved (the agency appoints), recorded as the owner's own decision from the portal, so the owner is never asked to decide on their own request, and the tenant is not mailed about a fault they never reported. **Limits still apply afterwards:** a quote above the property's agent limit goes to the owner to approve. The same applies to "Ask my agent to have this repaired" on a tenant-resolved fault (§19.12). The owner reads it as "With your agent".
 - **Alert popup (answer only, no change):** auto-dismisses after 9 s (longer for long text, up to 15 s - `components/toast-notifications.blade.php:85-90`), or sooner on its X (`:59`); clicking it opens the alert's link (`:107-109`). It is shown once per browser tab session (ids kept in `sessionStorage`, `components/alert-popups.blade.php:41-78`), so it does not return on the next page load; it does not mark the alert read - it stays unread in the Today tile / `/corex/notifications` until opened there.
+
+## 20. Call-out fee on a supplier (AT-452 family, Johan 12 Oct 2026, QA1)
+**Business rule.** A contractor may charge just to come out. The agent must know that BEFORE sending someone, and the owner must be told. This section only adds the fee as a fact on the supplier record and shows it; it never blocks anything. The approval rule on top of it ("owner must agree to a call-out") belongs to the fault-flow work and reads the two methods in 20.3.
+
+### 20.1 Data (additive migration `2026_10_26_100000_supplier_callout_fee`)
+- `agency_service_providers`: `callout_fee_mode` varchar(7) NOT NULL default `unknown` (`yes` | `no` | `unknown`), `callout_fee_amount` decimal(10,2) NULL (incl. VAT, ZAR), `callout_fee_note` varchar(255) NULL. Every existing supplier becomes **Not known**; nothing is guessed or back-filled.
+- `agency_service_provider_callout_history` (append-only): agency_id, service_provider_id, user_id (null = system), source (`directory` | `popup` | `create`), from_mode/from_amount/from_note, to_mode/to_amount/to_note, created_at.
+- Rules (one place, `SupplierCalloutFeeService`): **Yes** needs an amount above R0; the note is optional; **No / Not known** clear the amount and note. Nothing changes and no history row is written when nothing actually changed.
+
+### 20.2 Wording (identical everywhere)
+- Question: **"Charges a call-out fee?"** - Yes / No / Not known. When Yes: **"Call-out fee (R, incl. VAT)"** (required) and **"Call-out note"** (optional, e.g. "waived if the job goes ahead", "after hours R1 200").
+- Picker suffix: **"- call-out R750"** / **"- no call-out fee"** / **"- call-out fee not known"** (amounts print as R750, R1 200, R750.50).
+- Notice before sending someone to inspect/quote: Yes: **"<Supplier> charges a call-out fee of R750. The owner will be told."** Not known: **"We don't know if <Supplier> charges a call-out fee - check before sending."** No: nothing.
+
+### 20.3 Methods other work builds on (`AgencyServiceProvider`)
+`calloutFeeStatus(): 'yes'|'no'|'unknown'`, `calloutFeeAmount(): ?float` (null unless yes), `calloutFeeNote(): ?string`, `calloutFeeSuffix(): string` (picker text), `calloutFeeLine(): ?string` (the sentence for notices; null unless yes). Fault-flow code must call these, never read the columns.
+
+### 20.4 Where it shows
+| Where | What |
+|---|---|
+| Supplier Directory (`deals-v2/suppliers`) | New **Call-out** column (sortable, filterable: Any / Charges / No fee / Not known); search by name, company, email, phone; sort by name, trade, call-out; status filter (Active / Inactive / All); pagination (50); **Restore** next to Deactivate; an inline "Call-out fee" editor on each active supplier row that saves through its own route; last changes shown in the row's history. |
+| "Add a provider" form and the two fault/work-order "Add a contractor" popups | The same three-way question and fields (shared `_add-form`). |
+| Pickers | Fault page contractor list; work order quote picker and "Send work order to contractor" picker; invoice supplier picker - suffix per 20.2. |
+| Fault page picker and work order pickers | The notice in 20.2 appears as soon as a supplier is chosen, before the agent confirms. |
+| Work order supplier card | A "Call-out fee: ..." line under the contractor's name (all three states). |
+| Owner | The appointment line of the owner's progress view and the owner portal's work order summary state **"Call-out fee: R750 (note)"** when there is one. Never shown to the tenant. |
+| Contractor job email | When the fee is Yes: "Call-out fee on our records: R750 (note). Tell us if this is not right." Nothing for No / Not known. |
+
+### 20.5 Permissions and scoping
+Editing uses the existing `deals_v2.manage_suppliers` (routes and controller); every read and write is limited to the user's own agency at the query layer; a supplier of another agency is a 403/404 by id. No new permission key. Not a setting, so no wizard step (wording lives in code, the fee is per supplier).
+
+### 20.6 Tests (`tests/Feature/RentalFaultFlow/SupplierCalloutFeeTest.php`)
+Default Not known; Yes needs an amount; No/Not known clear it; unchanged save writes no history; history who/from/to; methods; suffix text for all three states and amount formats; picker rows carry the suffix; notice texts; directory search/sort/filter/pagination/agency scope/restore; popup JSON create with fee; other agency's supplier refused; owner line present and tenant line absent; contractor email line only for Yes.
+
+### 20.7 Johan's ruling (12 Oct 2026): the agent's TWO choices, ONE shared block
+Whenever a contractor is selected to go and look at a fault - with a call-out fee, without, or not known - the agent's choices are exactly two, as two equal-sized, aligned buttons beside the call-out notice: **"Send <name> to inspect"** and **"Send to owner to authorise"**. Same wording for cc5's default contractor / caretaker.
+- ONE partial: `resources/views/partials/contractor-inspect-choice.blade.php` (notice + the two buttons). The fault page, the work order page and cc5's default-contractor screen all `@include` it; nobody keeps a second copy.
+- This work (call-out fee) owns the **notice** and the fee methods. The partial renders the two buttons **only when the caller passes `$inspectAttrs` and `$authoriseAttrs`** - what each button does is the fault flow's (cc6) decision, wired by the caller; until it is wired the notice shows and no dead button appears.
+- The notice never blocks; "no fee" shows no notice but the buttons still apply.

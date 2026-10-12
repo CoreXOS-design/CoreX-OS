@@ -1196,6 +1196,9 @@ Route::prefix('deals-v2/suppliers')->middleware(['auth'])->group(function () {
     // The firm's business address — needed on any document the firm signs (e.g. an executor).
     Route::post('/{provider}/address', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'updateAddress'])->name('deals-v2.suppliers.address')->middleware('permission:deals_v2.manage_suppliers');
     Route::post('/{provider}/deactivate', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'deactivate'])->name('deals-v2.suppliers.deactivate')->middleware('permission:deals_v2.manage_suppliers');
+    // §20 - a supplier's call-out fee (own route, history written) and Restore of a deactivated supplier.
+    Route::post('/{provider}/callout-fee', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'setCalloutFee'])->name('deals-v2.suppliers.callout-fee')->middleware('permission:deals_v2.manage_suppliers');
+    Route::post('/{provider}/activate', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'activate'])->name('deals-v2.suppliers.activate')->middleware('permission:deals_v2.manage_suppliers');
     // (DR2 respec) firm → contact persons management.
     Route::post('/{provider}/contacts', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'storeContact'])->name('deals-v2.suppliers.contacts.store')->middleware('permission:deals_v2.manage_suppliers');
     Route::post('/contacts/{contact}/deactivate', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'deactivateContact'])->name('deals-v2.suppliers.contacts.deactivate')->middleware('permission:deals_v2.manage_suppliers');

@@ -332,6 +332,7 @@
                                         <div class="row"><h2 x-text="w.title"></h2><span class="badge" x-text="w.stage_label"></span></div>
                                         <p class="muted" x-show="w.property_address" x-text="w.property_address"></p>
                                         <p class="muted" x-text="w.who_label + (w.contractor_name ? ' — ' + w.contractor_name : '')"></p>
+                                        <p class="muted" x-show="w.contractor_callout" x-text="w.contractor_callout" data-owner-callout></p>
                                         <p class="muted" x-show="w.completed_at" x-text="w.completed_at ? 'Completed ' + w.completed_at.substring(0,10) : ''"></p>
                                         <p x-show="!w.completed_at && w.appointment_at"><strong x-text="w.appointment_at ? 'Appointment: ' + new Date(w.appointment_at).toLocaleString([], {dateStyle:'full', timeStyle:'short'}) : ''"></strong><span class="muted" x-show="w.appointment_note" x-text="w.appointment_note ? ' — ' + w.appointment_note : ''"></span></p>
                                         <div class="photo-grid" x-show="w.photos.length">
@@ -438,6 +439,7 @@
                                         <div class="row"><h2 x-text="w.title"></h2><span class="badge" x-text="w.stage_label"></span></div>
                                         <p class="muted" x-show="w.property_address" x-text="w.property_address"></p>
                                         <p class="muted" x-text="w.who_label + (w.contractor_name ? ' — ' + w.contractor_name : '')"></p>
+                                        <p class="muted" x-show="w.contractor_callout" x-text="w.contractor_callout" data-owner-callout></p>
                                         <p class="muted" x-show="w.completed_at" x-text="w.completed_at ? 'Completed ' + w.completed_at.substring(0,10) : ''"></p>
                                         <p x-show="!w.completed_at && w.appointment_at"><strong x-text="w.appointment_at ? 'Appointment: ' + new Date(w.appointment_at).toLocaleString([], {dateStyle:'full', timeStyle:'short'}) : ''"></strong><span class="muted" x-show="w.appointment_note" x-text="w.appointment_note ? ' — ' + w.appointment_note : ''"></span></p>
                                         <a class="link" href="#" x-show="w.rental_fault_report_id" @click.prevent="landlordTab='faults'; loadLandlordFaults(); openFault(w.rental_fault_report_id)">See the fault →</a>

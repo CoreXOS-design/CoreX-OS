@@ -10,6 +10,7 @@ use App\Models\DealV2\AgencyServiceType;
 use App\Models\DealV2\DealV2;
 use App\Models\Scopes\AgencyScope;
 use App\Services\DealV2\AgencyServiceProviderService;
+use App\Services\DealV2\SupplierCalloutFeeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -38,14 +39,34 @@ class SupplierDirectoryController extends Controller
     public function index(Request $request)
     {
         $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
-        $providers = AgencyServiceProvider::query()->withoutGlobalScopes()
+        $f = $this->listFilters($request);
+        $query = AgencyServiceProvider::query()->withoutGlobalScopes()
             ->where('agency_id', $agencyId)
             ->with([
                 'serviceContacts' => fn ($q) => $q->orderByDesc('is_active')->orderBy('attorney_name'),
                 'serviceTypes',
-            ])
-            ->orderByDesc('is_active')->orderBy('specialty')->orderByDesc('is_preferred')->orderBy('name')
-            ->get();
+            ]);
+        // §20.4 - search (name, company, email, phone), status and call-out filters, sortable columns; default order unchanged.
+        if ($f['q'] !== '') {
+            $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $f['q']) . '%';
+            $query->where(fn ($w) => $w->where('name', 'like', $like)->orWhere('company', 'like', $like)->orWhere('email', 'like', $like)->orWhere('phone', 'like', $like));
+        }
+        if ($f['status'] !== 'all') {
+            $query->where('is_active', $f['status'] === 'active');
+        }
+        if ($f['callout'] !== 'any') {
+            $query->where('callout_fee_mode', $f['callout']);
+        }
+        $dir = $f['dir'] === 'desc' ? 'desc' : 'asc';
+        match ($f['sort']) {
+            'name' => $query->orderBy('name', $dir),
+            'specialty' => $query->orderBy('specialty', $dir)->orderBy('name'),
+            'status' => $query->orderBy('is_active', $dir)->orderBy('name'),
+            // asc = charges (largest fee first), then no fee, then not known; desc = the reverse
+            'callout' => $query->orderByRaw("FIELD(callout_fee_mode, 'yes', 'no', 'unknown') " . $dir)->orderBy('callout_fee_amount', $dir === 'asc' ? 'desc' : 'asc')->orderBy('name'),
+            default => $query->orderByDesc('is_active')->orderBy('specialty')->orderByDesc('is_preferred')->orderBy('name'),
+        };
+        $providers = $query->paginate(50)->withQueryString();
 
         // AT-319 — the agency's active, configurable service types drive the per-supplier tick boxes.
         // Resolve the SAME way Settings → COC/Service Types does (AgencyScope / acting-agency session
@@ -64,11 +85,34 @@ class SupplierDirectoryController extends Controller
 
         return view('deals-v2.suppliers.index', [
             'providerEvents' => $events,
+            'calloutHistory' => $this->calloutHistory($agencyId, $providers->pluck('id')),
+            'filters' => $f,
             'providers' => $providers,
             'specialties' => self::SPECIALTIES,
             'serviceTypes' => $serviceTypes,
             'returnFault' => $this->returnFault($request, $agencyId),
         ]);
+    }
+
+    /** @return array{q:string, status:string, callout:string, sort:string, dir:string} the directory's search / filter / sort, whitelisted */
+    private function listFilters(Request $request): array
+    {
+        return [
+            'q' => trim((string) $request->query('q', '')),
+            'status' => in_array($request->query('status'), ['active', 'inactive'], true) ? $request->query('status') : 'all',
+            'callout' => in_array($request->query('callout'), AgencyServiceProvider::CALLOUT_MODES, true) ? $request->query('callout') : 'any',
+            'sort' => in_array($request->query('sort'), ['name', 'specialty', 'callout', 'status'], true) ? $request->query('sort') : '',
+            'dir' => $request->query('dir') === 'desc' ? 'desc' : 'asc',
+        ];
+    }
+
+    /** The last few call-out fee changes per supplier (who, when, from, to) for the rows on this page. */
+    private function calloutHistory(int $agencyId, $providerIds)
+    {
+        return \Illuminate\Support\Facades\DB::table('agency_service_provider_callout_history as h')->leftJoin('users as u', 'u.id', '=', 'h.user_id')
+            ->where('h.agency_id', $agencyId)->whereIn('h.service_provider_id', $providerIds)->orderByDesc('h.id')->limit(300)
+            ->get(['h.service_provider_id', 'h.from_mode', 'h.from_amount', 'h.from_note', 'h.to_mode', 'h.to_amount', 'h.to_note', 'h.created_at', 'u.name as by'])
+            ->groupBy('service_provider_id');
     }
 
     /**
@@ -125,9 +169,14 @@ class SupplierDirectoryController extends Controller
 
     public function store(Request $request)
     {
-        $data = $this->validated($request);
+        $data = $this->validated($request, true);
+        $callout = \Illuminate\Support\Arr::only($data, array_keys(SupplierCalloutFeeService::rules()));
         $agencyId = (int) $request->user()?->effectiveAgencyId();
         $provider = $this->service->findOrCreate($agencyId, $data, $request->user()->id);
+        // §20 - the fee is set on a supplier added just now; a match with an existing supplier is never overwritten from an "add" form.
+        if ($provider->wasRecentlyCreated) {
+            app(SupplierCalloutFeeService::class)->apply($provider, $callout['callout_fee_mode'] ?? null, $callout['callout_fee_amount'] ?? null, $callout['callout_fee_note'] ?? null, $request->user(), $request->wantsJson() ? SupplierCalloutFeeService::SOURCE_POPUP : SupplierCalloutFeeService::SOURCE_CREATE);
+        }
         // The directory's own match-or-create also finds contractors that were ARCHIVED earlier (same specialty and email, or name) and leaves
         // them archived. In the popup that would say "added" while nothing on the fault screen changes, so say what really happened instead.
         if ($request->wantsJson() && $provider->trashed()) {
@@ -354,6 +403,32 @@ class SupplierDirectoryController extends Controller
         return back()->with('success', "Updated the address for {$provider->name}.");
     }
 
+    /**
+     * §20 - set a supplier's call-out fee from the directory (own route, same idiom as syncTypes / address: saving it never trips update()'s
+     * required-field rules). Yes needs an amount; No / Not known clear it. A change is written to the supplier's call-out history.
+     */
+    public function setCalloutFee(Request $request, AgencyServiceProvider $provider)
+    {
+        $this->authorizeAgency($request, $provider);
+        $data = $request->validate(['callout_fee_mode' => 'required|in:yes,no,unknown'] + array_diff_key(SupplierCalloutFeeService::rules(), ['callout_fee_mode' => 1]), SupplierCalloutFeeService::messages(), SupplierCalloutFeeService::attributeNames());
+        $changed = app(SupplierCalloutFeeService::class)->apply($provider, $data['callout_fee_mode'], $data['callout_fee_amount'] ?? null, $data['callout_fee_note'] ?? null, $request->user(), SupplierCalloutFeeService::SOURCE_DIRECTORY);
+
+        if ($request->wantsJson()) {
+            return response()->json(['ok' => true, 'changed' => $changed, 'suffix' => $provider->fresh()->calloutFeeSuffix()]);
+        }
+
+        return back()->with('success', $changed ? "Call-out fee updated for {$provider->name}: " . $provider->fresh()->calloutFeeSuffix() . '.' : "No change to the call-out fee for {$provider->name}.");
+    }
+
+    /** Restore a deactivated supplier (soft-delete discipline: nothing is ever hard-deleted, everything can come back). */
+    public function activate(Request $request, AgencyServiceProvider $provider)
+    {
+        $this->authorizeAgency($request, $provider);
+        $provider->update(['is_active' => true]);
+
+        return back()->with('success', "{$provider->name} restored - offered in new pickers again.");
+    }
+
     public function markPreferred(Request $request, AgencyServiceProvider $provider)
     {
         $this->authorizeAgency($request, $provider);
@@ -414,9 +489,9 @@ class SupplierDirectoryController extends Controller
 
     // ── helpers ──────────────────────────────────────────────────────────
 
-    private function validated(Request $request): array
+    private function validated(Request $request, bool $withCallout = false): array
     {
-        return $request->validate([
+        return $request->validate(array_merge([
             'name' => 'required|string|max:191',
             'specialty' => 'required|string|in:' . implode(',', self::SPECIALTIES),
             'company' => 'nullable|string|max:191',
@@ -427,10 +502,10 @@ class SupplierDirectoryController extends Controller
             'notes' => 'nullable|string',
             'is_preferred' => 'sometimes|boolean',
             'contact_id' => 'nullable|integer',
-        ], [], $request->wantsJson() ? [
+        ], $withCallout ? SupplierCalloutFeeService::rules() : []), $withCallout ? SupplierCalloutFeeService::messages() : [], ($request->wantsJson() ? [
             // the fault / work order popups talk in the agent's words ("The trade field is required."), the directory page is unchanged
             'specialty' => 'trade', 'registration_number' => 'company registration number', 'is_preferred' => 'preferred contractor tick',
-        ] : []);
+        ] : []) + SupplierCalloutFeeService::attributeNames());
     }
 
     /**
@@ -547,6 +622,7 @@ class SupplierDirectoryController extends Controller
             'is_bond_attorney' => (bool) $p->is_bond_attorney,
             // AT-319 — the AgencyServiceType codes this supplier handles (drives the picker filter).
             'types' => $p->typeCodes(),
+            'callout' => ['status' => $p->calloutFeeStatus(), 'amount' => $p->calloutFeeAmount(), 'suffix' => $p->calloutFeeSuffix()],
         ];
     }
 }

@@ -75,6 +75,7 @@
                     <div data-fault-work-order>
                         <p><strong>The repair</strong> <span class="badge" x-text="faultDetail.work_order.stage_label"></span></p>
                         <p class="muted" x-text="faultDetail.work_order.who_label + (faultDetail.work_order.contractor_name ? ' — ' + faultDetail.work_order.contractor_name : '')"></p>
+                        <p class="muted" x-show="faultDetail.work_order.contractor_callout" x-text="faultDetail.work_order.contractor_callout" data-owner-callout></p>
                         <p x-show="faultDetail.work_order.appointment_at"><strong x-text="faultDetail.work_order.appointment_at ? 'Appointment: ' + new Date(faultDetail.work_order.appointment_at).toLocaleString([], {dateStyle:'full', timeStyle:'short'}) : ''"></strong></p>
                         <button class="btn btn-outline" @click="landlordTab='jobs'; loadWorkOrders(); loadDecisions()">Open the work order</button>
                     </div>
