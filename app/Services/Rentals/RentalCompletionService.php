@@ -375,7 +375,7 @@ class RentalCompletionService
         }
 
         if (! $dispute) {
-            $this->notifyStaff($wo, 'rental_work_order.completion_confirmed', 'Tenant confirmed the work is done — ' . $this->addressFor($wo), $wo->title);
+            $this->notifyStaff($wo, 'rental_work_order.completion_confirmed', 'Tenant confirmed the work is done — ' . $this->addressFor($wo), $wo->title, false, $user);
             $wo->resolveReportedFault($user);   // the agent completed first and the tenant answered later: the fault resolves now
 
             return;
@@ -387,6 +387,7 @@ class RentalCompletionService
             'Tenant says the work is NOT complete — ' . $this->addressFor($wo),
             mb_substr((string) $round->response_note, 0, 240),
             alsoBranchManager: true,
+            actor: $user,
         );
         if (RentalWorkOrderSetting::notifyLandlordOnDisputeFor($wo->agency_id)) {
             SendLandlordDisputeMailJob::dispatch((int) $round->id);
@@ -712,10 +713,15 @@ class RentalCompletionService
     }
 
     /** In-app staff notification (§17.16) to the property's agent — and the branch manager when asked. */
-    private function notifyStaff(RentalWorkOrder $wo, string $eventKey, string $title, string $body, bool $alsoBranchManager = false): void
+    private function notifyStaff(RentalWorkOrder $wo, string $eventKey, string $title, string $body, bool $alsoBranchManager = false, ?User $actor = null): void
     {
-        $recipients = collect();
-        if ($agent = $this->agentFor($wo)) {
+        // AT-451 round 2: the same people who heard about the fault (both lease agents, else the property's agent, else the
+        // branch / office / agency admin) - and never the staff member who recorded the answer on the tenant's behalf.
+        $property = Property::withoutGlobalScopes()->withTrashed()->find($wo->property_id);
+        $recipients = $property
+            ? app(\App\Services\Rentals\LeaseAgentService::class)->recipientsForEvent($wo->lease, $property, (int) $wo->agency_id, $actor)
+            : collect();
+        if ($recipients->isEmpty() && ! $property && ($agent = $this->agentFor($wo)) && (int) $agent->id !== (int) $actor?->id) {
             $recipients->push($agent);
         }
         if ($alsoBranchManager && $wo->branch_id) {
@@ -728,7 +734,7 @@ class RentalCompletionService
             }
         }
 
-        foreach ($recipients->unique('id') as $user) {
+        foreach ($recipients->unique('id')->reject(fn ($u) => $actor && (int) $u->id === (int) $actor->id) as $user) {
             try {
                 app(NotificationDispatcher::class)->fire($user, $eventKey, $wo, [
                     'title' => $title,

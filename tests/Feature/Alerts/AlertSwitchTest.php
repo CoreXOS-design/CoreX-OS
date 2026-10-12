@@ -16,7 +16,6 @@ use App\Services\CommandCenter\AlertSwitchService;
 use App\Services\CommandCenter\NotificationDispatcher;
 use App\Services\CommandCenter\NotificationPreferenceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 /**
@@ -244,30 +243,7 @@ final class AlertSwitchTest extends TestCase
         $this->assertSame(0, NotificationDropLog::where('user_id', $on->id)->count());
     }
 
-    // ── A: what the popup is told ──────────────────────────────────────────────────────────
-
-    public function test_the_endpoint_gives_the_popup_the_unread_alert_and_says_in_app_is_on(): void
-    {
-        $user = $this->user();
-        $this->assertTrue($this->fire($user));
-
-        Sanctum::actingAs($user);
-        $json = $this->getJson('/api/v1/notifications?unread=1&limit=20')->assertOk()->json();
-
-        $this->assertTrue($json['in_app']);
-        $this->assertSame(1, $json['unread']);
-        $this->assertSame('Fault reported - Unit 33', $json['items'][0]['title']);
-        $this->assertNull($json['items'][0]['read_at']);
-        $this->assertStringContainsString('/corex/rental-fault-reports/90', $json['items'][0]['action_url']);
-    }
-
-    public function test_the_endpoint_says_in_app_is_off_so_the_popup_stays_quiet(): void
-    {
-        $user = $this->user('agent', null, null, ['in_app' => false, 'email' => true, 'push' => true]);
-
-        Sanctum::actingAs($user);
-        $this->getJson('/api/v1/notifications?unread=1&limit=20')->assertOk()->assertJsonPath('in_app', false);
-    }
+    // ── A: the popup component (the feed itself is tested in AlertFeedTest) ──────────────────
 
     public function test_the_popup_component_carries_the_agency_interval_clamped_and_the_users_own_storage_key(): void
     {

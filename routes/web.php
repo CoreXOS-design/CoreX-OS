@@ -465,6 +465,10 @@ Route::middleware('auth')->group(function () {
         // session (components/reminder-toast.blade.php). MUST live in this
         // session-authenticated group, NOT under api.php's auth:sanctum (token-only,
         // stateful session disabled) which 401'd every poll. Self-scoped per user.
+        // AT-451 round 2 - the live ALERT popup's feed (components/alert-popups.blade.php). Same reason as the reminders poll
+        // below: it MUST be here (session cookie), not in api.php's token-only mobile group (/api/v1/notifications), which 401'd it.
+        Route::get('/alerts/unread', [\App\Http\Controllers\Api\V1\AlertFeedController::class, 'unread'])->middleware('throttle:120,1')->name('alerts.unread');
+
         Route::get('/command-center/reminders/due',           [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'due'])->name('command-center.reminders.due');
         Route::post('/command-center/reminders/{log}/read',   [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'read'])->whereNumber('log')->name('command-center.reminders.read');
         Route::post('/command-center/reminders/{log}/snooze', [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'snooze'])->whereNumber('log')->name('command-center.reminders.snooze');

@@ -1,22 +1,27 @@
 {{--
-    AT-451 — live popup for a NEW alert (Johan, 12 Oct 2026).
+    AT-451 — live popup for a NEW alert (Johan, 12 Oct 2026). Round 2: now works in a real staff browser session.
 
-    A quiet poll of the unread-alerts endpoint (/api/v1/notifications?unread=1). An unread alert that appears AFTER the
-    page loaded, that this browser session has not shown yet, pops up through the app's own toast (window.showToast,
-    components/toast-notifications) and clicks through to the alert's own link.
+    A quiet poll of the session-authenticated feed GET /api/v1/alerts/unread (Api\V1\AlertFeedController, routes/web.php beside
+    the reminders poll — NOT /api/v1/notifications, which is the mobile app's token-only route and answered a browser session
+    with 401). An unread alert that appears AFTER the page loaded and that this browser session has not shown yet pops up
+    through the app's own toast (window.showToast, components/toast-notifications) and clicks through to the alert's own link.
+
+    The feed is a CURSOR feed, never "all unread": the first poll of a page (the baseline) sends no cursor and the server just
+    answers with its clock; every later poll sends ?after=<cursor> and gets only the user's unread alerts created since, via
+    the index notifications_feed_index (notifiable_type, notifiable_id, created_at). Whatever was already waiting at page load is
+    therefore never popped up, and a user with tens of thousands of unread alerts costs the same as one with none.
 
     Rules this honours:
-      - how often it asks is the agency's setting (Settings -> Dashboard -> "Check for new alerts every", default 30s,
-        never below 15s) — AlertSwitchService::pollSecondsFor();
-      - alerts already unread when the page loaded are never popped up, and an alert is never shown twice in a session
-        (the ids seen are kept in sessionStorage, per user);
+      - how often it asks is the agency's setting (Settings -> Dashboard -> "Check for new alerts every", default 30s, never
+        below 15s) — AlertSwitchService::pollSecondsFor();
+      - an alert is never shown twice in a session (ids seen are kept in sessionStorage, per user);
       - nothing is polled while the tab is hidden, and it catches up the moment the tab is visible again;
-      - a 401/419 (logged out / session ended) stops the poll cleanly, with no console noise;
-      - the user's own in-app switch wins: the endpoint says whether in-app alerts are on, and if not, nothing pops up;
-      - staff layouts only (layouts/corex.blade.php) — never the public portal or public signing pages — and never
-        inside an embedded frame;
+      - a failed poll is retried with a growing delay (the interval x2, x4 ... capped at 5 minutes), never given up on; a 401/419
+        is checked against the session-armour probe (/api/v1/csrf-token): only if THAT also says the login is gone does polling
+        stop, otherwise it was a hiccup and polling carries on;
+      - the user's own in-app switch wins: the server says whether in-app alerts are on, and if not, nothing pops up;
+      - staff layouts only (layouts/corex.blade.php) — never the public portal or public signing pages — and never inside a frame;
       - more than three new alerts at once show two and a "N more" line, so a burst never buries the screen.
-    The unread count is broadcast as a `corex:alerts-unread` window event for anything that wants to show it.
 --}}
 @auth
 @php
@@ -28,14 +33,16 @@
     if (window.__corexAlertPopups || window.self !== window.top) { return; }
     window.__corexAlertPopups = true;
 
-    var ENDPOINT = @json(route('v1.notifications.index', ['unread' => 1, 'limit' => 20]));
+    var FEED = @json(route('api.v1.alerts.unread'));
+    var SESSION_PROBE = @json(route('api.v1.csrf-token'));
     var INBOX = @json(route('command-center.notifications'));
     var INTERVAL_MS = Math.max(15, {{ (int) $__alertPopupSeconds }}) * 1000;
+    var MAX_DELAY_MS = 5 * 60 * 1000;
     var KEY = 'corex_alerts_seen_{{ (int) $__alertPopupUser->id }}';
 
     var seen = {};
-    var baselineMax = 0;
-    var baselineDone = false;
+    var cursor = null;      // null until the baseline poll has answered
+    var failures = 0;
     var stopped = false;
     var busy = false;
     var timer = null;
@@ -62,71 +69,87 @@
         return isNaN(t) ? 0 : t;
     }
 
-    function titleOf(item) {
-        return item.title || (item.data && (item.data.title || item.data.message)) || 'New alert';
-    }
-
-    function linkOf(item) {
-        return item.action_url || (item.data && (item.data.action_url || item.data.url)) || null;
-    }
+    function titleOf(item) { return item.title || 'New alert'; }
 
     function handle(payload) {
+        if (payload && payload.cursor) { cursor = payload.cursor; }
         var items = (payload && payload.items) ? payload.items : [];
-        var unread = items.filter(function (item) { return !item.read_at; });
-
-        try {
-            window.dispatchEvent(new CustomEvent('corex:alerts-unread', { detail: { unread: (payload && payload.unread) || 0 } }));
-        } catch (e) { /* ignore */ }
-
-        // New = not seen, and not older than what was already waiting when the page loaded (so an older unread alert
-        // sliding into the 20-item window after something is read is never mistaken for a new one).
-        var fresh = baselineDone
-            ? unread.filter(function (item) { return !seen[item.id] && stamp(item) >= baselineMax; })
-            : [];
-
-        unread.forEach(function (item) {
-            seen[item.id] = true;
-            if (!baselineDone) { baselineMax = Math.max(baselineMax, stamp(item)); }
-        });
-        baselineDone = true;
+        var fresh = items.filter(function (item) { return !seen[item.id]; });
+        items.forEach(function (item) { seen[item.id] = true; });
         saveSeen();
 
         if (!fresh.length || !payload || payload.in_app !== true || typeof window.showToast !== 'function') { return; }
 
         fresh.sort(function (a, b) { return stamp(a) - stamp(b); });
-        var shown = fresh.length > 3 ? fresh.slice(0, 2) : fresh;
-        shown.forEach(function (item) { window.showToast(titleOf(item), 'info', 9000, linkOf(item)); });
-        if (fresh.length > shown.length) {
-            window.showToast((fresh.length - shown.length) + ' more new alerts', 'info', 9000, INBOX);
+        var total = fresh.length + (payload.has_more ? 1 : 0);
+        var shown = total > 3 ? fresh.slice(0, 2) : fresh;
+        shown.forEach(function (item) { window.showToast(titleOf(item), 'info', 9000, item.action_url || null); });
+        var rest = fresh.length - shown.length;
+        if (rest > 0) {
+            window.showToast(rest + (payload.has_more ? '+' : '') + ' more new alerts', 'info', 9000, INBOX);
+        } else if (payload.has_more) {
+            window.showToast('More new alerts are waiting', 'info', 9000, INBOX);
         }
+    }
+
+    function getJson(url) {
+        if (window.CoreX && window.CoreX.api) { return window.CoreX.api.fetch(url); }
+        return fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } }).then(function (res) {
+            if (!res.ok) { var err = new Error('alerts ' + res.status); err.status = res.status; throw err; }
+            return res.json();
+        });
+    }
+
+    function delay() {
+        return Math.min(MAX_DELAY_MS, INTERVAL_MS * Math.pow(2, Math.min(failures, 6)));
+    }
+
+    function schedule() {
+        if (stopped) { return; }
+        if (timer) { clearTimeout(timer); }
+        timer = setTimeout(tick, delay());
     }
 
     function stop() {
         stopped = true;
-        if (timer) { clearInterval(timer); timer = null; }
+        if (timer) { clearTimeout(timer); timer = null; }
         document.removeEventListener('visibilitychange', onVisible);
     }
 
+    /** True while the login is alive. Only a definite "logged out" answer (401/419) from the session probe says false. */
+    function sessionAlive() {
+        return getJson(SESSION_PROBE).then(function () { return true; }).catch(function (err) {
+            return !(err && (err.status === 401 || err.status === 419));
+        });
+    }
+
     function poll() {
-        if (stopped || busy) { return; }
+        if (stopped || busy) { return Promise.resolve(); }
         busy = true;
-        var request = (window.CoreX && window.CoreX.api)
-            ? window.CoreX.api.fetch(ENDPOINT)
-            : fetch(ENDPOINT, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } }).then(function (res) {
-                if (!res.ok) { var err = new Error('alerts ' + res.status); err.status = res.status; throw err; }
-                return res.json();
-            });
-        request.then(handle).catch(function (err) {
-            if (err && (err.status === 401 || err.status === 419)) { stop(); }
-        }).then(function () { busy = false; });
+        return getJson(cursor ? FEED + '?after=' + encodeURIComponent(cursor) : FEED).then(function (payload) {
+            failures = 0;
+            handle(payload);
+        }).catch(function (err) {
+            failures++;
+            if (err && (err.status === 401 || err.status === 419)) {
+                return sessionAlive().then(function (alive) { if (!alive) { stop(); } });
+            }
+        }).then(function () {
+            busy = false;
+            schedule();
+        });
+    }
+
+    function tick() {
+        if (document.hidden) { schedule(); return; }
+        poll();
     }
 
     function onVisible() {
-        if (!document.hidden) { poll(); }
+        if (!document.hidden && !stopped) { poll(); }
     }
 
-    poll(); // the baseline: whatever is already waiting is never popped up
-    timer = setInterval(function () { if (!document.hidden) { poll(); } }, INTERVAL_MS);
+    poll(); // the baseline: the server answers with its clock; whatever is already waiting is never popped up
     document.addEventListener('visibilitychange', onVisible);
 })();
 </script>

@@ -665,7 +665,7 @@ class RentalFaultReportController extends Controller
             return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
         }
 
-        $service->notifyResolved($rentalFaultReport);
+        $service->notifyResolved($rentalFaultReport, $request->user());
 
         return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Outcome recorded.');
     }
