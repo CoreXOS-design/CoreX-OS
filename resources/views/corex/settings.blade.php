@@ -123,6 +123,9 @@
                     $can('rental_inventories.manage_settings')
                         ? ['key'=>'rental-inventory-settings', 'label'=>'Inventory', 'type'=>'link', 'href'=>route('corex.settings.rental-inventory.edit'), 'keywords'=>'inventory contents furnished move-in move-out disposition present short damaged missing rental sale baseline preset']
                         : null,
+                    $can('title_deeds.manage_settings')
+                        ? ['key'=>'title-deeds-settings', 'label'=>'Title Deeds', 'type'=>'link', 'href'=>route('corex.settings.title-deeds.edit'), 'keywords'=>'title deed register pin collection representative consent phone authority letter id photo signature reminder lock attempts contact changed']
+                        : null,
                     $can('rental_work_orders.manage_settings')
                         ? ['key'=>'rental-work-orders-settings', 'label'=>'Rental Work Orders', 'type'=>'link', 'href'=>route('corex.settings.rental-work-orders.edit'), 'keywords'=>'work order spend threshold no approval owner authorisation fault job card markup variation dispute crew link price capture printed costs']
                         : null,

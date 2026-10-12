@@ -252,6 +252,12 @@ return [
         'blurb' => 'The compliance filing register of documents and their metadata.',
         'keywords' => ['filing register', 'filing', 'register', 'file register'],
     ],
+    'title-deeds.index' => [
+        'label' => 'Title Deeds',
+        'category' => 'Documents',
+        'blurb' => 'Title deeds received from the attorneys: who was told, and when and by whom each was collected.',
+        'keywords' => ['title deeds', 'title deed', 'deeds', 'collect deed', 'deed register', 'attorney deeds'],
+    ],
 
     // ── Compliance ──────────────────────────────────────────────────────
     'compliance.fica.index' => [

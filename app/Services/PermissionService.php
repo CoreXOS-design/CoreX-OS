@@ -373,6 +373,7 @@ class PermissionService
         'presentations'           => [null, false, 'no presentations'],
         'viewing_packs'           => [null, false, 'no viewing packs'],
         'filing'                  => [null, false, 'no filed documents'],
+        'title_deeds'             => [null, false, 'no title deeds'],
         'commercial_evals'        => [null, false, 'no commercial evaluations'],
         'sales_docs'              => [null, false, 'no sales documents'],
         'proforma'                => [null, false, 'no proforma invoices'],

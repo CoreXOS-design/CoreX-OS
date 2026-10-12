@@ -23,6 +23,8 @@ Schedule::command('articles:scrape')->daily();
 
 // Signature reminders — runs daily at 08:00
 Schedule::command('signatures:send-reminders')->dailyAt('08:00');
+// AT-450 - title deeds still at the office: remind the owners (capped, idempotent; settings per agency).
+Schedule::command('titledeeds:send-reminders')->dailyAt('08:30')->withoutOverlapping();
 
 // AT-383 — pre-webinar reminders. HOURLY, deliberately: the lead time is set per
 // webinar in HOURS, so a daily job would fire hours early or late depending on what
