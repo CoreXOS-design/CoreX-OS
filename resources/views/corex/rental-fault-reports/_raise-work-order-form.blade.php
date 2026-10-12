@@ -77,7 +77,7 @@
                     <div class="text-xs font-semibold pt-1" data-contractor-group="{{ $groupKey }}">{{ $groupKey === 'suits' ? 'Suits ' . ($cls['type'] ?: $cls['category']) : 'Other contractors' }}</div>
                 @endif
                 @foreach($groupRows as $c)
-                    <label class="flex items-center gap-2 text-sm rounded-md px-2 py-1" style="border: 1px solid var(--border);" data-contractor-row="{{ $c['id'] }}"
+                    <label class="flex flex-wrap items-center gap-2 text-sm rounded-md px-2 py-1" style="border: 1px solid var(--border);" data-contractor-row="{{ $c['id'] }}"
                            data-search="{{ mb_strtolower($c['name'] . ' ' . $c['trades'] . ' ' . $c['phone']) }}"
                            x-show="q === '' || $el.dataset.search.indexOf(q.toLowerCase()) !== -1">
                         <input type="radio" name="contractor_pick" value="{{ $c['id'] }}" x-model="picked">

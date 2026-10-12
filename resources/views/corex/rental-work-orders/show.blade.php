@@ -609,7 +609,7 @@
                             @if($group['rows']->isNotEmpty())
                                 <div class="font-semibold pt-1" data-contractor-group>{{ $classes['category'] ? $group['label'] : 'Contractors' }}</div>
                                 @foreach($group['rows'] as $c)
-                                    <label class="flex items-center gap-2 rounded-md px-2 py-1" style="border: 1px solid var(--border);" data-contractor-row="{{ $c['id'] }}">
+                                    <label class="flex flex-wrap items-center gap-2 rounded-md px-2 py-1" style="border: 1px solid var(--border);" data-contractor-row="{{ $c['id'] }}">
                                         <input type="radio" name="agency_service_provider_id" value="{{ $c['id'] }}" x-model="chosenContractor" @checked((int) $workOrder->agency_service_provider_id === $c['id'])>
                                         <span class="font-medium">{{ $c['name'] }}</span>
                                         @if($c['trades'])<span style="color: var(--text-muted);">{{ $c['trades'] }}</span>@endif
