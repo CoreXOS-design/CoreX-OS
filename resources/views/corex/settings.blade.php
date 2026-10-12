@@ -99,11 +99,9 @@
             [
                 'label' => 'Modules',
                 'items' => array_values(array_filter([
-                    // Feature Registry — the on/off switchboard for every module.
-                    $can('agency_features.manage')
-                        ? ['key'=>'features', 'label'=>'Features (on/off)', 'type'=>'section', 'keywords'=>'feature registry modules enable disable turn on off capability toggle rentals payroll compliance']
-                        : null,
-                    ['key'=>'feature-documents',     'label'=>'Documents',             'type'=>'section', 'keywords'=>'docuperfect named fields'],
+                    // The on/off switchboard for every module is no longer a Settings section: it is its own page,
+                    // /corex/features (sidebar → Features). .ai/specs/features-page.md §5.
+                    ['key'=>'feature-documents',    'label'=>'Documents',             'type'=>'section', 'keywords'=>'docuperfect named fields'],
                     ['key'=>'feature-rentals',       'label'=>'Rentals',               'type'=>'section', 'keywords'=>'rental document types reminders'],
                     $can('rental_applications.manage_settings')
                         ? ['key'=>'rental-applications-settings', 'label'=>'Rental Applications', 'type'=>'link', 'href'=>route('corex.settings.rental-applications.edit'), 'keywords'=>'tenant application qualifying formula affordability ro co reviewer override authoriser decline email reopen link expiry highlighter matched properties approval email max maximum send limit']
@@ -4090,15 +4088,7 @@
             ])
         </div>
 
-        {{-- ============================================================
-             FEATURES — per-agency feature registry (module on/off).
-             Spec: .ai/specs/corex-feature-registry.md §6.4.
-             ============================================================ --}}
-        @if ($can('agency_features.manage'))
-        <div x-show="activeSection === 'features'" x-cloak class="p-6">
-            @include('corex.settings._features')
-        </div>
-        @endif
+        {{-- FEATURES (module on/off) moved to its own page — see corex.features.index. Spec: features-page.md --}}
 
         {{-- ============================================================
              SYSTEM SETTINGS TAB

@@ -2495,21 +2495,23 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('deny_assistant')->name('revenue-share.calculator');
 
     // ── Training (LMS) ──
-    Route::get('/training', [\App\Http\Controllers\Training\TrainingController::class, 'index'])->name('training.index');
-    Route::get('/training/manage', [\App\Http\Controllers\Training\TrainingController::class, 'manage'])->name('training.manage');
-    Route::get('/training/manage/create', [\App\Http\Controllers\Training\TrainingController::class, 'createCourse'])->name('training.create-course');
-    Route::post('/training/manage', [\App\Http\Controllers\Training\TrainingController::class, 'storeCourse'])->name('training.store-course');
-    Route::get('/training/manage/{course}/edit', [\App\Http\Controllers\Training\TrainingController::class, 'editCourse'])->name('training.edit-course');
-    Route::put('/training/manage/{course}', [\App\Http\Controllers\Training\TrainingController::class, 'updateCourse'])->name('training.update-course');
-    Route::get('/training/manage/{course}/lessons/create', [\App\Http\Controllers\Training\TrainingController::class, 'createLesson'])->name('training.create-lesson');
-    Route::post('/training/manage/{course}/lessons', [\App\Http\Controllers\Training\TrainingController::class, 'storeLesson'])->name('training.store-lesson');
-    Route::get('/training/manage/lessons/{lesson}/edit', [\App\Http\Controllers\Training\TrainingController::class, 'editLesson'])->name('training.edit-lesson');
-    Route::put('/training/manage/lessons/{lesson}', [\App\Http\Controllers\Training\TrainingController::class, 'updateLesson'])->name('training.update-lesson');
-    Route::get('/training/{course}', [\App\Http\Controllers\Training\TrainingController::class, 'show'])->name('training.show');
-    Route::get('/training/lesson/{lesson}/document', [\App\Http\Controllers\Training\TrainingController::class, 'downloadLessonDocument'])->name('training.lesson-document');
-    Route::post('/training/lesson/{lesson}/start', [\App\Http\Controllers\Training\TrainingController::class, 'startLesson'])->name('training.start-lesson');
-    Route::post('/training/lesson/{lesson}/complete', [\App\Http\Controllers\Training\TrainingController::class, 'completeLesson'])->name('training.complete-lesson');
-    Route::post('/training/{course}/acknowledge', [\App\Http\Controllers\Training\TrainingController::class, 'acknowledgeCourse'])->name('training.acknowledge');
+    Route::middleware('feature:training')->group(function () {
+        Route::get('/training', [\App\Http\Controllers\Training\TrainingController::class, 'index'])->name('training.index');
+        Route::get('/training/manage', [\App\Http\Controllers\Training\TrainingController::class, 'manage'])->name('training.manage');
+        Route::get('/training/manage/create', [\App\Http\Controllers\Training\TrainingController::class, 'createCourse'])->name('training.create-course');
+        Route::post('/training/manage', [\App\Http\Controllers\Training\TrainingController::class, 'storeCourse'])->name('training.store-course');
+        Route::get('/training/manage/{course}/edit', [\App\Http\Controllers\Training\TrainingController::class, 'editCourse'])->name('training.edit-course');
+        Route::put('/training/manage/{course}', [\App\Http\Controllers\Training\TrainingController::class, 'updateCourse'])->name('training.update-course');
+        Route::get('/training/manage/{course}/lessons/create', [\App\Http\Controllers\Training\TrainingController::class, 'createLesson'])->name('training.create-lesson');
+        Route::post('/training/manage/{course}/lessons', [\App\Http\Controllers\Training\TrainingController::class, 'storeLesson'])->name('training.store-lesson');
+        Route::get('/training/manage/lessons/{lesson}/edit', [\App\Http\Controllers\Training\TrainingController::class, 'editLesson'])->name('training.edit-lesson');
+        Route::put('/training/manage/lessons/{lesson}', [\App\Http\Controllers\Training\TrainingController::class, 'updateLesson'])->name('training.update-lesson');
+        Route::get('/training/{course}', [\App\Http\Controllers\Training\TrainingController::class, 'show'])->name('training.show');
+        Route::get('/training/lesson/{lesson}/document', [\App\Http\Controllers\Training\TrainingController::class, 'downloadLessonDocument'])->name('training.lesson-document');
+        Route::post('/training/lesson/{lesson}/start', [\App\Http\Controllers\Training\TrainingController::class, 'startLesson'])->name('training.start-lesson');
+        Route::post('/training/lesson/{lesson}/complete', [\App\Http\Controllers\Training\TrainingController::class, 'completeLesson'])->name('training.complete-lesson');
+        Route::post('/training/{course}/acknowledge', [\App\Http\Controllers\Training\TrainingController::class, 'acknowledgeCourse'])->name('training.acknowledge');
+    });
 
     // ── Training Help (in-app training docs) ──
     Route::prefix('training-help')->middleware('feature:training')->name('training-help.')->group(function () {
@@ -3287,7 +3289,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/syndication-portals', [CoreXSettingsController::class, 'updateSyndicationPortals'])->middleware('permission:access_settings')->name('corex.settings.syndication-portals');
     // AT-448 — Mandate Expiry (warn-days + expiry lock). Spec: at448-property-expiry.md §5.1.
     Route::post('/settings/mandate-expiry', [CoreXSettingsController::class, 'updateMandateExpiry'])->middleware('permission:access_settings')->name('corex.settings.mandate-expiry');
-    // Feature Registry — Settings → Features (module on/off). Spec: corex-feature-registry.md §6.4.
+    // Feature Registry — the Features page (module on/off), its own page since 2026-10-12. Specs: features-page.md,
+    // corex-feature-registry.md §6.4. The saver keeps its original route name/URL (the wizard and tests use it).
+    Route::get('/features', [\App\Http\Controllers\CoreX\FeaturePageController::class, 'index'])->middleware(['permission:agency_features.manage', 'agency.required'])->name('corex.features.index');
     Route::post('/settings/features', [\App\Http\Controllers\CoreX\FeatureSettingsController::class, 'update'])->middleware('permission:agency_features.manage')->name('corex.settings.features.update');
     // AT-392 authoriser flow, 2026-09-08 — RO/CO decision actions. A
     // separate prefix/controller, gated on RO/CO tier membership
@@ -5021,7 +5025,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // Core Matches (top-level index)
     Route::get('/core-matches', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'index'])
-        ->middleware('permission:access_contacts')
+        ->middleware(['permission:access_contacts', 'feature:core-matches'])
         ->name('corex.core-matches.index');
 
     // Core Matches — All View (agency / branch oversight for managers & admins)

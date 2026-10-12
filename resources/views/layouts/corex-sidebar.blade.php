@@ -281,6 +281,7 @@
         $activeGroup = 'agency';
     } elseif (request()->routeIs(
         'admin.company-settings*',
+        'corex.features.*',
         'corex.role-manager*',
         'admin.assistants.*',
         'admin.soft-deletes.*',
@@ -2439,6 +2440,12 @@
                 <a href="{{ route('proforma.index') }}" class="corex-nav-subitem {{ request()->routeIs('proforma.index') ? 'active' : '' }}">Proforma Invoices</a>
                 @endpermission
                 @endfeature
+
+                {{-- Features — which modules this agency runs (on/off). Its own page, moved out of Settings 2026-10-12.
+                     Spec: features-page.md. Sits above Role Manager: switching a feature off hides it there too. --}}
+                @permission('agency_features.manage')
+                <a href="{{ route('corex.features.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.features.*') ? 'active' : '' }}">Features</a>
+                @endpermission
 
                 @permission('access_role_manager')
                 <a href="{{ route('corex.role-manager') }}" class="corex-nav-subitem {{ request()->routeIs('corex.role-manager*') ? 'active' : '' }}">Role Manager</a>

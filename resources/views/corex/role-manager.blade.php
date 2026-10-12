@@ -119,6 +119,19 @@
                     </div>
                 </div>
 
+                @if (!empty($hiddenFeatures))
+                    {{-- Features page spec §4: permissions of switched-off features are hidden here, not deleted. --}}
+                    <div class="rounded-md px-3 py-2 mb-3 text-xs" data-testid="hidden-features-notice"
+                         style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">
+                        <span class="font-semibold" style="color:var(--text-primary);">Hidden because the feature is switched off:</span>
+                        {{ implode(', ', $hiddenFeatures) }}.
+                        Their permissions are kept as they are and come back when you switch the feature on again.
+                        @if (auth()->user()?->hasPermission('agency_features.manage'))
+                            <a href="{{ route('corex.features.index') }}" class="underline" style="color: var(--brand-icon, #0ea5e9);">Manage features</a>
+                        @endif
+                    </div>
+                @endif
+
                 {{-- Two-column layout: Feature tabs (left) + Permission detail (right) --}}
                 <div class="flex flex-col lg:flex-row gap-4 items-stretch lg:items-start">
 
