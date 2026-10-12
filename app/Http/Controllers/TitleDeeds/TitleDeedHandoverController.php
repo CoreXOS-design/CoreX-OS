@@ -4,9 +4,14 @@ namespace App\Http\Controllers\TitleDeeds;
 
 use App\Exceptions\TitleDeedException;
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\TitleDeeds\Concerns\GuardsTitleDeedForms;
 use App\Models\TitleDeeds\TitleDeed;
 use App\Models\TitleDeeds\TitleDeedConsent;
 use App\Models\TitleDeeds\TitleDeedEvent;
+use App\Models\TitleDeeds\TitleDeedSetting;
+use App\Models\TitleDeeds\TitleDeedSigningLink;
+use App\Services\TitleDeeds\TitleDeedFormGuard;
+use App\Services\TitleDeeds\TitleDeedSigningService;
 use App\Services\TitleDeeds\TitleDeedConsentService;
 use App\Services\TitleDeeds\TitleDeedHandoverService;
 use Illuminate\Http\JsonResponse;
@@ -19,9 +24,12 @@ use Illuminate\Http\Request;
  */
 class TitleDeedHandoverController extends Controller
 {
+    use GuardsTitleDeedForms;
+
     public function __construct(
         private TitleDeedHandoverService $handover,
         private TitleDeedConsentService $consents,
+        private TitleDeedSigningService $signing,
     ) {}
 
     public function show(Request $request, int $id)
@@ -35,20 +43,41 @@ class TitleDeedHandoverController extends Controller
         $context = $this->handover->context($request->user(), $deed);
         $consent = $context['consent'];
 
-        // WhatsApp messages still waiting for a person to send them (consent requests for the current request).
+        // WhatsApp messages still waiting for a person (to open them, or to say whether they sent them): consent requests for the
+        // current request, and the signing link.
         $prepared = TitleDeedEvent::query()
             ->where('title_deed_id', $deed->id)
-            ->where('kind', TitleDeedEvent::KIND_CONSENT_REQUEST)
+            ->whereIn('kind', [TitleDeedEvent::KIND_CONSENT_REQUEST, TitleDeedEvent::KIND_SIGNING_LINK])
             ->where('channel', TitleDeedEvent::CHANNEL_WHATSAPP)
-            ->where('status', TitleDeedEvent::STATUS_PREPARED)
-            ->when($consent['consent_id'], fn ($q) => $q->where('consent_id', $consent['consent_id']))
-            ->orderBy('id')->get();
+            ->whereIn('status', [TitleDeedEvent::STATUS_PREPARED, TitleDeedEvent::STATUS_OPENED])
+            ->orderBy('id')->get()
+            ->filter(fn ($e) => $e->kind !== TitleDeedEvent::KIND_CONSENT_REQUEST || ! $consent['consent_id'] || (int) $e->consent_id === (int) $consent['consent_id'])
+            ->values();
+
+        $link = TitleDeedSigningLink::query()->where('title_deed_id', $deed->id)->whereIn('status', [TitleDeedSigningLink::STATUS_WAITING, TitleDeedSigningLink::STATUS_SIGNED])->latest('id')->first();
+        $linkState = $link ? $this->signing->status($deed) : null;
+        $guard = app(TitleDeedFormGuard::class);
+        $user = $request->user();
 
         return view('title-deeds.handover', [
             'deed' => $deed,
             'ctx' => $context,
             'prepared' => $prepared,
             'pollUrl' => route('api.v1.title-deeds.consent-status', $deed->id),
+            'signingPollUrl' => route('api.v1.title-deeds.signing-status', $deed->id),
+            'link' => $link,
+            'linkState' => $linkState,
+            'linkQr' => $link && $link->isLive() ? $this->signing->qrDataUri($link) : null,
+            'linkUrl' => $link && $link->isLive() ? $link->url() : null,
+            'signByLink' => TitleDeedSetting::signByLinkEnabledFor($deed->agency_id),
+            'tokens' => [
+                'handover' => $guard->issue($user, 'handover', $deed->id),
+                'handover_link' => $guard->issue($user, 'handover_link', $deed->id),
+                'consent' => $guard->issue($user, 'consent', $deed->id),
+                'phone_consent' => $guard->issue($user, 'phone_consent', $deed->id),
+                'link_email' => $guard->issue($user, 'link_email', $deed->id),
+                'link_whatsapp' => $guard->issue($user, 'link_whatsapp', $deed->id),
+            ],
         ]);
     }
 
@@ -57,7 +86,10 @@ class TitleDeedHandoverController extends Controller
         $deed = $this->find($request, $id);
 
         $request->validate([
-            'method' => ['required', 'in:pin,id_check,representative'],
+            'method' => ['nullable', 'in:pin,id_check,representative'],
+            'signing_link_id' => ['nullable', 'integer'],
+            'send_email' => ['nullable', 'string', 'max:191'],
+            'send_mobile' => ['nullable', 'string', 'max:40'],
             'pin' => ['nullable', 'string', 'max:20'],
             'collector_type' => ['nullable', 'in:owner,representative'],
             'collector_contact_id' => ['nullable', 'integer'],
@@ -75,6 +107,10 @@ class TitleDeedHandoverController extends Controller
             'authority_letter.mimes' => 'The authority letter must be a PDF or a photo.',
             'collector_id_photo.mimes' => "The ID photo must be a photo or a PDF.",
         ]);
+
+        if ($redirect = $this->claimForm($request, $request->filled('signing_link_id') ? 'handover_link' : 'handover', $deed->id, route('title-deeds.show', $deed->id))) {
+            return $redirect;
+        }
 
         try {
             $this->handover->handover($request->user(), $deed, $request->all() + [
@@ -97,6 +133,9 @@ class TitleDeedHandoverController extends Controller
     public function requestConsent(Request $request, int $id): RedirectResponse
     {
         $deed = $this->find($request, $id);
+        if ($redirect = $this->claimForm($request, 'consent', $deed->id, route('title-deeds.handover', $deed->id))) {
+            return $redirect;
+        }
         $rep = $request->validate([
             'rep_name' => ['required', 'string', 'max:191'],
             'rep_id_number' => ['required', 'string', 'max:40'],
@@ -137,6 +176,9 @@ class TitleDeedHandoverController extends Controller
     public function phoneConsent(Request $request, int $id): RedirectResponse
     {
         $deed = $this->find($request, $id);
+        if ($redirect = $this->claimForm($request, 'phone_consent', $deed->id, route('title-deeds.handover', $deed->id))) {
+            return $redirect;
+        }
         $v = $request->validate([
             'rep_name' => ['required', 'string', 'max:191'],
             'rep_id_number' => ['required', 'string', 'max:40'],
@@ -162,6 +204,102 @@ class TitleDeedHandoverController extends Controller
         }
 
         return redirect()->route('title-deeds.handover', $deed->id)->with('success', 'Phone consent recorded.');
+    }
+
+    /* ═════════ Sign by link ═════════ */
+
+    /** "Generate signing link": the same gates as the handover (PIN proven not spent, ID seen, consent, letter, override), no signature. */
+    public function generateLink(Request $request, int $id): RedirectResponse
+    {
+        $deed = $this->find($request, $id);
+        $request->validate([
+            'method' => ['required', 'in:pin,id_check,representative'],
+            'pin' => ['nullable', 'string', 'max:20'],
+            'collector_type' => ['nullable', 'in:owner,representative'],
+            'collector_contact_id' => ['nullable', 'integer'],
+            'rep_name' => ['nullable', 'string', 'max:191'],
+            'rep_id_number' => ['nullable', 'string', 'max:40'],
+            'rep_relationship' => ['nullable', 'string', 'max:100'],
+            'id_number_seen' => ['nullable', 'string', 'max:40'],
+            'consent_id' => ['nullable', 'integer'],
+            'override_reason' => ['nullable', 'string', 'max:500'],
+            'send_email' => ['nullable', 'string', 'max:191'],
+            'send_mobile' => ['nullable', 'string', 'max:40'],
+            'authority_letter' => ['nullable', 'file', 'max:15360', 'mimes:pdf,jpg,jpeg,png,webp,heic'],
+            'collector_id_photo' => ['nullable', 'file', 'max:15360', 'mimes:jpg,jpeg,png,webp,heic,pdf'],
+        ]);
+        if ($redirect = $this->claimForm($request, 'handover', $deed->id, route('title-deeds.handover', $deed->id))) {
+            return $redirect;
+        }
+
+        try {
+            $this->handover->prepareLink($request->user(), $deed, $request->all() + [
+                'authority_letter' => $request->file('authority_letter'),
+                'collector_id_photo' => $request->file('collector_id_photo'),
+            ], ['send_email' => trim((string) $request->input('send_email')), 'send_mobile' => trim((string) $request->input('send_mobile'))]);
+        } catch (TitleDeedException $e) {
+            return redirect()->route('title-deeds.handover', $deed->id)
+                ->withInput($request->except(['pin', 'authority_letter', 'collector_id_photo']))->with('error', $e->getMessage());
+        }
+
+        return redirect()->route('title-deeds.handover', $deed->id)->with('success', 'Signing link ready. Send it to the collector, or let them scan the QR code.');
+    }
+
+    public function emailLink(Request $request, int $id, int $link): RedirectResponse
+    {
+        $deed = $this->find($request, $id);
+        $row = TitleDeedSigningLink::query()->where('title_deed_id', $deed->id)->findOrFail($link);
+        if ($redirect = $this->claimForm($request, 'link_email', $deed->id, route('title-deeds.handover', $deed->id))) {
+            return $redirect;
+        }
+
+        try {
+            if ($row->collector_type === 'representative') {
+                $row = $this->signing->setRepresentativeContact($deed, $row, $request->input('send_email', $row->send_email), $row->send_mobile);
+            }
+            $r = $this->signing->sendEmail($request->user(), $deed, $row);
+        } catch (TitleDeedException $e) {
+            return redirect()->route('title-deeds.handover', $deed->id)->with('error', $e->getMessage());
+        }
+
+        return redirect()->route('title-deeds.handover', $deed->id)->with($r['status'] === 'sent' ? 'success' : 'error', $r['status'] === 'sent' ? 'Signing link emailed.' : 'The email did not send: ' . ($r['error'] ?? 'unknown error') . '.');
+    }
+
+    public function whatsappLink(Request $request, int $id, int $link): RedirectResponse
+    {
+        $deed = $this->find($request, $id);
+        $row = TitleDeedSigningLink::query()->where('title_deed_id', $deed->id)->findOrFail($link);
+        if ($redirect = $this->claimForm($request, 'link_whatsapp', $deed->id, route('title-deeds.handover', $deed->id))) {
+            return $redirect;
+        }
+
+        try {
+            if ($row->collector_type === 'representative') {
+                $row = $this->signing->setRepresentativeContact($deed, $row, $row->send_email, $request->input('send_mobile', $row->send_mobile));
+            }
+            $this->signing->prepareWhatsapp($request->user(), $deed, $row);
+        } catch (TitleDeedException $e) {
+            return redirect()->route('title-deeds.handover', $deed->id)->with('error', $e->getMessage());
+        }
+
+        return redirect()->route('title-deeds.handover', $deed->id)->with('success', 'WhatsApp is ready - press "Open WhatsApp and send".');
+    }
+
+    public function cancelLink(Request $request, int $id, int $link): RedirectResponse
+    {
+        $deed = $this->find($request, $id);
+        $row = TitleDeedSigningLink::query()->where('title_deed_id', $deed->id)->findOrFail($link);
+        $this->handover->cancelLink($request->user(), $deed, $row);
+
+        return redirect()->route('title-deeds.handover', $deed->id)->with('success', 'The signing link was cancelled.');
+    }
+
+    /** GET /api/v1/title-deeds/{id}/signing-status - what the handover screen polls while it waits for the collector. */
+    public function signingStatus(Request $request, int $id): JsonResponse
+    {
+        $deed = $this->find($request, $id);
+
+        return response()->json($this->signing->status($deed) + ['collected' => $deed->isCollected()])->header('Cache-Control', 'no-store, private');
     }
 
     /** GET /api/v1/title-deeds/{id}/consent-status - what the handover screen polls. */

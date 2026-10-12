@@ -880,23 +880,26 @@ class RentalFaultReport extends Model
     {
         try {
             $property = $this->property()->withoutGlobalScopes()->first();
-            $agent = $property ? app(\App\Services\Rentals\LeaseAgentService::class)->responsibleUser(
-                $this->lease, $property, (int) $this->agency_id, \App\Services\Rentals\LeaseAgentService::SIDE_OWNER
-            ) : null;
-            if (! $agent) {
+            if (! $property) {
                 return;
             }
+            // AT-451 round 2: both lease agents (the same people told about the fault), never the staff member who recorded it.
+            $recorder = $approval->recorded_by_user_id ? User::withoutGlobalScopes()->find($approval->recorded_by_user_id) : null;
+            $recipients = app(\App\Services\Rentals\LeaseAgentService::class)
+                ->recipientsForEvent($this->lease, $property, (int) $this->agency_id, $recorder);
             $address = $property->buildDisplayAddress();
             $approved = $approval->decision === RentalApproval::DECISION_APPROVED;
-            app(\App\Services\CommandCenter\NotificationDispatcher::class)->fire($agent, 'rental_fault_report.owner_decided', $this, [
-                'title' => ($approved ? 'Owner approved - appoint contractor' : 'Owner declined the repair') . ' - ' . $address,
-                'body' => $this->title . ($approved
-                    ? ($this->approval_route === self::ROUTE_OWNER_HANDLES ? ' - the owner has their own contractor: confirm them and the work order is created.' : ' - choose the contractor and the work order is created.')
-                    : ' - no work order will be created.'),
-                'action_url' => $approved ? route('corex.rental-fault-reports.show', ['rentalFaultReport' => $this->id, 'create_work_order' => 1]) : route('corex.rental-fault-reports.show', $this->id),
-                'severity' => 'info',
-                'threshold_hit_at' => $approval->decided_at ?? now(),
-            ]);
+            foreach ($recipients as $agent) {
+                app(\App\Services\CommandCenter\NotificationDispatcher::class)->fire($agent, 'rental_fault_report.owner_decided', $this, [
+                    'title' => ($approved ? 'Owner approved - appoint contractor' : 'Owner declined the repair') . ' - ' . $address,
+                    'body' => $this->title . ($approved
+                        ? ($this->approval_route === self::ROUTE_OWNER_HANDLES ? ' - the owner has their own contractor: confirm them and the work order is created.' : ' - choose the contractor and the work order is created.')
+                        : ' - no work order will be created.'),
+                    'action_url' => $approved ? route('corex.rental-fault-reports.show', ['rentalFaultReport' => $this->id, 'create_work_order' => 1]) : route('corex.rental-fault-reports.show', $this->id),
+                    'severity' => 'info',
+                    'threshold_hit_at' => $approval->decided_at ?? now(),
+                ]);
+            }
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('Fault decision: could not notify the agent', ['fault_report_id' => $this->id, 'error' => $e->getMessage()]);
         }
@@ -988,7 +991,7 @@ class RentalFaultReport extends Model
         } catch (\LogicException|\InvalidArgumentException $e) {
             return false;   // refused for another reason (e.g. no outcome allowed in this state)
         }
-        app(\App\Services\Rentals\RentalFaultReportService::class)->notifyResolved($this);
+        app(\App\Services\Rentals\RentalFaultReportService::class)->notifyResolved($this, $by instanceof User ? $by : null);
 
         return true;
     }

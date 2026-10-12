@@ -368,20 +368,22 @@ class WorkOrderFlowTest extends TestCase
 
         // The same date again: nothing changed, so nobody is told twice.
         $this->postJson("$base/appointment", ['appointment_at' => now()->addDays(2)->format('Y-m-d') . 'T10:00'])->assertOk();
-        $notifier->shouldHaveReceived('fire')->withArgs(fn ($user, $key) => $key === 'rental_work_order.owner_appointment')->once();
+        $notifier->shouldHaveReceived('fire')->withArgs(fn ($user, $key) => $key === 'rental_work_order.owner_appointment')->times(2);   // one alert per lease agent (owner's side + tenant's side)
 
         // A real change is a new fact.
         $this->postJson("$base/appointment", ['appointment_at' => now()->addDays(3)->format('Y-m-d') . 'T15:00'])->assertOk();
-        $notifier->shouldHaveReceived('fire')->withArgs(fn ($user, $key, $subject, $args) => $key === 'rental_work_order.owner_appointment' && str_contains($args['title'], 'changed'))->once();
+        $notifier->shouldHaveReceived('fire')->withArgs(fn ($user, $key, $subject, $args) => $key === 'rental_work_order.owner_appointment' && str_contains($args['title'], 'changed'))->times(2);   // one alert per lease agent (owner's side + tenant's side)
 
         $this->postJson("$base/progress", ['action' => 'started'])->assertOk();
         $this->postJson("$base/progress", ['action' => 'started'])->assertOk();   // already started: no second message
-        $notifier->shouldHaveReceived('fire')->withArgs(fn ($user, $key, $s, $args) => $key === 'rental_work_order.owner_progress' && str_contains($args['title'], 'started'))->once();
+        $notifier->shouldHaveReceived('fire')->withArgs(fn ($user, $key, $s, $args) => $key === 'rental_work_order.owner_progress' && str_contains($args['title'], 'started'))->times(2);   // one alert per lease agent (owner's side + tenant's side)
 
         $this->postJson("$base/progress", ['action' => 'finished'])->assertOk();
         $this->postJson("$base/progress", ['action' => 'finished'])->assertOk();  // same job reported done twice: one tenant check, one message
-        $notifier->shouldHaveReceived('fire')->withArgs(fn ($user, $key, $s, $args) => $key === 'rental_work_order.owner_progress' && str_contains($args['title'], 'finished'))->once();
-        $notifier->shouldHaveReceived('fire')->times(4);
+        $notifier->shouldHaveReceived('fire')->withArgs(fn ($user, $key, $s, $args) => $key === 'rental_work_order.owner_progress' && str_contains($args['title'], 'finished'))->times(2);   // one alert per lease agent (owner's side + tenant's side)
+        // AT-451 round 2: BOTH lease agents hear every step (the owner's agent set above, and the tenant's side - which falls back to the
+        // property's agent while unset) - so four owner actions are eight alerts, one per person each, not four.
+        $notifier->shouldHaveReceived('fire')->times(8);
     }
 
     public function test_the_agent_is_not_notified_of_their_own_appointment_and_falls_back_to_the_property_agent(): void

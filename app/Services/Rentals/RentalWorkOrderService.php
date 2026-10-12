@@ -262,13 +262,13 @@ class RentalWorkOrderService
     /** §4 — fires to the property's assigned agent. */
     public function notifyCreated(RentalWorkOrder $workOrder): void
     {
-        $this->fireInternal($workOrder, 'rental_work_order.created', 'Work order logged — ' . $this->addressFor($workOrder), $workOrder->title);
+        $this->fireInternal($workOrder, 'rental_work_order.created', 'Work order logged — ' . $this->addressFor($workOrder), $workOrder->title, null, $workOrder->created_by_user_id);
     }
 
     /** §4 — fires to the property's assigned agent as confirmation. */
-    public function notifyCompleted(RentalWorkOrder $workOrder): void
+    public function notifyCompleted(RentalWorkOrder $workOrder, ?User $actor = null): void
     {
-        $this->fireInternal($workOrder, 'rental_work_order.completed', 'Work order completed — ' . $this->addressFor($workOrder), $workOrder->title);
+        $this->fireInternal($workOrder, 'rental_work_order.completed', 'Work order completed — ' . $this->addressFor($workOrder), $workOrder->title, null, $actor?->id);
         // §17.16 — the owner is told by the final statement (SendOwnerFinalStatement, on RentalWorkOrderClosed), whichever
         // route closed the work order — no longer a plain mail from here.
     }
@@ -287,25 +287,32 @@ class RentalWorkOrderService
         $this->fireInternal($workOrder, 'rental_work_order.overdue', 'Work order overdue — ' . $this->addressFor($workOrder), $workOrder->title, $workOrder->updated_at);
     }
 
-    private function fireInternal(RentalWorkOrder $workOrder, string $eventKey, string $title, string $body, $thresholdHitAt = null): void
+    private function fireInternal(RentalWorkOrder $workOrder, string $eventKey, string $title, string $body, $thresholdHitAt = null, ?int $actorUserId = null): void
     {
-        $property = $workOrder->property()->with('agent')->first();
-        if (!$property || !$property->agent_id || !$property->agent) {
+        $property = $workOrder->property()->withoutGlobalScopes()->first();
+        if (! $property) {
             return;
         }
 
-        app(NotificationDispatcher::class)->fire(
-            $property->agent,
-            $eventKey,
-            $workOrder,
-            [
-                'title' => $title,
-                'body' => $body,
-                'action_url' => route('corex.rental-work-orders.show', $workOrder->id),
-                'severity' => 'info',
-                'threshold_hit_at' => $thresholdHitAt ?? now(),
-            ]
-        );
+        // AT-451 round 2: the same people who heard about the fault (both lease agents, else the property's agent, else the
+        // branch/office/agency admin), never the staff member who just did it.
+        $actor = $actorUserId ? User::withoutGlobalScopes()->find($actorUserId) : null;
+        $recipients = app(LeaseAgentService::class)->recipientsForEvent($workOrder->lease, $property, (int) $workOrder->agency_id, $actor);
+
+        foreach ($recipients as $user) {
+            app(NotificationDispatcher::class)->fire(
+                $user,
+                $eventKey,
+                $workOrder,
+                [
+                    'title' => $title,
+                    'body' => $body,
+                    'action_url' => route('corex.rental-work-orders.show', $workOrder->id),
+                    'severity' => 'info',
+                    'threshold_hit_at' => $thresholdHitAt ?? now(),
+                ]
+            );
+        }
     }
 
     /**
@@ -474,18 +481,19 @@ class RentalWorkOrderService
         if (! $property) {
             return;
         }
-        $agent = app(LeaseAgentService::class)->responsibleUser($workOrder->lease, $property, (int) $workOrder->agency_id, LeaseAgentService::SIDE_OWNER);
-        if (! $agent) {
-            return;
-        }
+        // AT-451 round 2: BOTH lease agents hear what the owner did (it used to be the owner-side agent only), not the staff member
+        // who did it. Each person's own settings still decide whether and how it reaches them.
+        $recipients = app(LeaseAgentService::class)->recipientsForEvent($workOrder->lease, $property, (int) $workOrder->agency_id);
 
-        app(NotificationDispatcher::class)->fire($agent, $eventKey, $workOrder, [
-            'title' => $title,
-            'body' => $body,
-            'action_url' => route('corex.rental-work-orders.show', $workOrder->id),
-            'severity' => 'info',
-            'threshold_hit_at' => $hitAt,
-        ]);
+        foreach ($recipients as $agent) {
+            app(NotificationDispatcher::class)->fire($agent, $eventKey, $workOrder, [
+                'title' => $title,
+                'body' => $body,
+                'action_url' => route('corex.rental-work-orders.show', $workOrder->id),
+                'severity' => 'info',
+                'threshold_hit_at' => $hitAt,
+            ]);
+        }
     }
 
     // ───────────────────────── Build 2 mails (§17.16) — all through the agency mailbox path ─────────────────────────

@@ -130,6 +130,48 @@ class TitleDeedPinService
         return ['ok' => false, 'locked' => $locked, 'attempts' => $attempts, 'limit' => $limit];
     }
 
+    /**
+     * Check a staff-entered PIN WITHOUT using it up (sign-by-link: the PIN is proven at the counter when the link is generated, and
+     * only spent when the handover completes). A miss is counted and can lock exactly like check().
+     *
+     * @return array{ok:bool, locked:bool, attempts:int, limit:int}
+     */
+    public function peek(TitleDeed $deed, string $code): array
+    {
+        $limit = TitleDeedSetting::pinLockAttemptsFor($deed->agency_id);
+        if ($this->isLocked($deed)) {
+            return ['ok' => false, 'locked' => true, 'attempts' => (int) $deed->pin_failed_attempts, 'limit' => $limit];
+        }
+
+        $code = preg_replace('/\s+/', '', $code) ?? '';
+        $row = $deed->pin_version > 0 && $code !== ''
+            ? Otp::query()->where('destination', $this->destinationFor($deed->id, (int) $deed->pin_version))
+                ->where('purpose', self::PURPOSE)->whereNull('used_at')->where('expires_at', '>', now())->latest('id')->first()
+            : null;
+
+        if ($row && Hash::check($code, $row->code_hash)) {
+            return ['ok' => true, 'locked' => false, 'attempts' => (int) $deed->pin_failed_attempts, 'limit' => $limit];
+        }
+
+        $attempts = (int) $deed->pin_failed_attempts + 1;
+        $locked = $attempts >= $limit;
+        $deed->forceFill(['pin_failed_attempts' => $attempts, 'pin_locked_at' => $locked ? now() : null])->save();
+
+        return ['ok' => false, 'locked' => $locked, 'attempts' => $attempts, 'limit' => $limit];
+    }
+
+    /** Spend a PIN that was proven earlier (sign-by-link completion). False if it is gone, replaced or expired in the meantime. */
+    public function consumeProven(TitleDeed $deed, int $provenVersion): bool
+    {
+        if ($deed->pin_version < 1 || (int) $deed->pin_version !== $provenVersion || $this->isLocked($deed)) {
+            return false;
+        }
+
+        return (bool) Otp::query()->where('destination', $this->destinationFor($deed->id, $provenVersion))
+            ->where('purpose', self::PURPOSE)->whereNull('used_at')->where('expires_at', '>', now())
+            ->update(['used_at' => now()]);
+    }
+
     /** After collection: nothing left to resend, and the code can no longer be used. */
     public function retire(TitleDeed $deed): void
     {

@@ -322,6 +322,44 @@ return [
                 'body'          => 'Pick a tag in the bar, then click every photo of that room — each one saves as you click it. Pick the next tag and carry on.',
             ],
 
+            // ── Auction tab (only on a property that is on auction; the engine skips
+            //    these steps on every other property because the tab isn't rendered) ──
+            [
+                'element'       => '[data-tour="prop-tab-auction"]',
+                'section'       => 'The Auction tab',
+                'advanced_only' => true,
+                'do'            => ['action' => 'click', 'say' => 'Click the Auction tab.', 'until' => '[data-tour="prop-auction-header"]'],
+                'skip_if'       => '[data-tour="prop-auction-header"]',
+                'title'         => 'Open the Auction tab',
+                'body'          => 'A property that is being sold at auction has an Auction tab showing the auction it is in.',
+            ],
+            [
+                'element' => '[data-tour="prop-auction-header"]',
+                'prep'    => [['action' => 'dispatch', 'event' => 'corex:switch-tab', 'detail' => 'auction']],
+                'title'   => 'The auction this property is in',
+                'body'    => 'The auction and the lot number, with buttons to open the auction, the lot or the public advert in a new tab.',
+            ],
+            [
+                'element' => '[data-tour="prop-auction-details"]',
+                'title'   => 'Date, venue and auctioneer',
+                'body'    => 'When and where the sale is, who is conducting it with their licence and contact details, and the registration window — exactly what buyers are told.',
+            ],
+            [
+                'element' => '[data-tour="prop-auction-price"]',
+                'title'   => 'Reserve, guide price and result',
+                'body'    => 'The reserve (hidden unless you are allowed to see it), the guide price, the opening bid and, after the sale, the result. The same details appear on the live preview.',
+            ],
+            [
+                'element' => '[data-tour="prop-auction-docs"]',
+                'title'   => 'The auction documents',
+                'body'    => 'The Rules of Auction and Conditions of Sale PDFs for this auction, one click away so you can send them to a buyer.',
+            ],
+            [
+                'element' => '[data-tour="prop-auction-viewings"]',
+                'title'   => 'Viewings',
+                'body'    => 'Upcoming viewing windows for this lot. Add or change them on the lot page.',
+            ],
+
             // ── Linking the owner (Contacts tab) ─────────────────────────────
             [
                 'element'       => '[data-tour="prop-tab-contacts"]',

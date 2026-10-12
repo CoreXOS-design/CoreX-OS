@@ -145,7 +145,10 @@ class RentalFaultReportService
 
         // Fault flow (8 Oct 2026): the lease's tenant-side AND owner-side agents (once each), else the property's agent, else the
         // branch manager / office admin / agency admin - a fault is never reported to nobody. Same event, same per-agent settings.
-        $recipients = app(LeaseAgentService::class)->faultRecipients($faultReport->lease, $property, (int) $faultReport->agency_id);
+        $recipients = app(LeaseAgentService::class)->recipientsForEvent(
+            $faultReport->lease, $property, (int) $faultReport->agency_id,
+            $faultReport->captured_by_user_id ? \App\Models\User::withoutGlobalScopes()->find($faultReport->captured_by_user_id) : null
+        );
         foreach ($recipients as $user) {
             app(NotificationDispatcher::class)->fire(
                 $user,
@@ -166,24 +169,30 @@ class RentalFaultReportService
      * §4 — fires to the assigned agent when the outcome is set, whatever
      * that outcome is. Same skip-not-fail treatment as notifyCreated().
      */
-    public function notifyResolved(RentalFaultReport $faultReport): void
+    public function notifyResolved(RentalFaultReport $faultReport, ?\App\Models\User $actor = null): void
     {
-        $property = $faultReport->property()->with('agent')->first();
-        if (!$property || !$property->agent_id || !$property->agent) {
+        $property = $faultReport->property()->withoutGlobalScopes()->first();
+        if (! $property) {
             return;
         }
 
-        app(NotificationDispatcher::class)->fire(
-            $property->agent,
-            'rental_fault_report.resolved',
-            $faultReport,
-            [
-                'title' => 'Fault report resolved — ' . ($property->buildDisplayAddress() ?: $property->title ?: ('Property #' . $property->id)),
-                'body' => $faultReport->title . ': ' . str_replace('_', ' ', ucfirst($faultReport->outcome)),
-                'action_url' => route('corex.rental-fault-reports.show', $faultReport->id),
-                'severity' => 'info',
-                'threshold_hit_at' => now(),
-            ]
-        );
+        // AT-451 round 2: the same people who heard about the fault hear how it ended (not only the property's agent).
+        $recipients = app(\App\Services\Rentals\LeaseAgentService::class)
+            ->recipientsForEvent($faultReport->lease, $property, (int) $faultReport->agency_id, $actor);
+
+        foreach ($recipients as $user) {
+            app(NotificationDispatcher::class)->fire(
+                $user,
+                'rental_fault_report.resolved',
+                $faultReport,
+                [
+                    'title' => 'Fault report resolved — ' . ($property->buildDisplayAddress() ?: $property->title ?: ('Property #' . $property->id)),
+                    'body' => $faultReport->title . ': ' . str_replace('_', ' ', ucfirst($faultReport->outcome)),
+                    'action_url' => route('corex.rental-fault-reports.show', $faultReport->id),
+                    'severity' => 'info',
+                    'threshold_hit_at' => now(),
+                ]
+            );
+        }
     }
 }

@@ -25,7 +25,16 @@ class TitleDeedAuditLog extends Model
     public const EVENT_SCAN_UPLOADED = 'scan_uploaded';
     public const EVENT_SCAN_DOWNLOADED = 'scan_downloaded';
     public const EVENT_NOTICE_SENT = 'notice_sent';
+    public const EVENT_WHATSAPP_OPENED = 'whatsapp_opened';
     public const EVENT_WHATSAPP_CONFIRMED = 'whatsapp_confirmed';
+    public const EVENT_WHATSAPP_NOT_SENT = 'whatsapp_not_sent';
+    public const EVENT_LOCATION_CHANGED = 'location_changed';
+    public const EVENT_SIGNING_LINK_CREATED = 'signing_link_created';
+    public const EVENT_SIGNING_LINK_OPENED = 'signing_link_opened';
+    public const EVENT_SIGNING_LINK_SIGNED = 'signing_link_signed';
+    public const EVENT_SIGNING_LINK_SENT = 'signing_link_sent';
+    public const EVENT_SIGNING_LINK_CANCELLED = 'signing_link_cancelled';
+    public const EVENT_SCAN_REPLACED = 'scan_replaced';
     public const EVENT_PIN_ISSUED = 'pin_issued';
     public const EVENT_PIN_RESENT = 'pin_resent';
     public const EVENT_PIN_REPLACED = 'pin_replaced';

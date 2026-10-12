@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\DealPropertySyncSettingsController;
 use App\Http\Controllers\Admin\ProformaSettingsController;
 use App\Http\Controllers\Commission\CommissionSettingsController;
 use App\Http\Controllers\Compliance\FicaOfficerAppointmentsController;
+use App\Http\Controllers\CoreX\Auctions\AuctionSettingsController;
 use App\Http\Controllers\CoreX\FeatureSettingsController;
 use App\Http\Controllers\CoreX\LeaseSettingsController;
 use App\Http\Controllers\CoreX\RentalInspectionSettingsController;
@@ -1153,6 +1154,48 @@ return [
         ],
     ],
 
+    // AT-432 — Auctions. Gated on the `auctions` feature (AgencyOnboardingSetup::
+    // stepGates), so an agency that does not auction never sees it. Posts a
+    // SUBSET of the settings page, so its saver (updateWizard) guards every write
+    // with $request->has() — spec §6.1. The deeper auction settings (fees,
+    // bidding rules, deposits) stay on Settings → Auctions: see the spec's
+    // "Deliberately NOT in the wizard" list.
+    'auctions' => [
+        'title' => 'Auctions',
+        'intro' => 'Tell CoreX how your agency uses Auctions — most agencies only need to advertise their auction properties.',
+        'what' => [
+            'title' => 'What Auctions is',
+            'body'  => 'Auctions is where you advertise properties that are being sold at auction. Each auction gets its own '
+                . 'public page showing the date, venue, who is running the sale, the guide price, viewing times and the '
+                . 'Rules of Auction, plus an "I\'m interested" form that sends the enquiry straight to the listing agent. '
+                . 'After the sale you record the result and the advert shows Sold or Passed in. If you also want CoreX to run '
+                . 'the sale itself — register bidders, take bids, bang the hammer — you can switch that on below.',
+        ],
+        'savers' => [
+            ['controller' => AuctionSettingsController::class, 'method' => 'updateWizard'],
+        ],
+        'controls' => [
+            ['key' => 'auction_advertising_only', 'source' => 'auction', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Advertising only',
+             'explain' => 'On means CoreX is used to advertise auction properties, and the auction itself is run somewhere else — by an outside auction house or on the day without CoreX. Off means CoreX also runs the sale: bidder registration, the Sale Room and recording bids.',
+             'affects' => 'What this changes: when on, the Sale Room and Bidder Register disappear and "Register to bid" sends buyers to the auctioneer\'s own link; when off, they appear and buyers can register on CoreX.'],
+            ['key' => 'auction_auctioneer_mode', 'source' => 'auction', 'type' => 'select', 'default' => 'both',
+             'options' => ['internal' => 'Our own auctioneer', 'external' => 'An outside auction house', 'both' => 'Either — ask each time'],
+             'label' => 'Who conducts your auctions',
+             'explain' => 'Whether the auctioneer is someone at your agency or an outside auction house. An outside auction house\'s name and licence number are printed on the public advert.',
+             'affects' => 'What the New Auction form asks for, and what buyers see under "Conducted by" on the public page. An agency auctioneer must hold a valid Fidelity Fund Certificate before the auction can be published.'],
+            ['key' => 'auction_reserve_visibility', 'source' => 'auction', 'type' => 'select', 'default' => 'private',
+             'options' => ['private' => 'Never show the reserve amount', 'disclosed_on_the_day' => 'Reveal on the day', 'published' => 'Show it on the advert'],
+             'label' => 'Reserve price on the advert',
+             'explain' => 'Every advert must say whether a lot is subject to a reserve — that is the law. This only decides whether the reserve AMOUNT is shown too.',
+             'affects' => 'Whether buyers see the actual reserve figure on the public lot page, or only "Subject to a reserve price".'],
+            ['key' => 'auction_guide_price_enabled', 'source' => 'auction', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Show a guide price',
+             'explain' => 'A guide price is the range you expect the lot to sell for. It is shown to buyers as an indication, not a promise.',
+             'affects' => 'Whether the public advert and the portal listings show a guide price on each lot.'],
+        ],
+    ],
+
     'properties' => [
         'title' => 'Properties & listings',
         // Marketing and portal syndication are switched on in the Capabilities
@@ -1191,6 +1234,8 @@ return [
             // AT-450 — Title Deed Register. Same saver as Settings -> Title Deeds; every field is has()-guarded (§6.1).
             ['controller' => TitleDeedSettingsController::class, 'method' => 'save'],
         ],
+        // AT-450 round 2 - the agency's own list of title deed storage locations (a list editor, so it sits outside the form).
+        'aux_partial' => 'agency-setup.steps.title-deed-locations',
         'controls' => [
             ['key' => 'properties_per_page', 'source' => 'perf', 'type' => 'number', 'default' => 24, 'min' => 1, 'max' => 200,
              'label' => 'Properties per page',
@@ -1284,6 +1329,21 @@ return [
              'label' => 'Photo of the collector\'s ID',
              'explain' => 'Staff photograph the collector\'s ID document at the handover. It is kept privately with the record.',
              'affects' => 'Whether a handover can be completed without a photo of the collector\'s ID.'],
+
+            ['key' => 'notify_listing_agent', 'source' => 'title_deeds', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Tell the deal\'s listing agent when a deed is collected',
+             'explain' => 'When a title deed came from a deal in the Deal Register, the responsible agent (the selling agent, who works with the buyer) is always told when it is collected. With this on, the deal\'s listing agent (who worked with the seller) is told too.',
+             'affects' => 'Whether the listing agent gets a notification when a title deed linked to their deal is collected.'],
+
+            ['key' => 'sign_by_link_enabled', 'source' => 'title_deeds', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Collector may sign on their own phone from a link',
+             'explain' => 'Besides signing on the staff member\'s screen, the collector can be sent a one-time link (by email, WhatsApp or a QR code) and sign on their own phone. The PIN, ID check or owner consent still has to be done first.',
+             'affects' => 'Whether staff see a "Generate signing link" option on the handover screen.'],
+
+            ['key' => 'signing_link_minutes', 'source' => 'title_deeds', 'type' => 'number', 'default' => 30, 'min' => 5, 'max' => 1440,
+             'label' => 'How long a signing link lasts (minutes)',
+             'explain' => 'A signing link works once, and stops working after this long.',
+             'affects' => 'How long the collector has to open the link and sign.'],
 
             ['key' => 'pin_lock_attempts', 'source' => 'title_deeds', 'type' => 'number', 'default' => 5, 'min' => 1, 'max' => 20,
              'label' => 'Wrong PIN attempts before the PIN locks',

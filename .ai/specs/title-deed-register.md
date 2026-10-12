@@ -18,8 +18,8 @@ It is a SIBLING of the Filing Register (which is a mandate paperwork index). Not
 (never by editing a field).
 
 - Received: the deed is logged.
-- Owner notified: the first owner notice has been sent (an email accepted by the mail system, or a WhatsApp the staff member
-  confirmed with "I sent it"). It never goes back.
+- Owner notified: the first owner notice has been sent (an email accepted by the mail system, or a WhatsApp a staff member
+  opened and then CONFIRMED as sent - section 14.7). It never goes back.
 - Collected: a handover completed. The record is then read-only except notes and archive.
 
 ## 3. Data model
@@ -210,3 +210,99 @@ approve / decline / expired / reused token / first response wins; reminder cap a
 
 Automatic WhatsApp sending; editable message wording; an ID-number match against the contact record (the number seen is recorded and
 the audit notes whether it matches); WhatsApp reminders; any change to the Filing Register.
+
+## 14. Round 2 (AT-450, QA1)
+
+### 14.1 One-time form tokens - Back + submit never makes two of anything
+Every state-changing form (log a deed, notify owners, resend PIN, new PIN, handover, consent request, phone consent, signing-link
+actions) carries `_form_token`: a signed value (`v1.<time>.<nonce>.<hmac>`) bound to the person, the purpose and the deed.
+`TitleDeedFormGuard::claim()` inserts the token into `title_deed_form_claims` (unique on the hash) **inside the same database
+transaction as the action**. A failed action rolls the claim back (the same form can be sent again); a successful one makes any
+second send of that rendered form (Back, double click, refresh-resend, two tabs sharing a form) answer "already done" and land on
+the result - nothing repeats. A token for another purpose or person, a forged or missing one, is refused. Cause of the duplicate
+pair 6 / 7: the create form had no protection, so Back-then-submit re-posted the old form.
+**Real duplicate guard:** an OPEN (not collected, not archived) deed for the same property - or the same deal - already in the
+agency (agency-wide, not just my own) shows a warning with a link; logging another needs the explicit button "Log another deed for
+this property" (app dialog), server-enforced by `confirm_duplicate`.
+
+### 14.2 Responsible agent = what the form shows
+The property pick only PRE-FILLS the Responsible agent select visibly (with a one-line "Filled from the property: <name>" note and an
+outline); the person can change it, a deal pick (14.3/14.8) outranks the property, and a value the person chose is never
+overwritten. What is saved is exactly the select's value. (Cause of the old bug: the server replaced the posted agent with the
+property's agent when they differed.)
+
+### 14.3 Deal picker
+Optional "Deal" search (new deeds, `title_deeds.create`) over REGISTERED DR2 deals the user can see (`deals.accepted_status` R /
+Registered, or `registration_date` set), by `deal_no` / `file_no`, the property address, seller / buyer name or a linked buyer
+contact. Picking pre-fills, visibly and editably: property (`deals.property_id`), transferring attorney firm
+(`deals.attorney_provider_id` -> `agency_service_providers.company/name`, else `deals.attorney_name`), branch (`deals.branch_id`),
+agents (14.8) and owners = the deal's linked BUYERS (`deal_contacts.role = buyer`; after registration the deed belongs to the new
+owner). A buyer only named as text (`deals.buyer_name`) is shown as text and never turned into a contact. Stored as
+`title_deeds.deal_id`; the record links to `/deals-dr2/{deal}/pipeline` and shows "Deal <no>". Routes: `GET title-deeds/search/deals`,
+`GET title-deeds/search/deal/{deal}/prefill`.
+
+### 14.4 Where it is kept = the agency's own list
+`title_deeds.storage_location_id` -> `title_deed_storage_locations` (agency, name, optional branch, sort order, soft delete).
+Required select on the form (only locations for the deed's branch or for every branch). Settings screen
+**Settings -> Title Deeds -> Storage locations** (`title_deeds.manage_settings`; own agency only; search, sort, show archived, add /
+rename / reorder / archive / restore) - the same write path as the Setup Wizard's list editor (step "Title deed storage
+locations"). An agency with no locations is told where to add one (or to ask an admin) and cannot log a deed until it has one. Old
+free text is kept and shown as "Legacy: ...". An archived location keeps showing on the deeds that used it. A move writes a
+`location_changed` history entry (from -> to).
+
+### 14.5 Scan on the create form
+Optional file input on "Log a title deed", saved atomically with the deed (if the file cannot be stored the whole create rolls back
+and the typed input is kept). Replacing a scan on the record keeps the previous file (soft) under "Earlier scans".
+
+### 14.6 Row actions on the list
+A compact group at the right of every row (icons with tooltips): open, notify owners, resend PIN, new PIN, email owner, WhatsApp
+owner, hand over - only those valid for the row's status and the user's permissions. They post to the SAME routes with the same
+one-time token, confirm through ONE shared app dialog, record the same audit, and return to the exact list the user was on
+(`return_to`, accepted only if it is this module's own list path). The whole row opens the record (clicks on links, buttons and the
+actions do not).
+
+### 14.7 WhatsApp is one honest step
+"Open WhatsApp and send" (POST) records `opened_at` / `opened_by_user_id` and redirects to the wa.me link on the STORED number.
+Only a message that was opened can then be marked "Mark as sent" or "Not sent" (the server refuses both for a message nobody
+opened). Same for PIN resend and the consent link. "Owner notified" moves only via a sent email or a confirmed WhatsApp. The list
+shows a "WhatsApp waiting to be sent" panel. History shows who opened it and when, who confirmed. A collected deed never shows a
+waiting WhatsApp, and the message for a signing link stops "waiting" once that link is used, cancelled or has run out.
+
+### 14.8 Agents from the deal
+Responsible agent = the deal's first SELLING agent (`deal_user.side = selling`; they work with the buyer, the new owner); further
+selling agents are saved as `additional_agent_ids` ("Also told on collection"); the deal's LISTING agent (`side = listing`) is shown
+as "Listing agent" and saved as `listing_agent_id`. Agency setting `notify_listing_agent` (default on) decides whether the listing
+agent is told on collection. No deal -> 14.2. People from another agency are never stored.
+
+### 14.9 Signature pad (BLOCKER)
+Reported: the signature box on the handover screen could not be drawn on, so handover was impossible. Reproduced in real headless
+Chromium on QA1 (mouse and touch, 390 and 1280 wide): the old pad drew in every scenario tried, so the exact user-side trigger
+could not be reproduced here. What the old design depended on: a third-party library loaded as a separate module script that the
+Alpine page found only if it had arrived first, kept INSIDE Alpine's reactive state (proxy-wrapped), sized once from the box's
+size at load. Any of those failing leaves a box that does nothing and says nothing. Replaced by one self-contained pad
+(`_signature-pad.blade.php`): no third-party dependency, outside Alpine's state, sizes itself on every resize and when first laid
+out, redraws its strokes, mouse + touch + pen (pointer events with a fallback), and **says so** when it cannot start ("Reload this
+page, or use 'Collector signs on their own phone instead'") - and the handover can always be done by link (14.10). Used by the
+staff screen (all three methods) and the public phone page.
+**Why the first build's checks missed it:** they only proved the SERVER accepts a correct signature image; nothing ever drew on the
+box in a browser. `scripts/verify-title-deed-signature.mjs` is that check: it draws a stroke (mouse at 1280, 1280 @2x, touch at
+390) and asserts ink is on the canvas and that the signature field the server will receive is a real PNG, without submitting.
+
+### 14.10 Sign by link
+Second way to sign (agency settings `sign_by_link_enabled`, default on; `signing_link_minutes`, default 30). All gates are passed at
+the counter FIRST (PIN proven but NOT spent, ID number seen, owner consent, authority letter, ID photo, override) by
+`TitleDeedHandoverService::prepareLink()`; then a single-use link is created for THIS deed and THIS named collector (token hashed in
+`title_deed_signing_links`, 192-bit, shown once). The collector opens `/title-deed-sign/{token}` on their phone (no login): "I,
+<name>, confirm I am collecting the title deed for <property>", a working pad, typed name, a confirm tick; it records the
+signature, typed name, time, IP and device and does NOT collect the deed. The staff screen polls
+(`GET /api/v1/title-deeds/{id}/signing-status`), flips to "Signed by <name> at <time>" and enables "Hand the deed over", which
+finishes from what was proven at the counter (`signing_link_id`; the PIN is spent then, and re-checked: a replaced / locked PIN
+refuses). Where the link goes: an OWNER's link only to the email / WhatsApp stored on that contact; a REPRESENTATIVE's to the
+email / mobile captured at the counter. Email is sent from the staff member's mailbox; WhatsApp uses 14.7; a QR code on the staff
+screen is the third way. The on-screen pad and the link are alternatives: the first to complete cancels the other. Staff can
+cancel or regenerate (history keeps every step: generated, sent, opened, signed, cancelled, used). The signing POST is exempt from
+CSRF (the token is the credential) and throttled; every dead link (expired, cancelled, used, unknown) is a plain page.
+
+### 14.11 Round-2 test files
+`TitleDeedRound2Test` (items 1-8), `TitleDeedSigningLinkTest` (item 10), the adapted round-1 files, and the real-browser check
+`scripts/verify-title-deed-signature.mjs` (item 9; also signs on the public page with `--sign-url`).

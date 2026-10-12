@@ -63,8 +63,8 @@ class TitleDeed extends Model
     ];
 
     protected $fillable = [
-        'agency_id', 'branch_id', 'agent_id', 'created_by', 'property_id', 'property_address', 'attorney_firm',
-        'received_at', 'storage_location', 'notes', 'status', 'notified_at', 'collected_at', 'collected_by_name',
+        'agency_id', 'branch_id', 'agent_id', 'listing_agent_id', 'additional_agent_ids', 'deal_id', 'created_by', 'property_id',
+        'property_address', 'attorney_firm', 'received_at', 'storage_location', 'storage_location_id', 'notes', 'status', 'notified_at', 'collected_at', 'collected_by_name',
         'collected_method', 'scan_document_id', 'pin_version', 'pin_encrypted', 'pin_issued_at',
         'pin_failed_attempts', 'pin_locked_at', 'last_reminder_at', 'reminder_count',
     ];
@@ -76,6 +76,7 @@ class TitleDeed extends Model
         'pin_issued_at' => 'datetime',
         'pin_locked_at' => 'datetime',
         'last_reminder_at' => 'datetime',
+        'additional_agent_ids' => 'array',
         'pin_version' => 'integer',
         'pin_failed_attempts' => 'integer',
         'reminder_count' => 'integer',
@@ -93,6 +94,31 @@ class TitleDeed extends Model
     public function agent(): BelongsTo
     {
         return $this->belongsTo(User::class, 'agent_id');
+    }
+
+    /** The deal's LISTING agent (works with the seller) - shown for reference, told on collection when the agency says so. */
+    public function listingAgent(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'listing_agent_id');
+    }
+
+    /** The DR2 deal this deed came from, if one was picked. */
+    public function deal(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Deal::class, 'deal_id')->withTrashed();
+    }
+
+    public function storageLocation(): BelongsTo
+    {
+        return $this->belongsTo(TitleDeedStorageLocation::class, 'storage_location_id')->withTrashed();
+    }
+
+    /** Further selling agents on the deal, who are told on collection too. */
+    public function additionalAgents()
+    {
+        $ids = array_values(array_filter((array) $this->additional_agent_ids));
+
+        return $ids === [] ? collect() : User::query()->whereIn('id', $ids)->orderBy('name')->get();
     }
 
     public function creator(): BelongsTo
@@ -229,6 +255,19 @@ class TitleDeed extends Model
         $live = $property ? trim((string) $property->buildDisplayAddress()) : '';
 
         return $live !== '' ? $live : ((string) $this->property_address !== '' ? (string) $this->property_address : 'Property #' . $this->property_id);
+    }
+
+    /** Where it is kept: the agency's location, else the legacy free text clearly marked as such. */
+    public function getStorageDisplayAttribute(): ?string
+    {
+        $location = $this->storage_location_id
+            ? ($this->relationLoaded('storageLocation') ? $this->storageLocation : $this->storageLocation()->first())
+            : null;
+        if ($location) {
+            return $location->name;
+        }
+
+        return trim((string) $this->storage_location) !== '' ? 'Legacy: ' . $this->storage_location : null;
     }
 
     /** "Copy only - original held at office" until collected, then "Original collected <date>". */

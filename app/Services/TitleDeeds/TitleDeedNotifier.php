@@ -38,9 +38,9 @@ class TitleDeedNotifier
     /* ═════════ Owner notice, PIN resend, new PIN ═════════ */
 
     /** @return array{sent:int, failed:int, skipped:int, prepared:int, lines:array<int,string>} */
-    public function notifyOwners(User $by, TitleDeed $deed): array
+    public function notifyOwners(User $by, TitleDeed $deed, string $channel = 'both'): array
     {
-        return $this->withNoticeLock($deed, function () use ($by, $deed) {
+        return $this->withNoticeLock($deed, function () use ($by, $deed, $channel) {
             $pin = DB::transaction(function () use ($by, $deed) {
                 $locked = $this->lockOpenDeed($deed);
                 $code = null;
@@ -57,7 +57,7 @@ class TitleDeedNotifier
                 return $code;
             });
 
-            $summary = $this->deliver($by, $deed->refresh(), TitleDeedEvent::KIND_OWNER_NOTICE, $pin, false);
+            $summary = $this->deliver($by, $deed->refresh(), TitleDeedEvent::KIND_OWNER_NOTICE, $pin, false, $channel);
             if ($summary['sent'] > 0) {
                 $this->markNotified($deed);
             }
@@ -68,9 +68,9 @@ class TitleDeedNotifier
     }
 
     /** Send the SAME PIN again to the stored email / WhatsApp of every owner. */
-    public function resendPin(User $by, TitleDeed $deed): array
+    public function resendPin(User $by, TitleDeed $deed, string $channel = 'both'): array
     {
-        return $this->withNoticeLock($deed, function () use ($by, $deed) {
+        return $this->withNoticeLock($deed, function () use ($by, $deed, $channel) {
             $code = DB::transaction(function () use ($deed) {
                 $locked = $this->lockOpenDeed($deed);
                 if (! TitleDeedSetting::pinRequiredFor($locked->agency_id)) {
@@ -85,7 +85,7 @@ class TitleDeedNotifier
                 return $code;
             });
 
-            $summary = $this->deliver($by, $deed->refresh(), TitleDeedEvent::KIND_PIN_RESEND, $code, false);
+            $summary = $this->deliver($by, $deed->refresh(), TitleDeedEvent::KIND_PIN_RESEND, $code, false, $channel);
             TitleDeedAuditLog::record($deed, TitleDeedAuditLog::EVENT_PIN_RESENT, $this->summaryLine('PIN resent', $summary), null, null, $by);
 
             return $summary;
@@ -109,7 +109,7 @@ class TitleDeedNotifier
                 return $code;
             });
 
-            $summary = $this->deliver($by, $deed->refresh(), TitleDeedEvent::KIND_PIN_NEW, $code, false);
+            $summary = $this->deliver($by, $deed->refresh(), TitleDeedEvent::KIND_PIN_NEW, $code, false, 'both');
             if ($summary['sent'] > 0) {
                 $this->markNotified($deed);
             }
@@ -118,40 +118,114 @@ class TitleDeedNotifier
         });
     }
 
-    /** The staff member confirms they sent a prepared WhatsApp. */
+    /**
+     * "Open WhatsApp and send": records that a person opened WhatsApp for this message (who, when) and returns the wa.me link.
+     * Only a message that is still waiting (prepared / opened / backed out) can be opened; one already confirmed as sent cannot.
+     *
+     * @throws TitleDeedException
+     */
+    public function openWhatsapp(User $by, TitleDeed $deed, TitleDeedEvent $event): string
+    {
+        return DB::transaction(function () use ($by, $deed, $event) {
+            $row = $this->lockWhatsappRow($deed, $event);
+            if ($row->status === TitleDeedEvent::STATUS_SENT) {
+                throw new TitleDeedException('That WhatsApp message is already marked as sent.');
+            }
+            if (! in_array($row->status, [TitleDeedEvent::STATUS_PREPARED, TitleDeedEvent::STATUS_OPENED, TitleDeedEvent::STATUS_NOT_SENT], true)) {
+                throw new TitleDeedException('That WhatsApp message cannot be opened.');
+            }
+
+            $link = $this->whatsappLink($deed, $row, true);
+            if (! $link) {
+                throw new TitleDeedException('That WhatsApp message cannot be opened - the owner has no mobile number stored any more.');
+            }
+
+            $row->forceFill(['status' => TitleDeedEvent::STATUS_OPENED, 'opened_at' => now(), 'opened_by_user_id' => $by->id])->save();
+            TitleDeedAuditLog::record($deed, TitleDeedAuditLog::EVENT_WHATSAPP_OPENED,
+                'WhatsApp opened by ' . $by->name . ' for ' . ($row->owner_name ?: 'owner') . ' (' . $row->destination_masked . ') - ' . (TitleDeedEvent::KIND_LABELS[$row->kind] ?? $row->kind) . '. Not yet confirmed as sent.',
+                null, ['kind' => $row->kind], $by);
+
+            return $link;
+        });
+    }
+
+    /**
+     * "Mark as sent": only AFTER the open click. Server-enforced - a message nobody opened can never be marked as sent.
+     *
+     * @throws TitleDeedException
+     */
     public function confirmWhatsapp(User $by, TitleDeed $deed, TitleDeedEvent $event): void
     {
         DB::transaction(function () use ($by, $deed, $event) {
-            $row = TitleDeedEvent::query()->lockForUpdate()->find($event->id);
-            if (! $row || (int) $row->title_deed_id !== (int) $deed->id || $row->channel !== TitleDeedEvent::CHANNEL_WHATSAPP) {
-                throw new TitleDeedException('That WhatsApp message could not be found.');
-            }
+            $row = $this->lockWhatsappRow($deed, $event);
             if ($row->status === TitleDeedEvent::STATUS_SENT) {
                 return;   // double click: absorbed
             }
-            if ($row->status !== TitleDeedEvent::STATUS_PREPARED) {
-                throw new TitleDeedException('That WhatsApp message was not prepared for sending.');
+            if ($row->status !== TitleDeedEvent::STATUS_OPENED || $row->opened_at === null) {
+                throw new TitleDeedException('Open WhatsApp first - a message can only be marked as sent after it was opened.');
             }
             $row->forceFill(['status' => TitleDeedEvent::STATUS_SENT, 'confirmed_at' => now(), 'user_id' => $by->id, 'payload_encrypted' => null])->save();
             TitleDeedAuditLog::record($deed, TitleDeedAuditLog::EVENT_WHATSAPP_CONFIRMED,
-                'WhatsApp to ' . ($row->owner_name ?: 'owner') . ' (' . $row->destination_masked . ') confirmed as sent.', null, ['kind' => $row->kind], $by);
-            if ($row->kind === TitleDeedEvent::KIND_OWNER_NOTICE) {
+                'WhatsApp to ' . ($row->owner_name ?: 'owner') . ' (' . $row->destination_masked . ') marked as sent by ' . $by->name . '.', null, ['kind' => $row->kind], $by);
+            if (in_array($row->kind, [TitleDeedEvent::KIND_OWNER_NOTICE, TitleDeedEvent::KIND_PIN_NEW], true)) {
                 $this->markNotified($deed);
             }
         });
     }
 
-    /** The wa.me link for a prepared message, built NOW from what is stored (PIN decrypted here, never shown on a page). */
-    public function whatsappLink(TitleDeed $deed, TitleDeedEvent $event): ?string
+    /** "Not sent": the person opened WhatsApp but did not send it. Also only after the open click. */
+    public function declineWhatsapp(User $by, TitleDeed $deed, TitleDeedEvent $event): void
+    {
+        DB::transaction(function () use ($by, $deed, $event) {
+            $row = $this->lockWhatsappRow($deed, $event);
+            if ($row->status === TitleDeedEvent::STATUS_NOT_SENT) {
+                return;
+            }
+            if ($row->status !== TitleDeedEvent::STATUS_OPENED) {
+                throw new TitleDeedException('Open WhatsApp first - only a message that was opened can be marked as not sent.');
+            }
+            $row->forceFill(['status' => TitleDeedEvent::STATUS_NOT_SENT, 'user_id' => $by->id])->save();   // the payload stays: "Open again" is allowed
+            TitleDeedAuditLog::record($deed, TitleDeedAuditLog::EVENT_WHATSAPP_NOT_SENT,
+                'WhatsApp to ' . ($row->owner_name ?: 'owner') . ' (' . $row->destination_masked . ') was opened but NOT sent (' . $by->name . ').', null, ['kind' => $row->kind], $by);
+        });
+    }
+
+    private function lockWhatsappRow(TitleDeed $deed, TitleDeedEvent $event): TitleDeedEvent
+    {
+        $row = TitleDeedEvent::query()->lockForUpdate()->find($event->id);
+        if (! $row || (int) $row->title_deed_id !== (int) $deed->id || $row->channel !== TitleDeedEvent::CHANNEL_WHATSAPP) {
+            throw new TitleDeedException('That WhatsApp message could not be found.');
+        }
+
+        return $row;
+    }
+
+    /** The wa.me link for a message, built NOW from what is stored (PIN decrypted here, never shown on a page). Records nothing. */
+    public function whatsappLink(TitleDeed $deed, TitleDeedEvent $event, bool $forOpen = false): ?string
     {
         if ((int) $event->title_deed_id !== (int) $deed->id || $event->channel !== TitleDeedEvent::CHANNEL_WHATSAPP
-            || ! in_array($event->status, [TitleDeedEvent::STATUS_PREPARED, TitleDeedEvent::STATUS_SENT], true)) {
+            || ! in_array($event->status, [TitleDeedEvent::STATUS_PREPARED, TitleDeedEvent::STATUS_OPENED, TitleDeedEvent::STATUS_NOT_SENT, TitleDeedEvent::STATUS_SENT], true)) {
             return null;
         }
 
-        $owner = TitleDeedOwner::query()->where('title_deed_id', $deed->id)->where('contact_id', $event->contact_id)->first();
+        // A payload is either the message text itself (consent requests) or JSON {text, to} (signing links, where a REPRESENTATIVE's
+        // number was captured at the counter and is not on any contact).
+        $payloadText = null;
+        $payloadTo = null;
+        if ($event->payload_encrypted) {
+            $raw = $this->decrypt($event->payload_encrypted);
+            $json = $raw !== null ? json_decode($raw, true) : null;
+            if (is_array($json) && isset($json['text'])) {
+                $payloadText = (string) $json['text'];
+                $payloadTo = isset($json['to']) ? preg_replace('/\D+/', '', (string) $json['to']) : null;
+            } else {
+                $payloadText = $raw;
+            }
+        }
+
+        $owner = $event->contact_id ? TitleDeedOwner::query()->where('title_deed_id', $deed->id)->where('contact_id', $event->contact_id)->first() : null;
         $contact = $owner ? TitleDeedDestinations::liveContact($deed, $owner) : null;
-        $wa = TitleDeedDestinations::whatsappFor($contact);
+        $wa = $payloadTo ? ['digits' => $payloadTo] : TitleDeedDestinations::whatsappFor($contact);
         if (! $wa) {
             return null;
         }
@@ -160,12 +234,11 @@ class TitleDeedNotifier
         $agencyName = $agency?->name ?: 'our office';
         $first = $this->firstName($owner?->display_name ?? '');
 
-        if ($event->kind === TitleDeedEvent::KIND_CONSENT_REQUEST) {
-            $payload = $event->payload_encrypted ? $this->decrypt($event->payload_encrypted) : null;
-            if (! $payload) {
+        if (in_array($event->kind, [TitleDeedEvent::KIND_CONSENT_REQUEST, TitleDeedEvent::KIND_SIGNING_LINK], true)) {
+            if (! $payloadText) {
                 return null;
             }
-            $text = $payload;
+            $text = $payloadText;
         } else {
             $pin = TitleDeedSetting::pinRequiredFor($deed->agency_id) ? $this->pins->currentCode($deed) : null;
             $text = $this->noticeText($first, $deed->property_display, $agencyName, $pin, $event->kind === TitleDeedEvent::KIND_REMINDER);
@@ -184,7 +257,7 @@ class TitleDeedNotifier
             $pin = $this->pins->currentCode($deed);
         }
 
-        return $this->deliver(null, $deed, TitleDeedEvent::KIND_REMINDER, $pin, true, emailOnly: true);
+        return $this->deliver(null, $deed, TitleDeedEvent::KIND_REMINDER, $pin, true, 'email');
     }
 
     /* ═════════ After collection ═════════ */
@@ -288,7 +361,7 @@ class TitleDeedNotifier
     }
 
     /** @return array{sent:int, failed:int, skipped:int, prepared:int, lines:array<int,string>} */
-    private function deliver(?User $by, TitleDeed $deed, string $kind, ?string $pin, bool $isReminder, bool $emailOnly = false): array
+    private function deliver(?User $by, TitleDeed $deed, string $kind, ?string $pin, bool $isReminder, string $channel = 'both'): array
     {
         $summary = $this->blankSummary();
         $recipients = $this->recipients($deed);
@@ -300,9 +373,12 @@ class TitleDeedNotifier
         $agency = Agency::withoutGlobalScopes()->find($deed->agency_id);
         $address = $deed->property_display;
 
+        $wantEmail = $channel !== 'whatsapp';
+        $wantWhatsapp = $channel !== 'email';
+
         // EMAIL - one email per distinct address (two owners sharing an address get one email that greets both).
-        $byEmail = $recipients->filter(fn ($r) => $r['contact'] && $r['email'])->groupBy(fn ($r) => mb_strtolower($r['email']));
-        foreach ($recipients as $r) {
+        $byEmail = $wantEmail ? $recipients->filter(fn ($r) => $r['contact'] && $r['email'])->groupBy(fn ($r) => mb_strtolower($r['email'])) : collect();
+        foreach ($wantEmail ? $recipients : collect() as $r) {
             $owner = $r['owner'];
             if (! $r['contact']) {
                 $this->log($deed, $kind, TitleDeedEvent::CHANNEL_EMAIL, $owner, null, TitleDeedEvent::STATUS_SKIPPED, 'This contact is archived.', $by);
@@ -329,8 +405,8 @@ class TitleDeedNotifier
             }
         }
 
-        // WHATSAPP - prepared, never claimed as sent until a person confirms.
-        if (! $emailOnly) {
+        // WHATSAPP - prepared, never claimed as sent until a person opens it AND confirms.
+        if ($wantWhatsapp) {
             $seen = [];
             foreach ($recipients as $r) {
                 $owner = $r['owner'];
