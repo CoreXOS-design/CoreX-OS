@@ -46,8 +46,12 @@ class RentalApprovalGateService
     /** The two owner work terms in force for a property, with where each came from (§17.6.1). */
     public function termsFor(Property $property): WorkTerms
     {
-        if ($property->rental_no_approval_spend_threshold !== null) {
-            $limit = (float) $property->rental_no_approval_spend_threshold;
+        if (($ownerLimit = \App\Services\Rentals\RentalOwnerFaultSettings::limitInForce($property)) !== null) {
+            // the owner's own answer (rentals-faults-work-orders.md section 22) - the ONE place the repair limit lives
+            $limit = $ownerLimit;
+            $limitSource = WorkTerms::SOURCE_PROPERTY;
+        } elseif ($property->rental_no_approval_spend_threshold !== null) {
+            $limit = (float) $property->rental_no_approval_spend_threshold;   // legacy fallback: no owner answer yet; no longer editable anywhere
             $limitSource = WorkTerms::SOURCE_PROPERTY;
         } else {
             $limit = RentalWorkOrderSetting::spendThresholdFor($property->agency_id);

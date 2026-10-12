@@ -340,7 +340,7 @@ final class FirstResponderTest extends TestCase
         $this->svc()->save($this->property, [$this->row($this->caretaker)], $this->agent);
         $fault = $this->fault();
         $this->assertFalse(\Illuminate\Support\Facades\Route::has('corex.rental-fault-reports.first-responder'), 'the record-only seam is gone');
-        $this->assertFalse(interface_exists(\App\Services\Rentals\FirstResponderDispatcher::class));
+        $this->assertFileDoesNotExist(app_path('Services/Rentals/FirstResponderDispatcher.php'));
 
         // the caretaker's call-out fee is not known: it is treated as a fee, so "Send to inspect" is refused and nothing goes out
         $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.send-to-inspect', $fault), ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $this->caretaker->id])

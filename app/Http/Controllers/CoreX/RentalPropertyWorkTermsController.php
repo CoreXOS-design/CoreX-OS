@@ -23,7 +23,8 @@ class RentalPropertyWorkTermsController extends Controller
 
     /** field => the properties column it lives in */
     private const COLUMNS = [
-        RentalPropertyWorkTermChange::FIELD_NO_APPROVAL_LIMIT => 'rental_no_approval_spend_threshold',
+        // the no-approval (repair) limit is NOT edited here any more: it lives in ONE place, the owner's "How the owner wants faults handled"
+        // (RentalOwnerFaultSettings, rentals-faults-work-orders.md section 22).
         RentalPropertyWorkTermChange::FIELD_VARIATION_TOLERANCE => 'rental_variation_tolerance_percent',
     ];
 
@@ -39,11 +40,9 @@ class RentalPropertyWorkTermsController extends Controller
 
         $data = $request->validate([
             // A blank box means "use the agency default" — that is a value (null), not a missing field.
-            'no_approval_limit' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
             'variation_tolerance' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'agreed_with' => ['nullable', 'string', 'max:255'],
         ], [
-            'no_approval_limit.numeric' => 'The no-approval limit must be an amount in rand (or left blank to use the agency default).',
             'variation_tolerance.numeric' => 'The tolerance must be a percentage (or left blank to use the agency default).',
             'variation_tolerance.max' => 'The tolerance cannot be more than 100 %.',
         ]);

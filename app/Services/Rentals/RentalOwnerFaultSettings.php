@@ -48,6 +48,18 @@ final class RentalOwnerFaultSettings
         return $this->hasStandingAuthority() && $this->row->repair_limit !== null ? (float) $this->row->repair_limit : null;
     }
 
+    /**
+     * The ONE number the existing approval gate / job card / fault screens use for "work up to R x needs no owner approval" (section 22.7). Once the owner's
+     * own settings have an answer (anything but not_set) THAT is the limit - and "must ask" is R0, so a disputed property sends every job to the owner.
+     * Returns null while there is no answer yet, and the caller keeps its old fallback (the agency default) until the fault flow is moved onto repairLimit().
+     */
+    public static function limitInForce(Property $property): ?float
+    {
+        $r = self::for($property);
+
+        return $r->row() && $r->status() !== Row::STATUS_NOT_SET ? ($r->repairLimit() ?? 0.0) : null;
+    }
+
     /** Emergency repairs the agent may authorise without asking, in rand; null = must ask. */
     public function emergencyLimit(): ?float
     {

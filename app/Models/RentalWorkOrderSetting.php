@@ -163,6 +163,11 @@ class RentalWorkOrderSetting extends Model
      */
     public static function thresholdFor(Property $property): float
     {
+        // the owner's own answer (rentals-faults-work-orders.md section 22) is the limit once they have one; the old per-property column below is
+        // only a fallback for a property whose owner has no answer yet (it is no longer editable anywhere).
+        if (($owner = \App\Services\Rentals\RentalOwnerFaultSettings::limitInForce($property)) !== null) {
+            return $owner;
+        }
         if ($property->rental_no_approval_spend_threshold !== null) {
             return (float) $property->rental_no_approval_spend_threshold;
         }

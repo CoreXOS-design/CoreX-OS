@@ -24,10 +24,7 @@
         <strong>How the owner wants faults handled</strong>
         <span class="ds-badge {{ $ofsBadge }}" data-owner-fault-status>{{ $ofsLabel }}</span>
     </div>
-    <p class="text-xs" style="color: var(--text-muted);">
-        These are the OWNER's decisions about their property. Until the owner has confirmed them (or you have recorded what they told you, with evidence), nothing here counts as a standing
-        authority and every decision goes to the owner. The agency's suggested amount is only ever a suggestion.
-    </p>
+    <p class="text-xs" style="color: var(--text-muted);" data-owner-fault-intro>The owner's own choices. Until confirmed, every decision goes to the owner.</p>
 
     @if($errors->hasAny(['repair_limit', 'emergency_limit', 'callout_mode', 'callout_limit', 'basis', 'occurred_at', 'note', 'evidence']))
         <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);" data-owner-fault-errors>
@@ -46,7 +43,7 @@
             @permission('rental_work_orders.manage_work_terms')
             <form method="POST" action="{{ route('corex.properties.rental-owner-fault-settings.send', $property) }}">
                 @csrf
-                <button type="submit" class="corex-btn-primary text-xs" style="min-width: 12rem;" data-send-to-owner>Send to owner to confirm</button>
+                <button type="submit" class="corex-btn-primary text-sm" style="width: 16rem; max-width: 100%;" data-send-to-owner>Send to owner to confirm</button>
             </form>
             @endpermission
         </div>
@@ -58,24 +55,27 @@
         </div>
     @endif
 
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs" data-owner-fault-values>
-        <div><div style="color: var(--text-muted);">Repairs the agent may authorise without asking</div><strong data-v-repair>{{ $ofsMoney($ofsValues['repair_limit']) }}</strong></div>
-        <div><div style="color: var(--text-muted);">Emergency repairs without asking</div><strong data-v-emergency>{{ $ofsMoney($ofsValues['emergency_limit']) }}</strong></div>
-        <div><div style="color: var(--text-muted);">Contractor who charges a call-out fee, without asking</div>
-            <strong data-v-callout>@if($ofsValues['callout_mode'] === 'yes')Yes, up to {{ $ofsMoney($ofsValues['callout_limit']) }}@elseif($ofsValues['callout_mode'] === 'no')No - ask the owner first@else not set @endif</strong></div>
+    @php
+        $ofsCallout = $ofsValues['callout_mode'] === 'yes' ? 'Yes, up to ' . $ofsMoney($ofsValues['callout_limit']) : ($ofsValues['callout_mode'] === 'no' ? 'No - ask the owner first' : 'not set');
+    @endphp
+    <div class="grid text-xs" style="grid-template-columns: minmax(0, 1fr) auto; column-gap: 1rem;" data-owner-fault-values>
+        @foreach([['Repairs the agent may authorise without asking', $ofsMoney($ofsValues['repair_limit']), 'data-v-repair'], ['Emergency repairs without asking', $ofsMoney($ofsValues['emergency_limit']), 'data-v-emergency'], ['Contractor who charges a call-out fee, without asking', $ofsCallout, 'data-v-callout']] as [$ofsLbl, $ofsVal, $ofsAttr])
+            <div class="py-1.5" style="border-bottom: 1px solid var(--border); color: var(--text-muted);">{{ $ofsLbl }}</div>
+            <div class="py-1.5 text-right font-semibold" style="border-bottom: 1px solid var(--border);" {!! $ofsAttr !!}>{{ $ofsVal }}</div>
+        @endforeach
     </div>
     @if($ofsRow && $ofsRow->capture_basis)
         <p class="text-xs" style="color: var(--text-muted);" data-owner-fault-evidence>
             Recorded by {{ $ofs->capturedBy() ?: 'a former user' }}{{ $ofsRow->captured_at ? ' on ' . $ofsRow->captured_at->format('j M Y') : '' }} -
             @if($ofsRow->capture_basis === 'carried_over'){{ strtolower($ofsRow->basisLabel()) }}@else the owner told us by {{ strtolower($ofsRow->basisLabel()) }}{{ $ofsRow->capture_occurred_at ? ' on ' . $ofsRow->capture_occurred_at->format('j M Y') : '' }}@endif.
-            @if($ofsRow->capture_note)&ldquo;{{ $ofsRow->capture_note }}&rdquo;@endif
+            @if($ofsRow->capture_note && $ofsRow->capture_basis !== 'carried_over')&ldquo;{{ $ofsRow->capture_note }}&rdquo;@endif
             @if($ofsRow->capture_file_path)<a class="underline" href="{{ route('corex.properties.rental-owner-fault-settings.evidence', $property) }}">{{ $ofsRow->capture_file_name ?: 'Evidence' }}</a>@endif
         </p>
     @endif
     @if($ofsStatus === 'confirmed_by_owner' && $ofs->confirmedAt())
         <p class="text-xs" style="color: var(--text-muted);">Confirmed by the owner on {{ $ofs->confirmedAt()->format('j M Y H:i') }}.</p>
     @endif
-    <p class="text-xs" style="color: var(--text-muted);">Who looks at faults first is set in the panel below; the owner can ask for a change from their portal.</p>
+    <p class="text-xs" style="color: var(--text-muted);">Who looks at faults first: see the panel below.</p>
 
     @permission('rental_work_orders.manage_work_terms')
     <details @if($ofsOpen) open @endif data-owner-fault-capture>
@@ -131,7 +131,7 @@
             </div>
             <div class="flex flex-wrap items-center justify-between gap-2">
                 <span class="text-xs" style="color: var(--text-muted);">The owner is emailed straight away with what you recorded, and can confirm it, change it, or tell us they do not agree.</span>
-                <button type="submit" class="corex-btn-primary text-sm" style="min-width: 15rem;" data-save-owner-fault-settings>Save for the owner and tell them</button>
+                <button type="submit" class="corex-btn-primary text-sm" style="width: 16rem; max-width: 100%;" data-save-owner-fault-settings>Save for the owner and tell them</button>
             </div>
         </form>
     </details>

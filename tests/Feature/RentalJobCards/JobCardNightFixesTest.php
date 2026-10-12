@@ -410,7 +410,7 @@ final class JobCardNightFixesTest extends TestCase
         $html = $this->actingAs($this->admin)->get(route('corex.rental-fault-reports.show', $fault))->assertOk()->getContent();
 
         // the decision form: the reason is required, and the trigger asks the browser to validate BEFORE the dialog opens
-        $this->assertMatchesRegularExpression('/<textarea name="evidence_text" required/', $html);
+        $this->assertMatchesRegularExpression('/<textarea[^>]*name="note" required/', $html);   // section 22: "Record the owner's decision" - what the owner said is required
         $this->assertStringContainsString('x-on:click="ask()"', $html);
         $this->assertStringContainsString('f.reportValidity()', $html);
         $this->assertStringContainsString('data-confirm-error', $html, 'the field is named next to the button');
