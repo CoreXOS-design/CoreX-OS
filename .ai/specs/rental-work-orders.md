@@ -1296,6 +1296,8 @@ out-inspection screen runs and renders next to its own data, not a join or a mer
 
 ## 4. Notifications — owner, tenant, supplier, and what each actually says
 
+> **Superseded for staff recipients (AT-451 round 2, 12 Oct 2026):** every internal alert below that says "the property's assigned agent" now goes to both lease agents (else the property's agent, else the branch/office/agency admin), minus the staff member who performed the action — `notification-system-overview.md` §15. External mail (owner, tenant, supplier) is unchanged.
+
 Per §2's reused infrastructure: **internal staff through `NotificationDispatcher`, external parties by
 plain mail** — exactly the DR2 split, no new mechanism invented.
 

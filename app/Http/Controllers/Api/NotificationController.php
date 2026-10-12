@@ -45,18 +45,7 @@ class NotificationController extends Controller
         return response()->json([
             'items'  => $items,
             'unread' => $user->unreadNotifications()->count(),
-            // AT-451 — whether this user's in-app alerts are switched on. The live popup only pops up when this is true.
-            'in_app' => $this->inAppOn($user),
         ]);
-    }
-
-    private function inAppOn($user): bool
-    {
-        try {
-            return app(\App\Services\CommandCenter\NotificationPreferenceService::class)->masterSwitchState($user)['in_app'];
-        } catch (\Throwable $e) {
-            return false; // cannot tell -> honour "off": no popup
-        }
     }
 
     public function markRead(Request $request, string $id)

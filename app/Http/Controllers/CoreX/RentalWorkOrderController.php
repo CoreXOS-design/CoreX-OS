@@ -804,7 +804,7 @@ class RentalWorkOrderController extends Controller
             return back()->withErrors(['rental_work_order' => $e->getMessage()]);
         }
 
-        $service->notifyCompleted($rentalWorkOrder->fresh());
+        $service->notifyCompleted($rentalWorkOrder->fresh(), $request->user());
 
         return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', 'Work order completed.');
     }

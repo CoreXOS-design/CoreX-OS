@@ -34,6 +34,9 @@ final class CreateWorkOrderActionTest extends TestCase
     {
         parent::setUp();
         $this->buildFlowWorld();
+        // AT-451 round 2: the agent who creates a work order is never alerted about their own click, so the announcement needs someone else
+        // responsible - the property's agent here is a second person (the admin who is clicking is not).
+        $this->property->forceFill(['agent_id' => $this->makeAgent($this->agency)->id])->saveQuietly();
         $this->notifier = \Mockery::spy(NotificationDispatcher::class);
         $this->app->instance(NotificationDispatcher::class, $this->notifier);
     }

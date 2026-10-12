@@ -21,26 +21,33 @@ class NotifyAgentOfCrewLines
     public function handle(RentalCrewLinesSubmitted $event): void
     {
         $card = $event->jobCard;
-        $property = Property::withoutGlobalScopes()->with('agent')->find($card->property_id);
-        if (! $property || ! $property->agent_id || ! $property->agent) {
+        $property = Property::withoutGlobalScopes()->find($card->property_id);
+        if (! $property) {
             return;
         }
+
+        // AT-451 round 2: the same people who heard about the fault (both lease agents, else the property's agent, else the
+        // branch / office / agency admin). The crew is not staff, so nobody is excluded.
+        $recipients = app(\App\Services\Rentals\LeaseAgentService::class)
+            ->recipientsForEvent($card->lease, $property, (int) $card->agency_id);
 
         $pricing = $event->priceRequestId !== null;
         $address = $property->buildDisplayAddress() ?: ($property->title ?: ('Property #' . $property->id));
 
-        app(NotificationDispatcher::class)->fire(
-            $property->agent,
-            'rental_job_card.crew_lines_submitted',
-            $card,
-            [
-                'title' => ($pricing ? 'Crew priced the job — ' : 'Crew sent parts and labour — ') . $address,
-                'body' => $card->title . ': ' . $event->count . ' line' . ($event->count === 1 ? '' : 's') . ' waiting for you to accept and price.',
-                'action_url' => route('corex.rental-job-cards.show', $card->id),
-                'severity' => 'info',
-                // A discrete event — each send is a new fact, so each one notifies.
-                'threshold_hit_at' => now(),
-            ]
-        );
+        foreach ($recipients as $agent) {
+            app(NotificationDispatcher::class)->fire(
+                $agent,
+                'rental_job_card.crew_lines_submitted',
+                $card,
+                [
+                    'title' => ($pricing ? 'Crew priced the job — ' : 'Crew sent parts and labour — ') . $address,
+                    'body' => $card->title . ': ' . $event->count . ' line' . ($event->count === 1 ? '' : 's') . ' waiting for you to accept and price.',
+                    'action_url' => route('corex.rental-job-cards.show', $card->id),
+                    'severity' => 'info',
+                    // A discrete event — each send is a new fact, so each one notifies.
+                    'threshold_hit_at' => now(),
+                ]
+            );
+        }
     }
 }

@@ -297,6 +297,27 @@ final class LeaseAgentService
         return $people->unique('id')->values();
     }
 
+    /**
+     * AT-451 round 2 (Johan, 12 Oct 2026): "the same people who are told about a new fault are told what happens next." The ONE
+     * rule for every alert in the fault -> owner decision -> work order -> quote -> appointment -> completion chain: the people
+     * faultRecipients() names (both lease agents, else the property's agent, else the branch manager / office admin / agency
+     * admin), WITHOUT the staff member who performed the action — they already know.
+     *
+     * $actor is passed EXPLICITLY by the caller that knows a staff member did the thing (the agent who captured the fault,
+     * recorded the owner's decision, set the outcome, created the work order, recorded the tenant's answer). It is deliberately
+     * NOT worked out from "who is logged in": the portal's API requests carry the browser's session cookie too, so a staff member
+     * testing the owner portal in the same browser would be mistaken for the actor and silenced. A portal click, a crew link and
+     * a scheduled scan pass no actor, so everyone responsible hears.
+     *
+     * @return Collection<int, User>
+     */
+    public function recipientsForEvent(?Lease $lease, Property $property, int $agencyId, ?User $actor = null): Collection
+    {
+        return $this->faultRecipients($lease, $property, $agencyId)
+            ->reject(fn (User $u) => $actor !== null && (int) $u->id === (int) $actor->id)
+            ->values();
+    }
+
     // ── Changing them ─────────────────────────────────────────────────────────────────────────
 
     /**
