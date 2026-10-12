@@ -3935,6 +3935,17 @@
                                         </label>
                                     </div>
                                 </div>
+
+                                {{-- AT-451 — how often a staff browser checks for a new alert to pop up. Same saver as the rest. --}}
+                                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary);">Check for new alerts every (seconds)</label>
+                                        <input type="number" name="alert_poll_seconds" min="15" max="600" step="1"
+                                               value="{{ old('alert_poll_seconds', $agencyDashboardSettings->alert_poll_seconds ?? 30) }}"
+                                               class="w-full px-3 py-2 rounded-md text-sm border" style="background:var(--surface); border-color:var(--border-default); color:var(--text-primary);">
+                                        <p class="text-xs mt-1" style="color:var(--text-muted);">How quickly a new fault, lead or approval pops up on a screen that is already open. 30 suits most agencies; the lowest allowed is 15.</p>
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="mt-4 flex justify-end">

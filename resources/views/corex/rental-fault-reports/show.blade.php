@@ -242,7 +242,7 @@
                     <textarea name="owner_agent_note" rows="3" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);" placeholder="e.g. I recommend we approve this - a plumber can fix it this week.">{{ old('owner_agent_note', $faultReport->owner_agent_note) }}</textarea>
                 </div>
                 <div class="flex flex-wrap gap-2">
-                    <button type="submit" class="corex-btn-outline text-xs">Save owner version</button>
+                    <button type="submit" class="corex-btn-outline text-xs">Save draft</button>
                     @permission('rental_fault_reports.send_to_owner')
                         <x-confirm-submit title="Send to the owner" message="Send this to the owner now? They will see it in their portal and be emailed." confirm-label="Send to owner" name="send_now" value="1">Save and send to owner</x-confirm-submit>
                     @endpermission

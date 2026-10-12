@@ -92,6 +92,67 @@ class NotificationPreferenceService
         return $this->context($user)['locked'];
     }
 
+    /**
+     * AT-451 — the three MASTER delivery switches as the dispatcher sees them (the same agency-lock rules effective()
+     * applies: the agency's in-app / email when locked, the user's own push always), plus whether the agency locks them
+     * and the version stamp of the settings they came from. "All alerts off" is exactly: none of the three is on.
+     *
+     * @return array{in_app:bool,email:bool,push:bool,locked:bool,stamp:?string}
+     */
+    public function masterSwitchState(User $user): array
+    {
+        $ctx = $this->context($user);
+        $eff = $ctx['settings'];
+        $own = $ctx['user_settings'];
+
+        $stamps = array_filter([$eff->updated_at ?? null, $own->updated_at ?? null]);
+        $stamp = $stamps === [] ? null : collect($stamps)->max()?->format('Y-m-d H:i:s');
+
+        return [
+            'in_app' => (bool) $eff->notify_in_app,
+            'email' => (bool) $eff->notify_email,
+            'push' => (bool) ($own->notify_push ?? true),
+            'locked' => (bool) $ctx['locked'],
+            'stamp' => $stamp,
+        ];
+    }
+
+    /**
+     * AT-451 — the same rule as masterSwitchState() for MANY users of one agency at once, without a query per user
+     * (the agency "N users have all alerts off" list). A user with no settings row is exactly what context() would
+     * create for them: the defaults. $users must all belong to $agencyId.
+     *
+     * @param  iterable<int,User>  $users
+     * @return array<int,array{in_app:bool,email:bool,push:bool,locked:bool,stamp:?string}> keyed by user id
+     */
+    public function masterSwitchStatesForAgency(iterable $users, int $agencyId): array
+    {
+        $users = collect($users);
+        $agency = Agency::find($agencyId);
+        $locked = $agency && ($agency->dashboard_settings_mode ?? 'user') === 'agency';
+        $defaults = UserDashboardSetting::defaults();
+
+        $own = UserDashboardSetting::query()->whereIn('user_id', $users->pluck('id'))->get()->keyBy('user_id');
+        $agencyRow = $locked ? AgencyDashboardSetting::withoutGlobalScopes()->where('agency_id', $agencyId)->first() : null;
+
+        $out = [];
+        foreach ($users as $u) {
+            $mine = $own->get($u->id);
+            $eff = $locked ? $agencyRow : $mine;
+            $stamps = array_filter([$eff?->updated_at, $mine?->updated_at]);
+
+            $out[$u->id] = [
+                'in_app' => (bool) ($eff?->notify_in_app ?? $defaults['notify_in_app']),
+                'email' => (bool) ($eff?->notify_email ?? $defaults['notify_email']),
+                'push' => (bool) ($mine?->notify_push ?? $defaults['notify_push']),
+                'locked' => $locked,
+                'stamp' => $stamps === [] ? null : collect($stamps)->max()->format('Y-m-d H:i:s'),
+            ];
+        }
+
+        return $out;
+    }
+
     public function cooldownMinutes(User $user): int
     {
         return (int) ($this->context($user)['settings']->min_minutes_between_same ?? 360);

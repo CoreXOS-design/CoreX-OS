@@ -2019,6 +2019,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->paginate(30);
         return view('command-center.notifications', ['notifications' => $notifications]);
     })->name('command-center.notifications');
+
+    // AT-451 — "all alerts switched off": the warning bar's two buttons act on the LOGGED-IN user only (no id in the URL);
+    // the agency list and its per-user actions need manage_users and resolve the user inside the viewer's scoped query.
+    Route::post('/alerts/bar/turn-on', [\App\Http\Controllers\CoreX\AlertSwitchController::class, 'barTurnOn'])->name('corex.alerts.bar.turn-on');
+    Route::post('/alerts/bar/keep-off', [\App\Http\Controllers\CoreX\AlertSwitchController::class, 'barKeepOff'])->name('corex.alerts.bar.keep-off');
+    Route::get('/alerts-off', [\App\Http\Controllers\CoreX\AlertSwitchController::class, 'index'])
+        ->middleware('permission:manage_users')->name('corex.alerts-off.index');
+    Route::post('/alerts-off/{user}/turn-on', [\App\Http\Controllers\CoreX\AlertSwitchController::class, 'turnOn'])
+        ->middleware('permission:manage_users')->whereNumber('user')->name('corex.alerts-off.turn-on');
+    Route::post('/alerts-off/{user}/accept', [\App\Http\Controllers\CoreX\AlertSwitchController::class, 'accept'])
+        ->middleware('permission:manage_users')->whereNumber('user')->name('corex.alerts-off.accept');
+
     Route::post('/notifications/mark-all-read', function () {
         \Illuminate\Support\Facades\DB::table('notifications')
             ->where('notifiable_type', 'App\\Models\\User')

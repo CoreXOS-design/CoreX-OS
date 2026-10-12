@@ -78,6 +78,7 @@
 
 @section('content')
 <div class="p-6 space-y-4">
+    @include('corex.alerts-off._summary-line')
     <div class="flex items-center justify-between flex-wrap gap-2">
         <h1 class="text-lg font-semibold">Rental Command Centre</h1>
         <div class="flex items-center gap-3">

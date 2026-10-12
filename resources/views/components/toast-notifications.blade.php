@@ -6,7 +6,7 @@
 <div id="toast-container"
      class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"
      x-data="toastSystem()"
-     @toast.window="addToast($event.detail.message, $event.detail.type || 'success', $event.detail.duration || 4000)">
+     @toast.window="addToast($event.detail.message, $event.detail.type || 'success', $event.detail.duration || 4000, $event.detail.url || null)">
 
     <template x-for="toast in toasts" :key="toast.id">
         <div class="pointer-events-auto transform transition-all duration-300 ease-out"
@@ -19,7 +19,9 @@
              x-transition:leave-end="opacity-0 translate-x-8">
 
             <div class="flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg min-w-[300px] max-w-[450px]"
+                 @click="openToast(toast)"
                  :class="{
+                     'cursor-pointer': !!toast.url,
                      'bg-green-600 text-white': toast.type === 'success',
                      'bg-red-600 text-white': toast.type === 'error',
                      'bg-blue-600 text-white': toast.type === 'info',
@@ -54,7 +56,7 @@
                 <p class="text-sm font-medium flex-1" x-text="toast.message"></p>
 
                 {{-- Close button --}}
-                <button @click="removeToast(toast.id)" class="flex-shrink-0 opacity-70 hover:opacity-100">
+                <button @click.stop="removeToast(toast.id)" class="flex-shrink-0 opacity-70 hover:opacity-100">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                     </svg>
@@ -72,18 +74,33 @@ function toastSystem() {
 
         // J8 (Johan, 9 Oct 2026): toasts STACK in the one column (never on top of each other); the same message is never shown twice at once
         // (a page's flash plus a script's copy of it), at most three are on screen (the oldest goes first), and a long message stays long enough to read.
-        addToast(message, type = 'success', duration = 4000) {
+        //
+        // AT-451: an optional 4th argument, `url`, makes the toast clickable through to that page (a live alert popup
+        // opens the item it is about). Only a same-site address is honoured — anything else is ignored, not followed.
+        addToast(message, type = 'success', duration = 4000, url = null) {
             message = String(message == null ? '' : message);
             if (this.toasts.some(t => t.visible && t.message === message && t.type === type)) { return; }
             const live = this.toasts.filter(t => t.visible);
             while (live.length >= 3) { this.removeToast(live.shift().id); }
             if (duration > 0) { duration = Math.max(duration, Math.min(15000, 2500 + message.length * 45)); }
             const id = this.nextId++;
-            this.toasts.push({ id, message, type, visible: true });
+            this.toasts.push({ id, message, type, visible: true, url: this.sameSiteUrl(url) });
 
             if (duration > 0) {
                 setTimeout(() => this.removeToast(id), duration);
             }
+        },
+
+        sameSiteUrl(url) {
+            if (!url) { return null; }
+            try {
+                const u = new URL(String(url), window.location.href);
+                return u.origin === window.location.origin ? u.href : null;
+            } catch (e) { return null; }
+        },
+
+        openToast(toast) {
+            if (toast && toast.url) { window.location.href = toast.url; }
         },
 
         removeToast(id) {
@@ -99,11 +116,11 @@ function toastSystem() {
 }
 
 // Global function callable from anywhere
-window.showToast = function(message, type, duration) {
+window.showToast = function(message, type, duration, url) {
     type = type || 'success';
     duration = duration || 4000;
     window.dispatchEvent(new CustomEvent('toast', {
-        detail: { message: message, type: type, duration: duration }
+        detail: { message: message, type: type, duration: duration, url: url || null }
     }));
 };
 
