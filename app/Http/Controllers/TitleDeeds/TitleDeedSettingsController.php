@@ -7,6 +7,7 @@ use App\Models\TitleDeeds\TitleDeedSetting;
 use App\Models\TitleDeeds\TitleDeedSettingHistory;
 use App\Models\TitleDeeds\TitleDeedStorageLocation;
 use App\Services\TitleDeeds\TitleDeedPolicy;
+use App\Services\TitleDeeds\TitleDeedReferenceService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -35,6 +36,7 @@ class TitleDeedSettingsController extends Controller
             'proofModes' => TitleDeedSetting::PROOF_MODES,
             'ranges' => TitleDeedSetting::INT_RANGES,
             'noAgency' => ! $agencyId,
+            'nextReference' => $agencyId ? app(TitleDeedReferenceService::class)->format(TitleDeedSetting::referencePrefixFor($agencyId), (int) (\Illuminate\Support\Facades\DB::table('title_deed_sequences')->where('agency_id', $agencyId)->value('next_value') ?: 1)) : null,
             'locationCount' => $agencyId ? TitleDeedStorageLocation::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->count() : 0,
             'history' => $agencyId ? TitleDeedSettingHistory::query()->where('agency_id', $agencyId)->with('user:id,name')->orderByDesc('id')->limit(100)->get() : collect(),
         ]);
@@ -64,6 +66,7 @@ class TitleDeedSettingsController extends Controller
                 'bool' => ['required', 'in:0,1,true,false'],
                 'proof' => ['required', Rule::in(array_keys(TitleDeedSetting::PROOF_MODES))],
                 'mode' => ['required', Rule::in(array_keys(TitleDeedSetting::REP_MODES))],
+                'prefix' => ['required', 'string', 'max:40'],
                 'int' => ['required', 'integer', 'min:' . TitleDeedSetting::INT_RANGES[$key][0], 'max:' . TitleDeedSetting::INT_RANGES[$key][1]],
             };
         }
@@ -89,7 +92,16 @@ class TitleDeedSettingsController extends Controller
         $before = $this->current($agencyId);
         $after = $before;
         foreach ($data as $key => $value) {
-            $after[$key] = TitleDeedSetting::FIELDS[$key] === 'bool' ? $request->boolean($key) : (TitleDeedSetting::FIELDS[$key] === 'int' ? (int) $value : $value);
+            $type = TitleDeedSetting::FIELDS[$key];
+            if ($type === 'prefix') {
+                // "td-", " TD " and "td" are all "TD": letters and digits only, upper-case, 1-10 characters.
+                $clean = TitleDeedReferenceService::cleanPrefix((string) $value);
+                if ($clean === null) {
+                    throw ValidationException::withMessages([$key => 'Enter a reference prefix of 1 to 10 letters or digits, for example TD.']);
+                }
+                $value = $clean;
+            }
+            $after[$key] = $type === 'bool' ? $request->boolean($key) : ($type === 'int' ? (int) $value : $value);
         }
         if ($conflicts = TitleDeedPolicy::conflicts($after)) {
             throw ValidationException::withMessages($conflicts);

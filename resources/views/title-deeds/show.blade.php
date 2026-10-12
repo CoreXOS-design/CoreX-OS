@@ -14,7 +14,15 @@
         <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
             <div>
                 <a href="{{ route('title-deeds.index') }}" class="text-xs font-semibold" style="color: var(--brand-icon);">&larr; Title Deeds</a>
-                <h1 class="text-base font-bold leading-tight mt-1" style="color: var(--text-primary);">{{ $deed->property_display }}</h1>
+                <div class="mt-1 flex flex-wrap items-end gap-x-6 gap-y-1">
+                    @if($deed->reference)
+                    <div>
+                        <div class="text-xs font-medium" style="color: var(--text-secondary);">Reference</div>
+                        <div class="text-2xl font-extrabold leading-none tracking-wide tabular-nums" style="color: var(--text-primary);" data-reference>{{ $deed->reference }}</div>
+                    </div>
+                    @endif
+                    <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $deed->property_display }}</h1>
+                </div>
                 <div class="text-sm mt-0.5" style="color: var(--text-secondary);">
                     {{ $archived ? 'Archived' : $deed->status_label }}@if(! $collected && ! $archived) · waiting {{ $deed->days_waiting }} {{ $deed->days_waiting === 1 ? 'day' : 'days' }}@endif
                 </div>

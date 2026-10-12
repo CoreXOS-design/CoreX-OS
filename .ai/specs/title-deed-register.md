@@ -73,6 +73,9 @@ download, notify, PIN, handover, consent request and the poll endpoint ALL resol
 
 ## 5. List screen
 
+> Round 4 (section 17) replaced the single Status filter and the one flat table with tiles, status ticks and two collapsible sections.
+> The columns, search, filters, scoping, CSV rules and row buttons below still apply inside the sections.
+
 - Columns: property, owner(s), agent, received, status, days waiting, collected (date + by). Every column sorts.
 - Default sort: oldest uncollected first (uncollected before collected, then `received_at` ascending, then id).
 - Search (named): property address, owner name, attorney firm, collector name.
@@ -381,4 +384,80 @@ takes `:plain="true"` to use the caller's class - default unchanged for every ot
 
 ### 16.5 Wording rule
 Every label says what happens, every button is a verb phrase, no control depends on a tooltip. Strings changed in round 3 are listed in the round-3 report.
+
+## 17. Round 4 - the list screen /title-deeds (AT-450, QA1)
+
+Only the list changes. Settings, record, handover and create are untouched.
+
+1. Tiles across the top, in this order, each showing a count for the current own/branch/agency scope and current search/branch/agent/date filters:
+   - "At the agency" (Received + Owner notified)
+   - "Owner not yet told" (Received)
+   - "Waiting for collection" (Owner notified)
+   - "Collected"
+   Tiles are the same style as the Properties list tiles. Clicking a tile scrolls to/opens its section and applies that status tick.
+2. The single Status dropdown is replaced by ticks (multi-select): "Owner not yet told", "Waiting for collection", "Collected", "Archived".
+   Default ticked: the first two. Ticks, tiles and URL query stay in sync; filters survive pagination, sort and CSV download (CSV exports what is ticked).
+3. The list is two collapsible sections, each with its own count in the header and its own pagination and sort:
+   - "At the agency (N)" - open by default. Rows: Received and Owner notified. Keep the Days waiting column; default sort longest waiting first.
+   - "Collected (N)" - collapsed by default, opens on click or when its tile/tick is chosen. Columns: property, owner(s), agent, received, collected
+     (date, time, who collected). No Days waiting column. Default sort most recently collected first.
+   Archived deeds show only when "Archived" is ticked, in a third section "Archived (N)" collapsed by default.
+4. Real empty state per section ("No title deeds at the agency." / "No title deeds collected yet."). Collapse state remembered per user in the browser.
+5. Row buttons, search, branch, agent, date filters and own/branch/agency scoping unchanged. No hard deletes. Works at 1280 and 390 wide.
+
+### 17.1 How it is built (decisions that follow from the wording)
+- URL: ticks are `show[]=not_told|waiting|collected|archived`. No `show` at all = the default (first two). A submitted form with nothing ticked sends an empty
+  `show[]` and shows the sentence "Tick at least one kind of title deed to see it." (it is never silently turned back into the default).
+  An old bookmark `?status=received|notified|collected|archived` is mapped to the matching tick.
+- Tile counts follow scope + search/branch/agent/date filters but NOT the ticks (a tile is a count of a kind, whatever is ticked); archived deeds are never counted in a tile.
+  A tile click sets the ticks to exactly that tile's kinds ("At the agency" = both of the first two) and adds `focus=<section>` so that section opens and scrolls into view.
+- Each section has its own query parameters: `sort_a` / `dir_a` / `page_a` (at the agency), `sort_c` / `dir_c` / `page_c` (collected), `sort_x` / `dir_x` / `page_x` (archived).
+  Defaults: at the agency = longest waiting first (received date ascending); collected = most recently collected first; archived = most recently archived first.
+- Header count of a section = the rows in it under the current ticks and filters. Ticking a tick submits the form at once (no Apply press) and opens that section.
+- Collapse: at the agency open, collected and archived collapsed; a section named by `focus` opens; otherwise the person's last choice in this browser
+  (localStorage, per user and section) wins over the default.
+- CSV: exactly the ticked kinds under the current filters (archived rows only when Archived is ticked), at the agency first (longest waiting), then collected
+  (most recent first), then archived. Same columns and formula-injection protection as before.
+- Scoping is unchanged: every query goes through `TitleDeed::visibleTo()`; a count never includes a deed the person cannot open.
+
+## 18. Round 4 addition - a unique reference number on every title deed (AT-450, QA1)
+
+Johan: every title deed gets a unique reference number, like the Deal Register does, for physical filing and for finding a deed.
+
+1. First look at exactly how the Deal Register generates and formats its reference number and mirror that pattern (per-agency sequence, never reused, safe under concurrent saves -
+   transaction/lock, unique index per agency). Default format "TD-00001" style following the deal register's convention; prefix is an agency setting on the Title Deed settings screen
+   under a new heading "Reference numbers" with label "Reference prefix" and help line "Printed on every title deed record, e.g. TD-00042. Changing it only affects new deeds." Default "TD".
+2. Assigned once when the deed is logged; never changes, never reused, kept on archive/restore. Backfill all existing deeds per agency in order of date logged (additive migration, no deletes).
+3. Shown: first column "Ref" on the list (sortable), in the CSV, large at the top of the record page next to the address with the label "Reference", on the handover screen heading, on the
+   success message after logging ("Logged as TD-00042 - write this on the envelope"), and in the owner notice/receipt wording where the deed is identified (email and WhatsApp text).
+4. Search box finds by reference (exact and partial, with or without the prefix/dash/leading zeros); update the search placeholder to "Reference, property, owner, attorney, collector".
+5. Tests: uniqueness under concurrency, per-agency isolation, backfill order, search variants, prefix change only affecting new deeds.
+
+### 18.1 What the Deal Register does (read in the code, mirrored here)
+- The Deal Register numbers deals PER AGENCY (`deals.deal_no`, a plain number string, legacy "D-####" accepted; a fresh agency starts at 1001), allocates the number inside the creating
+  transaction, never reuses one (the unique index `(agency_id, deal_no)` counts soft-deleted rows too) and guards a double submit with a one-time token. (The shared `sequence_counters`
+  locked-counter table that an earlier fix added was dropped again, so QA1's Deal Register reads the maximum inside the transaction.)
+- Title deeds mirror the per-agency, never-reused, unique-index-backed shape, but allocate from a LOCKED COUNTER ROW (`title_deed_sequences`, one row per agency, `SELECT ... FOR UPDATE` inside the
+  creating transaction - the same idiom as the proforma numbers), so two deeds saved at the same moment can never read the same number. The unique indexes `(agency_id, reference_no)` and
+  `(agency_id, reference)` are the backstop. Round 2's one-time form token already stops a double submit from making two deeds.
+
+### 18.2 The number
+- Stored twice: `reference_no` (the agency's sequence, 1, 2, 3 ...) and `reference` (the printed text as it was issued, "TD-00042": prefix + "-" + the sequence left-padded to 5 digits; a sequence over 99999
+  simply grows longer). Printing the text AS ISSUED is what makes "changing the prefix only affects new deeds" true.
+- Assigned in the model's `creating` event, inside the caller's transaction, so no code path can log a deed without one. A rolled-back create gives the number back to nobody - the counter row
+  lock and the increment roll back together, so a failed create leaves no gap and a successful one is permanent.
+- Prefix: `title_deed_settings.reference_prefix`, default "TD", 1-10 letters or digits, stored upper-case (a typed dash, space or "TD-" suffix is stripped). Settings screen heading "Reference numbers",
+  label "Reference prefix". It is also a Setup Wizard control (same wording) and a history-logged setting like the others.
+- Archive / restore never touch it. Collected deeds keep it.
+- Migration (additive): the two columns + indexes, the counter table, the prefix column; every existing deed (archived ones too) is numbered per agency in order of date logged (created_at, then id)
+  with the default prefix, and each agency's counter is set to the highest number + 1.
+
+### 18.3 Where it shows
+List first column "Ref" (sortable; in all three sections); CSV first column "Reference"; the record: large, next to the address, labelled "Reference"; the handover heading
+("Hand over: TD-00042 - address"); the success message after logging ("Logged as TD-00042 - write this on the envelope"); the owner notice, reminder and collected emails and the WhatsApp text
+("title deed for <address> (reference TD-00042)"); the consent and signing-link messages where they name the property.
+
+### 18.4 Search
+The search box finds a reference exactly or partly, with or without the prefix, dash or leading zeros: "TD-00042", "td00042", "00042", "42", "TD42", "0042" all find TD-00042 (a partial digit string
+finds every number containing it). Placeholder: "Reference, property, owner, attorney, collector". An address that merely contains a number still matches as before.
 

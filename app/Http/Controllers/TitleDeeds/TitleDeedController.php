@@ -53,21 +53,46 @@ class TitleDeedController extends Controller
     {
         $user = $request->user();
         $filters = $this->filters($request);
-        $query = $this->filtered($user, $filters);
-        $this->applySort($query, $request);
-
-        $deeds = $query->paginate(self::PER_PAGE)->withQueryString();
+        $ticks = $this->ticks($request);
         $scope = PermissionService::getDataScope($user, 'title_deeds');
+        $focus = in_array($request->query('focus'), ['agency', 'collected', 'archived'], true) ? $request->query('focus') : null;
+
+        // Tiles: a count of each KIND for the person's scope and the current filters - never narrowed by the ticks.
+        $counts = $this->applyFilters(TitleDeed::query()->visibleTo($user), $user, $filters)->toBase()
+            ->selectRaw('title_deeds.status as kind, count(*) as c')->groupBy('title_deeds.status')->pluck('c', 'kind');
+        $received = (int) ($counts[TitleDeed::STATUS_RECEIVED] ?? 0);
+        $notified = (int) ($counts[TitleDeed::STATUS_NOTIFIED] ?? 0);
+        $tiles = [
+            ['key' => 'agency', 'label' => 'At the agency', 'value' => $received + $notified, 'ticks' => ['not_told', 'waiting'], 'focus' => 'agency'],
+            ['key' => 'not_told', 'label' => 'Owner not yet told', 'value' => $received, 'ticks' => ['not_told'], 'focus' => 'agency'],
+            ['key' => 'waiting', 'label' => 'Waiting for collection', 'value' => $notified, 'ticks' => ['waiting'], 'focus' => 'agency'],
+            ['key' => 'collected', 'label' => 'Collected', 'value' => (int) ($counts[TitleDeed::STATUS_COLLECTED] ?? 0), 'ticks' => ['collected'], 'focus' => 'collected'],
+        ];
+
+        // Sections: each has its own count, sort and pagination.
+        $sections = [];
+        $agencyStatuses = array_values(array_filter([in_array('not_told', $ticks, true) ? TitleDeed::STATUS_RECEIVED : null, in_array('waiting', $ticks, true) ? TitleDeed::STATUS_NOTIFIED : null]));
+        if ($agencyStatuses) {
+            $sections['agency'] = $this->section($request, $user, $filters, 'agency', 'a', fn ($q) => $q->whereIn('title_deeds.status', $agencyStatuses));
+        }
+        if (in_array('collected', $ticks, true)) {
+            $sections['collected'] = $this->section($request, $user, $filters, 'collected', 'c', fn ($q) => $q->where('title_deeds.status', TitleDeed::STATUS_COLLECTED));
+        }
+        if (in_array('archived', $ticks, true)) {
+            $sections['archived'] = $this->section($request, $user, $filters, 'archived', 'x', fn ($q) => $q->onlyTrashed());
+        }
 
         return view('title-deeds.index', [
-            'deeds' => $deeds,
+            'sections' => $sections,
+            'ticks' => $ticks,
+            'tiles' => $tiles,
+            'focus' => $focus,
             'filters' => $filters,
             'hasFilters' => collect($filters)->filter(fn ($v) => $v !== null && $v !== '')->isNotEmpty(),
             'isAll' => $scope === 'all',
             'branches' => $scope === 'all' ? Branch::query()->orderBy('name')->get(['id', 'name']) : collect(),
             'agents' => $this->agentOptions($user, $scope, $filters['branch_id'] ?? null),
             'total' => TitleDeed::query()->visibleTo($user)->count(),
-            'statuses' => TitleDeed::STATUS_LABELS,
             'can' => $this->can($user),
             'pinUsed' => \App\Services\TitleDeeds\TitleDeedPolicy::for((int) $user->effectiveAgencyId())->pinUsed(),
             'token' => fn (string $purpose, int $deedId) => app(TitleDeedFormGuard::class)->issue($user, $purpose, $deedId),
@@ -78,10 +103,23 @@ class TitleDeedController extends Controller
     public function export(Request $request): StreamedResponse
     {
         $user = $request->user();
-        $query = $this->filtered($user, $this->filters($request));
-        $this->applySort($query, $request);
+        $filters = $this->filters($request);
+        $ticks = $this->ticks($request);
 
-        $headers = ['Property', 'Owners', 'Agent', 'Branch', 'Attorney firm', 'Received', 'Status', 'Days waiting', 'Storage location', 'Collected', 'Collected by', 'Verified by'];
+        // Exactly what is ticked, under the same filters: live rows of the ticked statuses, plus archived rows only when Archived is ticked.
+        $statuses = array_values(array_filter([in_array('not_told', $ticks, true) ? TitleDeed::STATUS_RECEIVED : null, in_array('waiting', $ticks, true) ? TitleDeed::STATUS_NOTIFIED : null, in_array('collected', $ticks, true) ? TitleDeed::STATUS_COLLECTED : null]));
+        $query = $this->filtered($user, $filters)->withTrashed()->where(function ($w) use ($statuses, $ticks) {
+            $w->where(fn ($live) => $live->whereNull('title_deeds.deleted_at')->whereIn('title_deeds.status', $statuses ?: ['__none__']));
+            if (in_array('archived', $ticks, true)) {
+                $w->orWhereNotNull('title_deeds.deleted_at');
+            }
+        });
+        // At the agency first (longest waiting), then collected (most recent first), then archived.
+        $query->orderByRaw("CASE WHEN title_deeds.deleted_at IS NOT NULL THEN 3 WHEN title_deeds.status = 'collected' THEN 2 ELSE 1 END")
+            ->orderByRaw("CASE WHEN title_deeds.status = 'collected' OR title_deeds.deleted_at IS NOT NULL THEN NULL ELSE title_deeds.received_at END asc")
+            ->orderByDesc('title_deeds.collected_at')->orderBy('title_deeds.id');
+
+        $headers = ['Reference', 'Property', 'Owners', 'Agent', 'Branch', 'Attorney firm', 'Received', 'Status', 'Days waiting', 'Storage location', 'Collected', 'Collected by', 'Verified by'];
 
         return response()->streamDownload(function () use ($query, $headers) {
             $out = fopen('php://output', 'w');
@@ -90,6 +128,7 @@ class TitleDeedController extends Controller
             $query->chunk(200, function ($chunk) use ($out) {
                 foreach ($chunk as $d) {
                     fputcsv($out, array_map([$this, 'csvCell'], [
+                        $d->reference,
                         $d->property_display,
                         $d->owners->map->display_name->implode('; '),
                         $d->agent?->name,
@@ -148,7 +187,7 @@ class TitleDeedController extends Controller
             return back()->withInput($request->except(['scan', '_form_token']))->with('error', $e->getMessage());
         }
 
-        return redirect()->route('title-deeds.show', $deed->id)->with('success', 'Title deed logged.');
+        return redirect()->route('title-deeds.show', $deed->id)->with('success', 'Logged as ' . $deed->reference . ' - write this on the envelope.');
     }
 
     public function edit(Request $request, int $id)
@@ -540,7 +579,6 @@ class TitleDeedController extends Controller
     {
         $v = $request->validate([
             'search' => ['nullable', 'string', 'max:100'],
-            'status' => ['nullable', Rule::in(array_merge(array_keys(TitleDeed::STATUS_LABELS), ['archived']))],
             'branch_id' => ['nullable', 'integer'],
             'agent_id' => ['nullable', 'integer'],
             'from' => ['nullable', 'date'],
@@ -549,7 +587,6 @@ class TitleDeedController extends Controller
 
         return [
             'search' => isset($v['search']) ? trim($v['search']) : null,
-            'status' => $v['status'] ?? null,
             'branch_id' => $v['branch_id'] ?? null,
             'agent_id' => $v['agent_id'] ?? null,
             'from' => $v['from'] ?? null,
@@ -557,15 +594,25 @@ class TitleDeedController extends Controller
         ];
     }
 
-    private function filtered(User $user, array $f)
+    /**
+     * The status ticks: show[]=not_told|waiting|collected|archived. No `show` at all = the default (the first two). A form submitted with
+     * nothing ticked sends an empty show[] and really shows nothing. An old ?status= bookmark maps to its tick.
+     *
+     * @return array<int,string>
+     */
+    private function ticks(Request $request): array
     {
-        $query = TitleDeed::query()->visibleTo($user)->with(['agent', 'branch', 'property', 'owners.contact', 'receipt']);
-
-        if ($f['status'] === 'archived') {
-            $query->onlyTrashed();
-        } elseif ($f['status']) {
-            $query->where('title_deeds.status', $f['status']);
+        $request->validate(['show' => ['nullable', 'array'], 'show.*' => ['nullable', Rule::in(['', 'not_told', 'waiting', 'collected', 'archived'])]]);
+        if ($request->has('show')) {
+            return array_values(array_intersect(['not_told', 'waiting', 'collected', 'archived'], array_filter((array) $request->input('show'))));
         }
+        $legacy = ['received' => 'not_told', 'notified' => 'waiting', 'collected' => 'collected', 'archived' => 'archived'][(string) $request->query('status', '')] ?? null;
+
+        return $legacy ? [$legacy] : ['not_told', 'waiting'];
+    }
+
+    private function applyFilters($query, User $user, array $f)
+    {
         if ($f['branch_id'] && PermissionService::getDataScope($user, 'title_deeds') === 'all') {
             $query->where('title_deeds.branch_id', $f['branch_id']);
         }
@@ -582,17 +629,57 @@ class TitleDeedController extends Controller
         return $query->search($f['search']);
     }
 
-    /** Default: oldest uncollected first. Any column header sorts; an unknown key falls back to the default. */
-    private function applySort($query, Request $request): void
+    private function filtered(User $user, array $f)
     {
-        $key = (string) $request->get('sort', '');
-        $dir = strtolower((string) $request->get('direction', 'asc')) === 'desc' ? 'desc' : 'asc';
+        return $this->applyFilters(TitleDeed::query()->visibleTo($user)->with(['agent', 'branch', 'property', 'owners.contact', 'receipt']), $user, $f);
+    }
 
-        if (! array_key_exists($key, TitleDeed::SORTABLE)) {
-            $query->orderByRaw("(title_deeds.status = 'collected') asc")->orderBy('title_deeds.received_at')->orderBy('title_deeds.id');
+    /**
+     * One list section: its own rows, count, sort (sort_x / dir_x) and pagination (page_x), x = a (at the agency), c (collected), x (archived).
+     *
+     * @return array{key:string,count:int,deeds:\Illuminate\Pagination\LengthAwarePaginator,suffix:string,sort:?string,dir:?string}
+     */
+    private function section(Request $request, User $user, array $f, string $key, string $suffix, \Closure $narrow): array
+    {
+        $query = $narrow($this->filtered($user, $f));
+        [$sortKey, $sortDir] = $this->sortSection($query, $request, $suffix, $key);
+        $deeds = $query->paginate(self::PER_PAGE, ['*'], 'page_' . $suffix)->withQueryString();
 
-            return;
+        return ['key' => $key, 'count' => $deeds->total(), 'deeds' => $deeds, 'suffix' => $suffix, 'sort' => $sortKey, 'dir' => $sortDir];
+    }
+
+    /**
+     * Defaults: at the agency = longest waiting first; collected = most recently collected first; archived = most recently archived first.
+     * Any column of the section sorts; an unknown key falls back to the default. Returns the effective [key, direction] for the arrow.
+     *
+     * @return array{0:?string,1:?string}
+     */
+    private function sortSection($query, Request $request, string $suffix, string $section): array
+    {
+        $allowed = match ($section) {
+            'collected' => ['ref', 'property', 'agent', 'received', 'collected'],
+            'archived' => ['ref', 'property', 'agent', 'received', 'status'],
+            default => ['ref', 'property', 'agent', 'received', 'status', 'waiting'],
+        };
+        $key = (string) $request->get('sort_' . $suffix, '');
+        $dir = strtolower((string) $request->get('dir_' . $suffix, ''));
+
+        if (! in_array($key, $allowed, true)) {
+            if ($section === 'collected') {
+                $query->orderByDesc('title_deeds.collected_at')->orderByDesc('title_deeds.id');
+
+                return ['collected', 'desc'];
+            }
+            if ($section === 'archived') {
+                $query->orderByDesc('title_deeds.deleted_at')->orderByDesc('title_deeds.id');
+
+                return [null, null];
+            }
+            $query->orderBy('title_deeds.received_at')->orderBy('title_deeds.id');
+
+            return ['waiting', 'desc'];
         }
+        $dir = $dir === 'desc' ? 'desc' : 'asc';
 
         if ($key === 'agent') {
             $query->leftJoin('users as sort_agent', 'sort_agent.id', '=', 'title_deeds.agent_id')
@@ -604,6 +691,8 @@ class TitleDeedController extends Controller
             $query->orderBy(TitleDeed::SORTABLE[$key], $dir);
         }
         $query->orderBy('title_deeds.id');
+
+        return [$key, $dir];
     }
 
     /**

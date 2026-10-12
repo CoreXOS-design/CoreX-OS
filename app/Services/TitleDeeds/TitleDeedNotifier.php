@@ -260,7 +260,7 @@ class TitleDeedNotifier
             $text = $payloadText;
         } else {
             $pin = TitleDeedPolicy::for($deed->agency_id)->pinUsed() ? $this->pins->currentCode($deed) : null;
-            $text = $this->noticeText($first, $deed->property_display, $agencyName, $pin, $event->kind === TitleDeedEvent::KIND_REMINDER);
+            $text = $this->noticeText($first, $deed->identified_as, $agencyName, $pin, $event->kind === TitleDeedEvent::KIND_REMINDER);
         }
 
         return 'https://wa.me/' . $wa['digits'] . '?text=' . rawurlencode($text);
@@ -299,7 +299,7 @@ class TitleDeedNotifier
                     TitleDeedEvent::STATUS_SKIPPED, 'Same address as ' . $sentTo[mb_strtolower($r['email'])] . ' - one email covers both.', null);
                 continue;
             }
-            $mail = new TitleDeedCollectedMail($r['owner']->display_name, $deed->property_display, $receipt->collector_name, $when, $methodLabel, $agent?->name);
+            $mail = new TitleDeedCollectedMail($r['owner']->display_name, $deed->identified_as, $receipt->collector_name, $when, $methodLabel, $agent?->name);
             $result = $this->send($r['email'], $mail, $agent);
             $sentTo[mb_strtolower($r['email'])] = $r['owner']->display_name;
             $this->log($deed, TitleDeedEvent::KIND_COLLECTED_NOTICE, TitleDeedEvent::CHANNEL_EMAIL, $r['owner'], $r['email'],
@@ -332,7 +332,7 @@ class TitleDeedNotifier
             }
 
             $url = route('title-deeds.consent.show', ['token' => $token]);
-            $line = $consent->rep_name . ', ID ending ' . $consent->repIdLast4() . ', is at ' . $agencyName . ' to collect your title deed for ' . $deed->property_display . '.';
+            $line = $consent->rep_name . ', ID ending ' . $consent->repIdLast4() . ', is at ' . $agencyName . ' to collect your title deed for ' . $deed->identified_as . '.';
 
             if ($r['email']) {
                 $mail = new TitleDeedConsentMail($owner->display_name, $line, $url, $expiresOn, $by->name);
@@ -390,7 +390,7 @@ class TitleDeedNotifier
 
         $agent = $this->senderFor($by, $deed);
         $agency = Agency::withoutGlobalScopes()->find($deed->agency_id);
-        $address = $deed->property_display;
+        $address = $deed->identified_as;
 
         $wantEmail = $channel !== 'whatsapp';
         $wantWhatsapp = $channel !== 'email';
