@@ -78,11 +78,16 @@ identifiable information* (owner/director names and IDs shown on the pages the u
 provide the capture feature; sent only to the user's CoreX server; not sold, not used for advertising, not
 transferred to third parties. A public **privacy policy URL is mandatory** — see §6.
 
-## 6. Decisions / blockers for Johan (business, not technical)
-- **Who owns the Google developer account** (US$5 one-off) — a company account, not a personal Gmail.
-- **Unlisted vs Public** — Unlisted: agents install from a link, never searchable. Recommended.
-- **Privacy policy URL** — `/privacy` exists (platform policy) but does not mention the browser extension.
-  Adding an extension section to a legal page is Johan's call; suggested wording is the §5 disclosure.
+## 6. Decisions (resolved 2026-10-12) / remaining
+- **Publisher account:** a dedicated company Google account (address held by Johan, deliberately NOT recorded in
+  this public repo). US$5 one-off fee paid at registration.
+- **Visibility:** **Unlisted** — agents install from a link; never searchable.
+- **Privacy policy URL:** `https://www.corexos.co.za/privacy`. Section 13 "CoreX browser extension (Chrome)" added
+  to `resources/views/public/legal/privacy.blade.php` (existing sections 1-12 keep their numbers so cross-references
+  stay valid; Changes → 14, Contact → 15; "last updated" → 12 October 2026). Wording is verified against the code:
+  captures are click-initiated only (popup buttons, or the Capture button injected on CMAInfo/TVA pages); data goes
+  only to the user-configured CoreX address; nothing is stored beyond address, token, last-capture status and the
+  undelivered-capture queue.
 - Store images are in `docs/chrome-web-store/`: four 1280×800 screenshots + a 440×280 promo tile (24-bit PNG, no
   transparency). They are rendered from the real popup with neutral sample data ("Sample Street, Sample Suburb")
   — no HFC data. They are NOT inside the extension folder, so they never ship in the store zip.
