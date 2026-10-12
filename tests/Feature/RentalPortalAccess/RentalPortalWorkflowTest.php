@@ -226,7 +226,7 @@ class RentalPortalWorkflowTest extends TestCase
         $this->assertSame($this->landlord->id, $fault->reported_by_contact_id);
         $this->assertSame(RentalFaultReport::CHANNEL_APP, $fault->reported_channel);
         $this->assertSame($this->lease->id, $fault->lease_id);
-        $this->assertSame(RentalFaultReport::STATUS_REPORTED, $fault->status);
+        $this->assertSame(RentalFaultReport::STATUS_APPROVED, $fault->status, 'AT-452 §19.14: the owner\'s work request is their own authority to go to a quote');
         $this->assertNull($fault->rental_work_order_id, 'The landlord never creates a work order directly.');
     }
 

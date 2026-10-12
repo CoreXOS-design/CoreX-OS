@@ -46,11 +46,13 @@
     .cxpv-tools[hidden], .cxpv-note[hidden], .cxpv-strip[hidden] { display: none; }
     .cxpv-sw { width: 30px; height: 30px; min-width: 30px; padding: 0; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .55); }
     .cxpv-sw.on { border-color: #fff; box-shadow: 0 0 0 3px #0ea5e9; }
-    .cxpv-note { padding: 8px 12px 10px; background: rgba(0, 0, 0, .45); max-height: 34vh; overflow: auto; }
+    .cxpv-note { padding: 10px 12px 12px; background: rgba(0, 0, 0, .6); max-height: 34vh; overflow: auto; display: flex; flex-direction: column; align-items: center; text-align: center; }
+    .cxpv-note > * { width: 100%; max-width: 70%; box-sizing: border-box; }
+    .cxpv-note textarea { text-align: left; }
     .cxpv-note textarea { width: 100%; box-sizing: border-box; min-height: 56px; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, .3); background: rgba(255, 255, 255, .1); color: #fff; font: inherit; resize: vertical; -webkit-user-select: text; user-select: text; }
-    .cxpv-note .cxpv-text { white-space: pre-wrap; -webkit-user-select: text; user-select: text; }
-    .cxpv-note .cxpv-by { opacity: .7; font-size: 12px; margin-top: 2px; }
-    .cxpv-note .cxpv-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+    .cxpv-note .cxpv-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 17px; line-height: 1.4; font-weight: 500; -webkit-user-select: text; user-select: text; }
+    .cxpv-note .cxpv-by { opacity: .75; font-size: 13px; margin-top: 3px; }
+    .cxpv-note .cxpv-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 6px; }
     .cxpv-strip { display: flex; gap: 6px; padding: 6px 12px 10px; overflow-x: auto; background: rgba(0, 0, 0, .35); }
     .cxpv-thumb { flex: 0 0 auto; width: 64px; height: 48px; padding: 0; border-radius: 8px; border: 2px solid transparent; background: #000; overflow: hidden; opacity: .65; }
     .cxpv-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -60,6 +62,8 @@
         .cxpv-btn { min-width: 44px; height: 44px; }
         .cxpv-nav { width: 40px; height: 56px; }
         .cxpv-tick span { font-size: 13px; }
+        .cxpv-note > * { max-width: 94%; }
+        .cxpv-note .cxpv-text { font-size: 16px; }
     }
 </style>
 <script>

@@ -200,7 +200,7 @@ test('the owner request-work form is one press as well, with its own key and pho
   p.landlordFaultTypesByProperty = { 5: [] };
   p.landlordFaultWizard = p.blankLandlordWizard(5);
   const w = p.landlordFaultWizard;
-  w.title = 'Gate motor';
+  w.description = 'The gate motor will not open';
   await p.addPhotos(w, pick(img('a.jpg', 100, 1), img('b.jpg', 100, 2)));
   await Promise.all([p.submitLandlordFault(), p.submitLandlordFault()]);
   await settle();

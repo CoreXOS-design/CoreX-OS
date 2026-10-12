@@ -95,6 +95,15 @@
         </div>
     @endif
 
+    {{-- AT-452 (§19.14) - raised by the owner: their instruction is their authority to go to a quote. --}}
+    @if($faultReport->isOwnerRequested())
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green, #16a34a) 9%, var(--surface)); border: 1px solid var(--ds-green, #16a34a);" data-requested-by-owner>
+            <strong>Requested by the owner.</strong>
+            {{ $faultReport->reportedByContact ? trim($faultReport->reportedByContact->first_name . ' ' . $faultReport->reportedByContact->last_name) : 'The owner' }} asked the agency to arrange this on {{ ($faultReport->reported_at ?? $faultReport->created_at)?->format('j M Y H:i') }}.
+            Their instruction is their authority to go to a quote &mdash; they are not asked to approve it again. A quote above this property's agent limit (R{{ number_format($noApprovalLimit, 2) }}) still goes to them to approve.
+        </div>
+    @endif
+
     {{-- AT-452 (§19.12) - the owner's OWN words to their agent: who, when, what. Separate from the tenant's report and from the agent's note to the owner. --}}
     @if($ownerCommentBlock = $faultReport->ownerComment())
         <div class="rounded-md px-4 py-3 text-sm space-y-1" style="background: color-mix(in srgb, var(--ds-blue, #2563eb) 8%, var(--surface)); border: 1px solid var(--ds-blue, #2563eb);" data-owner-comment>

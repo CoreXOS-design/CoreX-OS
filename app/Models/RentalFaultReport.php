@@ -184,6 +184,12 @@ class RentalFaultReport extends Model
     }
 
     /** Same reasoning as property() above — the reporting tenant/landlord contact may be archived. */
+    /** AT-452 (§19.14) - raised by the OWNER (their own work request, or a repair asked on a tenant-resolved fault): "Requested by the owner". */
+    public function isOwnerRequested(): bool
+    {
+        return $this->reported_by_type === self::REPORTED_BY_LANDLORD;
+    }
+
     public function ownerCommentBy(): BelongsTo
     {
         return $this->belongsTo(Contact::class, 'owner_comment_by_contact_id')->withoutGlobalScopes();
@@ -493,7 +499,7 @@ class RentalFaultReport extends Model
         return match ($this->status) {
             self::STATUS_REPORTED, self::STATUS_UNDER_REVIEW => 'With your agent',
             self::STATUS_AWAITING_APPROVAL => 'Waiting for your decision',
-            self::STATUS_APPROVED, self::STATUS_DECLINED, self::STATUS_OWNER_HANDLING => 'You decided',
+            self::STATUS_APPROVED, self::STATUS_DECLINED, self::STATUS_OWNER_HANDLING => ($this->isOwnerRequested() && $this->status === self::STATUS_APPROVED ? 'With your agent' : 'You decided'),
             default => $this->statusLabel(),
         };
     }

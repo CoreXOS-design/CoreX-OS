@@ -128,7 +128,8 @@ final class OwnerCommentTest extends TestCase
         $this->assertSame(RentalFaultReport::STATUS_RESOLVED, $after->status, 'the resolved report stays resolved');
 
         // history, in plain words, on both
-        $this->assertStringContainsString('asked for this to be repaired and wrote: Please get a locksmith', $new->updates()->where('update_type', 'owner_repair_request')->value('note'));
+        $this->assertStringContainsString('asked the agency to arrange this work', $new->updates()->where('update_type', 'owner_repair_request')->value('note'));
+        $this->assertStringContainsString('They wrote: Please get a locksmith', $new->updates()->where('update_type', 'owner_repair_request')->value('note'));
         $this->assertStringContainsString('asked for a repair - request #' . $new->id, $after->updates()->where('update_type', 'owner_repair_request')->value('note'));
 
         // both lease agents hear about the new request, like any new fault
@@ -310,5 +311,124 @@ final class OwnerCommentTest extends TestCase
         $resolved = $this->selfResolved();
         $html = $this->actingAs($this->ownerAgent)->get(route('corex.rental-fault-reports.show', $resolved))->assertOk()->getContent();
         $this->assertMatchesRegularExpression('#class="corex-btn-primary text-xs" data-repair-anyway#', $html);
+    }
+
+    // ───────────────────────── the owner's work request (§19.14) ─────────────────────────
+
+    public function test_an_owner_work_request_reaches_the_agent_flagged_and_is_the_owners_authority_to_go_to_a_quote(): void
+    {
+        $this->actingAs($this->ownerAgent);   // (the staff session must not be mistaken for the owner below)
+        Sanctum::actingAs($this->login($this->landlord), ['client']);
+        $res = $this->post("/api/v1/client/rentals/landlord/properties/{$this->property->id}/fault-reports", [
+            'rental_fault_type_id' => $this->type->id, 'description' => 'Please replace the front door lock barrel', 'comment' => 'Use the same key system as the gate',
+        ], ['Accept' => 'application/json'])->assertStatus(201);
+        $f = RentalFaultReport::withoutGlobalScopes()->findOrFail($res->json('fault_report.id'));
+
+        $this->assertTrue($f->isOwnerRequested());
+        $this->assertSame(RentalFaultReport::STATUS_APPROVED, $f->status);
+        $this->assertSame(RentalFaultReport::APPROVAL_APPROVED, $f->owner_approval_status, 'the owner\'s instruction IS the authority - no decision is asked of them');
+        $this->assertSame(RentalFaultReport::ROUTE_AGENCY_APPOINTS, $f->approval_route);
+        $this->assertSame('Lock / keys', $f->title, 'the type\'s name is the title - the owner form has no title box');
+        $this->assertSame('Please replace the front door lock barrel', $f->description);
+        $this->assertSame('Use the same key system as the gate', $f->owner_comment);
+        $a = $f->decision();
+        $this->assertSame('portal', $a->evidence_type);
+        $this->assertSame($this->landlord->id, (int) $a->recorded_by_contact_id);
+        $this->assertStringContainsString('Their instruction is their authority to go to a quote', $f->updates()->where('update_type', 'owner_repair_request')->value('note'));
+
+        // both lease agents are told - as a WORK REQUEST, not a fault report
+        $both = [$this->ownerAgent->id, $this->tenantAgent->id];
+        sort($both);
+        $this->assertSame($both, $this->told('rental_fault_report.created'));
+        $note = DB::table('notifications')->get()->map(fn ($n) => json_decode($n->data, true))->firstWhere('event_key', 'rental_fault_report.created');
+        $this->assertStringContainsString('Work requested by the owner', json_encode($note));
+        $this->assertStringContainsString('create_work_order=1', json_encode($note));
+
+        // the tenant is not mailed about a fault they never reported
+        Mail::assertNotQueued(\App\Mail\Rentals\RentalTenantStatusChangeMail::class);
+        Mail::assertNotSent(\App\Mail\Rentals\RentalTenantStatusChangeMail::class);
+
+        // on the owner's list: no "needs your decision", read plainly
+        $row = collect($this->getJson('/api/v1/client/rentals/landlord/fault-reports')->json('fault_reports'))->firstWhere('id', $f->id);
+        $this->assertFalse($row['needs_decision']);
+        $this->assertSame('With your agent', $row['status_label']);
+
+        // on the agent's page: flagged, and the work order can be made at once
+        $html = $this->actingAs($this->ownerAgent)->get(route('corex.rental-fault-reports.show', $f))->assertOk()->getContent();
+        $this->assertStringContainsString('data-requested-by-owner', $html);
+        $this->assertStringContainsString('Requested by the owner', $html);
+        $this->assertNull($f->fresh()->workOrderBlockReason());
+    }
+
+    public function test_quote_limits_still_apply_to_an_owner_work_request(): void
+    {
+        Sanctum::actingAs($this->login($this->landlord), ['client']);
+        $id = $this->post("/api/v1/client/rentals/landlord/properties/{$this->property->id}/fault-reports", ['rental_fault_type_id' => $this->type->id, 'description' => 'New lock'], ['Accept' => 'application/json'])->json('fault_report.id');
+        $f = RentalFaultReport::withoutGlobalScopes()->findOrFail($id);
+        $supplier = \App\Models\DealV2\AgencyServiceProvider::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'name' => 'Locks Ltd', 'email' => 'locks@example.invalid', 'is_active' => true, 'specialty' => 'other']);
+        $this->actingAs($this->ownerAgent)->post(route('corex.rental-fault-reports.raise-work-order', $f), ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $supplier->id])->assertRedirect();
+        $wo = \App\Models\RentalWorkOrder::withoutGlobalScopes()->findOrFail($f->fresh()->rental_work_order_id);
+
+        $q = $wo->recordQuote(['agency_service_provider_id' => $supplier->id, 'amount' => 1000, 'quote_date' => now()->toDateString(), 'detail_text' => 'x'], $this->ownerAgent);
+        $wo->fresh()->selectQuote($q, $this->ownerAgent);
+        $this->assertSame(\App\Models\RentalWorkOrder::APPROVAL_NOT_REQUIRED, $wo->fresh()->owner_approval_status, 'at the limit (R1000): the agent may approve it');
+
+        $wo2 = \App\Models\RentalWorkOrder::withoutGlobalScopes()->findOrFail(
+            (function () use ($supplier) {
+                Sanctum::actingAs($this->login($this->landlord), ['client']);
+                $id2 = $this->post("/api/v1/client/rentals/landlord/properties/{$this->property->id}/fault-reports", ['rental_fault_type_id' => $this->type->id, 'description' => 'Second lock'], ['Accept' => 'application/json'])->json('fault_report.id');
+                $this->actingAs($this->ownerAgent)->post(route('corex.rental-fault-reports.raise-work-order', $id2), ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $supplier->id]);
+
+                return RentalFaultReport::withoutGlobalScopes()->findOrFail($id2)->rental_work_order_id;
+            })()
+        );
+        $q2 = $wo2->recordQuote(['agency_service_provider_id' => $supplier->id, 'amount' => 1000.01, 'quote_date' => now()->toDateString(), 'detail_text' => 'x'], $this->ownerAgent);
+        $wo2->fresh()->selectQuote($q2, $this->ownerAgent);
+        $this->assertSame(\App\Models\RentalWorkOrder::APPROVAL_PENDING, $wo2->fresh()->owner_approval_status, 'one cent over: the quote goes to the owner for approval');
+    }
+
+    public function test_a_work_request_needs_a_type_or_some_details(): void
+    {
+        Sanctum::actingAs($this->login($this->landlord), ['client']);
+        $this->post("/api/v1/client/rentals/landlord/properties/{$this->property->id}/fault-reports", ['description' => '  '], ['Accept' => 'application/json'])->assertStatus(422)
+            ->assertJsonPath('message', 'Choose what needs doing, or write the details.');
+        $this->assertSame(0, RentalFaultReport::withoutGlobalScopes()->count());
+        // details alone are enough - the title is made from them
+        $id = $this->post("/api/v1/client/rentals/landlord/properties/{$this->property->id}/fault-reports", ['description' => 'The garage door spring has snapped and it will not close'], ['Accept' => 'application/json'])->assertStatus(201)->json('fault_report.id');
+        $this->assertSame('The garage door spring has snapped and it will not close', RentalFaultReport::withoutGlobalScopes()->find($id)->title);
+    }
+
+    public function test_the_owner_form_is_an_instruction_with_no_self_help_while_the_tenant_form_keeps_it(): void
+    {
+        $html = $this->get('/portal')->assertOk()->getContent();
+        $a = strpos($html, 'data-landlord-fault-wizard');
+        $b = strpos($html, 'data-owner-faults', $a);
+        $owner = substr($html, $a, $b - $a);
+        $this->assertStringContainsString('Ask your agent to arrange work', $owner);
+        $this->assertStringContainsString('What needs doing', $owner);
+        $this->assertStringContainsString('Details', $owner);
+        $this->assertStringContainsString('Photos (optional)', $owner);
+        $this->assertStringContainsString('Your comment to your agent (optional)', $owner);
+        $this->assertStringContainsString('Send work request to my agent', $owner);
+        $this->assertStringContainsString('Sent to your agent. They will arrange a contractor and a quote.', $owner);
+        $this->assertStringNotContainsString('fault-aid', $owner);
+        $this->assertStringNotContainsString('data-fault-aid-step', $owner);
+        $this->assertStringNotContainsString('Before you request work', $owner);
+        $this->assertStringNotContainsString("That fixed it", $owner);
+        $this->assertStringNotContainsString('Describe the problem', $owner);
+        // the tenant's form still has its "Try this first" steps
+        $this->assertStringContainsString('data-fault-aid-step', substr($html, 0, $a));
+        $this->assertStringContainsString('Try this first', $html);
+    }
+
+    public function test_the_photo_description_is_centred_on_a_dark_band_for_every_viewer(): void
+    {
+        $html = $this->get('/portal')->assertOk()->getContent();
+        $this->assertStringContainsString('.cxpv-note > * { width: 100%; max-width: 70%;', $html);
+        $this->assertStringContainsString('text-align: center', substr($html, strpos($html, '.cxpv-note {'), 400));
+        $this->assertStringContainsString('rgba(0, 0, 0, .6)', substr($html, strpos($html, '.cxpv-note {'), 300));
+        $this->assertStringContainsString('font-size: 17px', substr($html, strpos($html, '.cxpv-note .cxpv-text'), 250));
+        $this->assertStringContainsString('@media (max-width: 600px)', $html);
+        $this->assertStringContainsString('.cxpv-note > * { max-width: 94%; }', $html, 'works at 390');
     }
 }

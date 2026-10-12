@@ -41,6 +41,50 @@ class RentalFaultReportService
     }
 
     /**
+     * AT-452 (§19.14) - the OWNER instructs the agency to arrange work ("Ask your agent to arrange work"). It reaches the agent flagged "Requested by
+     * the owner", and the owner's instruction IS their authority to go to a quote: the fault is born approved (the agency appoints), recorded as the
+     * owner's own decision from their portal, so the owner is never asked to approve their own request. The limits still apply afterwards: a quote
+     * above the property's no-approval limit goes to the owner to approve. No mail goes to the tenant - they did not report this.
+     */
+    public function reportOwnerRequest(Property $property, \App\Models\Contact $owner, array $attributes, ?string $comment = null): RentalFaultReport
+    {
+        $who = trim(($owner->first_name ?? '') . ' ' . ($owner->last_name ?? ''));
+        $text = trim((string) $comment);
+
+        $fault = \Illuminate\Support\Facades\DB::transaction(function () use ($property, $owner, $attributes, $who, $text) {
+            $fault = RentalFaultReport::create(array_merge($attributes, [
+                'agency_id' => $property->agency_id,
+                'branch_id' => $property->branch_id,
+                'property_id' => $property->id,
+                'reported_by_type' => RentalFaultReport::REPORTED_BY_LANDLORD,
+                'reported_by_contact_id' => $owner->id,
+                'reported_channel' => RentalFaultReport::CHANNEL_APP,
+                'status' => RentalFaultReport::STATUS_APPROVED,
+                'owner_approval_status' => RentalFaultReport::APPROVAL_APPROVED,
+                'approval_route' => RentalFaultReport::ROUTE_AGENCY_APPOINTS,
+                'reported_at' => now(),
+            ]));
+            $fault->approvals()->create([
+                'agency_id' => $fault->agency_id, 'decision' => \App\Models\RentalApproval::DECISION_APPROVED, 'approval_route' => RentalFaultReport::ROUTE_AGENCY_APPOINTS,
+                'contractor_source' => \App\Models\RentalApproval::CONTRACTOR_AGENCY, 'evidence_type' => \App\Models\RentalApproval::EVIDENCE_PORTAL,
+                'evidence_text' => 'Requested by the owner: ' . $fault->title, 'decided_at' => now(), 'recorded_by_contact_id' => $owner->id,
+            ]);
+            $fault->recordHistory(\App\Models\RentalFaultReportUpdate::TYPE_OWNER_REPAIR_REQUEST, null,
+                $who . ' (owner) asked the agency to arrange this work. Their instruction is their authority to go to a quote - they are not asked to approve it again. A quote above this property\'s limit still goes to them.'
+                . ($text !== '' ? ' They wrote: ' . $text : ''));
+            if ($text !== '') {
+                $fault->forceFill(['owner_comment' => $text, 'owner_comment_by_contact_id' => $owner->id, 'owner_commented_at' => now()])->save();
+            }
+
+            return $fault;
+        });
+
+        $this->notifyCreated($fault);
+
+        return $fault->fresh();
+    }
+
+    /**
      * AT-452 round 2 (F) - the tenant read the first-aid steps and pressed "That fixed it". The fault is LOGGED (the agent can see it and
      * that the tenant fixed it themselves) but it is born closed: no "new fault" alert asking anyone to act, nothing for the review queue,
      * no owner step. The lease's tenancy log carries it as an informational line (LeaseTimelineService).
@@ -114,25 +158,18 @@ class RentalFaultReportService
         $property = $resolved->property()->withoutGlobalScopes()->firstOrFail();
         $note = 'Follows the report of ' . ($resolved->reported_at ?? $resolved->created_at)->format('j M Y') . ' that the tenant resolved themselves.';
 
-        $new = $this->report($property, [
+        $new = $this->reportOwnerRequest($property, $owner, [
             'lease_id' => $resolved->lease_id,
             'rental_fault_type_id' => $resolved->rental_fault_type_id,
-            'reported_by_type' => RentalFaultReport::REPORTED_BY_LANDLORD,
-            'reported_by_contact_id' => $owner->id,
-            'reported_channel' => RentalFaultReport::CHANNEL_APP,
             'title' => $resolved->title,
             'description' => trim($note . ' ' . (string) $resolved->description),
             'follows_fault_report_id' => $resolved->id,
-        ]);
+        ], $comment);
         $who = trim(($owner->first_name ?? '') . ' ' . ($owner->last_name ?? ''));
         $text = trim((string) $comment);
-        $new->recordHistory(\App\Models\RentalFaultReportUpdate::TYPE_OWNER_REPAIR_REQUEST, null, $who . ' (owner) asked for this to be repaired' . ($text !== '' ? ' and wrote: ' . $text : '.'));
         $resolved->recordHistory(\App\Models\RentalFaultReportUpdate::TYPE_OWNER_REPAIR_REQUEST, null, $who . ' (owner) asked for a repair - request #' . $new->id . ($text !== '' ? ' - they wrote: ' . $text : '.'));
-        if ($text !== '') {
-            $new->forceFill(['owner_comment' => $text, 'owner_comment_by_contact_id' => $owner->id, 'owner_commented_at' => now()])->save();
-        }
 
-        return $new->fresh();
+        return $new;
     }
 
     /**
@@ -193,9 +230,11 @@ class RentalFaultReportService
                 'rental_fault_report.created',
                 $faultReport,
                 [
-                    'title' => 'Fault reported — ' . ($property->buildDisplayAddress() ?: $property->title ?: ('Property #' . $property->id)),
-                    'body' => $faultReport->title,
-                    'action_url' => route('corex.rental-fault-reports.show', $faultReport->id),
+                    'title' => ($faultReport->isOwnerRequested() ? 'Work requested by the owner — ' : 'Fault reported — ') . ($property->buildDisplayAddress() ?: $property->title ?: ('Property #' . $property->id)),
+                    'body' => $faultReport->isOwnerRequested() ? $faultReport->title . ' — arrange a contractor and a quote.' : $faultReport->title,
+                    'action_url' => $faultReport->isOwnerRequested()
+                        ? route('corex.rental-fault-reports.show', ['rentalFaultReport' => $faultReport->id, 'create_work_order' => 1])
+                        : route('corex.rental-fault-reports.show', $faultReport->id),
                     'severity' => 'info',
                     'threshold_hit_at' => now(),
                 ]

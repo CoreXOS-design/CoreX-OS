@@ -173,8 +173,10 @@ class ClientLandlordRentalsController extends Controller
 
         $data = $request->validate([
             'rental_fault_type_id' => 'nullable|integer',
-            'title' => 'required|string|max:191',
+            // AT-452 (§19.14): the owner form has no title box - the type's name (or the start of the details) is the title.
+            'title' => 'nullable|string|max:191',
             'description' => 'nullable|string|max:5000',
+            'comment' => 'nullable|string|max:2000',
             'follows_fault_report_id' => 'nullable|integer',
             'photos' => 'nullable|array|max:10',
             'photos.*' => 'file|image|max:15360',
@@ -196,14 +198,17 @@ class ClientLandlordRentalsController extends Controller
 
         $leaseId = $this->scope->landlordActiveLeaseId($contact, $propertyModel->id);
 
+        $details = trim((string) ($data['description'] ?? ''));
+        $title = trim((string) ($data['title'] ?? '')) ?: ($faultType?->name ?: \Illuminate\Support\Str::limit($details, 80, ''));
+        if ($title === '') {
+            return response()->json(['message' => 'Choose what needs doing, or write the details.'], 422);
+        }
+
         $attributes = [
             'lease_id' => $leaseId,
             'rental_fault_type_id' => $faultType?->id,
-            'reported_by_type' => RentalFaultReport::REPORTED_BY_LANDLORD,
-            'reported_by_contact_id' => $contact->id,
-            'reported_channel' => RentalFaultReport::CHANNEL_APP,
-            'title' => $data['title'],
-            'description' => $data['description'] ?? '',
+            'title' => $title,
+            'description' => $details,
             'follows_fault_report_id' => $follows?->id,
         ];
         if ($follows && ! str_contains((string) $attributes['description'], 'Follows the report of')) {
@@ -211,7 +216,8 @@ class ClientLandlordRentalsController extends Controller
             $attributes['description'] = trim($note . ' ' . $attributes['description']);
         }
 
-        $faultReport = $this->faultReportService->report($propertyModel, $attributes);
+        // AT-452 (§19.14): an owner's work request - their instruction is their authority to go to a quote.
+        $faultReport = $this->faultReportService->reportOwnerRequest($propertyModel, $contact, $attributes, $data['comment'] ?? null);
 
         foreach ($request->file('photos', []) as $photo) {
             $path = app(PropertyImageStorer::class)->store($photo, $propertyModel->id);

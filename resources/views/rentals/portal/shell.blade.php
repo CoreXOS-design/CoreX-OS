@@ -411,7 +411,7 @@
                                         <h2 x-text="p.address"></h2>
                                         <div class="row">
                                             <a class="link" href="#" @click.prevent="loadPropertyDetail(p.id)">View activity →</a>
-                                            <button class="btn btn-danger" style="width:auto;margin-top:0;padding:8px 12px;" @click="startLandlordFaultReport(p.id)">Request work</button>
+                                            <button class="btn btn-primary" style="width:auto;margin-top:0;padding:8px 12px;" @click="startLandlordFaultReport(p.id)" data-request-work>Request work</button>
                                         </div>
                                     </div>
                                 </template>
@@ -577,35 +577,29 @@
                                         <template x-if="landlordFaultWizard.step === 'done'">
                                             <div class="done-card" data-fault-done>
                                                 <div class="tick">&#10003;</div>
-                                                <h2 style="margin-bottom:4px;">Request sent</h2>
-                                                <p class="muted" style="margin:0 0 4px;">Your agent has been notified.</p>
+                                                <p data-work-request-sent style="margin:0 0 8px; font-weight:700;">Sent to your agent. They will arrange a contractor and a quote.</p>
                                                 <button class="btn btn-primary" @click="closeLandlordFaultWizard()">Done</button>
                                             </div>
                                         </template>
+                                        {{-- AT-452 (§19.14) - the OWNER instructs their agent: no self-help steps, no "that fixed it" - that is the tenant's form. --}}
                                         <template x-if="landlordFaultWizard.step !== 'done'">
-                                            <div>
-                                                <h2>Request work</h2>
-                                                <label>What's the problem?</label>
-                                                <select x-model="landlordFaultWizard.faultTypeId" :disabled="!!(landlordFaultWizard.sending)" @change="selectLandlordFaultType()">
-                                                    <option value="">Choose… (or skip and describe it below)</option>
+                                            <div data-work-request-form>
+                                                <h2>Ask your agent to arrange work</h2>
+                                                <label>What needs doing</label>
+                                                <select x-model="landlordFaultWizard.faultTypeId" :disabled="!!(landlordFaultWizard.sending)" @change="selectLandlordFaultType()" data-work-type>
+                                                    <option value="">Choose…</option>
                                                     <template x-for="ft in (landlordFaultTypesByProperty[landlordFaultWizard.property] || [])" :key="ft.id">
                                                         <option :value="ft.id" x-text="ft.name + (ft.category ? ' (' + ft.category + ')' : '')"></option>
                                                     </template>
                                                 </select>
-                                                <template x-if="landlordFaultWizard.faultTypeId && landlordFaultWizard.ftype && landlordFaultWizard.showAid">
-                                                    <div style="margin-top:12px;" data-fault-aid-step>
-                                                        <h2>Before you request work</h2>
-                                                        @include('rentals.portal._fault-aid', ['w' => 'landlordFaultWizard'])
-                                                    </div>
-                                                </template>
-                                                <label>Title</label>
-                                                <input type="text" x-model="landlordFaultWizard.title" :disabled="!!(landlordFaultWizard.sending)">
-                                                <label>Describe the problem</label>
-                                                <textarea rows="3" x-model="landlordFaultWizard.description" :disabled="!!(landlordFaultWizard.sending)"></textarea>
-                                                <label>Photos</label>
+                                                <label>Details</label>
+                                                <textarea rows="3" x-model="landlordFaultWizard.description" :disabled="!!(landlordFaultWizard.sending)" data-work-details></textarea>
+                                                <label>Photos (optional)</label>
                                                 @include('rentals.portal._photo-picker', ['bind' => 'landlordFaultWizard'])
-                                                <button class="btn btn-danger" data-fault-submit :disabled="!!(landlordFaultWizard.sending || landlordFaultWizard.photoBusy)" @click="submitLandlordFault()"
-                                                        x-text="landlordFaultWizard.sending ? ('Sending…' + (landlordFaultWizard.progress ? ' ' + landlordFaultWizard.progress + '%' : '')) : (landlordFaultWizard.photoBusy ? 'Preparing photos…' : 'Submit request')"></button>
+                                                <label>Your comment to your agent (optional)</label>
+                                                <textarea rows="2" maxlength="2000" x-model="landlordFaultWizard.comment" :disabled="!!(landlordFaultWizard.sending)" data-owner-comment-input></textarea>
+                                                <button class="btn btn-primary" data-fault-submit :disabled="!!(landlordFaultWizard.sending || landlordFaultWizard.photoBusy)" @click="submitLandlordFault()"
+                                                        x-text="landlordFaultWizard.sending ? ('Sending…' + (landlordFaultWizard.progress ? ' ' + landlordFaultWizard.progress + '%' : '')) : (landlordFaultWizard.photoBusy ? 'Preparing photos…' : 'Send work request to my agent')"></button>
                                                 <div class="progress" x-show="landlordFaultWizard.sending"><span :style="'width:' + (landlordFaultWizard.progress || 5) + '%'"></span></div>
                                                 <button class="btn btn-outline" :disabled="!!(landlordFaultWizard.sending)" @click="closeLandlordFaultWizard()">Cancel</button>
                                                 <p class="error" x-show="landlordFaultWizard.error" x-text="landlordFaultWizard.error"></p>
@@ -1402,7 +1396,7 @@ function rentalsPortal() {
             if (r.ok) this.landlordFaults = r.data.fault_reports;
         },
         blankLandlordWizard(propertyId) {
-            return { open: !!propertyId, step: 'form', property: propertyId || null, faultTypeId: '', ftype: null, showAid: false, lastTypeName: '', title: '', description: '', photos: [], photoError: null, photoBusy: false, photoPending: 0, sending: false, progress: 0, error: null, key: this.uuid() };
+            return { open: !!propertyId, step: 'form', property: propertyId || null, faultTypeId: '', ftype: null, showAid: false, lastTypeName: '', title: '', comment: '', description: '', photos: [], photoError: null, photoBusy: false, photoPending: 0, sending: false, progress: 0, error: null, key: this.uuid() };
         },
         async startLandlordFaultReport(propertyId) {
             this.landlordFaultWizard = this.blankLandlordWizard(propertyId);
@@ -1414,13 +1408,13 @@ function rentalsPortal() {
                 }
             }
         },
+        // AT-452 (§19.14): an owner instructs, they do not troubleshoot - choosing a type shows NO self-help steps (that is the tenant's form).
         selectLandlordFaultType() {
             const w = this.landlordFaultWizard;
             const types = this.landlordFaultTypesByProperty[w.property] || [];
             const t = types.find(t => String(t.id) === String(w.faultTypeId));
             w.ftype = t || null;
-            w.showAid = !!(t && (String(t.first_aid_steps || '').trim() || (t.photos || []).length || (t.documents || []).length));
-            if (t && (!w.title || w.title === w.lastTypeName)) w.title = t.name;
+            w.showAid = false;
             w.lastTypeName = t ? t.name : '';
         },
         closeLandlordFaultWizard() {
@@ -1431,11 +1425,12 @@ function rentalsPortal() {
             const w = this.landlordFaultWizard;
             if (w.sending || w.photoBusy) return;
             w.error = null;
-            if (!w.title) { w.error = 'Please give it a short title.'; return; }
+            if (!w.faultTypeId && !(w.description || '').trim()) { w.error = 'Choose what needs doing, or write the details.'; return; }
             const form = new FormData();
             if (w.faultTypeId) form.append('rental_fault_type_id', w.faultTypeId);
-            form.append('title', w.title);
+            form.append('title', w.title || (w.ftype ? w.ftype.name : (w.description || '').trim().slice(0, 80)));
             form.append('description', w.description || '');
+            if ((w.comment || '').trim()) form.append('comment', w.comment.trim());
             form.append('submission_key', w.key);
             if (w.followsFaultId) form.append('follows_fault_report_id', w.followsFaultId);
             w.photos.forEach(p => form.append('photos[]', p.file, p.file.name));

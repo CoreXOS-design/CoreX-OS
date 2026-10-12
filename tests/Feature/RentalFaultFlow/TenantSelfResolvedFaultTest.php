@@ -178,7 +178,7 @@ final class TenantSelfResolvedFaultTest extends TestCase
         $new = RentalFaultReport::withoutGlobalScopes()->where('id', '!=', $resolved->id)->firstOrFail();
         $this->assertSame($resolved->id, (int) $new->follows_fault_report_id, 'linked to the report it follows');
         $this->assertSame(RentalFaultReport::REPORTED_BY_LANDLORD, $new->reported_by_type, 'a normal owner work request: the existing flow');
-        $this->assertSame(RentalFaultReport::STATUS_REPORTED, $new->status);
+        $this->assertSame(RentalFaultReport::STATUS_APPROVED, $new->status, 'AT-452 §19.14: an owner\'s request IS their authority to go to a quote');
         $this->assertStringContainsString('Follows the report of', $new->description);
         $this->assertSame($before, $resolved->fresh()->getAttributes(), 'the resolved report stays exactly as it was');
 
