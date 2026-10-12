@@ -456,6 +456,25 @@ final class AlertSwitchTest extends TestCase
         $row->update(['decision' => 'turned_on']);
     }
 
+    // ── C: the review-step button label ────────────────────────────────────────────────────
+
+    public function test_the_fault_review_step_button_says_save_draft(): void
+    {
+        $admin = $this->user('admin');
+        $property = \App\Models\Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $admin->id, 'branch_id' => $this->branch->id,
+            'title' => 'Unit 33, 401 Margate Boulevard', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        $fault = app(\App\Services\Rentals\RentalFaultReportService::class)->report($property, [
+            'reported_by_type' => 'tenant', 'reported_channel' => 'app', 'title' => 'Roof leak', 'description' => 'Water in the passage',
+        ]);
+
+        $html = $this->actingAs($admin)->get(route('corex.rental-fault-reports.show', $fault->id))->assertOk()->getContent();
+
+        $this->assertStringContainsString('Save draft', $html);
+        $this->assertStringNotContainsString('Save owner version', $html);
+    }
+
     // ── Parity: the bulk (list) rule and the per-user (dispatcher) rule agree ──────────────
 
     public function test_the_list_rule_and_the_dispatcher_rule_agree_including_for_a_locked_agency(): void
