@@ -404,6 +404,16 @@ final class SupplierCalloutFeeTest extends TestCase
         $this->assertStringContainsString('- call-out fee not known', $html);
         $this->assertStringContainsString('data-callout-notice', $html);
         $this->assertStringContainsString('Sparky Plumbing charges a call-out fee of R750. The owner will be told.', $html);
+
+        // the page's markup stays balanced: the create button must still sit INSIDE the form (a stray </div> once pushed it out, where the form's Alpine state is unreachable)
+        $dom = new \DOMDocument();
+        @$dom->loadHTML($html);
+        $btn = (new \DOMXPath($dom))->query('//button[@data-raise-submit]')->item(0);
+        $this->assertNotNull($btn, 'the create button is on the page');
+        for ($n = $btn, $inForm = false; $n; $n = $n->parentNode) {
+            if ($n instanceof \DOMElement && $n->getAttribute('id') === 'raise-work-order-form') { $inForm = true; break; }
+        }
+        $this->assertTrue($inForm, 'the create-work-order button is inside its form');
         $this->assertStringContainsString('check before sending.', $html);
         $this->assertStringNotContainsString('Free Plumbing charges', $html);
     }
