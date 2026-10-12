@@ -31,6 +31,28 @@
     }
   } catch (e) { /* keep the fallback text */ }
 
+  // ── Theme toggle (AT-449) ──────────────────────────────────
+  // The popup ALWAYS opens in light (popup.html ships data-theme="light" and
+  // nothing is persisted). The header button flips light/dark for this popup
+  // session only — by design, so a stray dark choice never sticks.
+  (function initThemeToggle() {
+    var btn = document.getElementById('themeToggle');
+    if (!btn) return;
+    var root = document.documentElement;
+    function apply(theme) {
+      root.setAttribute('data-theme', theme);
+      var toDark = theme !== 'dark';
+      var label = toDark ? 'Switch to dark theme' : 'Switch to light theme';
+      btn.title = label;
+      btn.setAttribute('aria-label', label);
+      btn.setAttribute('aria-pressed', theme === 'dark' ? 'true' : 'false');
+    }
+    apply('light');
+    btn.addEventListener('click', function () {
+      apply(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+    });
+  })();
+
   // ── DOM refs ───────────────────────────────────────────────
   const states = {
     notOnPortal:  document.getElementById('stateNotOnPortal'),
