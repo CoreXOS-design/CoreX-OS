@@ -198,7 +198,7 @@ class OtherAgencyStockP24FixtureImportTest extends TestCase
         $this->assertSame('rental', $p->listing_type);
         $this->assertSame(7500.0, (float) $p->rental_amount);
         $this->assertSame(0.0, (float) $p->price);
-        $this->assertSame('R 7 500', $p->formattedDisplayPrice());
+        $this->assertSame('R 7 500', $p->formattedPrice());
         $this->assertSame(45, (int) $p->size_m2, '"Floor Number"/"Number of floors" must not replace "Floor Size"');
         $this->assertSame('4339', $p->street_number);
         $this->assertSame('Lee Barnes', $p->street_name);
