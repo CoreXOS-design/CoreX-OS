@@ -166,6 +166,8 @@
         let stored = null;
         try { stored = window.localStorage.getItem(storeKey); } catch (e) { /* private window: the default applies */ }
         const open = forced ? true : (stored === null ? defaultOpen : stored === '1');
+        // A section the person chose (a tile or a tick) stays open from then on, until they collapse it themselves.
+        if (forced) { try { window.localStorage.setItem(storeKey, '1'); } catch (e) { /* not remembered */ } }
         return {
             open,
             toggle() { this.open = !this.open; try { window.localStorage.setItem(storeKey, this.open ? '1' : '0'); } catch (e) { /* not remembered */ } },
