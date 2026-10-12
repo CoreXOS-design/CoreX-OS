@@ -13,9 +13,11 @@
 
     @if($rf)
         <div class="rounded-md px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, var(--surface)); border: 1px solid var(--ds-amber, #f59e0b); color: var(--text-primary);" data-return-to-fault>
-            <a href="{{ $rf['url'] }}" class="font-semibold underline" data-return-to-fault-link>&larr; Back to fault report #{{ $rf['id'] }}</a>
-            @if($rf['covered'])
+            <a href="{{ $rf['url'] }}" class="font-semibold underline" data-return-to-fault-link>&larr; Back to {{ $rf['label'] }}</a>
+            @if($rf['mode'] !== 'details' && $rf['covered'])
                 <span class="font-semibold" style="color: var(--ds-green);" data-fault-now-covered>&#10003; A contractor is now loaded for {{ $rf['type'] }}.</span>
+            @elseif($rf['mode'] === 'details')
+                <span>Add an email address or a mobile number under <strong>Contacts</strong> for the contractor below, then go back and press <strong>Send</strong>.</span>
             @elseif($rf['mode'] === 'types')
                 <span>
                     @if($rf['trade_code'])
@@ -70,93 +72,7 @@
          x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 -translate-y-2" x-transition:enter-end="opacity-100 translate-y-0"
          class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="text-lg font-semibold mb-4" style="color: var(--text-primary);">Add a provider to the directory</div>
-        <form method="POST" action="{{ route('deals-v2.suppliers.store') }}" class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            @csrf
-            <div>
-                <label for="sp-name" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Name <span class="text-red-500">*</span></label>
-                <input id="sp-name" name="name" required maxlength="191"
-                       class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
-                       placeholder="e.g. Sparky Electrical">
-            </div>
-            <div>
-                <label for="sp-specialty" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Specialty <span class="text-red-500">*</span></label>
-                <select id="sp-specialty" name="specialty" required
-                        class="w-full rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                    @foreach($specialties as $s)
-                        <option value="{{ $s }}">{{ ucwords(str_replace('_', ' ', $s)) }}</option>
-                    @endforeach
-                </select>
-            </div>
-            <div>
-                <label for="sp-company" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Company</label>
-                <input id="sp-company" name="company" maxlength="191"
-                       class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-            </div>
-            <div>
-                {{-- Johan, 2026-08-26 — split from the old combined
-                     "Registration / ID Number" field. This one is the
-                     COMPANY's own registration number only — the
-                     representative's own ID number is a separate field,
-                     captured per-person on the "Add contact" form under
-                     each provider below (a supplier is one company + one
-                     or more representatives; the person's ID belongs on
-                     THEIR record, not the firm's). Never required here —
-                     required only where it actually matters: putting this
-                     supplier on a document as a representative (both this
-                     and the representative's own ID number, together). --}}
-                <label for="sp-registration-number" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Company Registration Number</label>
-                <input id="sp-registration-number" name="registration_number" maxlength="100"
-                       placeholder="e.g. 2020/778899/23"
-                       class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-            </div>
-            <div>
-                <label for="sp-email" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Email</label>
-                <input id="sp-email" name="email" type="email" maxlength="191"
-                       class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-            </div>
-            <div>
-                <label for="sp-phone" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Phone</label>
-                <input id="sp-phone" name="phone" maxlength="50"
-                       class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-            </div>
-            <div class="md:col-span-3">
-                <label for="sp-address" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Address <span class="text-[11px]" style="color: var(--text-muted);">(the firm's business address — used on documents this supplier signs, e.g. as executor)</span></label>
-                <input id="sp-address" name="address" maxlength="500"
-                       placeholder="e.g. 21 Dee Road, Uvongo"
-                       class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-            </div>
-            <div class="flex items-end">
-                <label class="inline-flex items-center gap-2 text-sm pb-2" style="color: var(--text-secondary);">
-                    <input type="checkbox" name="is_preferred" value="1" class="rounded" style="accent-color: var(--brand-button);">
-                    Preferred for this specialty
-                </label>
-            </div>
-            {{-- AT-319 — a supplier can handle MORE THAN ONE service type. Multi-select of the
-                 agency's configurable COC/service list (Settings → COC / Service Types). The
-                 work-order panel filters its supplier picker by these. --}}
-            <div class="md:col-span-3">
-                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Service types <span class="text-[11px]" style="color: var(--text-muted);">(the COCs / services this supplier handles — filters the work-order picker)</span></label>
-                @forelse($serviceTypes as $t)
-                    <label class="inline-flex items-center gap-1.5 text-sm mr-4 mb-1" style="color: var(--text-secondary);">
-                        <input type="checkbox" name="service_types[]" value="{{ $t->code }}" @checked(in_array($t->code, $preTick, true)) style="accent-color: var(--brand-button, #0ea5e9);">
-                        {{ $t->label }}
-                    </label>
-                @empty
-                    <div class="text-xs" style="color: var(--text-muted);">No service types configured yet — add them under Settings → COC / Service Types.</div>
-                @endforelse
-            </div>
-            <div class="md:col-span-3 flex items-center gap-2">
-                <button type="submit" class="corex-btn-primary text-sm">Save to directory</button>
-                <button type="button" @click="showAdd = false" class="corex-btn-outline text-sm">Cancel</button>
-            </div>
-        </form>
+        @include('deals-v2.suppliers._add-form', ['serviceTypes' => $serviceTypes, 'specialties' => $specialties, 'preTick' => $preTick])
     </div>
 
     {{-- Directory table (§3.7) --}}
@@ -174,7 +90,7 @@
                 </thead>
                 <tbody>
                     @forelse($providers as $p)
-                        <tr style="{{ $p->is_active ? '' : 'opacity:0.55;' }}">
+                        <tr id="provider-{{ $p->id }}" style="{{ $p->is_active ? '' : 'opacity:0.55;' }}{{ ($rf['provider'] ?? null) === $p->id ? ' outline:2px solid var(--ds-amber, #f59e0b);' : '' }}">
                             <td class="px-4 py-3">
                                 <span class="font-medium" style="color: var(--text-primary);">{{ $p->name }}</span>
                                 @if($p->is_preferred)<span class="ds-badge ds-badge-success ml-2">Preferred</span>@endif
@@ -340,6 +256,14 @@
                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                                     <div class="text-[11px] mt-1" style="color: var(--text-muted);">The firm's address — this is what appears on a document when this supplier is selected as a party (e.g. an executor).</div>
                                 </div>
+                                @if(($providerEvents[$p->id] ?? collect())->isNotEmpty())
+                                    <div class="mb-3 text-[11px]" style="color: var(--text-muted);" data-provider-history>
+                                        <div class="font-semibold uppercase tracking-wider mb-1">Recent changes</div>
+                                        @foreach($providerEvents[$p->id]->take(4) as $ev)
+                                            <div>{{ \Illuminate\Support\Carbon::parse($ev->created_at)->format('j M Y H:i') }} &mdash; {{ $ev->note }}</div>
+                                        @endforeach
+                                    </div>
+                                @endif
                                 <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">Contacts at {{ $p->name }}</div>
                                 @forelse($p->serviceContacts as $c)
                                     <div class="flex items-center justify-between py-1 text-xs" style="color: var(--text-secondary);">

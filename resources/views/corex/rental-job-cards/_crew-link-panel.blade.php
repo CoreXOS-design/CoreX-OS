@@ -24,6 +24,8 @@
     @if(! $crewLinksEnabled)
         <p class="text-xs" style="color: var(--text-muted);">Crew links are switched off for this agency (Settings → Rental Portal).</p>
     @else
+        @include('corex.rental-job-cards._crew-send-status')
+
         @if($freshUrl)
             <div class="space-y-2">
                 <div class="flex gap-2">

@@ -52,6 +52,8 @@ class RentalPortalSettingsController extends Controller
             'faultPhotoMaxCount' => RentalPortalSetting::faultPhotoMaxCountFor($agencyId),
             'faultPhotoMaxMb' => RentalPortalSetting::faultPhotoMaxMbFor($agencyId),
             'tenantSeesAgentMarks' => RentalPortalSetting::tenantSeesAgentMarksFor($agencyId),
+            'crewLinkAutoSendOnFaultJob' => RentalPortalSetting::crewLinkAutoSendOnFaultJobFor($agencyId),
+            'faultRecurrenceWindowDays' => RentalPortalSetting::faultRecurrenceWindowDaysFor($agencyId),
             'faqTexts' => collect(RentalPortalSetting::FAQ_KEYS)->mapWithKeys(fn ($k) => [$k => RentalPortalSetting::faqTextFor($agencyId, $k)])->all(),
             'faqDefaults' => RentalPortalSetting::FAQ_DEFAULTS,
         ]);
@@ -221,6 +223,18 @@ class RentalPortalSettingsController extends Controller
     public function updateFaultPhotoMaxMb(Request $request): RedirectResponse
     {
         return $this->updateBoundedInt($request, 'fault_photo_max_mb', 1, RentalPortalSetting::MAX_FAULT_PHOTO_MB, 'Largest fault photo (MB)');
+    }
+
+    /** AT-452 round 2 (F-OWNER) - how many days a tenant-resolved report stays linked to a new one of the same type. Absent or blank = leave alone. */
+    public function updateFaultRecurrenceWindowDays(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'fault_recurrence_window_days', 1, RentalPortalSetting::MAX_FAULT_RECURRENCE_WINDOW_DAYS, 'Reported-before window');
+    }
+
+    /** AT-452 round 2 - the crew's job link is sent automatically when a job card is made from a fault decision. has()-guarded (onboarding §6.1). */
+    public function updateCrewLinkAutoSendOnFaultJob(Request $request): RedirectResponse
+    {
+        return $this->updateToggle($request, 'crew_link_auto_send_on_fault_job', 'Automatic crew link on a fault job');
     }
 
     /** AT-452 — the tenant also sees the agent's marks and notes on their own fault photos. has()-guarded (onboarding §6.1). */

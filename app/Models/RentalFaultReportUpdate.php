@@ -37,6 +37,10 @@ class RentalFaultReportUpdate extends Model
     public const TYPE_PHOTO_NOTE_SET = 'photo_note_set';
     public const TYPE_PHOTO_NOTE_REMOVED = 'photo_note_removed';
     /** AT-452 item 9 - the agent confirmed sending to the owner while no contractor covered this type of work. */
+    /** Item I - the agent went ahead under the no-approval limit / as an emergency and the owner was told. */
+    public const TYPE_ARRANGED_BY_AGENT = 'arranged_by_agent';
+    /** Item I - the owner's "Query this" note on a fault they were informed about. */
+    public const TYPE_OWNER_QUERY = 'owner_query';
     public const TYPE_SENT_WITHOUT_CONTRACTOR = 'sent_without_contractor';
 
     protected $fillable = [

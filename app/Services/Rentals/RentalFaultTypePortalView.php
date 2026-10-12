@@ -55,6 +55,12 @@ class RentalFaultTypePortalView
         ])->values()->all();
     }
 
+    /** AT-452 round 2 (F-OWNER) - the advice the tenant was shown for this type on this property (the steps, one sentence after another), for the owner's "Resolved with the suggested step". */
+    public function adviceFor(RentalFaultType $type, \App\Models\Property $property): string
+    {
+        return implode(' ', $this->splitSteps($this->renderer->renderFirstAidSteps($type, $property))['steps']);
+    }
+
     /**
      * AT-452 item 8 - the tenant screen shows the safety line in its own warning box and the steps as a list. The WORDING is untouched: the
      * rendered text is only cut into pieces (the leading safety line; then one step per line, or per sentence when the text is one block).

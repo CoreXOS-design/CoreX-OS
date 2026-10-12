@@ -507,23 +507,131 @@
     @if($isOpen && $workOrder->assignment_type !== \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL)
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">{{ $workOrder->isOwnerContractor() ? 'Progress' : 'Supplier' }}</h2>
-        {{-- BUILD 2 (§17.9.5) — replaces "Assign supplier" + the plain supplier mail: the work order goes to the contractor of the SELECTED quote,
-             with the owner's approval shown on it. Enabled only once the owner's approval (or the no-approval limit, or an emergency agreement) covers it. --}}
+        {{-- AT-452 round 2 (§19) - the supplier card ALWAYS shows the next action: who the contractor is, whether (and how) the job reached them, what
+             they answered, a Send / Resend that needs no typed quote, a WhatsApp that is only "sent" after the agent opened it, and how to change
+             the contractor. The go-ahead (work order PDF, §17.9.5) stays below, once a quote is selected and the owner's approval covers it. --}}
         @permission('rental_work_orders.create')
         @if($workOrder->isOwnerContractor())
-            <p class="text-xs" style="color: var(--text-muted);" data-owner-arranges-note>The owner arranges and pays their own contractor{{ $workOrder->contractor_name ? ' (' . $workOrder->contractor_name . ')' : '' }} &mdash; there is no quote to capture and nothing to send. Set the appointment with the tenant, and mark it complete once the owner confirms the work is done.</p>
-        @elseif(!$selectedQuote)
-            <p class="text-xs" style="color: var(--text-muted);">Capture the contractor's quote and select it first — the work order goes to that contractor once the owner has approved.</p>
+            <p class="text-xs" style="color: var(--text-muted);" data-owner-arranges-note>The owner arranges and pays their own contractor{{ $workOrder->contractor_name ? ' (' . $workOrder->contractor_name . ')' : '' }} &mdash; there is no quote to capture and nothing is sent to them from here.</p>
         @else
-            <form method="POST" action="{{ route('corex.rental-work-orders.assign-supplier', $workOrder) }}" class="flex flex-wrap items-center gap-2">
-                @csrf
-                <input type="hidden" name="agency_service_provider_id" value="{{ $selectedQuote->agency_service_provider_id }}">
-                <span class="text-xs">Contractor: <strong>{{ $selectedQuote->supplier?->name ?? 'Unknown supplier' }}</strong></span>
-                <button type="submit" class="corex-btn-primary text-xs" @disabled(!$proceed->authorised)
-                        @if(!$proceed->authorised) title="{{ $proceed->note }}" @endif>{{ $workOrder->status === \App\Models\RentalWorkOrder::STATUS_REPORTED ? 'Send work order to contractor' : 'Resend work order to contractor' }}</button>
-            </form>
-            @if(!$proceed->authorised)
-                <p class="text-xs" style="color: var(--ds-crimson);">{{ $proceed->note }}</p>
+            {{-- single-line php directives only on this page: the block form placed after an earlier single-line one makes Blade swallow everything between them --}}
+            @php($js = $contractorStatus)
+            @php($prov = $js['provider'])
+            @php($ct = $js['contact'])
+            @php($classes = $contractorClassify)
+            @php($pressKey = (string) \Illuminate\Support\Str::uuid())
+            @php($dirParams = ['work_order' => $workOrder->id])
+            <div class="space-y-2" data-supplier-card data-refresh-on-contractor-change="wo-supplier-card">
+                @if($prov)
+                    <div class="text-sm"><strong data-supplier-name>{{ $prov->name }}</strong>
+                        <span class="text-xs" style="color: var(--text-muted);">{{ $ct['email'] ?: 'no email' }} &middot; {{ $ct['phone'] ?: 'no mobile' }}</span>
+                    </div>
+
+                    @if($js['sent'])
+                        <p class="text-xs" data-job-sent><span class="ds-badge ds-badge-success">Job sent</span>
+                            {{ $js['sent']->sent_at?->format('j M Y H:i') }} by {{ $js['sent']->channelLabel() }}@if($js['sent']->destination) to {{ $js['sent']->destination }}@endif
+                            @if($js['sent']->sentBy) &mdash; {{ $js['sent']->sentBy->name }}@endif</p>
+                    @elseif($js['not_sent'])
+                        <p class="text-xs font-semibold" style="color: var(--ds-crimson, #b3261e);" data-job-not-sent>
+                            NOT sent &mdash; @if(! $ct['has_contact'])no email or mobile on file for {{ $prov->name }}.@else the email could not be delivered.@endif
+                            @if(! $ct['has_contact'])
+                                @if($canManageContractors)
+                                    <button type="button" class="underline" data-contractor-popup="details" data-provider-id="{{ $prov->id }}" data-provider-name="{{ $prov->name }}" data-work-order-id="{{ $workOrder->id }}" data-add-contact-details>Add their details</button>
+                                @endif
+                            @endif
+                        </p>
+                    @else
+                        <p class="text-xs" style="color: var(--text-muted);" data-job-not-sent-yet>The job has not been sent to {{ $prov->name }} yet.</p>
+                    @endif
+
+                    <p class="text-xs" data-contractor-response>Their answer: <strong>{{ $js['response_label'] }}</strong>@if($js['response'] === 'declined' && $js['decline_reason']) &mdash; {{ $js['decline_reason'] }}@endif</p>
+
+                    {{-- Send / Resend: needs no typed quote; one press = one send (the key is single-use) --}}
+                    <div class="flex flex-wrap items-center gap-2">
+                        @if($js['can_send'])
+                            <form method="POST" action="{{ route('corex.rental-work-orders.contractor.resend', $workOrder) }}">
+                                @csrf
+                                <input type="hidden" name="press_key" value="{{ $pressKey }}">
+                                <button type="submit" class="corex-btn-primary text-xs" data-send-job>{{ $js['sent'] ? 'Send the job again' : 'Send the job to ' . $prov->name }}</button>
+                            </form>
+                        @else
+                            <button type="button" class="corex-btn-primary text-xs" disabled title="Add an email address or a mobile number first" data-send-job>Send the job to {{ $prov->name }}</button>
+                            @if($canManageContractors)
+                                <button type="button" class="text-xs underline" data-contractor-popup="details" data-provider-id="{{ $prov->id }}" data-provider-name="{{ $prov->name }}" data-work-order-id="{{ $workOrder->id }}">Add an email or mobile number</button>
+                            @endif
+                        @endif
+                    </div>
+
+                    {{-- WhatsApp: never "sent" on the page's word - open it, THEN mark it as sent --}}
+                    @if($js['whatsapp'])
+                        <div class="flex flex-wrap items-center gap-2 text-xs" data-whatsapp-row>
+                            <span>WhatsApp to {{ $js['whatsapp']->destination }}:</span>
+                            <form method="POST" action="{{ route('corex.rental-work-orders.contractor.whatsapp-open', [$workOrder, $js['whatsapp']->id]) }}" target="_blank">
+                                @csrf
+                                <button type="submit" class="corex-btn-outline text-xs" data-whatsapp-open>{{ $js['whatsapp']->status === 'opened' ? 'Open WhatsApp again' : 'Open WhatsApp and send' }}</button>
+                            </form>
+                            @if($js['whatsapp']->status === 'opened')
+                                <span style="color: var(--text-muted);">opened {{ $js['whatsapp']->opened_at?->format('H:i') }}</span>
+                                <form method="POST" action="{{ route('corex.rental-work-orders.contractor.whatsapp-sent', [$workOrder, $js['whatsapp']->id]) }}">
+                                    @csrf
+                                    <button type="submit" class="corex-btn-primary text-xs" data-whatsapp-mark-sent>Mark as sent</button>
+                                </form>
+                            @else
+                                <span style="color: var(--text-muted);">&ldquo;Mark as sent&rdquo; appears after you open WhatsApp.</span>
+                            @endif
+                        </div>
+                    @endif
+                @else
+                    <p class="text-sm" data-no-contractor-chosen>No contractor has been chosen for this job yet. Choose one below &mdash; the job is sent to them straight away.</p>
+                @endif
+
+                {{-- choose / change the contractor: the SAME single rule as the owner portal and the pre-send warning --}}
+                <details class="text-xs" @if(! $prov) open @endif>
+                    <summary class="cursor-pointer font-semibold" data-choose-contractor>{{ $prov ? 'Choose a different contractor' : 'Choose the contractor' }}</summary>
+                    <form method="POST" action="{{ route('corex.rental-work-orders.contractor.appoint', $workOrder) }}" class="space-y-2 pt-2">
+                        @csrf
+                        @if($classes['suits']->isEmpty() && $classes['category'])
+                            <p class="font-semibold" data-no-contractor-suits>No contractor loaded for {{ $classes['type'] ?: $classes['category'] }}.
+                                @if($classes['mapping_gap']) Your trade list has no &ldquo;{{ $classes['category'] }}&rdquo; yet. @endif
+                                @if($canManageContractors)
+                                    <button type="button" class="underline" data-contractor-popup="add" data-work-order-id="{{ $workOrder->id }}" data-type="{{ $classes['type'] ?: $classes['category'] }}" data-trade-code="{{ $woTradeCode ?? '' }}">Add a contractor</button> &middot;
+                                    <button type="button" class="underline" data-contractor-popup="types" data-work-order-id="{{ $workOrder->id }}" data-type="{{ $classes['type'] ?: $classes['category'] }}">Add {{ $classes['type'] ?: $classes['category'] }} to an existing contractor</button>
+                                @endif
+                            </p>
+                        @endif
+                        @php($contractorGroups = [['label' => 'Suits ' . ($classes['type'] ?: $classes['category']), 'rows' => $classes['suits']], ['label' => 'Other contractors', 'rows' => $classes['others']]])
+                        @foreach($contractorGroups as $group)
+                            @if($group['rows']->isNotEmpty())
+                                <div class="font-semibold pt-1" data-contractor-group>{{ $classes['category'] ? $group['label'] : 'Contractors' }}</div>
+                                @foreach($group['rows'] as $c)
+                                    <label class="flex items-center gap-2 rounded-md px-2 py-1" style="border: 1px solid var(--border);" data-contractor-row="{{ $c['id'] }}">
+                                        <input type="radio" name="agency_service_provider_id" value="{{ $c['id'] }}" @checked((int) $workOrder->agency_service_provider_id === $c['id'])>
+                                        <span class="font-medium">{{ $c['name'] }}</span>
+                                        @if($c['trades'])<span style="color: var(--text-muted);">{{ $c['trades'] }}</span>@endif
+                                        @if(! $c['has_contact'])<span class="ds-badge ds-badge-danger" data-no-contact-details>no contact details</span>@endif
+                                    </label>
+                                @endforeach
+                            @endif
+                        @endforeach
+                        <button type="submit" class="corex-btn-outline text-xs" data-appoint-contractor-submit>Choose and send the job</button>
+                    </form>
+                </details>
+            </div>
+
+            {{-- the go-ahead (the work order PDF with the owner's approval on it) - separate from asking for a quote --}}
+            @if(! $selectedQuote)
+                <p class="text-xs" style="color: var(--text-muted);" data-go-ahead-note>Next, when a quote is in (the contractor can upload it from their link, or you can capture it under Quotes) and the owner's approval covers it, select it &mdash; then the go-ahead goes to the contractor from here.</p>
+            @else
+                <form method="POST" action="{{ route('corex.rental-work-orders.assign-supplier', $workOrder) }}" class="flex flex-wrap items-center gap-2">
+                    @csrf
+                    <input type="hidden" name="agency_service_provider_id" value="{{ $selectedQuote->agency_service_provider_id }}">
+                    <span class="text-xs">Go-ahead to: <strong>{{ $selectedQuote->supplier?->name ?? 'Unknown supplier' }}</strong></span>
+                    <button type="submit" class="corex-btn-primary text-xs" @disabled(!$proceed->authorised)
+                            @if(!$proceed->authorised) title="{{ $proceed->note }}" @endif>{{ $workOrder->status === \App\Models\RentalWorkOrder::STATUS_REPORTED ? 'Send work order to contractor' : 'Resend work order to contractor' }}</button>
+                </form>
+                @if(!$proceed->authorised)
+                    <p class="text-xs" style="color: var(--ds-crimson);">{{ $proceed->note }}</p>
+                @endif
             @endif
         @endif
         @endpermission
@@ -652,6 +760,11 @@
         @endpermission
     </div>
 </div>
+{{-- AT-452 round 2 (H) - the contractor popups open over this screen. --}}
+@if(!empty($canManageContractors))
+    @include('partials.contractor-popups')
+@endif
+
 {{-- AT-452 - the shared photo viewer (popup, never a new tab). --}}
 @include('partials.photo-viewer')
 <script type="application/json" id="wo-photo-data">@json($woViewerPhotos)</script>

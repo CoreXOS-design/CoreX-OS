@@ -54,18 +54,36 @@
             @endif
         </div>
 
-        <div x-show="who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER }}'" x-cloak class="space-y-2" data-contractor-picker>
+        <div x-show="who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER }}'" x-cloak class="space-y-2" data-contractor-picker data-refresh-on-contractor-change="fault-picker-{{ ($secondary ?? false) ? 'secondary' : 'primary' }}">
             <input type="search" x-model="q" placeholder="Search contractors by name, trade or phone" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
-            @forelse($contractorPicker as $c)
-                <label class="flex items-center gap-2 text-sm rounded-md px-2 py-1" style="border: 1px solid var(--border);" data-contractor-row="{{ $c['id'] }}"
-                       data-search="{{ mb_strtolower($c['name'] . ' ' . $c['trades'] . ' ' . $c['phone']) }}"
-                       x-show="q === '' || $el.dataset.search.indexOf(q.toLowerCase()) !== -1">
-                    <input type="radio" name="contractor_pick" value="{{ $c['id'] }}" x-model="picked">
-                    <span class="font-medium">{{ $c['name'] }}</span>
-                    @if($c['trades'])<span class="text-xs" style="color: var(--text-muted);">{{ $c['trades'] }}</span>@endif
-                    @if($c['phone'])<span class="text-xs" style="color: var(--text-muted);">{{ $c['phone'] }}</span>@endif
-                    @if($c['suits'])<span class="ds-badge ds-badge-success">suits this fault</span>@endif
-                </label>
+            {{-- AT-452 round 2 (C) - ONE rule (RentalFaultContractorService::classify): the contractors that suit this type of work first, the rest below
+                 (still selectable - an agency may use a general handyman); when none suit, say so and offer the two add paths. --}}
+            @php($cls = $contractorClassify ?? null)
+            @if($cls && $cls['category'] && $cls['suits']->isEmpty())
+                @php($typeName = $cls['type'] ?: $cls['category'])
+                <div class="text-xs" data-no-contractor-suits>
+                    <p class="font-semibold">No contractor loaded for {{ $typeName }}.@if($cls['mapping_gap']) <span class="font-normal">Your trade list has no &ldquo;{{ $cls['category'] }}&rdquo; yet &mdash; add it under Settings &rarr; COC / Service Types, then tick it on the contractor who does this work.</span>@endif</p>
+                    @if(!empty($canManageContractors))
+                        <button type="button" class="underline" data-contractor-popup="add" data-fault-id="{{ $faultReport->id }}" data-type="{{ $typeName }}" data-trade-code="{{ $tradeCode ?? '' }}">Add a contractor</button> &middot;
+                        <button type="button" class="underline" data-contractor-popup="types" data-fault-id="{{ $faultReport->id }}" data-type="{{ $typeName }}">Add {{ $typeName }} to an existing contractor</button>
+                    @endif
+                </div>
+            @endif
+            @forelse(collect($contractorPicker)->groupBy(fn ($c) => $cls && $cls['category'] ? ($c['suits'] ? 'suits' : 'others') : 'all') as $groupKey => $groupRows)
+                @if($cls && $cls['category'])
+                    <div class="text-xs font-semibold pt-1" data-contractor-group="{{ $groupKey }}">{{ $groupKey === 'suits' ? 'Suits ' . ($cls['type'] ?: $cls['category']) : 'Other contractors' }}</div>
+                @endif
+                @foreach($groupRows as $c)
+                    <label class="flex items-center gap-2 text-sm rounded-md px-2 py-1" style="border: 1px solid var(--border);" data-contractor-row="{{ $c['id'] }}"
+                           data-search="{{ mb_strtolower($c['name'] . ' ' . $c['trades'] . ' ' . $c['phone']) }}"
+                           x-show="q === '' || $el.dataset.search.indexOf(q.toLowerCase()) !== -1">
+                        <input type="radio" name="contractor_pick" value="{{ $c['id'] }}" x-model="picked">
+                        <span class="font-medium">{{ $c['name'] }}</span>
+                        @if($c['trades'])<span class="text-xs" style="color: var(--text-muted);">{{ $c['trades'] }}</span>@endif
+                        @if($c['phone'])<span class="text-xs" style="color: var(--text-muted);">{{ $c['phone'] }}</span>@endif
+                        @if(! ($c['has_contact'] ?? true))<span class="ds-badge ds-badge-danger" data-no-contact-details>no contact details</span>@endif
+                    </label>
+                @endforeach
             @empty
                 <p class="text-xs" style="color: var(--text-muted);">No contractors are set up yet. Add one under Suppliers, or use the internal crew.</p>
             @endforelse
@@ -83,7 +101,14 @@
         </div>
     @endif
 
-    @if($secondary ?? false)
+    @if(($secondary ?? false) && ($goAhead ?? false))
+        {{-- AT-452 round 2 (item I): before the owner has been sent the fault - the agent goes ahead and the owner is TOLD (informed, not asked), in one step --}}
+        <label class="flex items-center gap-2 text-sm" data-emergency-row><input type="checkbox" name="emergency" value="1"> This is an emergency</label>
+        <x-confirm-submit title="Go ahead and tell the owner?"
+            message="Go ahead now without waiting for the owner? Only for an emergency, or a small job inside this property's no-approval spend limit (R{{ number_format($noApprovalLimit, 2) }}). The owner is told straight away what you arranged - they are informed, not asked. Anything above the limit still needs the owner's approval before work starts."
+            confirm-label="Go ahead and tell the owner" data-raise-submit data-go-ahead-submit
+            x-bind:disabled="!!(who === '{{ \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER }}' && !picked)">Go ahead and tell the owner</x-confirm-submit>
+    @elseif($secondary ?? false)
         {{-- before the owner has decided: a deliberate, confirmed step --}}
         <x-confirm-submit title="Create a work order before the owner has decided?"
             message="Only do this for an emergency, or for a small job inside this property's no-approval spend limit (R{{ number_format($noApprovalLimit, 2) }}). Anything above the limit still needs the owner's approval before work starts, and emergency work needs the owner's agreement recorded on the work order."

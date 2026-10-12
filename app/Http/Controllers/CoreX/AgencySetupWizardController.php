@@ -742,6 +742,8 @@ class AgencySetupWizardController extends Controller
                     'fault_photo_max_count' => \App\Models\RentalPortalSetting::faultPhotoMaxCountFor($agency->id),
                     'fault_photo_max_mb' => \App\Models\RentalPortalSetting::faultPhotoMaxMbFor($agency->id),
                     'tenant_sees_agent_marks' => \App\Models\RentalPortalSetting::tenantSeesAgentMarksFor($agency->id),
+                    'crew_link_auto_send_on_fault_job' => \App\Models\RentalPortalSetting::crewLinkAutoSendOnFaultJobFor($agency->id),
+                    'fault_recurrence_window_days' => \App\Models\RentalPortalSetting::faultRecurrenceWindowDaysFor($agency->id),
                     'faq_tenant_notice_question' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_tenant_notice_question'),
                     'faq_tenant_notice_answer' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_tenant_notice_answer'),
                     'faq_tenant_early_question' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_tenant_early_question'),

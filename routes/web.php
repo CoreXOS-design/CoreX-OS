@@ -57,6 +57,7 @@ Route::post('/buyer/portal/{token}/respond', [\App\Http\Controllers\BuyerPortalC
 // ── Contractor Secure Link (public, no auth) — AT-445, .ai/specs/rental-portal-access.md §4/§9 ──
 Route::prefix('secure/work-orders/{token}')->middleware('throttle:30,1')->group(function () {
     Route::get('/', [\App\Http\Controllers\ContractorSecureLinkController::class, 'show'])->name('rentals.secure-link.show');
+    Route::post('/respond', [\App\Http\Controllers\ContractorSecureLinkController::class, 'respond'])->name('rentals.secure-link.respond');
     Route::post('/quote', [\App\Http\Controllers\ContractorSecureLinkController::class, 'storeQuote'])->name('rentals.secure-link.quote');
     Route::post('/photo', [\App\Http\Controllers\ContractorSecureLinkController::class, 'storePhoto'])->name('rentals.secure-link.photo');
     Route::post('/mark-done', [\App\Http\Controllers\ContractorSecureLinkController::class, 'markDone'])->name('rentals.secure-link.mark-done');
@@ -1162,6 +1163,9 @@ Route::prefix('deals-v2/settings/service-types')->middleware(['auth', 'permissio
 Route::prefix('deals-v2/suppliers')->middleware(['auth'])->group(function () {
     Route::get('/', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'index'])->name('deals-v2.suppliers.index')->middleware('permission:deals_v2.manage_suppliers');
     Route::post('/', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'store'])->name('deals-v2.suppliers.store')->middleware('permission:deals_v2.manage_suppliers');
+    // AT-452 round 2 (H) - the "Add <type> to an existing contractor" popup on the fault / work order screens (JSON).
+    Route::get('/trade-picker', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'tradePicker'])->name('deals-v2.suppliers.trade-picker')->middleware('permission:deals_v2.manage_suppliers');
+    Route::post('/add-trade', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'addTrade'])->name('deals-v2.suppliers.add-trade')->middleware('permission:deals_v2.manage_suppliers');
     Route::put('/{provider}', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'update'])->name('deals-v2.suppliers.update')->middleware('permission:deals_v2.manage_suppliers');
     Route::post('/{provider}/preferred', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'markPreferred'])->name('deals-v2.suppliers.preferred')->middleware('permission:deals_v2.manage_suppliers');
     // AT-319 — re-sync a supplier's multi-select service types (the "edit" for types).
@@ -3310,6 +3314,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/crew-page-upcoming-days', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewPageUpcomingDays'])->name('corex.settings.rental-portal.crew-page-upcoming-days');
         // rental-portal-access.md §22 — fault photos and the Home FAQ wording.
         Route::post('/fault-photo-max-count', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateFaultPhotoMaxCount'])->name('corex.settings.rental-portal.fault-photo-max-count');
+        Route::post('/fault-recurrence-window-days', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateFaultRecurrenceWindowDays'])->name('corex.settings.rental-portal.fault-recurrence-window-days');
+        Route::post('/crew-link-auto-send-on-fault-job', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewLinkAutoSendOnFaultJob'])->name('corex.settings.rental-portal.crew-link-auto-send-on-fault-job');
         Route::post('/tenant-sees-agent-marks', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateTenantSeesAgentMarks'])->name('corex.settings.rental-portal.tenant-sees-agent-marks');
         Route::post('/fault-photo-max-mb', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateFaultPhotoMaxMb'])->name('corex.settings.rental-portal.fault-photo-max-mb');
         Route::post('/faq-texts', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateFaqTexts'])->name('corex.settings.rental-portal.faq-texts');
@@ -4154,6 +4160,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{rentalFaultReport}/pdf', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'pdf'])->name('corex.rental-fault-reports.pdf');
         Route::put('/{rentalFaultReport}', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'update'])
             ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.update');
+        Route::post('/{rentalFaultReport}/repair-anyway', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'repairAnyway'])
+            ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.repair-anyway');
         Route::post('/{rentalFaultReport}/cancel', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'cancel'])
             ->middleware('permission:rental_fault_reports.cancel')->name('corex.rental-fault-reports.cancel');
         Route::delete('/{rentalFaultReport}', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'destroy'])
@@ -4282,6 +4290,22 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // §17.21.1 — marker blocks: each maintenance-flow build adds ITS routes only between its own markers (wrap them in
     // their own Route::prefix(...)->group(...) as needed), so the three builds never collide in this file.
+    // AT-452 round 2 (rentals-faults-work-orders.md §19) - the contractor / crew is told the moment they are appointed: choose or change the
+    // contractor without a typed quote, send the job again, and the two honest WhatsApp presses (open, then mark as sent).
+    Route::prefix('rental-work-orders')->middleware('permission:rental_work_orders.view')->group(function () {
+        $c = \App\Http\Controllers\CoreX\RentalJobDispatchController::class;
+        Route::post('/{rentalWorkOrder}/contractor', [$c, 'appoint'])->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.contractor.appoint');
+        Route::post('/{rentalWorkOrder}/contractor/resend', [$c, 'resend'])->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.contractor.resend');
+        Route::post('/{rentalWorkOrder}/contractor/dispatches/{dispatch}/whatsapp', [$c, 'openWhatsApp'])->whereNumber('dispatch')->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.contractor.whatsapp-open');
+        Route::post('/{rentalWorkOrder}/contractor/dispatches/{dispatch}/whatsapp-sent', [$c, 'markWhatsAppSent'])->whereNumber('dispatch')->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.contractor.whatsapp-sent');
+    });
+    Route::prefix('rental-job-cards')->middleware('permission:rental_job_cards.share')->group(function () {
+        $c = \App\Http\Controllers\CoreX\RentalJobDispatchController::class;
+        Route::post('/{rentalJobCard}/crew-link/send', [$c, 'crewSend'])->name('corex.rental-job-cards.crew-link.send');
+        Route::post('/{rentalJobCard}/crew-link/dispatches/{dispatch}/whatsapp', [$c, 'crewOpenWhatsApp'])->whereNumber('dispatch')->name('corex.rental-job-cards.crew-link.whatsapp-open');
+        Route::post('/{rentalJobCard}/crew-link/dispatches/{dispatch}/whatsapp-sent', [$c, 'crewMarkWhatsAppSent'])->whereNumber('dispatch')->name('corex.rental-job-cards.crew-link.whatsapp-sent');
+    });
+
     // BUILD 1 BEGIN — cost & selling, crew parts, estimate term: routes (.ai/specs/rental-work-orders.md §17.21.5)
     // §17.4.4 / §17.5 — the Pricing panel, "Ask crew to price this job", Accept / Reject the crew's lines. Every route also runs the
     // own / branch / agency record guard in its controller (direct-URL by id is blocked, not just unlinked).

@@ -74,6 +74,47 @@
 
     <x-rental-context-bar :property="$faultReport->property" :lease="$faultReport->lease" current="faults" />
 
+    {{-- AT-452 round 2 (F) - the tenant closed this themselves with the suggested step: for the agent to SEE, nothing to work. --}}
+    @if($faultReport->isTenantSelfResolved())
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green) 8%, var(--surface)); border: 1px solid var(--ds-green);" data-tenant-self-resolved>
+            <strong>{{ \App\Models\RentalFaultReport::SELF_RESOLVED_LABEL }}.</strong>
+            {{ $faultReport->reportedByContact ? trim($faultReport->reportedByContact->first_name . ' ' . $faultReport->reportedByContact->last_name) : 'The tenant' }} read the suggested steps and pressed &ldquo;That fixed it&rdquo; on {{ $faultReport->resolved_at?->format('j M Y H:i') }}.
+            This fault is closed &mdash; there is nothing to review, send to the owner or raise a work order for. If it comes back, the tenant reports it again.
+            <div class="mt-2 flex flex-wrap items-center gap-3" data-self-resolved-actions>
+                @if($followUp)
+                    <span data-repair-asked>A repair was asked for on {{ ($followUp->reported_at ?? $followUp->created_at)->format('j M Y') }} &mdash; <a class="underline" href="{{ route('corex.rental-fault-reports.show', $followUp) }}">open the request</a>.</span>
+                @else
+                    @permission('rental_fault_reports.create')
+                    <form method="POST" action="{{ route('corex.rental-fault-reports.repair-anyway', $faultReport) }}">
+                        @csrf
+                        <button type="submit" class="corex-btn-outline text-xs" data-repair-anyway>Have this repaired anyway</button>
+                    </form>
+                    @endpermission
+                @endif
+            </div>
+        </div>
+    @endif
+
+    {{-- AT-452 round 2 (item I) - the agent went ahead; the owner was told, not asked. --}}
+    @if($faultReport->isArrangedByAgent())
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-blue, #2563eb) 8%, var(--surface)); border: 1px solid var(--ds-blue, #2563eb);" data-arranged-by-agent>
+            <strong>The owner was told on {{ $faultReport->arranged_by_agent_at?->format('j M Y H:i') }}.</strong>
+            {{ $faultReport->arrangedText() }} They are informed, not asked &mdash; they can send you a question from their portal, and you are told when they do. If the amount goes over the limit the owner's approval is asked for on the work order as usual.
+        </div>
+    @endif
+
+    {{-- AT-452 round 2 (F-OWNER) - the same kind of fault was here before (the tenant fixed it, it was repaired, or it is still open elsewhere). --}}
+    @if($reportedBefore)
+        <div class="rounded-md px-4 py-2 text-xs" style="background: var(--surface-2); border: 1px solid var(--border);" data-reported-before>
+            {{ $reportedBefore['text'] }} &mdash; <a class="underline" href="{{ route('corex.rental-fault-reports.show', $reportedBefore['id']) }}">open it</a>.
+        </div>
+    @endif
+    @if($followsReport && ! $faultReport->isTenantSelfResolved())
+        <div class="rounded-md px-4 py-2 text-xs" style="background: var(--surface-2); border: 1px solid var(--border);" data-follows-report>
+            Follows the report of {{ ($followsReport->reported_at ?? $followsReport->created_at)->format('j M Y') }} that the tenant resolved themselves &mdash; <a class="underline" href="{{ route('corex.rental-fault-reports.show', $followsReport) }}">open it</a>.
+        </div>
+    @endif
+
     {{-- Johan, 8 Oct 2026 (night): once the owner has approved, appointing the contractor is THE next action - open by default, right here
          above everything else, no toggle and no button that scrolls somewhere else. --}}
     @permission('rental_fault_reports.raise_work_order')
@@ -208,7 +249,9 @@
     {{-- Fault flow F2 (Johan 2026-10-08) - what the OWNER will see. The tenant's original above stays exactly as reported;
          this is the agent's reviewed, sanitised copy. Until the agent presses send the owner cannot see the fault at all. --}}
     @if($isOpen)
-    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" id="owner-version-card">
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" id="owner-version-card"
+         x-data="{ noContractor: {{ !empty($noContractor) ? 'true' : 'false' }}, coveredNote: '' }"
+         x-on:cx-contractor-changed.window="if ($event.detail.covered) { noContractor = false; }">
         <div class="flex items-center justify-between">
             <h2 class="text-sm font-semibold">Owner version <span class="font-normal text-xs" style="color: var(--text-muted);">&mdash; what the owner will see</span></h2>
             <span class="ds-badge {{ $statusBadgeClass }}">{{ $faultReport->statusLabel() }}</span>
@@ -250,8 +293,10 @@
                 <div class="flex flex-wrap gap-2">
                     <button type="submit" class="corex-btn-outline text-xs">Save draft</button>
                     @permission('rental_fault_reports.send_to_owner')
+                        {{-- both variants exist while a contractor is missing, so adding one in the popup swaps the dialog without a reload --}}
                         @if($noContractor)
-                            <x-confirm-submit title="Send without a contractor?" message="Send without a contractor for {{ $typeName }}?" confirm-label="Send without a contractor" name="send_now" value="1">Save and send to owner</x-confirm-submit>
+                            <span x-show="noContractor" data-send-variant="no-contractor"><x-confirm-submit title="Send without a contractor?" message="Send without a contractor for {{ $typeName }}?" confirm-label="Send without a contractor" name="send_now" value="1">Save and send to owner</x-confirm-submit></span>
+                            <span x-show="!noContractor" x-cloak data-send-variant="covered"><x-confirm-submit title="Send to the owner" message="Send this to the owner now? They will see it in their portal and be emailed." confirm-label="Send to owner" name="send_now" value="1">Save and send to owner</x-confirm-submit></span>
                         @else
                             <x-confirm-submit title="Send to the owner" message="Send this to the owner now? They will see it in their portal and be emailed." confirm-label="Send to owner" name="send_now" value="1">Save and send to owner</x-confirm-submit>
                         @endif
@@ -263,8 +308,9 @@
                 <form method="POST" action="{{ route('corex.rental-fault-reports.send-to-owner', $faultReport) }}">
                     @csrf
                     @if($noContractor)
-                        <input type="hidden" name="send_without_contractor" value="1">
-                        <x-confirm-submit title="Send without a contractor?" message="Send without a contractor for {{ $typeName }}?" confirm-label="Send without a contractor">Send saved version to owner</x-confirm-submit>
+                        <input type="hidden" name="send_without_contractor" value="1" x-bind:disabled="!noContractor">
+                        <span x-show="noContractor"><x-confirm-submit title="Send without a contractor?" message="Send without a contractor for {{ $typeName }}?" confirm-label="Send without a contractor">Send saved version to owner</x-confirm-submit></span>
+                        <span x-show="!noContractor" x-cloak><x-confirm-submit title="Send to the owner" message="Send the saved owner version to the owner now? They will see it in their portal and be emailed." confirm-label="Send to owner">Send saved version to owner</x-confirm-submit></span>
                     @else
                         <x-confirm-submit title="Send to the owner" message="Send the saved owner version to the owner now? They will see it in their portal and be emailed." confirm-label="Send to owner">Send saved version to owner</x-confirm-submit>
                     @endif
@@ -297,9 +343,19 @@
         @permission('rental_fault_reports.raise_work_order')
             @if(in_array($stage, ['prepare', 'with_owner'], true) && $faultReport->workOrderBlockReason() === null)
                 <div class="pt-3 text-xs space-y-2" style="border-top: 1px solid var(--border);" data-early-work-order>
-                    <button type="button" onclick="document.getElementById('raise-work-order-form').classList.toggle('hidden')" class="underline" style="color: var(--text-muted);">Start a work order before the owner decides</button>
-                    <span style="color: var(--text-muted);"> - only for an emergency, or a small job inside this property's no-approval spend limit (R{{ number_format($noApprovalLimit, 2) }}).</span>
-                    @include('corex.rental-fault-reports._raise-work-order-form', ['secondary' => true])
+                    @if($stage === 'prepare')
+                        {{-- AT-452 round 2 (item I) - the owner is told the moment the agent goes ahead: so what they will read must be prepared first (the owner version above). --}}
+                        <button type="button" onclick="document.getElementById('raise-work-order-form').classList.toggle('hidden')" class="underline" style="color: var(--text-muted);" data-go-ahead-toggle>Go ahead now and tell the owner</button>
+                        <span style="color: var(--text-muted);"> - only for an emergency, or a small job inside this property's no-approval spend limit (R{{ number_format($noApprovalLimit, 2) }}). The owner is informed straight away, not asked.</span>
+                        @if($faultReport->owner_version_saved_at === null)
+                            <span class="font-semibold" data-go-ahead-needs-version> Save the owner version above first - it is what the owner will read.</span>
+                        @endif
+                        @include('corex.rental-fault-reports._raise-work-order-form', ['secondary' => true, 'goAhead' => true])
+                    @else
+                        <button type="button" onclick="document.getElementById('raise-work-order-form').classList.toggle('hidden')" class="underline" style="color: var(--text-muted);">Start a work order before the owner decides</button>
+                        <span style="color: var(--text-muted);"> - only for an emergency, or a small job inside this property's no-approval spend limit (R{{ number_format($noApprovalLimit, 2) }}).</span>
+                        @include('corex.rental-fault-reports._raise-work-order-form', ['secondary' => true])
+                    @endif
                 </div>
             @endif
         @endpermission
@@ -520,6 +576,11 @@
     </div>
     </div>
 </div>
+
+{{-- AT-452 round 2 (H) - "Add a contractor" / "Add <type> to an existing contractor" open over this screen, never navigate away (no form on this page is touched). --}}
+@if(!empty($canManageContractors))
+    @include('partials.contractor-popups')
+@endif
 
 {{-- AT-452 - the shared photo viewer (popup, never a new tab). Staff who may edit the fault get the marks tools; everyone here reads the marks. --}}
 @include('partials.photo-viewer')

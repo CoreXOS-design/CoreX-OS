@@ -132,7 +132,7 @@ class RentalWorkOrderService
      */
     public function createFromFaultDecision(RentalFaultReport $fault, User $by, array $choice): array
     {
-        return \Illuminate\Support\Facades\DB::transaction(function () use ($fault, $by, $choice) {
+        $result = \Illuminate\Support\Facades\DB::transaction(function () use ($fault, $by, $choice) {
             $locked = RentalFaultReport::withoutGlobalScopes()->lockForUpdate()->findOrFail($fault->id);
             if ($reason = $locked->workOrderBlockReason()) {
                 throw new \LogicException($reason);
@@ -214,6 +214,18 @@ class RentalWorkOrderService
 
             return ['work_order' => $workOrder, 'job_card' => $jobCard];
         });
+
+        // AT-452 round 2 (spec §19) - the contractor / crew is told THE MOMENT they are appointed. After the commit, so a mail problem can
+        // never undo the work order; whatever happens is on the work order as a plain line (sent, or NOT sent and why) with a Resend.
+        $workOrder = $result['work_order']->fresh();
+        $jobs = app(RentalContractorJobService::class);
+        if ($workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER && $workOrder->agency_service_provider_id) {
+            $jobs->dispatchOnAppointment($workOrder, $by);
+        } elseif ($result['job_card'] && RentalContractorJobService::crewAutoSendOn((int) $workOrder->agency_id)) {
+            $jobs->sendCrewLink($result['job_card']->fresh(), $by);
+        }
+
+        return $result;
     }
 
     /**

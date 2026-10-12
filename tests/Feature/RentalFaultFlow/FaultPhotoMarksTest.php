@@ -504,7 +504,9 @@ class FaultPhotoMarksTest extends TestCase
         $this->assertStringContainsString('No contractor loaded for Leaking tap.', $html);
         $this->assertStringContainsString('Add a contractor', $html);
         $this->assertStringContainsString('Add Leaking tap to an existing contractor', $html);
-        $this->assertStringContainsString('fault=' . $fault->id . '&amp;mode=add', $html);
+        $this->assertStringContainsString('data-contractor-popup="add"', $html, 'the add paths open a popup over the fault, they do not navigate away');
+        $this->assertStringContainsString('data-fault-id="' . $fault->id . '"', $html);
+        $this->assertStringNotContainsString('href="' . route('deals-v2.suppliers.index', ['fault' => $fault->id, 'mode' => 'add']) . '"', $html);
         $this->assertStringContainsString('Send without a contractor for Leaking tap?', $html, 'the app\'s own confirm dialog, not a browser box');
         $this->assertStringNotContainsString('confirm(', explode('id="owner-version-card"', $html)[1] ?? '');
 

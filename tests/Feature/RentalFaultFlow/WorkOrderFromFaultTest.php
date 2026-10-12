@@ -332,7 +332,7 @@ final class WorkOrderFromFaultTest extends TestCase
         $this->assertStringNotContainsString('record-approval-form', $html);
         $this->assertStringNotContainsString('Save outcome', $html, 'no Outcome yet');
         $this->assertStringContainsString('data-early-work-order', $html);
-        $this->assertStringContainsString('Start a work order before the owner decides', $html);
+        $this->assertStringContainsString('Go ahead now and tell the owner', $html, 'AT-452 item I: the early path tells the owner');
         $this->assertStringContainsString('no-approval spend limit (R500.00)', $html);
         $this->assertStringNotContainsString('name="title"', $html);
         $this->assertStringNotContainsString('name="description"', $html);
@@ -504,7 +504,8 @@ final class WorkOrderFromFaultTest extends TestCase
         $own->fresh()->workOrder->cancel($this->agent, 'x');
         $this->assertSame(RentalFaultReport::STATUS_OWNER_HANDLING, $own->fresh()->status);
         $early = $this->fault();
-        $this->raise($early, ['assignment_type' => 'internal']);
+        $early->saveOwnerVersion(['owner_title' => 'Early', 'owner_description' => 'x'], $this->agent);   // AT-452 item I: going ahead needs the owner version (the owner is told)
+        $this->raise($early->fresh(), ['assignment_type' => 'internal']);
         $early->fresh()->workOrder->cancel($this->agent, 'x');
         $this->assertSame(RentalFaultReport::STATUS_REPORTED, $early->fresh()->status);
     }

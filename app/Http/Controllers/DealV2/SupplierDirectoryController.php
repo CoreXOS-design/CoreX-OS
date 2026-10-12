@@ -56,7 +56,14 @@ class SupplierDirectoryController extends Controller
         $serviceTypes = AgencyServiceType::active()
             ->orderBy('sort_order')->orderBy('id')->get(['code', 'label']);
 
+        $events = \Illuminate\Support\Facades\Schema::hasTable('agency_service_provider_events')
+            ? \Illuminate\Support\Facades\DB::table('agency_service_provider_events as e')->leftJoin('users as u', 'u.id', '=', 'e.user_id')
+                ->where('e.agency_id', $agencyId)->whereIn('e.service_provider_id', $providers->pluck('id'))->orderByDesc('e.id')->limit(300)
+                ->get(['e.service_provider_id', 'e.note', 'e.created_at', 'u.name as by'])->groupBy('service_provider_id')
+            : collect();
+
         return view('deals-v2.suppliers.index', [
+            'providerEvents' => $events,
             'providers' => $providers,
             'specialties' => self::SPECIALTIES,
             'serviceTypes' => $serviceTypes,
@@ -73,8 +80,28 @@ class SupplierDirectoryController extends Controller
      */
     private function returnFault(Request $request, int $agencyId): ?array
     {
-        $id = (int) $request->query('fault', 0);
         $user = $request->user();
+        $mode = $request->query('mode') === 'types' ? 'types' : 'add';
+        $contractors = app(\App\Services\Rentals\RentalFaultContractorService::class);
+
+        // AT-452 round 2 - the work order's own supplier card sends the agent here to add a contractor's email / mobile (?work_order=&provider=)
+        $woId = (int) $request->query('work_order', 0);
+        if ($woId > 0 && $user && $user->hasPermission('rental_work_orders.view')) {
+            $wo = \App\Models\RentalWorkOrder::withoutGlobalScopes()->with('reportedFaultReport.faultType')->where('agency_id', $agencyId)->whereNull('deleted_at')->find($woId);
+            if ($wo) {
+                $type = $wo->reportedFaultReport?->faultType;
+                $class = $contractors->classifyFor($agencyId, $type?->name, $type?->category);
+                $provider = (int) $request->query('provider', 0) ?: null;
+
+                return [
+                    'id' => $wo->id, 'label' => 'work order #' . $wo->id, 'url' => route('corex.rental-work-orders.show', $wo), 'type' => $type?->name ?: 'this job',
+                    'category' => $type?->category, 'mode' => $provider ? 'details' : $mode, 'covered' => $class['suits']->isNotEmpty(),
+                    'trade_code' => $type?->category ? ($contractors->classifyTradeCode($agencyId, $type->category)) : null, 'provider' => $provider,
+                ];
+            }
+        }
+
+        $id = (int) $request->query('fault', 0);
         if ($id <= 0 || ! $user || ! $user->hasPermission('rental_fault_reports.view')) {
             return null;
         }
@@ -82,16 +109,17 @@ class SupplierDirectoryController extends Controller
         if (! $fault) {
             return null;
         }
-        $contractors = app(\App\Services\Rentals\RentalFaultContractorService::class);
 
         return [
             'id' => $fault->id,
+            'label' => 'fault report #' . $fault->id,
             'url' => route('corex.rental-fault-reports.show', $fault),
             'type' => $fault->faultType?->name ?: 'this fault',
             'category' => $fault->faultType?->category,
-            'mode' => $request->query('mode') === 'types' ? 'types' : 'add',
+            'mode' => $mode,
             'covered' => $contractors->hasContractorFor($fault),
             'trade_code' => $contractors->tradeCodeFor($fault),
+            'provider' => null,
         ];
     }
 
@@ -103,7 +131,130 @@ class SupplierDirectoryController extends Controller
         // AT-319 — capture the supplier's type(s) alongside the legacy single specialty.
         $this->syncServiceTypes($provider, $this->postedTypeCodes($request, $agencyId));
 
+        // AT-452 round 2 (H) - the fault / work order screens open this same form in a popup and save it over the page: JSON in, JSON out, same
+        // validation and the same write as the directory's own page. The contractor's history notes where they were added from.
+        [$fault, $workOrder] = $this->contextOf($request, $agencyId);
+        if ($fault || $workOrder) {
+            $this->recordEvent($provider, 'created_from_fault', 'Added from ' . ($fault ? 'fault report #' . $fault->id : 'work order #' . $workOrder->id) . ' by ' . $request->user()->name . '.', $request->user(), $fault?->id, $workOrder?->id);
+        }
+        if ($request->wantsJson()) {
+            return response()->json(['ok' => true, 'provider' => ['id' => $provider->id, 'name' => $provider->name]] + $this->coverage($fault, $workOrder, $agencyId));
+        }
+
         return back()->with('success', 'Provider saved to the directory.');
+    }
+
+    /**
+     * AT-452 round 2 (H) - the "Add <type> to an existing contractor" popup: every active maintenance contractor of the agency with the fields of
+     * work they have now, whether they already have this one, and whether the agency's trade list HAS a trade for the type at all.
+     */
+    public function tradePicker(Request $request)
+    {
+        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
+        [$fault, $workOrder] = $this->contextOf($request, $agencyId);
+        [$typeName, $category] = $this->typeOf($fault, $workOrder);
+        $contractors = app(\App\Services\Rentals\RentalFaultContractorService::class);
+        $code = $category ? $contractors->classifyTradeCode($agencyId, $category) : null;
+        $labels = AgencyServiceType::withoutGlobalScopes()->where('agency_id', $agencyId)->pluck('label', 'code');
+
+        $providers = AgencyServiceProvider::withoutGlobalScopes()->where('agency_id', $agencyId)->where('is_active', true)->whereNull('deleted_at')
+            ->maintenanceContractors()->pickerOrder()->with('serviceTypes')->get()
+            ->map(fn ($p) => [
+                'id' => $p->id, 'name' => $p->name,
+                'trades' => collect($p->typeCodes())->map(fn ($t) => $labels[$t] ?? $t)->values()->all(),
+                'has_trade' => $code !== null && in_array($code, $p->typeCodes(), true),
+            ])->values();
+
+        return response()->json([
+            'type' => $typeName, 'category' => $category, 'code' => $code,
+            'can_create_trade' => (bool) $request->user()->hasPermission('deals_v2.manage_pipeline'),
+            'contractors' => $providers,
+        ]);
+    }
+
+    /**
+     * AT-452 round 2 (H) - the popup's Save: add the fault's type (its field of work) to the ticked contractors. If the agency's trade list has no
+     * trade for it yet, `create_trade` adds one (only for someone who may manage the trade list). Written to each contractor's history: who, when,
+     * from which fault.
+     */
+    public function addTrade(Request $request)
+    {
+        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
+        $data = $request->validate(['provider_ids' => 'required|array|min:1', 'provider_ids.*' => 'integer', 'create_trade' => 'sometimes|boolean']);
+        [$fault, $workOrder] = $this->contextOf($request, $agencyId);
+        [$typeName, $category] = $this->typeOf($fault, $workOrder);
+        abort_unless($category, 422, 'This job has no type of work to add.');
+
+        $contractors = app(\App\Services\Rentals\RentalFaultContractorService::class);
+        $code = $contractors->classifyTradeCode($agencyId, $category);
+        if ($code === null) {
+            if (empty($data['create_trade'])) {
+                return response()->json(['message' => 'Your trade list has no "' . $category . '" yet. Add it first, or ask someone who manages the trade list.'], 422);
+            }
+            abort_unless($request->user()->hasPermission('deals_v2.manage_pipeline'), 403, 'Only someone who manages the trade list can add a new trade.');
+            $type = AgencyServiceType::withoutGlobalScopes()->firstOrCreate(
+                ['agency_id' => $agencyId, 'code' => $category],
+                ['label' => $category, 'sort_order' => (int) AgencyServiceType::withoutGlobalScopes()->where('agency_id', $agencyId)->max('sort_order') + 1, 'is_active' => true],
+            );
+            $code = $type->code;
+        }
+
+        $added = [];
+        foreach (AgencyServiceProvider::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->maintenanceContractors()->whereIn('id', $data['provider_ids'])->get() as $p) {
+            if (in_array($code, $p->typeCodes(), true)) {
+                continue;
+            }
+            $this->syncServiceTypes($p, array_values(array_unique(array_merge($p->typeCodes(), [$code]))));
+            $this->recordEvent($p, 'trade_added', $typeName . ' (' . $category . ') added as a field of work by ' . $request->user()->name . ' from ' . ($fault ? 'fault report #' . $fault->id : 'work order #' . $workOrder->id) . '.', $request->user(), $fault?->id, $workOrder?->id);
+            $added[] = $p->name;
+        }
+
+        return response()->json(['ok' => true, 'added' => $added, 'message' => $added ? ($typeName . ' added to ' . implode(', ', $added)) : 'Nothing to change - they already do this work.'] + $this->coverage($fault, $workOrder, $agencyId));
+    }
+
+    /** @return array{0:?\App\Models\RentalFaultReport, 1:?\App\Models\RentalWorkOrder} the fault / work order the popup was opened from, in THIS agency only */
+    private function contextOf(Request $request, int $agencyId): array
+    {
+        $fault = $workOrder = null;
+        if ($id = (int) $request->input('fault_id', $request->query('fault', 0))) {
+            abort_unless($request->user()?->hasPermission('rental_fault_reports.view'), 403);
+            $fault = \App\Models\RentalFaultReport::withoutGlobalScopes()->with('faultType')->where('agency_id', $agencyId)->whereNull('deleted_at')->find($id);
+        }
+        if (! $fault && ($id = (int) $request->input('work_order_id', $request->query('work_order', 0)))) {
+            abort_unless($request->user()?->hasPermission('rental_work_orders.view'), 403);
+            $workOrder = \App\Models\RentalWorkOrder::withoutGlobalScopes()->with('reportedFaultReport.faultType')->where('agency_id', $agencyId)->whereNull('deleted_at')->find($id);
+        }
+
+        return [$fault, $workOrder];
+    }
+
+    /** @return array{0:?string, 1:?string} the type name and category of the job */
+    private function typeOf(?\App\Models\RentalFaultReport $fault, ?\App\Models\RentalWorkOrder $workOrder): array
+    {
+        $type = $fault?->faultType ?? $workOrder?->reportedFaultReport?->faultType;
+
+        return [$type?->name, $type?->category];
+    }
+
+    /** Does a contractor suit the job NOW? (the screens clear their warning from this, without a reload) */
+    private function coverage(?\App\Models\RentalFaultReport $fault, ?\App\Models\RentalWorkOrder $workOrder, int $agencyId): array
+    {
+        $svc = app(\App\Services\Rentals\RentalFaultContractorService::class);
+        if ($fault) {
+            return ['covered' => $svc->hasContractorFor($fault)];
+        }
+        $type = $workOrder?->reportedFaultReport?->faultType;
+
+        return ['covered' => $svc->classifyFor($agencyId, $type?->name, $type?->category)['suits']->isNotEmpty()];
+    }
+
+    /** The contractor's own history line (who, when, what, from which fault). Append-only. */
+    private function recordEvent(AgencyServiceProvider $provider, string $event, string $note, $user, ?int $faultId, ?int $workOrderId): void
+    {
+        \Illuminate\Support\Facades\DB::table('agency_service_provider_events')->insert([
+            'agency_id' => (int) $provider->agency_id, 'service_provider_id' => $provider->id, 'event' => $event, 'note' => mb_substr($note, 0, 500),
+            'rental_fault_report_id' => $faultId, 'rental_work_order_id' => $workOrderId, 'user_id' => $user?->id, 'created_at' => now(),
+        ]);
     }
 
     /**
@@ -348,6 +499,13 @@ class SupplierDirectoryController extends Controller
             'is_active'           => true,
             'created_by_id'       => $request->user()->id,
         ]));
+
+        // AT-452 round 2 (H) - the work order's "Add their details" popup saves a contact over the page (same validation, same write).
+        if ($request->wantsJson()) {
+            $this->recordEvent($provider, 'contact_added', 'Contact details added by ' . $request->user()->name . ' (' . trim(($data['email'] ?? '') . ' ' . ($data['phone'] ?? '')) . ').', $request->user(), null, $request->integer('work_order_id') ?: null);
+
+            return response()->json(['ok' => true, 'message' => 'Contact details added to ' . $provider->name . '.']);
+        }
 
         return back()->with('success', 'Contact added to ' . $provider->name . '.');
     }

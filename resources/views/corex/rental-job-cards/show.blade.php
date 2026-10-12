@@ -581,6 +581,15 @@
              is booked the crew, the sign-offs and the signed copy do. --}}
         <div id="jc-right-col" class="w-full 2xl:basis-[380px] 2xl:max-w-[400px] 2xl:flex-shrink-0 2xl:grow-0 space-y-4">
             @if(in_array($stage['key'], ['draft', 'quoted', 'owner_declined'], true))
+                {{-- AT-452 round 2 (D) - the crew link goes out when the card is made: whether it did must be visible from the first moment, not only once the card is booked --}}
+                @if($crewLinksEnabled && ! $jobCard->isClosed())
+                    @permission('rental_job_cards.share')
+                    <div class="rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);" data-crew-send-standalone>
+                        <h2 class="text-sm font-semibold">Crew told?</h2>
+                        @include('corex.rental-job-cards._crew-send-status')
+                    </div>
+                    @endpermission
+                @endif
                 @include('corex.rental-job-cards._quote-box')
                 @include('corex.rental-job-cards._approval-panel')
                 @include('corex.rental-job-cards._pricing-panel')

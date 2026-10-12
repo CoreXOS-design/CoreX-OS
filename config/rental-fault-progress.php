@@ -15,6 +15,10 @@ return [
     'sent_to_agent' => ['tenant' => 'Sent to your agent', 'owner' => 'Reported', 'agent' => 'Reported'],
     'agent_reviewing' => ['tenant' => 'Agent reviewing', 'owner' => 'Your agent is reviewing it', 'agent' => 'Under agent review'],
     'sent_to_owner' => ['tenant' => 'Sent to owner for approval', 'owner' => 'Sent to you for approval', 'agent' => 'Sent to owner for approval'],
+    // Item I (AT-452 round 2) - the agent went ahead inside the no-approval limit / as an emergency: the owner was TOLD, not asked.
+    'informed' => ['tenant' => 'Your agent is arranging the repair', 'owner' => 'Your agent told you', 'agent' => 'Owner informed'],
+    'arranged_limit' => ['tenant' => 'Repair arranged', 'owner' => 'Arranged by your agent under your no-approval limit', 'agent' => 'Went ahead under the owner\'s no-approval limit'],
+    'arranged_emergency' => ['tenant' => 'Repair arranged', 'owner' => 'Arranged by your agent as an emergency', 'agent' => 'Went ahead as an emergency'],
     'owner_approved' => ['tenant' => 'Owner approved', 'owner' => 'You approved', 'agent' => 'Owner approved'],
     // The tenant NEVER sees the owner's reason or the agent's notes - only this neutral line.
     'not_approved' => ['tenant' => 'Not approved — your agent will contact you', 'owner' => 'You declined', 'agent' => 'Owner declined'],

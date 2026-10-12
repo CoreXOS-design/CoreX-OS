@@ -122,6 +122,14 @@
                     Show the tenant's name and phone to the crew
                 </label>
             </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.crew-link-auto-send-on-fault-job') }}">
+                @csrf
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="crew_link_auto_send_on_fault_job" value="0">
+                    <input type="checkbox" name="crew_link_auto_send_on_fault_job" value="1" onchange="this.form.submit()" @checked($crewLinkAutoSendOnFaultJob)>
+                    Send the crew their job link automatically when a job card is created from a fault
+                </label>
+            </form>
             <form method="POST" action="{{ route('corex.settings.rental-portal.notify-landlord-on-crew-completion') }}">
                 @csrf
                 <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
@@ -220,6 +228,14 @@
                 <input type="number" name="fault_photo_max_mb" value="{{ old('fault_photo_max_mb', $faultPhotoMaxMb) }}"
                        min="1" max="15" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
                 <p class="text-xs" style="color: var(--text-muted);">The portal shrinks phone photos before sending, so most arrive well under 1 MB. Anything larger than this is refused.</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.fault-recurrence-window-days') }}" class="space-y-2">
+                @csrf
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">&ldquo;Reported before&rdquo; window (days)</label>
+                <input type="number" name="fault_recurrence_window_days" value="{{ old('fault_recurrence_window_days', $faultRecurrenceWindowDays) }}"
+                       min="1" max="730" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">When a tenant fixes a fault themselves and the same kind of fault is reported again on that property within this many days, the agent and the owner are shown &ldquo;Reported before &hellip; the tenant resolved it then&rdquo;. Default 90.</p>
                 <button type="submit" class="corex-btn-primary text-xs">Save</button>
             </form>
             <form method="POST" action="{{ route('corex.settings.rental-portal.tenant-sees-agent-marks') }}" class="space-y-2">

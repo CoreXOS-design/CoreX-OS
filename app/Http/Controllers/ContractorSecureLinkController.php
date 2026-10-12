@@ -30,8 +30,16 @@ class ContractorSecureLinkController extends Controller
     {
         // Purpose-checked (§14.27.6): a crew link's token must never open the
         // contractor page, nor the reverse.
-        return app(\App\Services\Rentals\RentalSecureAccessTokenService::class)
+        $record = app(\App\Services\Rentals\RentalSecureAccessTokenService::class)
             ->resolveLive($token, RentalSecureAccessToken::PURPOSE_CONTRACTOR_WORK_ORDER);
+
+        // AT-452 round 2 - a link only ever opens the job for the contractor it was made for: once the work order is given to someone
+        // else (or the contractor is taken off it), the old link goes dead even before it expires.
+        if ($record && (int) $record->agency_service_provider_id !== (int) $record->workOrder?->agency_service_provider_id) {
+            return null;
+        }
+
+        return $record;
     }
 
     public function show(Request $request, string $token): View
@@ -41,12 +49,48 @@ class ContractorSecureLinkController extends Controller
             return view('rentals.secure-link.unavailable');
         }
 
-        $workOrder = $record->workOrder()->with(['property', 'quotes', 'photos'])->first();
+        $workOrder = $record->workOrder()->with(['property', 'quotes', 'photos', 'supplier'])->first();
+        $jobs = app(\App\Services\Rentals\RentalContractorJobService::class);
+        // the reported photos, with the office's marks and notes (they help the repair) - the same payload the crew and the staff screens use
+        $photos = app(\App\Services\Rentals\RentalFaultPhotoAnnotationService::class)->workOrderPayload(
+            $workOrder, $workOrder->photos->where('photo_type', RentalWorkOrder::PHOTO_REPORTED)->values(), \App\Services\Rentals\RentalFaultPhotoAnnotationService::AUDIENCE_CONTRACTOR
+        );
+        $record->forceFill(['last_used_at' => now()])->save();
 
         return view('rentals.secure-link.show', [
             'token' => $token,
             'workOrder' => $workOrder,
+            'photos' => $photos,
+            'response' => $workOrder->contractor_response,
+            'responseLabel' => $jobs::responseLabel($workOrder->contractor_response),
+            'agencyName' => $workOrder->agency?->trading_name ?: ($workOrder->agency?->name ?: 'The agency'),
+            'accessNotes' => trim((string) ($workOrder->property?->access_notes ?? '')) ?: null,
         ]);
+    }
+
+    /** The contractor's answer: accept, or decline with a reason. Last answer wins while the work order is open. */
+    public function respond(Request $request, string $token): RedirectResponse|View
+    {
+        $record = $this->resolveToken($token);
+        if (!$record) {
+            return view('rentals.secure-link.unavailable');
+        }
+        $data = $request->validate([
+            'answer' => ['required', 'in:accept,decline'],
+            'reason' => ['nullable', 'string', 'max:1000', 'required_if:answer,decline'],
+        ], ['reason.required_if' => 'Please tell us briefly why you cannot take the job.']);
+
+        $workOrder = $record->workOrder;
+        if (in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true)) {
+            return back()->withErrors(['answer' => 'This job is already closed.']);
+        }
+        app(\App\Services\Rentals\RentalContractorJobService::class)->recordResponse(
+            $workOrder, $data['answer'] === 'accept' ? \App\Services\Rentals\RentalContractorJobService::RESPONSE_ACCEPTED : \App\Services\Rentals\RentalContractorJobService::RESPONSE_DECLINED,
+            $data['reason'] ?? null,
+        );
+        $record->forceFill(['last_used_at' => now()])->save();
+
+        return redirect()->route('rentals.secure-link.show', $token)->with('success', $data['answer'] === 'accept' ? 'Thank you - the agency has been told you accepted the job.' : 'Thank you - the agency has been told you cannot take the job.');
     }
 
     public function storeQuote(Request $request, string $token): RedirectResponse|View
@@ -76,6 +120,7 @@ class ContractorSecureLinkController extends Controller
         $data['agency_service_provider_id'] = $record->agency_service_provider_id;
 
         $workOrder->recordQuote($data, null, 'via contractor link');
+        app(\App\Services\Rentals\RentalContractorJobService::class)->recordResponse($workOrder, \App\Services\Rentals\RentalContractorJobService::RESPONSE_QUOTE);
 
         $record->forceFill(['last_used_at' => now()])->save();
 

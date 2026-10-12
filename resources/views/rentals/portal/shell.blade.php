@@ -96,6 +96,8 @@
         .btn-pair .btn { flex:1 1 0; }
         @media (max-width:420px) { .btn-pair { flex-direction:column; gap:0; } }
         /* AT-452 - a photo that opens the shared viewer, and the owner decision screen's sections */
+        .fault-head { display:flex; gap:8px; align-items:baseline; width:100%; text-align:left; background:none; border:0; padding:0; font:inherit; font-size:15px; cursor:pointer; color:var(--text); }
+        .fault-chev { flex:0 0 14px; color:var(--muted); }
         .photo-btn { padding:0; border:0; background:none; cursor:zoom-in; border-radius:8px; }
         .sec { border-top:1px solid var(--border); margin-top:14px; padding-top:12px; }
         .sec > h3 { font-size:15px; font-weight:700; margin:0 0 8px; }
@@ -295,17 +297,26 @@
                                     </div>
                                 </template>
 
-                                {{-- Johan, 8 Oct 2026: the tenant sees where EACH fault is, step by step, fault and work order in one line. --}}
-                                <template x-for="f in faultReports" :key="f.id">
-                                    <div class="card" data-tenant-fault>
-                                        <div class="row"><h2 x-text="f.title" style="margin:0;"></h2></div>
-                                        <template x-if="f.progress"><div>@include('rentals.portal._progress', ['p' => 'f.progress'])</div></template>
-                                        <div class="photo-grid" x-show="f.reported_photos && f.reported_photos.length" data-tenant-fault-photos>
-                                            <template x-for="(ph, i) in (f.reported_photos || [])" :key="ph.id">
-                                                <button type="button" class="photo-btn" :aria-label="'Open photo ' + (i + 1)" @click="openPhotos(f.reported_photos, i, $event)"><img :src="ph.thumb_url || ph.url" :alt="ph.alt || 'Photo you sent'" loading="lazy" decoding="async"></button>
-                                            </template>
+                                {{-- Johan, 8 Oct 2026: the tenant sees where EACH fault is, step by step, fault and work order in one line.
+                                     AT-452 round 2 (G): ONE list - open faults first (newest first) and expanded, then every closed one (newest first) as a single line
+                                     "<type> - reported <date> - <end state>"; every row shows its reported date; any row can be opened / closed (kept for this visit only). --}}
+                                <template x-for="f in sortedFaults()" :key="f.id">
+                                    <div class="card" data-tenant-fault :data-fault-closed="f.closed ? '1' : '0'" :data-self-resolved="f.self_resolved ? '1' : '0'">
+                                        <button type="button" class="fault-head" data-fault-toggle :aria-expanded="isFaultOpen(f) ? 'true' : 'false'" @click="toggleFault(f)">
+                                            <span class="fault-chev" x-text="isFaultOpen(f) ? '▾' : '▸'"></span>
+                                            <span x-show="f.closed" data-fault-oneline x-text="(f.fault_type_name || f.title) + ' - reported ' + fmtDay(f.reported_at) + ' - ' + f.end_state"></span>
+                                            <span x-show="!f.closed"><strong x-text="f.title"></strong> <span class="muted" data-fault-reported x-text="'- reported ' + fmtDay(f.reported_at)"></span></span>
+                                        </button>
+                                        <div x-show="isFaultOpen(f)" data-fault-body>
+                                            <template x-if="f.progress && !f.self_resolved"><div>@include('rentals.portal._progress', ['p' => 'f.progress'])</div></template>
+                                            <div class="photo-grid" x-show="f.reported_photos && f.reported_photos.length" data-tenant-fault-photos>
+                                                <template x-for="(ph, i) in (f.reported_photos || [])" :key="ph.id">
+                                                    <button type="button" class="photo-btn" :aria-label="'Open photo ' + (i + 1)" @click="openPhotos(f.reported_photos, i, $event)"><img :src="ph.thumb_url || ph.url" :alt="ph.alt || 'Photo you sent'" loading="lazy" decoding="async"></button>
+                                                </template>
+                                            </div>
+                                            <a class="link" href="#" style="display:block; margin-top:8px;" x-show="f.self_resolved" data-report-again @click.prevent="reportAgain(f)">Still a problem? Report it again</a>
+                                            <button class="btn btn-outline" x-show="f.rental_work_order_id" @click="tenantTab='jobs'; loadWorkOrders()">See the work order</button>
                                         </div>
-                                        <button class="btn btn-outline" x-show="f.rental_work_order_id" @click="tenantTab='jobs'; loadWorkOrders()">See the work order</button>
                                     </div>
                                 </template>
                                 <div class="card" x-show="!faultReports.length"><p class="muted">No faults reported yet.</p></div>
@@ -618,12 +629,41 @@
                                     </template>
                                 </div>
 
-                                <div class="card">
+                                <div class="card" data-owner-faults>
                                     <h2>Repairs and requests</h2>
-                                    <template x-for="f in landlordFaults" :key="f.id">
-                                        <div class="list-item row" style="cursor:pointer" @click="openFault(f.id)">
-                                            <span x-text="f.title"></span>
-                                            <span class="badge" :style="f.needs_decision ? 'background:#fdecea; color:#b3261e;' : ''" x-text="f.needs_decision ? 'Needs your decision' : (f.status_label || f.status)"></span>
+                                    {{-- AT-452 round 2 (G): "Needs your decision" first and open; closed ones are one line each - "<type> - reported <date> - <end state>" -
+                                         with a control to see more. Every row shows when it was reported. --}}
+                                    <template x-for="f in sortedOwnerFaults()" :key="f.id">
+                                        <div class="list-item" data-owner-fault :data-fault-closed="f.closed ? '1' : '0'" :data-self-resolved="f.self_resolved ? '1' : '0'">
+                                            <template x-if="!f.closed">
+                                                <div class="row" style="cursor:pointer" @click="openFault(f.id)">
+                                                    <span><span x-text="f.title"></span> <span class="muted" data-fault-reported x-text="'- reported ' + fmtDay(f.reported_at)"></span></span>
+                                                    <span class="badge" :style="f.needs_decision ? 'background:#fdecea; color:#b3261e;' : ''" x-text="f.needs_decision ? 'Needs your decision' : (f.status_label || f.status)"></span>
+                                                </div>
+                                            </template>
+                                            <template x-if="f.closed">
+                                                <div>
+                                                    <button type="button" class="fault-head" data-fault-toggle :aria-expanded="isFaultOpen(f) ? 'true' : 'false'" @click="toggleFault(f)">
+                                                        <span class="fault-chev" x-text="isFaultOpen(f) ? '▾' : '▸'"></span>
+                                                        <span data-fault-oneline x-text="(f.type_name || f.title) + ' - reported ' + fmtDay(f.reported_at) + ' - ' + f.end_state"></span>
+                                                    </button>
+                                                    <div x-show="isFaultOpen(f)" data-fault-body style="margin:6px 0 0 22px;">
+                                                        <template x-if="f.self_resolved">
+                                                            <div>
+                                                                <p style="margin:0 0 6px;" data-self-resolved-text>
+                                                                    <span x-text="f.type_name + ' - ' + (f.property || '') + '. '"></span><span x-text="'Reported by the tenant ' + fmtDay(f.reported_at) + '. '"></span><span x-show="f.advice" x-text="'Resolved with the suggested step: ' + f.advice + '. '"></span><strong>No cost.</strong>
+                                                                    <span x-show="f.tenant_description" x-text="' The tenant wrote: ' + f.tenant_description"></span>
+                                                                </p>
+                                                                <p class="muted" style="margin:0 0 6px;" x-show="f.repair_asked" data-repair-asked>Owner asked for a repair on <span x-text="fmtDay(f.repair_asked && f.repair_asked.at)"></span> &mdash; <a class="link" href="#" @click.prevent="openFault(f.repair_asked.id)">see the request</a></p>
+                                                                <button type="button" class="btn btn-outline" style="width:auto;margin-top:0;padding:8px 12px;" x-show="!f.repair_asked" data-repair-anyway @click="repairAnyway(f)">Have this repaired anyway</button>
+                                                            </div>
+                                                        </template>
+                                                        <template x-if="!f.self_resolved">
+                                                            <div><p class="muted" style="margin:0 0 6px;" x-text="'Closed: ' + (f.status_label || f.status)"></p><a class="link" href="#" @click.prevent="openFault(f.id)">See the full history</a></div>
+                                                        </template>
+                                                    </div>
+                                                </div>
+                                            </template>
                                         </div>
                                     </template>
                                     <p class="muted" x-show="!landlordFaults.length">No repairs or requests yet.</p>
@@ -1144,6 +1184,57 @@ function rentalsPortal() {
                 }
             }
         },
+        // AT-452 round 2 (G) - open faults first (newest first), then closed ones (newest first); same for the owner's list. The open / closed state of a
+        // row is remembered for this visit only (sessionStorage, tab-scoped; a blocked store just means rows start in their default state).
+        faultExpanded: (() => { try { return JSON.parse(sessionStorage.getItem('portal.faultExpanded') || '{}') || {}; } catch (e) { return {}; } })(),
+        isFaultOpen(f) { const k = f.id; return (k in this.faultExpanded) ? !!this.faultExpanded[k] : !f.closed; },
+        toggleFault(f) {
+            this.faultExpanded = Object.assign({}, this.faultExpanded, { [f.id]: !this.isFaultOpen(f) });
+            try { sessionStorage.setItem('portal.faultExpanded', JSON.stringify(this.faultExpanded)); } catch (e) { /* private window: fine */ }
+        },
+        byNewest(a, b) { return String(b.reported_at || '').localeCompare(String(a.reported_at || '')) || (b.id - a.id); },
+        sortedFaults() { const l = (this.faultReports || []).slice(); return l.filter(f => !f.closed).sort(this.byNewest).concat(l.filter(f => f.closed).sort(this.byNewest)); },
+        sortedOwnerFaults() {
+            const l = (this.landlordFaults || []).slice();
+            return l.filter(f => f.needs_decision).sort(this.byNewest).concat(l.filter(f => !f.needs_decision && !f.closed).sort(this.byNewest), l.filter(f => f.closed).sort(this.byNewest));
+        },
+        // AT-452 round 2 (item I) - "Query this": the owner asks their agent a question about a repair the agent arranged (a note, not a decision).
+        queryForm: { note: '', busy: false, error: null, sent: false },
+        async sendQuery() {
+            const f = this.faultDetail, q = this.queryForm;
+            if (!f || q.busy || q.note.trim().length < 3) return;
+            q.busy = true; q.error = null; q.sent = false;
+            const r = await portalFetch('/api/v1/client/rentals/landlord/fault-reports/' + f.id + '/query', { method: 'POST', body: JSON.stringify({ note: q.note }), key: 'query-' + f.id + '-' + q.note.length + '-' + Date.now() });
+            q.busy = false;
+            if (r.ok) { f.arranged = r.data.arranged; q.note = ''; q.sent = true; } else { q.error = r.data?.message || (r.data?.errors ? Object.values(r.data.errors)[0][0] : 'Could not send. Please try again.'); }
+        },
+        // AT-452 round 2 (F-OWNER) - "Have this repaired anyway": the owner's existing Request-work flow, pre-filled from the resolved report and linked to it.
+        async repairAnyway(f) {
+            this.faultDetail = null;
+            this.landlordTab = 'faults';
+            await this.startLandlordFaultReport(f.property_id);
+            const w = this.landlordFaultWizard;
+            if (!w || !w.property) return;
+            w.faultTypeId = f.fault_type_id ? String(f.fault_type_id) : '';
+            this.selectLandlordFaultType();
+            w.showAid = false;
+            w.title = f.type_name || f.title;
+            w.description = 'Follows the report of ' + this.fmtDay(f.reported_at) + ' that the tenant resolved themselves.';
+            w.followsFaultId = f.id;
+            this.$nextTick(() => { const el = document.querySelector('[data-landlord-fault-wizard]'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+        },
+        // AT-452 round 2 (F) - "Still a problem? Report it again" on a fault the tenant fixed themselves: a NEW report of the same type, straight to the
+        // form (they have already read and tried the advice). The old record stays as it was.
+        async reportAgain(f) {
+            await this.startFaultReport();
+            const w = this.faultWizard;
+            if (!w || !w.property || !f.fault_type_id) return;
+            w.faultTypeId = String(f.fault_type_id);
+            w.followsFaultId = f.id;   // the new report links back to the one the tenant fixed themselves
+            this.selectFaultType();
+            if (w.ftype) w.step = 'form';
+            this.$nextTick(() => { const el = document.querySelector('[data-fault-wizard]'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+        },
         // The moment a type is chosen the person sees what to try first (steps, photos, documents); a type with nothing to show goes straight to the form.
         selectFaultType() {
             const w = this.faultWizard;
@@ -1171,6 +1262,7 @@ function rentalsPortal() {
             form.append('title', w.title || 'Fault reported');
             form.append('description', w.description || '');
             form.append('submission_key', w.key);
+            if (w.followsFaultId) form.append('follows_fault_report_id', w.followsFaultId);
             if (resolution === 'still_a_problem') w.photos.forEach(p => form.append('photos[]', p.file, p.file.name));
             w.sending = true;
             w.progress = 0;
@@ -1340,6 +1432,7 @@ function rentalsPortal() {
             form.append('title', w.title);
             form.append('description', w.description || '');
             form.append('submission_key', w.key);
+            if (w.followsFaultId) form.append('follows_fault_report_id', w.followsFaultId);
             w.photos.forEach(p => form.append('photos[]', p.file, p.file.name));
             w.sending = true;
             w.progress = 0;

@@ -933,17 +933,17 @@ test('the viewer is included once, before the page script, and no portal fault p
   for (const f of ['_fault-detail.blade.php']) {
     assert.doesNotMatch(fs.readFileSync(path.join(dir, f), 'utf8'), /target="_blank"/, f);
   }
-  const card = blade.slice(blade.indexOf('data-tenant-fault>'), blade.indexOf('See the work order'));
+  const card = blade.slice(blade.indexOf('data-tenant-fault '), blade.indexOf('See the work order'));
   assert.match(card, /data-tenant-fault-photos/);
   assert.doesNotMatch(card, /target="_blank"/);
 });
 
 test('the owner decision screen has the five sections in order, each with a heading and a divider, and no new helper paragraphs', () => {
   const src = fs.readFileSync(path.join(here, '../../resources/views/rentals/portal/_fault-detail.blade.php'), 'utf8');
-  const order = [...src.matchAll(/data-fault-section="(\w+)"/g)].map((m) => m[1]);
-  assert.deepEqual(order, ['progress', 'reported', 'photos', 'agent', 'decision']);
+  const order = [...src.matchAll(/data-fault-section="([\w-]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(order, ['self-resolved', 'arranged', 'progress', 'reported', 'photos', 'agent', 'decision']);   // self-resolved only shows for a fault the tenant fixed themselves
   const heads = [...src.matchAll(/<h3[^>]*>([^<]*)<\/h3>/g)].map((m) => m[1]);
-  assert.deepEqual(heads, ['Progress', '', 'Photos', 'What your agent says', 'Your decision']);   // the second is bound: What the tenant reported / What you reported
+  assert.deepEqual(heads, ['Resolved without a repair', 'Arranged by your agent', 'Progress', '', 'Photos', 'What your agent says', 'Your decision']);   // the second is bound: What the tenant reported / What you reported
   assert.match(src, /'What the tenant reported'/);
   assert.match(blade, /\.sec \{ border-top:1px solid/, 'every section carries a dividing line');
   assert.doesNotMatch(src, /class="muted">(?!Reason|Your agent has no contractor|Your agent may need)/, 'no helper text beyond the data and the two existing notes');

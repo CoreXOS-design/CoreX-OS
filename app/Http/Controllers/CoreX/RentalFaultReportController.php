@@ -436,7 +436,13 @@ class RentalFaultReportController extends Controller
             'canMarkPhotos' => $request->user()->hasPermission('rental_fault_reports.create') && ! in_array($rentalFaultReport->status, [RentalFaultReport::STATUS_CANCELLED], true),
             // AT-452 item 9 - the same test the owner portal's "no contractor" note uses.
             'noContractor' => ! app(RentalFaultContractorService::class)->hasContractorFor($rentalFaultReport),
+            'contractorClassify' => app(RentalFaultContractorService::class)->classify($rentalFaultReport),
+            'tradeCode' => app(RentalFaultContractorService::class)->tradeCodeFor($rentalFaultReport),
             'canManageContractors' => $request->user()->hasPermission('deals_v2.manage_suppliers'),
+            // AT-452 round 2 (F-OWNER) - "Reported before on <date> ..." and, on a tenant-resolved fault, the repair asked for since.
+            'reportedBefore' => $rentalFaultReport->reportedBefore(),
+            'followUp' => $rentalFaultReport->followUps()->where('status', '!=', RentalFaultReport::STATUS_CANCELLED)->first(),
+            'followsReport' => $rentalFaultReport->followsFaultReport,
             // Fault flow F3/F5 - the supplier list for this fault's type of work (empty = say so, offer the other routes).
             'contractors' => $contractors,
             'decisionSummary' => $rentalFaultReport->decisionSummary(),
@@ -697,10 +703,20 @@ class RentalFaultReportController extends Controller
             'contractor_phone' => ['nullable', 'string', 'max:40'],
             // the internal crew to put on the job card (optional; checked against the agency's active crews by the service)
             'rental_crew_id' => ['nullable', 'integer'],
+            'emergency' => ['nullable', 'boolean'],
         ]);
         // A chosen contractor with no explicit "who" means the agency's contractor; nothing at all keeps the old default (internal crew).
         $validated['assignment_type'] = $validated['assignment_type']
             ?? (! empty($validated['agency_service_provider_id']) ? \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER : \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL);
+
+        // AT-452 round 2 (item I) - "Go ahead and tell the owner": the agent starts BEFORE the owner has been sent the fault (an emergency, or a small job
+        // inside the no-approval limit). The owner is informed, not asked - so the owner version must have been prepared (what they will read), and the
+        // moment the work order exists the fault is arranged-by-agent and the owner is told.
+        $goAhead = in_array($rentalFaultReport->status, [RentalFaultReport::STATUS_REPORTED, RentalFaultReport::STATUS_UNDER_REVIEW], true) && $rentalFaultReport->decision() === null
+            && ($validated['assignment_type'] ?? null) !== \App\Models\RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR;
+        if ($goAhead && $rentalFaultReport->owner_version_saved_at === null) {
+            return back()->withErrors(['rental_fault_report' => 'Prepare the owner version first (check the wording and photos the owner will see) - the owner is told straight away when you go ahead.']);
+        }
 
         try {
             $made = $service->createFromFaultDecision($rentalFaultReport, $request->user(), $validated);
@@ -717,11 +733,30 @@ class RentalFaultReportController extends Controller
             return back()->withErrors(['rental_fault_report' => $e->getMessage()])->withInput();
         }
 
-        if ($made['job_card']) {
-            return redirect()->route('corex.rental-job-cards.show', $made['job_card'])->with('success', 'Work order created - job card ready for the crew.');
+        $told = '';
+        if ($goAhead) {
+            app(RentalFaultReportService::class)->arrangeByAgent($rentalFaultReport->fresh(), $request->user(), (bool) ($validated['emergency'] ?? false));
+            $told = ' The owner has been told.';
         }
 
-        return redirect()->route('corex.rental-work-orders.show', $made['work_order'])->with('success', 'Work order created.');
+        if ($made['job_card']) {
+            return redirect()->route('corex.rental-job-cards.show', $made['job_card'])->with('success', 'Work order created - job card ready for the crew.' . $told);
+        }
+
+        return redirect()->route('corex.rental-work-orders.show', $made['work_order'])->with('success', 'Work order created.' . $told);
+    }
+
+    /** AT-452 round 2 (F-OWNER) - "Have this repaired anyway": a linked new report through the existing flow; the resolved one stays resolved. */
+    public function repairAnyway(Request $request, RentalFaultReportService $service, RentalFaultReport $rentalFaultReport): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+        try {
+            $new = $service->raiseFollowUp($rentalFaultReport, $request->user());
+        } catch (\LogicException $e) {
+            return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
+        }
+
+        return redirect()->route('corex.rental-fault-reports.show', $new)->with('success', 'A repair request was made from the tenant-resolved report. Review it, send it to the owner and appoint a contractor as usual.');
     }
 
     public function cancel(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse

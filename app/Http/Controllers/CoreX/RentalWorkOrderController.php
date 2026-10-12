@@ -575,7 +575,7 @@ class RentalWorkOrderController extends Controller
 
         $rentalWorkOrder->load([
             'property', 'lease.tenants.contact', 'inspectionItem', 'supplier',
-            'reportedByContact', 'reportedByUser', 'reportedFaultReport', 'cancelledByUser',
+            'reportedByContact', 'reportedByUser', 'reportedFaultReport.faultType', 'cancelledByUser',
             // §15 (AT-447) — "From inspection <type> <date>" back-link.
             'reportedInspectionObservation.inspection',
             'createdByUser', 'photos.uploadedBy', 'updates.createdByUser', 'approvals.recordedByUser',
@@ -601,6 +601,13 @@ class RentalWorkOrderController extends Controller
             // §3.4c full-CRUD floor — archived quotes stay reachable with a
             // restore path on this same screen (no separate quotes index).
             'archivedQuotes' => $rentalWorkOrder->quotes()->onlyTrashed()->with('supplier')->get(),
+            // AT-452 round 2 (§19) - the supplier card: whether and how the job reached the contractor, their answer, and the one contractor rule.
+            'contractorStatus' => app(\App\Services\Rentals\RentalContractorJobService::class)->statusFor($rentalWorkOrder),
+            'contractorClassify' => app(\App\Services\Rentals\RentalFaultContractorService::class)->classifyFor(
+                (int) $rentalWorkOrder->agency_id, $rentalWorkOrder->reportedFaultReport?->faultType?->name, $rentalWorkOrder->reportedFaultReport?->faultType?->category
+            ),
+            'canManageContractors' => $request->user()->hasPermission('deals_v2.manage_suppliers'),
+            'woTradeCode' => ($c = $rentalWorkOrder->reportedFaultReport?->faultType?->category) ? app(\App\Services\Rentals\RentalFaultContractorService::class)->classifyTradeCode((int) $rentalWorkOrder->agency_id, $c) : null,
             // AT-452 - the work order's photos for the shared viewer (a copy of a fault photo carries the agent's marks and note, read-only here).
             'woViewerPhotos' => app(\App\Services\Rentals\RentalFaultPhotoAnnotationService::class)->workOrderPayload(
                 $rentalWorkOrder, $rentalWorkOrder->photos, \App\Services\Rentals\RentalFaultPhotoAnnotationService::AUDIENCE_STAFF
@@ -658,10 +665,22 @@ class RentalWorkOrderController extends Controller
             'trade_type' => ['nullable', 'string', 'max:60'],
         ]);
 
+        $previousSupplier = $rentalWorkOrder->agency_service_provider_id;
         try {
             $rentalWorkOrder->assignSupplier((int) $validated['agency_service_provider_id'], $validated['trade_type'] ?? null, $request->user());
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_work_order' => $e->getMessage()]);
+        }
+
+        // AT-452 round 2 - a NEW contractor (first time, or a change after a declined quote) is told the moment they are appointed: the job
+        // link goes to them as well as the work order PDF below. The same contractor again is just the PDF resend, as before.
+        if ((int) $previousSupplier !== (int) $validated['agency_service_provider_id']) {
+            $rentalWorkOrder->forceFill(['contractor_response' => null, 'contractor_responded_at' => null, 'contractor_decline_reason' => null])->save();
+            app(\App\Services\Rentals\RentalSecureAccessTokenService::class)->revokeAllFor($rentalWorkOrder);
+            app(\App\Services\Rentals\RentalContractorJobService::class)->dispatchOnAppointment(
+                $rentalWorkOrder->fresh(), $request->user(),
+                $previousSupplier === null ? \App\Models\RentalJobDispatch::REASON_APPOINTED : \App\Models\RentalJobDispatch::REASON_REASSIGNED,
+            );
         }
 
         $mailed = $service->sendContractorWorkOrder($rentalWorkOrder->fresh(), $request->user());

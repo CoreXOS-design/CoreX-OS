@@ -46,12 +46,60 @@
             <div class="alert-error">{{ $errors->first() }}</div>
         @endif
 
-        <div class="card">
+        <div class="card" data-contractor-job>
             <h2>{{ $workOrder->title }}</h2>
-            <p class="muted">{{ $workOrder->property?->buildDisplayAddress() }}</p>
+            <p class="muted">{{ $workOrder->property?->buildDisplayAddress() }} &middot; from {{ $agencyName }}</p>
             <p>{{ $workOrder->description }}</p>
+            @if ($accessNotes)
+                <p class="muted"><strong>Getting in:</strong> {{ $accessNotes }}</p>
+            @endif
             @if ($jobCard?->access_notes)
                 <p class="muted"><strong>Access notes:</strong> {{ $jobCard->access_notes }}</p>
+            @endif
+        </div>
+
+        @if (count($photos))
+            @include('partials.photo-viewer')
+            <div class="card" data-contractor-photos>
+                <h2>Photos of the problem</h2>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                    @foreach ($photos as $i => $p)
+                        <button type="button" data-open-job-photo="{{ $i }}" aria-label="Open photo {{ $i + 1 }}" style="padding:0;border:0;background:none;cursor:zoom-in;border-radius:8px;"><img src="{{ $p['thumb_url'] ?? $p['url'] }}" alt="{{ $p['alt'] ?? 'Photo' }}" loading="lazy" style="width:96px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--border);"></button>
+                    @endforeach
+                </div>
+                <p class="muted" style="margin-top:8px;">Tap a photo to open it. Our marks and notes are shown on it; you can switch them off.</p>
+            </div>
+            <script type="application/json" id="job-photos">@json($photos)</script>
+            <script>
+                (function () {
+                    var list = JSON.parse(document.getElementById('job-photos').textContent || '[]');
+                    document.addEventListener('click', function (e) {
+                        var b = e.target.closest ? e.target.closest('[data-open-job-photo]') : null;
+                        if (!b || !window.CorexPhotoViewer) return;
+                        e.preventDefault();
+                        window.CorexPhotoViewer.open({ photos: JSON.parse(JSON.stringify(list)), index: parseInt(b.getAttribute('data-open-job-photo'), 10) || 0, editable: false, returnFocus: b });
+                    });
+                })();
+            </script>
+        @endif
+
+        {{-- AT-452 round 2 (§19) - the contractor's answer. --}}
+        <div class="card" data-contractor-answer>
+            <h2>Can you take this job?</h2>
+            <p class="muted" data-contractor-answer-state>{{ $response ? $responseLabel : 'Not answered yet' }}@if ($response === 'declined' && $workOrder->contractor_decline_reason) &mdash; {{ $workOrder->contractor_decline_reason }}@endif</p>
+            @if (! in_array($workOrder->status, ['completed', 'cancelled'], true))
+                <form method="POST" action="{{ route('rentals.secure-link.respond', $token) }}">
+                    @csrf
+                    <input type="hidden" name="answer" value="accept">
+                    <button class="btn btn-ok" type="submit" data-contractor-accept>Accept the job</button>
+                </form>
+                <form method="POST" action="{{ route('rentals.secure-link.respond', $token) }}">
+                    @csrf
+                    <input type="hidden" name="answer" value="decline">
+                    <label>If you cannot take it, tell us why (required)</label>
+                    <textarea name="reason" rows="2" maxlength="1000"></textarea>
+                    <button class="btn" type="submit" style="background:#fff;border:1px solid var(--border);color:var(--text);" data-contractor-decline>Decline the job</button>
+                </form>
             @endif
         </div>
 

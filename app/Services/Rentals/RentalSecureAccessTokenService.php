@@ -134,6 +134,34 @@ class RentalSecureAccessTokenService
         });
     }
 
+    /**
+     * AT-452 round 2 - a further live link for the SAME target without killing the ones already out (the contractor's emailed link must keep
+     * working when the agent also opens WhatsApp). Optionally revokes one named earlier link (the one a previous WhatsApp click made), so a
+     * repeated click never leaves a trail of live links.
+     *
+     * @return array{token: RentalSecureAccessToken, raw_token: string}
+     */
+    public function issueExtra(Model $target, string $purpose, ?User $by, ?int $expiryDays, ?int $replaceTokenId = null): array
+    {
+        $attributes = $this->targetAttributes($target, $purpose);
+
+        return DB::transaction(function () use ($target, $purpose, $by, $expiryDays, $attributes, $replaceTokenId) {
+            if ($replaceTokenId) {
+                RentalSecureAccessToken::withoutGlobalScopes()->where('id', $replaceTokenId)->whereNull('revoked_at')->update(['revoked_at' => now()]);
+            }
+            $rawToken = RentalSecureAccessToken::generateRawToken();
+            $token = RentalSecureAccessToken::create($attributes + [
+                'agency_id' => $target->agency_id,
+                'purpose' => $purpose,
+                'token_hash' => RentalSecureAccessToken::hashToken($rawToken),
+                'expires_at' => $expiryDays !== null ? now()->addDays($expiryDays) : null,
+                'created_by_user_id' => $by?->id,
+            ]);
+
+            return ['token' => $token, 'raw_token' => $rawToken];
+        });
+    }
+
     public function revokeAllFor(Model $target): void
     {
         RentalSecureAccessToken::withoutGlobalScopes()

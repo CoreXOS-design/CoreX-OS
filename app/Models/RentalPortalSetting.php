@@ -51,6 +51,11 @@ class RentalPortalSetting extends Model
     public const MAX_FAULT_PHOTO_MB = 15;
     /** rentals-faults-work-orders.md §18 (AT-452) — the tenant also sees the agent's marks and per-photo notes on their own fault photos. Off unless the agency allows it. */
     public const DEFAULT_TENANT_SEES_AGENT_MARKS = false;
+    /** AT-452 round 2 - the crew's job link goes to them automatically when a job card is made from a fault decision. On unless the agency turns it off. */
+    public const DEFAULT_CREW_LINK_AUTO_SEND_ON_FAULT_JOB = true;
+    /** AT-452 round 2 (F-OWNER) - days after a tenant-resolved report within which a new one of the same type is flagged "reported before". */
+    public const DEFAULT_FAULT_RECURRENCE_WINDOW_DAYS = 90;
+    public const MAX_FAULT_RECURRENCE_WINDOW_DAYS = 730;
 
     /**
      * §22 — the portal Home FAQ. The agency's wording, with the lease's own values merged in: {notice_days}, {earliest_termination_date},
@@ -99,6 +104,8 @@ class RentalPortalSetting extends Model
         'fault_photo_max_count',
         'fault_photo_max_mb',
         'tenant_sees_agent_marks',
+        'crew_link_auto_send_on_fault_job',
+        'fault_recurrence_window_days',
         'faq_tenant_notice_question', 'faq_tenant_notice_answer', 'faq_tenant_early_question', 'faq_tenant_early_answer',
         'faq_landlord_notice_question', 'faq_landlord_notice_answer', 'faq_landlord_early_question', 'faq_landlord_early_answer',
         'faq_tenant_cancel_yes', 'faq_tenant_cancel_no', 'faq_landlord_cancel_yes', 'faq_landlord_cancel_no',
@@ -123,6 +130,8 @@ class RentalPortalSetting extends Model
         'fault_photo_max_count' => 'integer',
         'fault_photo_max_mb' => 'integer',
         'tenant_sees_agent_marks' => 'boolean',
+        'crew_link_auto_send_on_fault_job' => 'boolean',
+        'fault_recurrence_window_days' => 'integer',
     ];
 
     private static function boolFor(?int $agencyId, string $column, bool $default): bool
@@ -284,6 +293,21 @@ class RentalPortalSetting extends Model
     public static function tenantSeesAgentMarksFor(?int $agencyId): bool
     {
         return self::boolFor($agencyId, 'tenant_sees_agent_marks', self::DEFAULT_TENANT_SEES_AGENT_MARKS);
+    }
+
+    /** AT-452 round 2 - send the crew their job link automatically when a job card is created from a fault decision. */
+    public static function crewLinkAutoSendOnFaultJobFor(?int $agencyId): bool
+    {
+        return self::boolFor($agencyId, 'crew_link_auto_send_on_fault_job', self::DEFAULT_CREW_LINK_AUTO_SEND_ON_FAULT_JOB);
+    }
+
+    /** AT-452 round 2 (F-OWNER) - the recurrence window in days (1-730; unset = 90). */
+    public static function faultRecurrenceWindowDaysFor(?int $agencyId): int
+    {
+        $value = $agencyId ? static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('fault_recurrence_window_days') : null;
+        $n = $value !== null ? (int) $value : self::DEFAULT_FAULT_RECURRENCE_WINDOW_DAYS;
+
+        return max(1, min(self::MAX_FAULT_RECURRENCE_WINDOW_DAYS, $n));
     }
 
     /** One FAQ wording (a question or an answer): the agency's own text when saved and not blank, else the default. */

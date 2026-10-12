@@ -196,7 +196,7 @@ class LeaseTimelineService
             return $this->entry(
                 'fault',
                 (string) ($report->reported_at ?? $report->created_at),
-                'Fault reported: ' . $report->title,
+                $report->isTenantSelfResolved() ? 'Fault resolved by the tenant (tried the suggested fix): ' . $report->title : 'Fault reported: ' . $report->title,
                 null,
                 $report->status,
                 'corex.rental-fault-reports.show',

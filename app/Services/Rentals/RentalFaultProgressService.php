@@ -68,13 +68,18 @@ class RentalFaultProgressService
         $push('agent_reviewing', 'agent_reviewing', $reviewing ? ($reviewAt ?? $fault->updated_at) : null);
 
         // 3 - sent to the owner (or the owner's answer was taken without a send, e.g. by phone).
+        // Item I (AT-452 round 2): a fault the agent ARRANGED without asking (inside the no-approval limit, or an emergency) tells the owner, it does not
+        // ask: steps 3 and 4 read "told / arranged" instead of "sent for approval / approved". Same keys, so the tenant notices behave exactly as before.
+        $arranged = $fault->isArrangedByAgent();
         $sentAt = $fault->sent_to_owner_at ?? ($decision ? ($decision->decided_at ?? $decision->created_at) : null) ?? $wo?->created_at;
-        $push('sent_to_owner', 'sent_to_owner', $sentAt);
+        $push('sent_to_owner', $arranged ? 'informed' : 'sent_to_owner', $arranged ? $fault->arranged_by_agent_at : $sentAt);
 
         // 4 - the owner's decision; a work order raised without one means the agent proceeded (approval not required).
         $decidedAt = $decision ? ($decision->decided_at ?? $decision->created_at) : $wo?->created_at;
         if ($declined) {
             $push('owner_decided', 'not_approved', $decidedAt);
+        } elseif ($arranged) {
+            $push('owner_decided', $fault->arranged_basis === RentalFaultReport::ARRANGED_EMERGENCY ? 'arranged_emergency' : 'arranged_limit', $fault->arranged_by_agent_at);
         } else {
             $push('owner_decided', 'owner_approved', $decidedAt);
         }

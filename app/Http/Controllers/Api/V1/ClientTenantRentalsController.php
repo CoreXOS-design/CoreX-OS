@@ -235,6 +235,7 @@ class ClientTenantRentalsController extends Controller
         $data = $request->validate([
             'rental_fault_type_id' => 'required|integer',
             'resolution' => 'required|in:first_aid_resolved,still_a_problem',
+            'follows_fault_report_id' => 'nullable|integer',
             'title' => 'required|string|max:191',
             'description' => 'nullable|string|max:5000',
             'photos' => 'nullable|array|max:10',
@@ -260,8 +261,18 @@ class ClientTenantRentalsController extends Controller
             'title' => $data['title'],
             'description' => $data['description'] ?? '',
         ];
+        // "Still a problem? Report it again" on a fault the tenant fixed themselves: the new report is linked back to it (their own, on this property).
+        if (! empty($data['follows_fault_report_id'])) {
+            $follows = $this->scope->tenantFaultReport($contact, (int) $data['follows_fault_report_id']);
+            if ($follows && $follows->isTenantSelfResolved() && (int) $follows->property_id === (int) $property) {
+                $attributes['follows_fault_report_id'] = $follows->id;
+            }
+        }
 
-        $faultReport = $this->faultReportService->report($propertyModel, $attributes);
+        // AT-452 round 2 (F) - "That fixed it": logged for the agent to see, but born closed - no alert, no queue, no owner step.
+        $faultReport = $data['resolution'] === 'first_aid_resolved'
+            ? $this->faultReportService->reportSelfResolved($propertyModel, $attributes)
+            : $this->faultReportService->report($propertyModel, $attributes);
 
         foreach ($request->file('photos', []) as $photo) {
             $path = app(PropertyImageStorer::class)->store($photo, $propertyModel->id);
@@ -270,12 +281,6 @@ class ClientTenantRentalsController extends Controller
                 'storage_path' => $path,
                 'client_idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
                 'file_size_bytes' => $photo->getSize(),
-            ]);
-        }
-
-        if ($data['resolution'] === 'first_aid_resolved') {
-            $faultReport->setOutcome([
-                'outcome' => RentalFaultReport::OUTCOME_RESOLVED_BY_FIRST_AID,
             ]);
         }
 
@@ -403,13 +408,21 @@ class ClientTenantRentalsController extends Controller
             'status' => $this->tenantFaultStatus($fault),
             'reported_at' => $fault->reported_at?->toIso8601String(),
             'rental_work_order_id' => $fault->rental_work_order_id,
+            // AT-452 round 2 (F) - the tenant closed it themselves: the page shows ONE quiet line under "Resolved", never the fault's timeline.
+            'self_resolved' => $fault->isTenantSelfResolved(),
+            // AT-452 round 2 (G) - closed faults are ONE collapsed line ("<type> - reported <date> - <end state>"); open ones stay expanded.
+            'closed' => $fault->isClosedState(),
+            'end_state' => $fault->endStateFor('tenant'),
+            'resolved_at' => $fault->resolved_at?->toIso8601String(),
+            'fault_type_id' => $fault->rental_fault_type_id,
+            'fault_type_name' => $fault->faultType?->name,
             // AT-452 - the tenant's OWN photos (what they sent), opened in the shared viewer; the agent's marks / notes ride along only when the agency allows it.
             'reported_photos' => app(\App\Services\Rentals\RentalFaultPhotoAnnotationService::class)->payload($fault, app(\App\Services\Rentals\RentalFaultPhotoAnnotationService::class)->tenantPhotos($fault), \App\Services\Rentals\RentalFaultPhotoAnnotationService::AUDIENCE_TENANT),
             // BUILD 3 — §17.3.5: the linked work order's plain stage ("Being arranged", "In progress", …), never a price.
             'work_order_stage' => $this->workOrderStageFor($fault),
             // Johan, 8 Oct 2026: where this fault is, step by step, fault AND work order in one line (derived from the real records;
             // the words are data: config/rental-fault-progress.php). Never the owner's reason or the agent's notes.
-            'progress' => app(\App\Services\Rentals\RentalFaultProgressService::class)->forFault($fault, \App\Services\Rentals\RentalFaultProgressService::AUDIENCE_TENANT),
+            'progress' => $fault->isTenantSelfResolved() ? null : app(\App\Services\Rentals\RentalFaultProgressService::class)->forFault($fault, \App\Services\Rentals\RentalFaultProgressService::AUDIENCE_TENANT),
         ];
     }
 }

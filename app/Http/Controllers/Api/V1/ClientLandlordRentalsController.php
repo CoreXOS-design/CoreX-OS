@@ -175,9 +175,20 @@ class ClientLandlordRentalsController extends Controller
             'rental_fault_type_id' => 'nullable|integer',
             'title' => 'required|string|max:191',
             'description' => 'nullable|string|max:5000',
+            'follows_fault_report_id' => 'nullable|integer',
             'photos' => 'nullable|array|max:10',
             'photos.*' => 'file|image|max:15360',
         ]);
+
+        // AT-452 round 2 (F-OWNER) - "Have this repaired anyway": the new request follows a report the tenant resolved themselves. The owner must be able
+        // to see that report (their own property); the link is the whole of it - the resolved report itself is never changed.
+        $follows = null;
+        if (! empty($data['follows_fault_report_id'])) {
+            $follows = $this->scope->landlordFaultReport($contact, (int) $data['follows_fault_report_id']);
+            if (! $follows || ! $follows->isTenantSelfResolved() || (int) $follows->property_id !== (int) $propertyModel->id) {
+                return response()->json(['message' => 'That report cannot be followed up.'], 422);
+            }
+        }
 
         $faultType = !empty($data['rental_fault_type_id'])
             ? RentalFaultType::withoutGlobalScopes()->where('agency_id', $contact->agency_id)->where('is_active', true)->find($data['rental_fault_type_id'])
@@ -193,7 +204,12 @@ class ClientLandlordRentalsController extends Controller
             'reported_channel' => RentalFaultReport::CHANNEL_APP,
             'title' => $data['title'],
             'description' => $data['description'] ?? '',
+            'follows_fault_report_id' => $follows?->id,
         ];
+        if ($follows && ! str_contains((string) $attributes['description'], 'Follows the report of')) {
+            $note = 'Follows the report of ' . ($follows->reported_at ?? $follows->created_at)->format('j M Y') . ' that the tenant resolved themselves.';
+            $attributes['description'] = trim($note . ' ' . $attributes['description']);
+        }
 
         $faultReport = $this->faultReportService->report($propertyModel, $attributes);
 
@@ -225,9 +241,9 @@ class ClientLandlordRentalsController extends Controller
         return response()->json([
             // Fault flow F2: the owner only ever sees faults the agent SENT (or that they reported / that are decided),
             // and only the agent's sanitised wording - never the tenant's original.
-            'fault_reports' => $this->scope->landlordFaultReports($contact)->map(fn ($f) => [
+            'fault_reports' => $this->scope->landlordFaultReports($contact)->map(fn ($f) => array_merge([
                 'id' => $f->id,
-                'title' => $f->ownerVersion()['title'],
+                'title' => $f->isTenantSelfResolved() ? ($f->faultType?->name ?: $f->title) : $f->ownerVersion()['title'],
                 'status' => $f->status,
                 'status_label' => $f->ownerStatusLabel(),
                 'owner_approval_status' => $f->owner_approval_status,
@@ -235,7 +251,11 @@ class ClientLandlordRentalsController extends Controller
                 'needs_decision' => $f->owner_approval_status === RentalFaultReport::APPROVAL_PENDING,
                 'work_order_id' => $f->rental_work_order_id,
                 'reported_at' => $f->reported_at?->toIso8601String(),
-            ])->values(),
+                // AT-452 round 2 (G) - closed ones are one collapsed line each; open ones stay expanded.
+                'closed' => $f->isClosedState(),
+                'end_state' => $f->endStateFor('owner'),
+                'arranged_by_agent' => $f->isArrangedByAgent(),
+            ], $this->selfResolvedSummary($f)))->values(),
         ]);
     }
 
@@ -373,6 +393,21 @@ class ClientLandlordRentalsController extends Controller
             return response()->json(['message' => 'Fault report not found.'], 404);
         }
 
+        // AT-452 round 2 (F-OWNER) - a fault the tenant fixed themselves: shown, never a decision.
+        if ($fault->isTenantSelfResolved()) {
+            return response()->json(['fault_report' => array_merge($this->selfResolvedSummary($fault), [
+                'id' => $fault->id,
+                'title' => $fault->faultType?->name ?: $fault->title,
+                'description' => null, 'agent_note' => null, 'photos' => [],
+                'property' => $fault->property?->buildDisplayAddress(),
+                'status' => $fault->status, 'status_label' => 'Resolved without a repair',
+                'reported_at' => $fault->reported_at?->toIso8601String(),
+                'awaiting_decision' => false, 'decision' => null, 'work_order' => null, 'progress' => null,
+                'contractors' => [], 'has_contractor' => true, 'reported_by_owner' => false,
+                'reported_before' => null,
+            ])]);
+        }
+
         $version = $fault->ownerVersion();
         $awaiting = $fault->owner_approval_status === RentalFaultReport::APPROVAL_PENDING;
         $summary = $fault->decisionSummary();
@@ -386,6 +421,11 @@ class ClientLandlordRentalsController extends Controller
             'photos' => app(\App\Services\Rentals\RentalFaultPhotoAnnotationService::class)->payload($fault, $version['photos'], \App\Services\Rentals\RentalFaultPhotoAnnotationService::AUDIENCE_OWNER),
             // The "What the tenant reported" section reads "What you reported" when the owner raised it themselves.
             'reported_by_owner' => $fault->reported_by_type === RentalFaultReport::REPORTED_BY_LANDLORD,
+            'self_resolved' => false,
+            // item I - informed, not asked: the sentence, who, the amounts, the questions asked so far (null for every other fault)
+            'arranged' => $this->arrangedFor($fault),
+            // AT-452 round 2 (F-OWNER) - "Reported before on <date> ..." when the same kind of fault was on this property earlier.
+            'reported_before' => $this->reportedBeforeFor($fault),
             'property' => $fault->property?->buildDisplayAddress(),
             'category' => $fault->faultType?->category,
             'status' => $fault->status,
@@ -411,6 +451,115 @@ class ClientLandlordRentalsController extends Controller
                 'contractor' => $summary['contractor'],
             ] : null,
         ]]);
+    }
+
+    /**
+     * AT-452 round 2 (F-OWNER) - what the owner reads about a fault the tenant fixed themselves with the suggested step: the type, the property,
+     * when it was reported, the advice the tenant was shown, any words the tenant typed, "No cost", and whether the owner has since asked for a
+     * repair anyway. Empty for every other fault.
+     *
+     * @return array<string,mixed>
+     */
+    private function selfResolvedSummary(RentalFaultReport $f): array
+    {
+        if (! $f->isTenantSelfResolved()) {
+            return ['self_resolved' => false];
+        }
+        $property = $f->property;
+        $repair = $f->followUps()->where('status', '!=', RentalFaultReport::STATUS_CANCELLED)->first();
+
+        return [
+            'self_resolved' => true,
+            'type_name' => $f->faultType?->name ?: $f->title,
+            'fault_type_id' => $f->rental_fault_type_id,
+            'property_id' => $f->property_id,
+            'property' => $property?->buildDisplayAddress(),
+            'resolved_at' => $f->resolved_at?->toIso8601String(),
+            'advice' => ($f->faultType && $property) ? app(\App\Services\Rentals\RentalFaultTypePortalView::class)->adviceFor($f->faultType, $property) : null,
+            'tenant_description' => trim((string) $f->description) !== '' ? trim((string) $f->description) : null,
+            // "Owner asked for a repair on <date>" + the link to the new request (visible to this owner: they raised it, or it follows their own report)
+            'repair_asked' => $repair ? ['id' => $repair->id, 'at' => ($repair->reported_at ?? $repair->created_at)?->toIso8601String()] : null,
+        ];
+    }
+
+    /**
+     * Item I - what the owner reads about a fault their agent ARRANGED without asking (inside the no-approval limit, or an emergency): the sentence, who
+     * does the work, the quoted / approved amount, the final cost once it is done, whether the quote has since gone over the limit (then it IS the owner's
+     * to approve), and the questions they have already put to the agent.
+     *
+     * @return array<string,mixed>|null
+     */
+    private function arrangedFor(RentalFaultReport $fault): ?array
+    {
+        if (! $fault->isArrangedByAgent()) {
+            return null;
+        }
+        $wo = $fault->rental_work_order_id
+            ? RentalWorkOrder::withoutGlobalScopes()->where('agency_id', $fault->agency_id)->whereNull('deleted_at')->find($fault->rental_work_order_id)
+            : null;
+        $quote = $wo?->quotes()->where('is_selected', true)->first();
+        $amount = $wo && $wo->approved_amount !== null ? (float) $wo->approved_amount : ($quote ? $quote->ownerFacingAmount() : null);
+
+        return [
+            'at' => $fault->arranged_by_agent_at?->toIso8601String(),
+            'basis' => $fault->arranged_basis,
+            'limit' => $fault->arranged_limit_amount !== null ? (float) $fault->arranged_limit_amount : null,
+            'text' => $fault->arrangedText(),
+            'amount' => $amount,
+            'final_cost' => ($wo && $wo->status === RentalWorkOrder::STATUS_COMPLETED && $wo->cost_amount !== null) ? (float) $wo->cost_amount : null,
+            // over the limit later (a dearer quote, extra work): the normal approval rule applies and the owner is asked on the work order
+            'needs_owner_approval' => (bool) ($wo && $wo->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING),
+            'queries' => $fault->updates()->where('update_type', \App\Models\RentalFaultReportUpdate::TYPE_OWNER_QUERY)->orderBy('id')->get(['note', 'created_at'])
+                ->map(fn ($u) => ['note' => $u->note, 'at' => $u->created_at?->toIso8601String()])->values()->all(),
+        ];
+    }
+
+    /**
+     * Item I - "Query this": the owner asks their agent a question about a repair the agent arranged. A note, not a decision: it is written to the
+     * fault's history and BOTH lease agents are told (the same recipients as a new fault).
+     */
+    public function faultReportQuery(Request $request, int $faultReport): JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+        $fault = $this->scope->landlordFaultReport($contact, $faultReport);
+        if (! $fault) {
+            return response()->json(['message' => 'Fault report not found.'], 404);
+        }
+        if (! $fault->isArrangedByAgent()) {
+            return response()->json(['message' => 'There is nothing to query on this one.'], 422);
+        }
+        $data = $request->validate(['note' => 'required|string|min:3|max:1000']);
+
+        $fault->recordHistory(\App\Models\RentalFaultReportUpdate::TYPE_OWNER_QUERY, null, trim((string) ($contact->first_name . ' ' . $contact->last_name)) . ' (owner) asked: ' . trim($data['note']));
+        $property = $fault->property()->withoutGlobalScopes()->first();
+        if ($property) {
+            foreach (app(\App\Services\Rentals\LeaseAgentService::class)->faultRecipients($fault->lease, $property, (int) $fault->agency_id) as $user) {
+                app(\App\Services\CommandCenter\NotificationDispatcher::class)->fire($user, 'rental_fault_report.owner_query', $fault, [
+                    'title' => 'The owner has a question - ' . ($property->buildDisplayAddress() ?: $property->title),
+                    'body' => $fault->ownerVersion()['title'] . ': ' . mb_substr(trim($data['note']), 0, 200),
+                    'action_url' => route('corex.rental-fault-reports.show', $fault->id),
+                    'severity' => 'info',
+                    'threshold_hit_at' => now(),
+                ]);
+            }
+        }
+
+        return response()->json(['ok' => true, 'arranged' => $this->arrangedFor($fault->fresh())], 201);
+    }
+
+    /** "Reported before on <date> ..." for the owner's decision screen - linked only to an earlier report this owner can open themselves. */
+    private function reportedBeforeFor(RentalFaultReport $f): ?array
+    {
+        $before = $f->reportedBefore();
+        if (! $before) {
+            return null;
+        }
+        $earlier = RentalFaultReport::withoutGlobalScopes()->find($before['id']);
+
+        return ['text' => $before['text'], 'at' => $before['at']->toIso8601String(), 'how' => $before['how'], 'fault_id' => $earlier && $earlier->isVisibleToOwner() ? $before['id'] : null];
     }
 
     /**

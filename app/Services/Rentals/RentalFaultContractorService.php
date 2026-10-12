@@ -25,27 +25,77 @@ class RentalFaultContractorService
     /**
      * @return Collection<int, array{id:int, name:string, phone:?string}>
      *
-     * A fault with NO type (so no category to match) offers ALL the agency's maintenance contractors - never none (Johan, 8 Oct 2026): nothing
-     * is known about the trade, so the agent / owner picks. A fault WITH a category keeps the matching rule below.
+     * The contractors that SUIT this fault - one of the answers {@see self::classify()} gives. A fault with NO type (so no category to
+     * match) offers ALL the agency's maintenance contractors - never none (Johan, 8 Oct 2026): nothing is known about the trade, so the
+     * agent / owner picks.
      */
     public function optionsFor(RentalFaultReport $fault): Collection
     {
-        $category = $fault->faultType?->category;
-        if (! $category) {
-            return $this->allContractors((int) $fault->agency_id);
-        }
-
-        return $this->optionsForCategory((int) $fault->agency_id, (string) $category);
+        return $this->classify($fault)['suits']->map(fn ($r) => ['id' => $r['id'], 'name' => $r['name'], 'phone' => $r['phone']])->values();
     }
 
     /**
-     * AT-452 item 9 — does the agency have at least one active contractor for this fault's type of work? THE one test: the owner portal's
-     * "Your agent has no contractor on file for this type of work yet" and the agent's "No contractor loaded for <type>" warning on the
-     * fault page both ask this, so they can never disagree. Agency-scoped (there is no branch dimension in a contractor list).
+     * AT-452 item 9 / round 2 (C) - does the agency have at least one active contractor for this fault's type of work? THE one test: the
+     * owner portal's "Your agent has no contractor on file for this type of work yet", the agent's "No contractor loaded for <type>"
+     * warning before sending, and the agent's contractor picker all read {@see self::classify()}, so they can never disagree.
      */
     public function hasContractorFor(RentalFaultReport $fault): bool
     {
-        return $this->optionsFor($fault)->isNotEmpty();
+        return $this->classify($fault)['suits']->isNotEmpty();
+    }
+
+    /**
+     * THE single rule for "does a contractor suit this fault" (AT-452 round 2, C). Every active maintenance contractor of the agency is
+     * returned once, in `suits` or in `others`:
+     *  - the fault has a type with a category: a contractor suits when it is ticked for a service type that matches the category (see
+     *    {@see self::matchingServiceTypeCodes()}); every other contractor is in `others` - still selectable, an agency may use a general
+     *    handyman;
+     *  - the fault has no type / no category: nothing is known about the trade, so every contractor suits.
+     * `mapping_gap` is true when the category exists but NO service type of this agency matches it - the case that used to say "nobody"
+     * with no way to fix it; the screens then tell the agent to add the trade, not just that nobody exists.
+     *
+     * @return array{type:?string, category:?string, suits:Collection<int,array<string,mixed>>, others:Collection<int,array<string,mixed>>, mapping_gap:bool}
+     */
+    public function classify(RentalFaultReport $fault): array
+    {
+        return $this->classifyFor((int) $fault->agency_id, $fault->faultType?->name, $fault->faultType?->category);
+    }
+
+    /** The same rule for a work order that has no fault (or any caller that only knows the type): $category null/blank = nothing is known about the trade. */
+    public function classifyFor(int $agencyId, ?string $typeName, ?string $category): array
+    {
+        $category = trim((string) ($category ?? ''));
+        $rows = AgencyServiceProvider::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)->where('is_active', true)->whereNull('deleted_at')
+            ->maintenanceContractors()->pickerOrder()->with('serviceContacts')->get();
+
+        $codes = $category !== '' ? $this->matchingServiceTypeCodes($agencyId, $category) : [];
+        $ticked = $codes === [] ? collect() : DB::table('agency_service_provider_service_types')
+            ->where('agency_id', $agencyId)->whereNull('deleted_at')->whereIn('service_type', $codes)->pluck('service_provider_id')->unique();
+        $trades = DB::table('agency_service_provider_service_types')
+            ->where('agency_id', $agencyId)->whereNull('deleted_at')->whereIn('service_provider_id', $rows->pluck('id'))
+            ->get(['service_provider_id', 'service_type'])->groupBy('service_provider_id');
+        $labels = AgencyServiceType::withoutGlobalScopes()->where('agency_id', $agencyId)->pluck('label', 'code');
+        $jobs = app(RentalContractorJobService::class);
+
+        $all = $rows->map(function ($p) use ($category, $ticked, $trades, $labels, $jobs) {
+            $contact = $jobs->contactFor($p);
+
+            return [
+                'id' => (int) $p->id, 'name' => (string) $p->name, 'phone' => $p->phone ?: null,
+                'email' => $contact['email'], 'mobile' => $contact['phone'], 'has_contact' => $contact['has_contact'],
+                'trades' => ($trades[$p->id] ?? collect())->map(fn ($t) => $labels[$t->service_type] ?? $t->service_type)->unique()->implode(', '),
+                'suits' => $category === '' ? true : $ticked->contains((int) $p->id),
+            ];
+        });
+
+        return [
+            'type' => $typeName,
+            'category' => $category !== '' ? $category : null,
+            'suits' => $all->where('suits', true)->values(),
+            'others' => $all->where('suits', false)->values(),
+            'mapping_gap' => $category !== '' && $codes === [],
+        ];
     }
 
     /** @return Collection<int, array{id:int, name:string, phone:?string}> */
@@ -90,6 +140,12 @@ class RentalFaultContractorService
             ->values();
     }
 
+    /** The agency's service-type code that matches a category (first match), or null. */
+    public function classifyTradeCode(int $agencyId, string $category): ?string
+    {
+        return $this->matchingServiceTypeCodes($agencyId, $category)[0] ?? null;
+    }
+
     /** The agency's service-type code for this fault's trade (first match), or null - used to label a work order's trade without asking. */
     public function tradeCodeFor(RentalFaultReport $fault): ?string
     {
@@ -102,28 +158,16 @@ class RentalFaultContractorService
     }
 
     /**
-     * Every active contractor of the fault's agency for the agent's picker, those that suit this type of work first (flagged `suits`).
+     * Every active contractor of the fault's agency for the agent's picker: those that suit this type of work first (flagged `suits`),
+     * then the rest - the same {@see self::classify()} the owner portal's note and the pre-send warning use.
      *
-     * @return Collection<int, array{id:int, name:string, phone:?string, trades:string, suits:bool}>
+     * @return Collection<int, array{id:int, name:string, phone:?string, email:?string, mobile:?string, has_contact:bool, trades:string, suits:bool}>
      */
     public function pickerFor(RentalFaultReport $fault): Collection
     {
-        // "suits this fault" only means something when the fault has a type to match; with none, every contractor is simply listed
-        $suits = $fault->faultType?->category ? $this->optionsFor($fault)->pluck('id')->all() : [];
-        $rows = AgencyServiceProvider::withoutGlobalScopes()
-            ->where('agency_id', $fault->agency_id)->where('is_active', true)->whereNull('deleted_at')
-            ->maintenanceContractors()->pickerOrder()->get(['id', 'name', 'phone']);
-        $trades = DB::table('agency_service_provider_service_types')
-            ->where('agency_id', $fault->agency_id)->whereNull('deleted_at')
-            ->whereIn('service_provider_id', $rows->pluck('id'))
-            ->get(['service_provider_id', 'service_type'])->groupBy('service_provider_id');
-        $labels = AgencyServiceType::withoutGlobalScopes()->where('agency_id', $fault->agency_id)->pluck('label', 'code');
+        $c = $this->classify($fault);
 
-        return $rows->map(fn ($p) => [
-            'id' => (int) $p->id, 'name' => (string) $p->name, 'phone' => $p->phone ?: null,
-            'trades' => ($trades[$p->id] ?? collect())->map(fn ($t) => $labels[$t->service_type] ?? $t->service_type)->unique()->implode(', '),
-            'suits' => in_array((int) $p->id, $suits, true),
-        ])->sortBy(fn ($r) => [$r['suits'] ? 0 : 1, mb_strtolower($r['name'])])->values();
+        return $c['suits']->concat($c['others'])->values();
     }
 
     /** Is this supplier one of the options for this fault? (server-side guard for both decision routes) */

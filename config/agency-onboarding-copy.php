@@ -558,6 +558,8 @@ return [
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateFaultPhotoMaxMb'],
             // rentals-faults-work-orders.md §18 (AT-452) — has()-guarded toggle.
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateTenantSeesAgentMarks'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewLinkAutoSendOnFaultJob'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateFaultRecurrenceWindowDays'],
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateFaqTexts'],
         ],
         'controls' => [
@@ -864,6 +866,16 @@ return [
              'label' => 'Largest fault photo (MB)',
              'explain' => 'The portal shrinks each phone photo before it is sent (a typical photo arrives well under 1 MB). A photo that is still larger than this when it arrives is refused with a clear message.',
              'affects' => 'Only matters for unusually large images. 8 MB suits most agencies.'],
+            // rentals-faults-work-orders.md §19 (AT-452 round 2) - the crew's job link goes out by itself.
+            ['key' => 'crew_link_auto_send_on_fault_job', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Send the crew their job link automatically when a fault becomes a job',
+             'explain' => 'When the owner has approved a repair and your agent chooses "our own maintenance crew", CoreX can email the crew their private job link straight away (and prepare a WhatsApp for you to open and send), instead of waiting for someone to remember. If the crew has no email or mobile on file, or no crew is chosen yet, the job card says so plainly.',
+             'affects' => 'Whether the crew hears about a new job the moment the job card is created. On by default; the "Email to crew" button on the job card still works as Resend either way.'],
+            // rentals-faults-work-orders.md §19.7 (AT-452 round 2) - "reported before" on a repeat fault.
+            ['key' => 'fault_recurrence_window_days', 'source' => 'rental_portal', 'type' => 'number', 'default' => 90, 'min' => 1, 'max' => 730,
+             'label' => '"Reported before" window (days)',
+             'explain' => 'When a tenant fixes a fault themselves with the suggested step and the same kind of fault is reported again on that property, your agent and the owner are shown a line saying it was reported before and the tenant resolved it then. This is how many days that link lasts.',
+             'affects' => 'Whether a repeat fault is flagged as a repeat. 90 days suits most agencies - shorter hides older repeats, longer flags more of them.'],
             // rentals-faults-work-orders.md §18 (AT-452) — agent marks on fault photos.
             ['key' => 'tenant_sees_agent_marks', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 0,
              'label' => 'Show the tenant my agents\' marks and notes on their photos',

@@ -77,6 +77,10 @@ class RentalFaultReport extends Model
      * logged as evidence even though nothing was repaired by a supplier.
      */
     public const OUTCOME_RESOLVED_BY_FIRST_AID = 'resolved_by_first_aid';
+    /** AT-452 round 2 (F) - what staff read for a fault the tenant closed themselves with the suggested step. */
+    public const ARRANGED_NO_APPROVAL_LIMIT = 'no_approval_limit';
+    public const ARRANGED_EMERGENCY = 'emergency';
+    public const SELF_RESOLVED_LABEL = 'Resolved by tenant - tried the suggested fix';
 
     protected $fillable = [
         'agency_id',
@@ -87,6 +91,11 @@ class RentalFaultReport extends Model
         'rental_fault_type_id',
         'reported_inspection_observation_id',
         'rental_work_order_id',
+        'follows_fault_report_id',
+        'arranged_by_agent_at',
+        'arranged_by_user_id',
+        'arranged_basis',
+        'arranged_limit_amount',
         'reported_by_type',
         'reported_by_contact_id',
         'reported_by_user_id',
@@ -126,6 +135,8 @@ class RentalFaultReport extends Model
         'reported_at' => 'datetime',
         'resolved_at' => 'datetime',
         'cancelled_at' => 'datetime',
+        'arranged_by_agent_at' => 'datetime',
+        'arranged_limit_amount' => 'decimal:2',
     ];
 
     /** Deleted-related-record rule (.ai/BUILD_STANDARD.md §4) — see Lease::property(). */
@@ -253,6 +264,8 @@ class RentalFaultReport extends Model
                     RentalFaultReportUpdate::TYPE_ARCHIVED => 'Archived',
                     RentalFaultReportUpdate::TYPE_RESTORED => 'Restored',
                     RentalFaultReportUpdate::TYPE_NOTE => 'Note added',
+                    RentalFaultReportUpdate::TYPE_ARRANGED_BY_AGENT => 'Went ahead - owner informed',
+                    RentalFaultReportUpdate::TYPE_OWNER_QUERY => 'Owner asked a question',
                     RentalFaultReportUpdate::TYPE_PHOTO_MARK_ADDED => 'Photo mark added',
                     RentalFaultReportUpdate::TYPE_PHOTO_MARK_CHANGED => 'Photo mark changed',
                     RentalFaultReportUpdate::TYPE_PHOTO_MARK_REMOVED => 'Photo mark removed',
@@ -409,7 +422,20 @@ class RentalFaultReport extends Model
      */
     public function statusLabel(): string
     {
-        return static::statusWord((string) $this->status);
+        return $this->isTenantSelfResolved() ? self::SELF_RESOLVED_LABEL : static::statusWord((string) $this->status);
+    }
+
+    /**
+     * AT-452 round 2 (F) - the tenant read "Try this first", pressed "That fixed it", and the fault closed itself: a record for the agent
+     * to SEE, never a fault to work. Derived from what is stored (outcome + who reported it + not an automatic close), so it also reads
+     * correctly on records made before this was a named state.
+     */
+    public function isTenantSelfResolved(): bool
+    {
+        return $this->status === self::STATUS_RESOLVED
+            && $this->outcome === self::OUTCOME_RESOLVED_BY_FIRST_AID
+            && $this->reported_by_type === self::REPORTED_BY_TENANT
+            && ! $this->outcome_set_automatically;
     }
 
     /** C2 (Johan, 9 Oct 2026): the one name of a status, wherever it is printed - config/rental-fault-statuses.php. */
@@ -421,6 +447,10 @@ class RentalFaultReport extends Model
     /** The same status for the OWNER's screens: an unsent report is only ever "with your agent". */
     public function ownerStatusLabel(): string
     {
+        if ($this->isArrangedByAgent() && ! $this->isClosedState()) {
+            return 'Arranged by your agent';   // item I - informed, never asked
+        }
+
         return match ($this->status) {
             self::STATUS_REPORTED, self::STATUS_UNDER_REVIEW => 'With your agent',
             self::STATUS_AWAITING_APPROVAL => 'Waiting for your decision',
@@ -537,7 +567,19 @@ class RentalFaultReport extends Model
         return $query->where(function (Builder $q) {
             $q->whereNotNull('rental_fault_reports.sent_to_owner_at')
                 ->orWhereIn('rental_fault_reports.owner_approval_status', [self::APPROVAL_PENDING, self::APPROVAL_APPROVED, self::APPROVAL_DECLINED])
-                ->orWhere('rental_fault_reports.reported_by_type', self::REPORTED_BY_LANDLORD);
+                ->orWhere('rental_fault_reports.reported_by_type', self::REPORTED_BY_LANDLORD)
+                // AT-452 round 2 (item I, Johan 12 Oct 2026): every fault the agency ACTED on reaches the owner - one the agent arranged inside the no-approval limit
+                // or as an emergency (informed, never asked), and any fault that has a work order, whatever route it took.
+                ->orWhereNotNull('rental_fault_reports.arranged_by_agent_at')
+                ->orWhereNotNull('rental_fault_reports.rental_work_order_id')
+                // AT-452 round 2 (F-OWNER, Johan 12 Oct 2026): a fault the tenant fixed themselves with the suggested step IS shown to the owner -
+                // it proves the fault existed, that the agency's advice dealt with it, at no cost, and if it comes back they already knew.
+                ->orWhere(function (Builder $s) {
+                    $s->where('rental_fault_reports.status', self::STATUS_RESOLVED)
+                        ->where('rental_fault_reports.outcome', self::OUTCOME_RESOLVED_BY_FIRST_AID)
+                        ->where('rental_fault_reports.reported_by_type', self::REPORTED_BY_TENANT)
+                        ->where('rental_fault_reports.outcome_set_automatically', false);
+                });
         });
     }
 
@@ -545,7 +587,108 @@ class RentalFaultReport extends Model
     {
         return $this->sent_to_owner_at !== null
             || in_array($this->owner_approval_status, [self::APPROVAL_PENDING, self::APPROVAL_APPROVED, self::APPROVAL_DECLINED], true)
-            || $this->reported_by_type === self::REPORTED_BY_LANDLORD;
+            || $this->reported_by_type === self::REPORTED_BY_LANDLORD
+            || $this->arranged_by_agent_at !== null
+            || $this->rental_work_order_id !== null
+            || $this->isTenantSelfResolved();
+    }
+
+    /** AT-452 round 2 (G) - a fault whose story is over: the portals show it as one collapsed line. Open ones stay expanded. */
+    public function isClosedState(): bool
+    {
+        return in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED, self::STATUS_DECLINED], true);
+    }
+
+    /** The two or three words a closed fault ends on, in each audience's own wording (never the owner's reason to the tenant). */
+    public function endStateFor(string $audience): ?string
+    {
+        if (! $this->isClosedState()) {
+            return null;
+        }
+        $owner = $audience === 'owner';
+        if ($this->isTenantSelfResolved()) {
+            return $owner ? 'resolved without a repair' : 'you fixed this yourself';
+        }
+        if ($this->status === self::STATUS_CANCELLED) {
+            return 'cancelled';
+        }
+        if ($this->status === self::STATUS_DECLINED || $this->outcome === self::OUTCOME_OWNER_DECLINED) {
+            return $owner ? 'you declined' : 'not approved';
+        }
+        if (in_array($this->outcome, [self::OUTCOME_REPAIRED, self::OUTCOME_REPAIRED_PARTIALLY], true)) {
+            return 'repaired';
+        }
+
+        return 'closed';
+    }
+
+    /** Item I - the agent went ahead without waiting for the owner (inside the no-approval limit, or an emergency); the owner was informed, not asked. */
+    public function isArrangedByAgent(): bool
+    {
+        return $this->arranged_by_agent_at !== null && $this->decision() === null;
+    }
+
+    /** The one sentence the owner reads about how this repair came to be arranged (item I). */
+    public function arrangedText(): ?string
+    {
+        if (! $this->isArrangedByAgent()) {
+            return null;
+        }
+        if ($this->arranged_basis === self::ARRANGED_EMERGENCY) {
+            return 'Your agent arranged this repair as an emergency.';
+        }
+
+        return 'Your agent arranged this repair under your R' . number_format((float) $this->arranged_limit_amount, 2, '.', ' ') . ' no-approval limit.';
+    }
+
+    /** The earlier report this one follows (the tenant-resolved one a "Report it again" / "Have this repaired anyway" came from). */
+    public function followsFaultReport(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'follows_fault_report_id')->withTrashed();
+    }
+
+    /** Requests raised from THIS (tenant-resolved) report: "Have this repaired anyway" and "Report it again", oldest first. */
+    public function followUps(): HasMany
+    {
+        return $this->hasMany(self::class, 'follows_fault_report_id')->orderBy('id');
+    }
+
+    /**
+     * AT-452 round 2 (F-OWNER) - "Reported before on <date> ...": the most recent EARLIER fault of the same type on the same property that is
+     * still on the record (not cancelled, not archived). An earlier fault the tenant resolved themselves only counts inside the agency's
+     * recurrence window (`fault_recurrence_window_days`, default 90) - or when this report was raised FROM it; any other earlier fault of the
+     * type (repaired, declined, still open) counts whenever it was.
+     *
+     * @return array{id:int, at:\Carbon\Carbon, how:string, text:string}|null how = tenant_self | repaired | other
+     */
+    public function reportedBefore(): ?array
+    {
+        if (! $this->rental_fault_type_id || ! $this->property_id) {
+            return null;
+        }
+        $window = \App\Models\RentalPortalSetting::faultRecurrenceWindowDaysFor($this->agency_id);
+        $me = $this->reported_at ?? $this->created_at ?? now();
+        $candidates = static::withoutGlobalScopes()
+            ->where('agency_id', $this->agency_id)->whereNull('deleted_at')
+            ->where('property_id', $this->property_id)->where('rental_fault_type_id', $this->rental_fault_type_id)
+            ->where('id', '<', $this->id ?? PHP_INT_MAX)->where('status', '!=', self::STATUS_CANCELLED)
+            ->orderByDesc('reported_at')->orderByDesc('id')->get();
+        foreach ($candidates as $c) {
+            $at = $c->reported_at ?? $c->created_at;
+            if ($c->isTenantSelfResolved()) {
+                $linked = (int) $this->follows_fault_report_id === (int) $c->id;
+                if (! $linked && $at->copy()->addDays($window)->lt($me)) {
+                    continue;
+                }
+
+                return ['id' => $c->id, 'at' => $at, 'how' => 'tenant_self', 'text' => 'Reported before on ' . $at->format('j M Y') . ' - the tenant resolved it then with the suggested step'];
+            }
+            $how = $c->outcome === self::OUTCOME_REPAIRED ? 'repaired' : 'other';
+
+            return ['id' => $c->id, 'at' => $at, 'how' => $how, 'text' => 'Reported before on ' . $at->format('j M Y') . ($how === 'repaired' ? ' - repaired then' : ' - ' . strtolower($c->statusLabel()))];
+        }
+
+        return null;
     }
 
     /** The decision that settled this fault (latest row of the append-only log), or null while undecided. */
@@ -904,7 +1047,8 @@ class RentalFaultReport extends Model
             self::STATUS_RESOLVED => 'This fault report is already resolved.',
             self::STATUS_CANCELLED => 'This fault report was cancelled.',
             // W1/W5 (8 Oct 2026): every approved fault gets a work order - whoever does the work, including the owner's own contractor.
-            self::STATUS_APPROVED, self::STATUS_OWNER_HANDLING, self::STATUS_REPORTED, self::STATUS_AWAITING_APPROVAL => null,
+            // AT-452 round 2 (item I): `under_review` is where the owner version has been prepared - exactly when "Go ahead and tell the owner" is offered.
+            self::STATUS_APPROVED, self::STATUS_OWNER_HANDLING, self::STATUS_REPORTED, self::STATUS_UNDER_REVIEW, self::STATUS_AWAITING_APPROVAL => null,
             // Its work order was cancelled (and nothing live replaced it): the repair still has to happen, so a new one may be created.
             self::STATUS_WORK_ORDER_RAISED => null,
             default => 'A work order cannot be created from this fault report in its current state.',

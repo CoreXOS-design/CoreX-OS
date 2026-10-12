@@ -8,9 +8,44 @@
         <p class="badge" style="background:#fdecea; color:#b3261e;" x-show="faultDetail.awaiting_decision" data-needs-decision-banner>Needs your decision</p>
         <h2 x-text="faultDetail.title"></h2>
         <p class="muted" x-text="(faultDetail.property || '') + ' · ' + faultDetail.status_label"></p>
+        <p class="muted" x-show="faultDetail.reported_before" data-reported-before>
+            <span x-text="faultDetail.reported_before && faultDetail.reported_before.text"></span>
+            <a class="link" href="#" x-show="faultDetail.reported_before && faultDetail.reported_before.fault_id" @click.prevent="openFault(faultDetail.reported_before.fault_id)"> - see it</a>
+        </p>
+
+        {{-- AT-452 round 2 (F-OWNER) - a fault the tenant fixed themselves: shown to the owner, never a decision. --}}
+        <template x-if="faultDetail.self_resolved">
+            <section class="sec" data-fault-section="self-resolved">
+                <h3>Resolved without a repair</h3>
+                <p style="margin:0 0 8px;" data-self-resolved-text>
+                    <span x-text="faultDetail.type_name + ' - ' + (faultDetail.property || '') + '. Reported by the tenant ' + fmtDay(faultDetail.reported_at) + '. '"></span><span x-show="faultDetail.advice" x-text="'Resolved with the suggested step: ' + faultDetail.advice + '. '"></span><strong>No cost.</strong>
+                    <span x-show="faultDetail.tenant_description" x-text="' The tenant wrote: ' + faultDetail.tenant_description"></span>
+                </p>
+                <p class="muted" x-show="faultDetail.repair_asked" data-repair-asked>Owner asked for a repair on <span x-text="fmtDay(faultDetail.repair_asked && faultDetail.repair_asked.at)"></span> &mdash; <a class="link" href="#" @click.prevent="openFault(faultDetail.repair_asked.id)">see the request</a></p>
+                <button class="btn btn-outline" x-show="!faultDetail.repair_asked" data-repair-anyway @click="repairAnyway(faultDetail)">Have this repaired anyway</button>
+            </section>
+        </template>
+
+        {{-- AT-452 round 2 (item I) - the agent arranged this without waiting (inside the no-approval limit, or an emergency): the owner is INFORMED, never asked. --}}
+        <template x-if="faultDetail.arranged">
+            <section class="sec" data-fault-section="arranged">
+                <h3>Arranged by your agent</h3>
+                <p style="margin:0 0 6px;" data-arranged-text x-text="faultDetail.arranged.text"></p>
+                <p style="margin:0 0 6px;" x-show="faultDetail.work_order" data-arranged-who x-text="faultDetail.work_order ? (faultDetail.work_order.who_label + (faultDetail.work_order.contractor_name ? ' — ' + faultDetail.work_order.contractor_name : '')) : ''"></p>
+                <p style="margin:0 0 6px;" x-show="faultDetail.arranged.amount !== null && faultDetail.arranged.amount !== undefined" data-arranged-amount><strong x-text="(faultDetail.arranged.final_cost !== null ? 'Quoted / approved: ' : 'Quoted / approved: ') + 'R ' + Number(faultDetail.arranged.amount || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})"></strong></p>
+                <p style="margin:0 0 6px;" x-show="faultDetail.arranged.final_cost !== null" data-arranged-final><strong x-text="'Final cost: R ' + Number(faultDetail.arranged.final_cost || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})"></strong></p>
+                <p class="error" style="margin:0 0 6px;" x-show="faultDetail.arranged.needs_owner_approval" data-arranged-over-limit>This has gone over your no-approval limit, so it needs your approval before the work goes ahead &mdash; open the work order below.</p>
+                <template x-for="(q, qi) in (faultDetail.arranged.queries || [])" :key="qi"><p class="muted" style="margin:0 0 4px;" x-text="'You asked ' + fmtDay(q.at) + ': ' + q.note"></p></template>
+                <label style="margin-top:8px;">Query this</label>
+                <textarea rows="2" maxlength="1000" x-model="queryForm.note" placeholder="Ask your agent a question about this repair" data-query-note></textarea>
+                <p class="error" x-show="queryForm.error" x-text="queryForm.error"></p>
+                <p class="muted" x-show="queryForm.sent" data-query-sent>Sent &mdash; your agent has been told.</p>
+                <button class="btn btn-outline" :disabled="!!(queryForm.busy || queryForm.note.trim().length < 3)" @click="sendQuery()" data-query-send>Send my question</button>
+            </section>
+        </template>
 
         {{-- 1. Progress (and, once a work order exists, where the repair stands) --}}
-        <template x-if="faultDetail.progress || faultDetail.work_order">
+        <template x-if="!faultDetail.self_resolved && (faultDetail.progress || faultDetail.work_order)">
             <section class="sec" data-fault-section="progress">
                 <h3>Progress</h3>
                 <template x-if="faultDetail.progress"><div>@include('rentals.portal._progress', ['p' => 'faultDetail.progress'])</div></template>
