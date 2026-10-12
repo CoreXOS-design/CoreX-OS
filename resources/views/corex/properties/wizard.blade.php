@@ -4,6 +4,11 @@
 @php
     $currentUser = auth()->user();
     $listingTypes = ['sale' => 'For Sale', 'rental' => 'For Rental'];
+    // AT-432 — third tile, only on an agency with Auctions on and a user who may create auctions.
+    $auctionTileOn = app(\App\Services\Features\AgencyFeatureService::class)->enabled('auctions', $currentUser->effectiveAgencyId() ? \App\Models\Agency::find($currentUser->effectiveAgencyId()) : null)
+        && $currentUser->hasPermission('auctions.create');
+    if ($auctionTileOn) { $listingTypes['auction'] = 'On Auction'; }
+    $openAuctions = $auctionTileOn ? \App\Services\Auctions\AuctionLotAttacher::openAuctions() : collect();
 @endphp
 
 <div class="max-w-4xl mx-auto"
@@ -132,29 +137,46 @@
             {{-- Listing type tiles --}}
             <div data-tour="wiz-listing-type">
                 <label class="block text-xs font-semibold uppercase tracking-wider mb-2" style="color:var(--text-secondary);">Listing type</label>
-                <div class="grid grid-cols-2 gap-3">
+                <div class="grid {{ $auctionTileOn ? 'grid-cols-3' : 'grid-cols-2' }} gap-3">
                     @foreach($listingTypes as $value => $label)
-                    <button type="button" @click="s1.listing_type = '{{ $value }}'"
-                            :class="s1.listing_type === '{{ $value }}' ? 'ring-2' : ''"
-                            :style="s1.listing_type === '{{ $value }}'
+                    <button type="button" @click="pickListing('{{ $value }}')"
+                            :class="tileOn('{{ $value }}') ? 'ring-2' : ''"
+                            :style="tileOn('{{ $value }}')
                                 ? '--tw-ring-color:var(--brand-icon,#0ea5e9);background:color-mix(in srgb,var(--brand-icon,#0ea5e9) 8%,var(--surface));border-color:var(--brand-icon,#0ea5e9);'
                                 : 'background:var(--surface-2);border-color:var(--border);'"
                             class="rounded-md border px-4 py-4 flex items-center gap-3 transition-all duration-200 cursor-pointer">
                         <span class="inline-flex items-center justify-center w-10 h-10 rounded-md"
-                              :style="s1.listing_type === '{{ $value }}' ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);'">
+                              :style="tileOn('{{ $value }}') ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);'">
                             @if($value === 'sale')
                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l9-9 9 9M5 10v10a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V10"/></svg>
+                            @elseif($value === 'auction')
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14 10l-8 8m0 0l-2-2m2 2l2 2M16 4l4 4-6 6-4-4 6-6zM4 21h8"/></svg>
                             @else
                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4M12 21a9 9 0 100-18 9 9 0 000 18z"/></svg>
                             @endif
                         </span>
                         <div class="text-left">
                             <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $label }}</div>
-                            <div class="text-[11px]" style="color:var(--text-muted);">{{ $value === 'sale' ? 'Property is on the market' : 'Property is for rent' }}</div>
+                            <div class="text-[11px]" style="color:var(--text-muted);">{{ $value === 'sale' ? 'Property is on the market' : ($value === 'auction' ? 'Sold at an auction' : 'Property is for rent') }}</div>
                         </div>
                     </button>
                     @endforeach
                 </div>
+
+                @if($auctionTileOn)
+                <div x-show="s1.sale_method === 'auction'" x-cloak class="mt-3">
+                    <label class="block text-xs font-semibold uppercase tracking-wider mb-2" style="color:var(--text-secondary);">Which auction? <span class="text-red-500">*</span></label>
+                    <select x-model="s1.auction_id" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        <option value="">Select an auction…</option>
+                        @foreach($openAuctions as $oa)
+                        <option value="{{ $oa->id }}">{{ $oa->reference }} — {{ $oa->title }} ({{ $oa->starts_at?->format('d M Y') }})</option>
+                        @endforeach
+                    </select>
+                    @if($openAuctions->isEmpty())
+                    <p class="text-[11px] mt-1" style="color:var(--text-muted);">There is no upcoming auction yet. <a href="{{ route('corex.auctions.create') }}" class="underline">Create the auction first</a>, then start this listing.</p>
+                    @endif
+                </div>
+                @endif
             </div>
 
             {{-- Title / Headline --}}
@@ -658,7 +680,7 @@ function propertyWizard(config) {
         uploadError: null,
 
         // Step data — agent_id defaults to current user; the server enforces who can change it.
-        s1: { listing_type: 'sale', title: '', property_type: '', suburb: '', city: '', province: '',
+        s1: { listing_type: 'sale', sale_method: 'private_treaty', auction_id: '', title: '', property_type: '', suburb: '', city: '', province: '',
               p24_province_id: 0, p24_city_id: 0, p24_suburb_id: 0,
               street_number: '', street_name: '', price: null, beds: 0, baths: 0, half_baths: 0, garages: 0,
               unit_number: '', floor_number: '', unit_section_block: '', complex_name: '',
@@ -717,8 +739,20 @@ function propertyWizard(config) {
 
         formatZAR(n) { return 'R ' + Number(n || 0).toLocaleString('en-ZA').replace(/,/g, ' '); },
 
+        // AT-432 — three tiles, two fields: "On Auction" is a sale with sale_method=auction.
+        tileOn(v) {
+            if (v === 'auction') return this.s1.sale_method === 'auction';
+            if (v === 'sale') return this.s1.listing_type === 'sale' && this.s1.sale_method !== 'auction';
+            return this.s1.listing_type === 'rental';
+        },
+        pickListing(v) {
+            this.s1.listing_type = v === 'rental' ? 'rental' : 'sale';
+            this.s1.sale_method = v === 'auction' ? 'auction' : 'private_treaty';
+        },
+
         step1Valid() {
             return this.s1.listing_type
+                && (this.s1.sale_method !== 'auction' || this.s1.auction_id)
                 && this.s1.title.trim()
                 && this.s1.property_type
                 && this.s1.p24_province_id && this.s1.p24_province_id != 0

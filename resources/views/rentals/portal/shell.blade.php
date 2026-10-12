@@ -88,7 +88,7 @@
         .aid-safety { display:flex; gap:10px; align-items:flex-start; background:#fff4e5; border:1px solid #f59e0b; border-left-width:5px; border-radius:10px; padding:10px 12px; margin:0 0 12px; font-weight:600; font-size:14px; color:#7a4100; }
         .aid-safety svg { flex:0 0 22px; width:22px; height:22px; margin-top:1px; }
         .aid-safety p { margin:0; }
-        .aid-h { font-size:17px; margin:4px 0 8px; }
+        .aid-h { font-size:17px; font-weight:700; margin:4px 0 8px; }
         .aid-list { background:#eaf6fb; border:1px solid #b6e0ee; border-radius:10px; padding:12px 14px 12px 34px; margin:0 0 12px; font-size:14px; }
         .aid-list li { margin:4px 0; padding-left:2px; }
         .btn-brand { background:var(--brand); color:#fff; }
@@ -98,7 +98,7 @@
         /* AT-452 - a photo that opens the shared viewer, and the owner decision screen's sections */
         .photo-btn { padding:0; border:0; background:none; cursor:zoom-in; border-radius:8px; }
         .sec { border-top:1px solid var(--border); margin-top:14px; padding-top:12px; }
-        .sec > h3 { font-size:15px; margin:0 0 8px; }
+        .sec > h3 { font-size:15px; font-weight:700; margin:0 0 8px; }
         .done-card { text-align:center; }
         .done-card .tick { width:44px; height:44px; border-radius:50%; background:var(--ok); color:#fff; font-size:26px; line-height:44px; margin:0 auto 8px; }
     </style>
