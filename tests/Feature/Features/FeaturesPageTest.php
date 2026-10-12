@@ -139,6 +139,28 @@ final class FeaturesPageTest extends TestCase
             ->assertSee('href="' . route('corex.features.index') . '"', false);
     }
 
+    public function test_settings_is_a_sub_menu_holding_the_settings_page_and_features_and_features_left_company(): void
+    {
+        $sidebar = file_get_contents(resource_path('views/layouts/corex-sidebar.blade.php'));
+
+        // One "Settings" slide-panel group; Settings page + Features page both inside it.
+        $this->assertStringContainsString("push('settings')", $sidebar);
+        $this->assertStringContainsString('<div class="corex-nav-panel-title">Settings</div>', $sidebar);
+        preg_match('#<div class="corex-nav-panel-title">Settings</div>(.*?)</div>\s*</div>#s', $sidebar, $group);
+        $this->assertNotEmpty($group, 'the Settings group panel must exist');
+        $this->assertStringContainsString("route('corex.settings')", $group[1]);
+        $this->assertStringContainsString("route('corex.features.index')", $group[1]);
+
+        // Features no longer sits in the Company group.
+        preg_match('#<div class="corex-nav-panel-title">Company</div>(.*?)</div>\s*</div>#s', $sidebar, $company);
+        $this->assertNotEmpty($company);
+        $this->assertStringNotContainsString("route('corex.features.index')", $company[1]);
+
+        // The Features page lights up the Settings group.
+        $this->assertStringContainsString("'corex.features.*',", $sidebar);
+        $this->assertStringContainsString('$activeGroup = \'settings\';', $sidebar);
+    }
+
     public function test_saving_returns_to_the_new_page_and_the_page_shows_the_saved_state(): void
     {
         $response = $this->actingAs($this->admin)->post(route('corex.settings.features.update'), ['rentals' => '0']);
