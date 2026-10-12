@@ -121,6 +121,17 @@
 
         {{-- Quick Links W2 (spec §5.2) — book a viewing of THIS property: opens the calendar's new-viewing form with the property
              already attached (same prefill the Matches tab uses per buyer; the agent picks the buyer there). --}}
+        {{-- Quick Links W2 — start a rental application for THIS rental (the form opens with the property already picked). --}}
+        @if($property->isRental())
+        @feature('rentals')
+        @permission('rental_applications.create')
+        <a href="{{ route('corex.rental-applications.create', ['property_id' => $property->id]) }}" target="_blank" rel="noopener"
+           class="prop-action-btn prop-action-btn-neutral no-underline" data-rental-application-quick
+           title="Opens a new rental application in a new tab with this property already picked">New rental application</a>
+        @endpermission
+        @endfeature
+        @endif
+
         @permission('command_center.calendar.view')
         <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_class' => 'viewing', 'prefill_properties' => json_encode([['id' => $property->id, 'address' => $property->title ?: trim(($property->suburb ?? 'Property'))]])]) }}"
            target="_blank" rel="noopener" class="prop-action-btn prop-action-btn-neutral no-underline" data-book-viewing-quick

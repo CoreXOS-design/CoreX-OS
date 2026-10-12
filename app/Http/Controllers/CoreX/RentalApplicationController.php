@@ -526,10 +526,17 @@ class RentalApplicationController extends Controller
      * stale/foreign id just resolves to null rather than leaking anything)
      * and handed to the view to seed the Alpine component's initial state.
      */
-    public function create(): View
+    public function create(Request $request): View
     {
-        $oldContact = old('contact_id') ? Contact::find(old('contact_id')) : null;
-        $oldProperty = old('property_id') ? Property::find(old('property_id')) : null;
+        // Quick Links W2 (spec §6) — ?contact_id= / ?property_id= pre-fill the form from a contact or property page. Read-only
+        // convenience: both lookups go through the SAME scoped finders the store path uses (Contact's global scopes; a property
+        // must be a rental the user may link), so a pre-filled id the user could not have picked by hand is simply ignored.
+        // A failed-validation redirect still wins (old() first), exactly as before.
+        $contactId  = old('contact_id', $request->query('contact_id'));
+        $propertyId = old('property_id', $request->query('property_id'));
+
+        $oldContact  = $contactId ? Contact::find((int) $contactId) : null;
+        $oldProperty = $propertyId ? Property::findLinkableForRentalApplication((int) $propertyId, $request->user()) : null;
 
         return view('corex.rental-applications.create', compact('oldContact', 'oldProperty'));
     }

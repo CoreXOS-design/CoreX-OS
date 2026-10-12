@@ -60,6 +60,14 @@
     </form>
     @endpermission
     @endfeature
+    {{-- Quick Links W2 — start a rental application for this person (the form opens with them already picked). --}}
+    @feature('rentals')
+    @permission('rental_applications.create')
+    <a href="{{ route('corex.rental-applications.create', ['contact_id' => $contact->id]) }}" target="_blank" rel="noopener"
+       class="corex-btn-outline text-xs flex-shrink-0 no-underline" data-rental-application-quick
+       title="Opens a new rental application in a new tab with this contact already picked">Rental Application</a>
+    @endpermission
+    @endfeature
     @endif
 
     {{-- Create Listing from Contact (only if no linked properties).

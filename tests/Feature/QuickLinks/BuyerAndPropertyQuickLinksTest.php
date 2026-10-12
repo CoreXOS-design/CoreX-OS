@@ -185,4 +185,46 @@ final class BuyerAndPropertyQuickLinksTest extends TestCase
         $p = $this->property(['mandate_type' => null, 'expiry_date' => null]);
         $this->assertStringNotContainsString('data-mandate-chip', $this->actingAs($this->admin)->get(route('corex.properties.show', $p))->getContent());
     }
+
+    public function test_rental_application_opens_pre_filled_from_a_contact_and_from_a_rental_property(): void
+    {
+        $buyer = $this->contact(['first_name' => 'Thabo', 'last_name' => 'Prefill']);
+        $rental = $this->property(['listing_type' => 'rental', 'title' => '5 Rental Lane', 'mandate_type' => null, 'expiry_date' => null]);
+
+        // the links exist on both pages for someone who may create applications
+        $this->assertTrue($this->admin->hasPermission('rental_applications.create'));
+        $this->assertStringContainsString('data-rental-application-quick', $this->page($buyer, $this->admin));
+        $this->assertStringContainsString('data-rental-application-quick', $this->actingAs($this->admin)->get(route('corex.properties.show', $rental))->getContent());
+        // ...but not on a property that is not a rental
+        $sale = $this->property(['title' => '9 Sale Street']);
+        $this->assertStringNotContainsString('data-rental-application-quick', $this->actingAs($this->admin)->get(route('corex.properties.show', $sale))->getContent());
+
+        // the form opens with them picked
+        $html = $this->actingAs($this->admin)->get(route('corex.rental-applications.create', ['contact_id' => $buyer->id, 'property_id' => $rental->id]))
+            ->assertOk()->getContent();
+        $html = str_replace('\\u0022', '"', $html);   // Js::from() ships the Alpine config with the quotes unicode-escaped
+        $this->assertStringContainsString('Thabo Prefill', $html);
+        $this->assertMatchesRegularExpression('/"contactId":' . $buyer->id . '\b/', $html);
+        $this->assertMatchesRegularExpression('/"propertyId":' . $rental->id . '\b/', $html);
+    }
+
+    public function test_a_pre_filled_id_the_user_could_not_have_picked_is_ignored(): void
+    {
+        $sale = $this->property(['title' => '9 Sale Street']);                      // not a rental => not linkable
+        $other = Agency::create(['name' => 'Far ' . uniqid(), 'slug' => 'far-' . uniqid()]);
+        $farBranch = (int) DB::table('branches')->insertGetId(['agency_id' => $other->id, 'name' => 'Far', 'created_at' => now(), 'updated_at' => now()]);
+        $foreignId = (int) DB::table('contacts')->insertGetId([
+            'agency_id' => $other->id, 'branch_id' => $farBranch, 'first_name' => 'Far', 'last_name' => 'Away',
+            'phone' => '0821234567', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $html = $this->actingAs($this->admin)->get(route('corex.rental-applications.create', ['contact_id' => $foreignId, 'property_id' => $sale->id]))
+            ->assertOk()->getContent();
+        $html = str_replace('\\u0022', '"', $html);
+
+        $this->assertStringNotContainsString('Far Away', $html, 'another agency\'s contact is never pre-filled');
+        $this->assertStringNotContainsString('Uvongo', $html, 'a non-rental property is never pre-filled');
+        $this->assertStringContainsString('"contactId":""', $html);
+        $this->assertStringContainsString('"propertyId":""', $html);
+    }
 }
