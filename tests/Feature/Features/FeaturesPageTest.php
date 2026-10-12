@@ -170,6 +170,21 @@ final class FeaturesPageTest extends TestCase
         );
     }
 
+    public function test_users_is_its_own_role_manager_switch_under_settings_independent_of_access_settings(): void
+    {
+        $perms = collect(config('corex-permissions.permissions'))->keyBy('key');
+        $this->assertSame('settings', $perms['manage_users']['section']);
+        $this->assertSame('Users', $perms['manage_users']['label']);
+        $this->assertSame('access', $perms['manage_users']['type']);
+        $this->assertNotSame($perms['access_settings']['key'], $perms['manage_users']['key']);
+        $this->assertSame(1, $perms->where('key', 'manage_users')->count(), 'defined exactly once');
+
+        // Independent: a Users-only role sees Users in the menu but not the Settings page link, and vice versa.
+        $sidebar = file_get_contents(resource_path('views/layouts/corex-sidebar.blade.php'));
+        $this->assertMatchesRegularExpression("/@permission\\('access_settings'\\)\\s*<a href=\"\\{\\{ route\\('corex\\.settings'\\)/", $sidebar);
+        $this->assertMatchesRegularExpression("/@permission\\('manage_users'\\)\\s*<a href=\"\\{\\{ route\\('admin\\.users'\\)/", $sidebar);
+    }
+
     public function test_ellies_navigation_atlas_knows_the_features_page(): void
     {
         $this->assertArrayHasKey('corex.features.index', config('corex-navigation-atlas'));
