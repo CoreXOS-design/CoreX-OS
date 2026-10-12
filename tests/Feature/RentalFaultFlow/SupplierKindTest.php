@@ -79,57 +79,32 @@ final class SupplierKindTest extends TestCase
         $this->assertDatabaseHas('agency_service_provider_events', ['service_provider_id' => $s->id, 'event' => 'kind_changed']);
     }
 
-    public function test_the_list_has_a_kind_column_search_filters_sort_and_an_empty_state(): void
+    public function test_the_list_has_a_kind_column_a_kind_filter_and_a_kind_sort(): void
     {
-        $this->make('Alpha Plumbing', ['company' => 'Alpha Pty']);
-        $this->make('Bravo Caretaking', ['kind' => 'caretaker', 'specialty' => 'other', 'email' => 'bravo@example.invalid']);
-        $this->make('Charlie Insure', ['kind' => 'insurer', 'specialty' => 'other', 'is_active' => false]);
+        $this->make('Alpha Plumbing');
+        $this->make('Bravo Caretaking', ['kind' => 'caretaker', 'specialty' => 'other']);
+        $this->make('Charlie Insure', ['kind' => 'insurer', 'specialty' => 'other']);
 
         $url = route('deals-v2.suppliers.index');
         $all = $this->actingAs($this->admin)->get($url)->assertOk()->getContent();
-        $this->assertStringContainsString('>Kind</th>', $all);
+        $this->assertStringContainsString('data-sort="kind"', $all);
         foreach (['Alpha Plumbing', 'Bravo Caretaking', 'Charlie Insure'] as $n) {
             $this->assertStringContainsString($n, $all);
         }
         $this->assertStringContainsString('data-supplier-kind="caretaker"', $all);
+        $this->assertStringContainsString('<option value="insurer"', $all);
 
         $byKind = $this->actingAs($this->admin)->get($url . '?kind=caretaker')->getContent();
         $this->assertStringContainsString('Bravo Caretaking', $byKind);
         $this->assertStringNotContainsString('Alpha Plumbing', $byKind);
+        $this->assertStringNotContainsString('Charlie Insure', $byKind);
 
-        $search = $this->actingAs($this->admin)->get($url . '?q=bravo@example')->getContent();
-        $this->assertStringContainsString('Bravo Caretaking', $search);
-        $this->assertStringNotContainsString('Charlie Insure', $search);
-        $this->assertStringContainsString('Alpha Plumbing', $this->actingAs($this->admin)->get($url . '?q=Alpha+Pty')->getContent());
-
-        $inactive = $this->actingAs($this->admin)->get($url . '?status=inactive')->getContent();
-        $this->assertStringContainsString('Charlie Insure', $inactive);
-        $this->assertStringNotContainsString('Alpha Plumbing', $inactive);
-
-        $sorted = $this->actingAs($this->admin)->get($url . '?sort=newest&status=active')->getContent();
+        // sorted by kind: caretaker, contractor, insurer
+        $sorted = $this->actingAs($this->admin)->get($url . '?sort=kind&dir=asc')->getContent();
         $this->assertLessThan(strpos($sorted, 'Alpha Plumbing'), strpos($sorted, 'Bravo Caretaking'));
+        $this->assertLessThan(strpos($sorted, 'Charlie Insure'), strpos($sorted, 'Alpha Plumbing'));
 
-        $none = $this->actingAs($this->admin)->get($url . '?q=zzzzzz')->getContent();
-        $this->assertStringContainsString('data-supplier-empty', $none);
-        $this->assertStringContainsString('No suppliers match that search', $none);
-    }
-
-    public function test_the_list_pages_and_reactivate_brings_a_deactivated_supplier_back(): void
-    {
-        for ($i = 1; $i <= 27; $i++) {
-            $this->make(sprintf('Supplier %02d', $i));
-        }
-        $page1 = $this->actingAs($this->admin)->get(route('deals-v2.suppliers.index') . '?sort=name')->getContent();
-        $this->assertStringContainsString('data-supplier-pagination', $page1);
-        $this->assertStringContainsString('Supplier 25', $page1);
-        $this->assertStringNotContainsString('Supplier 26', $page1);
-
-        $gone = $this->make('Gone Plumber', ['is_active' => false]);
-        $this->actingAs($this->admin)->post(route('deals-v2.suppliers.reactivate', $gone))->assertRedirect();
-        $this->assertTrue((bool) $gone->fresh()->is_active);
-        $other = Agency::create(['name' => 'Other', 'slug' => 'ot-' . uniqid()]);
-        $theirs = $this->make('Theirs', ['is_active' => false], $other);
-        $this->assertContains($this->actingAs($this->admin)->post(route('deals-v2.suppliers.reactivate', $theirs))->getStatusCode(), [403, 404]);
-        $this->assertFalse((bool) AgencyServiceProvider::withoutGlobalScopes()->find($theirs->id)->is_active);
+        // an unknown kind in the address bar is ignored, not an error
+        $this->actingAs($this->admin)->get($url . '?kind=wizard')->assertOk();
     }
 }

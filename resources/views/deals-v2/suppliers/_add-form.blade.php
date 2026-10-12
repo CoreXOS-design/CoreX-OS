@@ -96,6 +96,8 @@
                     {{ $popup ? 'Our preferred contractor for this trade' : 'Preferred for this specialty' }}
                 </label>
             </div>
+            {{-- §20 - call-out fee: the same three-way question everywhere --}}
+            @include('deals-v2.suppliers._callout-fields', ['idp' => $idp])
             {{-- AT-319 — a supplier can handle MORE THAN ONE service type. Multi-select of the
                  agency's configurable COC/service list (Settings → COC / Service Types). The
                  work-order panel filters its supplier picker by these. --}}

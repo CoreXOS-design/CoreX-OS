@@ -12,7 +12,7 @@
     $invoiceTotal = $invoiceService->total($workOrder);
     $invoiceLimits = $invoiceService->limitsText($workOrder->agency_id);
     $invoiceAccept = '.' . implode(',.', \App\Models\RentalWorkOrderSetting::invoiceAllowedExtensionsFor($workOrder->agency_id));
-    $invoiceSuppliers = \App\Models\DealV2\AgencyServiceProvider::query()->where('agency_id', $workOrder->agency_id)->where('is_active', true)->maintenanceContractors()->orderBy('name')->get(['id', 'name']);
+    $invoiceSuppliers = \App\Models\DealV2\AgencyServiceProvider::query()->where('agency_id', $workOrder->agency_id)->where('is_active', true)->maintenanceContractors()->orderBy('name')->get();
 @endphp
 <div id="invoices" class="space-y-3 p-5" style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px;" data-invoices-panel>
     <h2 class="text-sm font-bold" style="color: var(--text-primary);">Supplier invoices</h2>
@@ -115,7 +115,7 @@
                 <select name="agency_service_provider_id" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
                     <option value="">Other / not in the list</option>
                     @foreach($invoiceSuppliers as $provider)
-                        <option value="{{ $provider->id }}" @selected((int) old('agency_service_provider_id', $workOrder->agency_service_provider_id) === $provider->id)>{{ $provider->name }}</option>
+                        <option value="{{ $provider->id }}" @selected((int) old('agency_service_provider_id', $workOrder->agency_service_provider_id) === $provider->id)>{{ $provider->name }} - {{ $provider->calloutFeeSuffix() }}</option>
                     @endforeach
                 </select>
             </div>

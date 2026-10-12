@@ -38,7 +38,81 @@ class AgencyServiceProvider extends Model
         'is_active',
         'created_by_id',
         'kind',
+        'callout_fee_mode',
+        'callout_fee_amount',
+        'callout_fee_note',
     ];
+
+    // .ai/specs/rentals-faults-work-orders.md §20 - the call-out fee. Callers use the methods below, never the columns.
+    public const CALLOUT_YES = 'yes';
+    public const CALLOUT_NO = 'no';
+    public const CALLOUT_UNKNOWN = 'unknown';
+    public const CALLOUT_MODES = [self::CALLOUT_YES, self::CALLOUT_NO, self::CALLOUT_UNKNOWN];
+
+    /** 'yes' | 'no' | 'unknown' (a supplier nobody has asked is 'unknown'). */
+    public function calloutFeeStatus(): string
+    {
+        return in_array($this->callout_fee_mode, self::CALLOUT_MODES, true) ? $this->callout_fee_mode : self::CALLOUT_UNKNOWN;
+    }
+
+    /** The fee in rand incl. VAT, or null unless the supplier charges one. */
+    public function calloutFeeAmount(): ?float
+    {
+        return $this->calloutFeeStatus() === self::CALLOUT_YES && $this->callout_fee_amount !== null ? (float) $this->callout_fee_amount : null;
+    }
+
+    public function calloutFeeNote(): ?string
+    {
+        return $this->calloutFeeStatus() === self::CALLOUT_YES && trim((string) $this->callout_fee_note) !== '' ? trim((string) $this->callout_fee_note) : null;
+    }
+
+    /** The picker text: "call-out R750" / "no call-out fee" / "call-out fee not known". */
+    public function calloutFeeSuffix(): string
+    {
+        return match ($this->calloutFeeStatus()) {
+            self::CALLOUT_YES => 'call-out ' . self::formatRand((float) $this->calloutFeeAmount()),
+            self::CALLOUT_NO => 'no call-out fee',
+            default => 'call-out fee not known',
+        };
+    }
+
+    /** The sentence for a notice ("Call-out fee: R750 (waived if the job goes ahead)"), or null unless the supplier charges one. */
+    public function calloutFeeLine(): ?string
+    {
+        $amount = $this->calloutFeeAmount();
+        if ($amount === null) {
+            return null;
+        }
+
+        return 'Call-out fee: ' . self::formatRand($amount) . ($this->calloutFeeNote() ? ' (' . $this->calloutFeeNote() . ')' : '');
+    }
+
+    /** @param iterable<AgencyServiceProvider> $providers @return array<string, array{name:string, text:?string, status:string}> id => name, the inline call-out notice (null when there is nothing to say) and the answer */
+    public static function noticeMap(iterable $providers): array
+    {
+        $map = [];
+        foreach ($providers as $p) {
+            $map[(string) $p->id] = ['name' => $p->name, 'text' => $p->calloutFeeNotice(), 'status' => $p->calloutFeeStatus()];
+        }
+
+        return $map;
+    }
+
+    /** R750, R1 200, R750.50 - whole rand without cents, a space for thousands. */
+    public static function formatRand(float $amount): string
+    {
+        return 'R' . number_format($amount, fmod($amount, 1.0) === 0.0 ? 0 : 2, '.', ' ');
+    }
+
+    /** The inline notice shown when this supplier is chosen to go and inspect / quote; null when there is nothing to say (no fee). */
+    public function calloutFeeNotice(): ?string
+    {
+        return match ($this->calloutFeeStatus()) {
+            self::CALLOUT_YES => $this->name . ' charges a call-out fee of ' . self::formatRand((float) $this->calloutFeeAmount()) . '. The owner will be told.',
+            self::CALLOUT_UNKNOWN => "We don't know if " . $this->name . ' charges a call-out fee - check before sending.',
+            default => null,
+        };
+    }
 
     /**
      * AT-452 family (rentals-faults-work-orders.md section 21.1) - the KIND of supplier. Every existing row is a contractor. Kind does NOT change who
@@ -95,6 +169,7 @@ class AgencyServiceProvider extends Model
     }
 
     protected $casts = [
+        'callout_fee_amount' => 'decimal:2',
         'is_preferred' => 'boolean',
         'is_active' => 'boolean',
         'is_transfer_attorney' => 'boolean',

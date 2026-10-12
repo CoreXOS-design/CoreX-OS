@@ -300,14 +300,16 @@ final class FirstResponderTest extends TestCase
         $this->assertStringContainsString('First to look at this:', $html);
         $this->assertStringContainsString('Pieter the caretaker', $html);
         $this->assertStringContainsString('Caretaker / complex manager', $html);
-        $this->assertStringContainsString('Send Pieter the caretaker to inspect', $html);
+        // the shared block (cc4's partial) writes the first button's name in the browser, from the map it is given: the name is in that map, both buttons are there
+        $this->assertMatchesRegularExpression('/name(?:&quot;|"|\\\\u0022|\\\\")?\s*:\s*(?:&quot;|"|\\\\u0022|\\\\")?Pieter the caretaker/', $html);
         $this->assertStringContainsString('Send to owner to authorise', $html);
-        $this->assertSame(1, substr_count($html, 'data-first-look-actions'), 'one action row holding the two forms');
-        $this->assertSame(1, preg_match_all('/data-first-look-inspect/', $html));
-        $this->assertSame(1, preg_match_all('/data-first-look-owner/', $html));
+        $this->assertSame(1, preg_match_all('/data-inspect-choice/', $html), 'ONE shared two-button block');
+        $this->assertSame(1, preg_match_all('/data-send-to-inspect/', $html));
+        $this->assertSame(1, preg_match_all('/data-send-to-owner-to-authorise/', $html));
         $this->assertStringContainsString(e("Owner's handyman (Owner's own maintenance team)"), $html); // "Then: ..."
         // the two buttons are the same size: the same utility classes on both
-        $this->assertSame(2, preg_match_all('/class="corex-btn-(?:primary|outline) text-xs w-full" data-first-look-(?:inspect|owner)/', $html));
+        $this->assertSame(2, preg_match_all('/class="corex-btn-(?:primary|outline) text-xs w-full"[^>]*data-(?:send-to-inspect|send-to-owner-to-authorise)/', $html));
+        $this->assertStringContainsString('first-look-form', $html);
     }
 
     public function test_the_block_is_absent_without_a_first_responder_and_once_a_work_order_or_the_owner_stage_is_reached(): void

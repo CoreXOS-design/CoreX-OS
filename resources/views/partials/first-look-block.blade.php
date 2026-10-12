@@ -1,16 +1,19 @@
 {{--
-    .ai/specs/rentals-faults-work-orders.md section 21.3 - "First to look at this": who the property (or its owner) says looks at a fault first, and the agent's
-    exactly TWO choices - "Send <name> to inspect" and "Send to owner to authorise" (Johan's ruling, 12 Oct 2026) - as two equal-sized, aligned buttons. ONE
-    partial: this is the only place those words and buttons exist; the call-out notice (partials/callout-notice, cc4) is included here, not copied. Nothing
-    is ever sent from here by itself, and the buttons' behaviour is the fault flow's (App\Services\Rentals\FirstResponderDispatcher).
+    .ai/specs/rentals-faults-work-orders.md section 21.3 - "First to look at this": who the property (or its owner) says looks at a fault first, then the agent's
+    exactly TWO choices - "Send <name> to inspect" and "Send to owner to authorise" (Johan's ruling, 12 Oct 2026). The call-out notice and the two buttons are NOT
+    written here: they are cc4's ONE shared block, partials/contractor-inspect-choice (spec section 20.7), so the wording and the buttons exist in one version only.
+    This file adds only the heading, where the rule came from and the "then ..." lines, and tells the shared block what the buttons do. Nothing is ever sent from
+    here by itself; both buttons post to one route that goes through App\Services\Rentals\FirstResponderDispatcher (the fault flow's seam).
     Expects: $faultReport, $firstResponders (Collection from Property::firstRespondersFor()), $canAct (bool: may press the buttons).
 --}}
 @php
     $flFirst = $firstResponders->first();
     $flRest = $firstResponders->slice(1);
     $flNotices = [];
-    if ($flFirst && method_exists(\App\Models\DealV2\AgencyServiceProvider::class, 'noticeMap') && view()->exists('partials.callout-notice')) {
-        $flNotices = \App\Models\DealV2\AgencyServiceProvider::noticeMap(\App\Models\DealV2\AgencyServiceProvider::withoutGlobalScopes()->whereIn('id', [$flFirst['supplier_id']])->get());
+    if ($flFirst) {
+        $flProvider = \App\Models\DealV2\AgencyServiceProvider::withoutGlobalScopes()->find($flFirst['supplier_id']);
+        // the shared block needs an entry for the chosen supplier even when there is no call-out text to show (it carries the name for the first button)
+        $flNotices = [(string) $flFirst['supplier_id'] => ['name' => $flFirst['name'], 'text' => (string) ($flProvider?->calloutFeeNotice() ?? ''), 'status' => (string) ($flProvider?->calloutFeeStatus() ?? '')]];
     }
 @endphp
 @if($flFirst)
@@ -27,25 +30,19 @@
         </div>
     </div>
 
-    @if($flNotices && isset($flNotices[(string) $flFirst['supplier_id']]))
-        @include('partials.callout-notice', ['notices' => $flNotices, 'model' => "'" . $flFirst['supplier_id'] . "'"])
-    @endif
-
     @if($canAct)
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2" data-first-look-actions>
-            <form method="POST" action="{{ route('corex.rental-fault-reports.first-responder', $faultReport) }}">
-                @csrf
-                <input type="hidden" name="supplier_id" value="{{ $flFirst['supplier_id'] }}">
-                <input type="hidden" name="choice" value="{{ \App\Services\Rentals\FirstResponderDispatcher::CHOICE_INSPECT }}">
-                <button type="submit" class="corex-btn-primary text-xs w-full" data-first-look-inspect>Send {{ $flFirst['name'] }} to inspect</button>
-            </form>
-            <form method="POST" action="{{ route('corex.rental-fault-reports.first-responder', $faultReport) }}">
-                @csrf
-                <input type="hidden" name="supplier_id" value="{{ $flFirst['supplier_id'] }}">
-                <input type="hidden" name="choice" value="{{ \App\Services\Rentals\FirstResponderDispatcher::CHOICE_OWNER_AUTHORISE }}">
-                <button type="submit" class="corex-btn-outline text-xs w-full" data-first-look-owner>Send to owner to authorise</button>
-            </form>
-        </div>
+        <form id="first-look-form" method="POST" action="{{ route('corex.rental-fault-reports.first-responder', $faultReport) }}" data-first-look-form>
+            @csrf
+            <input type="hidden" name="supplier_id" value="{{ $flFirst['supplier_id'] }}">
+            <input type="hidden" name="choice" value="">
+        </form>
+        @include('partials.contractor-inspect-choice', [
+            'notices' => $flNotices, 'model' => "'" . $flFirst['supplier_id'] . "'", 'buttonsDisabled' => 'false',
+            'inspectAttrs' => '@click="const f = document.getElementById(\'first-look-form\'); f.elements[\'choice\'].value = \'' . \App\Services\Rentals\FirstResponderDispatcher::CHOICE_INSPECT . '\'; f.submit()"',
+            'authoriseAttrs' => '@click="const f = document.getElementById(\'first-look-form\'); f.elements[\'choice\'].value = \'' . \App\Services\Rentals\FirstResponderDispatcher::CHOICE_OWNER_AUTHORISE . '\'; f.submit()"',
+        ])
+    @else
+        @include('partials.contractor-inspect-choice', ['notices' => $flNotices, 'model' => "'" . $flFirst['supplier_id'] . "'"])
     @endif
 </div>
 @endif

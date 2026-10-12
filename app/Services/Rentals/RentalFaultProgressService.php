@@ -211,8 +211,18 @@ class RentalFaultProgressService
         return match (true) {
             $wo->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL => 'our maintenance team',
             $wo->isOwnerContractor() => ($audience === self::AUDIENCE_OWNER ? 'your contractor' : "the owner's contractor") . ($wo->contractor_name ? ' ' . $wo->contractor_name : ''),
-            default => ($wo->supplier()->withoutGlobalScopes()->withTrashed()->first()?->name ?: 'the contractor arranged by the agency'),
+            default => $this->outsideContractorLine($wo, $audience),
         };
+    }
+
+    /** The outside contractor's name; for the OWNER also the call-out fee when there is one (§20.4) - never shown to the tenant or in the agent's own line. */
+    private function outsideContractorLine(RentalWorkOrder $wo, string $audience): string
+    {
+        $supplier = $wo->supplier()->withoutGlobalScopes()->withTrashed()->first();
+        $name = $supplier?->name ?: 'the contractor arranged by the agency';
+        $fee = $audience === self::AUDIENCE_OWNER ? $supplier?->calloutFeeLine() : null;
+
+        return $fee ? $name . '. ' . $fee : $name;
     }
 
     private function startedAt(RentalWorkOrder $wo): ?Carbon

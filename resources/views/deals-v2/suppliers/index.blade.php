@@ -75,48 +75,46 @@
         @include('deals-v2.suppliers._add-form', ['serviceTypes' => $serviceTypes, 'specialties' => $specialties, 'preTick' => $preTick])
     </div>
 
-    {{-- rentals-faults-work-orders.md section 21.1 - search, kind and status filters, sort (design standard: every list screen). --}}
-    @php($fl = $filters ?? ['q' => '', 'kind' => '', 'status' => 'all', 'sort' => ''])
-    <form method="GET" action="{{ route('deals-v2.suppliers.index') }}" class="rounded-md p-3 flex flex-wrap items-end gap-3" style="background: var(--surface); border: 1px solid var(--border);" data-supplier-filters>
-        @if($rf)
-            @foreach(['fault', 'work_order', 'provider', 'mode'] as $keep)
-                @if(request()->filled($keep))<input type="hidden" name="{{ $keep }}" value="{{ request($keep) }}">@endif
-            @endforeach
-        @endif
-        <div class="grow min-w-[12rem]">
-            <label for="sp-search" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
-            <input id="sp-search" type="search" name="q" value="{{ $fl['q'] }}" placeholder="Name, company, email or phone" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+    {{-- §20 - search / filters / sort (name, company, email, phone; status; call-out) --}}
+    @php($fl = $filters ?? ['q' => '', 'status' => 'all', 'kind' => '', 'callout' => 'any', 'sort' => '', 'dir' => 'asc'])
+    @php($sortUrl = fn (string $key) => request()->fullUrlWithQuery(['sort' => $key, 'dir' => ($fl['sort'] === $key && $fl['dir'] === 'asc') ? 'desc' : 'asc', 'page' => null]))
+    @php($arrow = fn (string $key) => $fl['sort'] === $key ? ($fl['dir'] === 'asc' ? ' ▲' : ' ▼') : '')
+    @php($filtered = $fl['q'] !== '' || $fl['status'] !== 'all' || $fl['callout'] !== 'any' || ($fl['kind'] ?? '') !== '')
+    <form method="GET" action="{{ route('deals-v2.suppliers.index') }}" class="rounded-md p-4 flex flex-wrap items-end gap-3" style="background: var(--surface); border: 1px solid var(--border);" data-supplier-filters>
+        @if($fl['sort'])<input type="hidden" name="sort" value="{{ $fl['sort'] }}"><input type="hidden" name="dir" value="{{ $fl['dir'] }}">@endif
+        @if($rf)<input type="hidden" name="fault" value="{{ request('fault') }}"><input type="hidden" name="mode" value="{{ request('mode') }}">@endif
+        <div class="grow" style="min-width: 14rem;">
+            <label for="sd-q" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
+            <input id="sd-q" type="search" name="q" value="{{ $fl['q'] }}" placeholder="Name, company, email or phone" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
         </div>
         <div>
-            <label for="sp-kind" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Kind</label>
-            <select id="sp-kind" name="kind" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                <option value="">All kinds</option>
-                @foreach(($kinds ?? []) as $kk => $kl)<option value="{{ $kk }}" @selected($fl['kind'] === $kk)>{{ $kl }}</option>@endforeach
-            </select>
-        </div>
-        <div>
-            <label for="sp-status" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
-            <select id="sp-status" name="status" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <label for="sd-status" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Show</label>
+            <select id="sd-status" name="status" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <option value="all" @selected($fl['status'] === 'all')>Active and inactive</option>
                 <option value="active" @selected($fl['status'] === 'active')>Active only</option>
                 <option value="inactive" @selected($fl['status'] === 'inactive')>Inactive only</option>
             </select>
         </div>
+ {{-- rentals-faults-work-orders.md section 21.1 --}}
         <div>
-            <label for="sp-sort" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Sort by</label>
-            <select id="sp-sort" name="sort" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                <option value="" @selected($fl['sort'] === '')>Active first, then specialty</option>
-                <option value="name" @selected($fl['sort'] === 'name')>Name</option>
-                <option value="kind" @selected($fl['sort'] === 'kind')>Kind</option>
-                <option value="specialty" @selected($fl['sort'] === 'specialty')>Specialty</option>
-                <option value="newest" @selected($fl['sort'] === 'newest')>Newest first</option>
+            <label for="sd-kind" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Kind</label>
+            <select id="sd-kind" name="kind" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                <option value="">All kinds</option>
+                @foreach(($kinds ?? []) as $kk => $kl)<option value="{{ $kk }}" @selected(($fl['kind'] ?? '') === $kk)>{{ $kl }}</option>@endforeach
+            </select>
+        </div>
+        <div>
+            <label for="sd-callout" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Call-out fee</label>
+            <select id="sd-callout" name="callout" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                <option value="any" @selected($fl['callout'] === 'any')>Any</option>
+                <option value="yes" @selected($fl['callout'] === 'yes')>Charges a call-out fee</option>
+                <option value="no" @selected($fl['callout'] === 'no')>No call-out fee</option>
+                <option value="unknown" @selected($fl['callout'] === 'unknown')>Not known</option>
             </select>
         </div>
         <div class="flex items-center gap-2">
-            <button type="submit" class="corex-btn-primary text-sm">Apply</button>
-            @if($fl['q'] !== '' || $fl['kind'] !== '' || $fl['status'] !== 'all' || $fl['sort'] !== '')
-                <a href="{{ route('deals-v2.suppliers.index') }}" class="corex-btn-outline text-sm" data-supplier-filters-clear>Clear</a>
-            @endif
+            <button type="submit" class="corex-btn-primary text-xs" style="min-width: 6rem;">Search</button>
+            <a href="{{ route('deals-v2.suppliers.index', $rf ? ['fault' => request('fault'), 'mode' => request('mode')] : []) }}" class="corex-btn-outline text-xs inline-flex items-center justify-center" style="min-width: 6rem;">Clear</a>
         </div>
     </form>
 
@@ -126,11 +124,12 @@
             <table class="min-w-full text-sm ds-table">
                 <thead>
                     <tr style="background: var(--surface-2);">
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Name</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Kind</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Specialty</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);"><a href="{{ $sortUrl('name') }}" class="no-underline" data-sort="name">Name{{ $arrow('name') }}</a></th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);"><a href="{{ $sortUrl('kind') }}" class="no-underline" data-sort="kind">Kind{{ $arrow('kind') }}</a></th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);"><a href="{{ $sortUrl('specialty') }}" class="no-underline" data-sort="specialty">Specialty{{ $arrow('specialty') }}</a></th>
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Contact</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Status</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);"><a href="{{ $sortUrl('callout') }}" class="no-underline" data-sort="callout">Call-out{{ $arrow('callout') }}</a></th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);"><a href="{{ $sortUrl('status') }}" class="no-underline" data-sort="status">Status{{ $arrow('status') }}</a></th>
                         <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actions</th>
                     </tr>
                 </thead>
@@ -179,6 +178,16 @@
                             <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">
                                 {{ $p->email ?: '—' }}@if($p->phone)<div class="text-[11px]" style="color: var(--text-muted);">{{ $p->phone }}</div>@endif
                             </td>
+                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);" data-callout-cell="{{ $p->calloutFeeStatus() }}">
+                                @if($p->calloutFeeStatus() === 'yes')
+                                    <span class="font-medium" style="color: var(--text-primary);">{{ \App\Models\DealV2\AgencyServiceProvider::formatRand($p->calloutFeeAmount()) }}</span>
+                                    @if($p->calloutFeeNote())<div class="text-[11px]" style="color: var(--text-muted);">{{ $p->calloutFeeNote() }}</div>@endif
+                                @elseif($p->calloutFeeStatus() === 'no')
+                                    No fee
+                                @else
+                                    <span style="color: var(--text-muted);">Not known</span>
+                                @endif
+                            </td>
                             <td class="px-4 py-3">
                                 <span class="ds-badge {{ $p->is_active ? 'ds-badge-info' : 'ds-badge-default' }}">{{ $p->is_active ? 'Active' : 'Inactive' }}</span>
                             </td>
@@ -188,17 +197,17 @@
                                         @csrf<button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--brand-icon);">Set preferred</button>
                                     </form>
                                 @endif
+                                @unless($p->is_active)
+                                    <form method="POST" action="{{ route('deals-v2.suppliers.activate', $p) }}" class="inline">
+                                        @csrf<button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--brand-icon);" data-restore-supplier>Restore</button>
+                                    </form>
+                                @endunless
                                 @if($p->is_active)
                                     <form method="POST" action="{{ route('deals-v2.suppliers.deactivate', $p) }}" class="inline ml-3"
                                           onsubmit="return confirm('Deactivate {{ $p->name }}? Historic deals keep resolving; only new pickers hide it.');">
                                         @csrf<button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--ds-crimson);">Deactivate</button>
                                     </form>
                                 @endif
-                                @unless($p->is_active)
-                                    <form method="POST" action="{{ route('deals-v2.suppliers.reactivate', $p) }}" class="inline">
-                                        @csrf<button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--brand-icon);" data-supplier-reactivate>Reactivate</button>
-                                    </form>
-                                @endunless
                             </td>
                         </tr>
 
@@ -206,7 +215,7 @@
                              contact). List them + add/remove inline. Soft-delete keeps history. --}}
                         @if($p->is_active)
                         <tr style="background: var(--surface-2);">
-                            <td colspan="6" class="px-4 py-3">
+                            <td colspan="7" class="px-4 py-3">
                                 {{-- AT-364 — attorney capabilities (Transfer / Bond). A firm like BBB does BOTH,
                                      so both may be ticked; the transfer-attorney and bond-attorney pickers each
                                      surface the firms that carry the matching capability. Shown only for attorney
@@ -331,6 +340,22 @@
                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                                     <div class="text-[11px] mt-1" style="color: var(--text-muted);">The firm's address — this is what appears on a document when this supplier is selected as a party (e.g. an executor).</div>
                                 </div>
+                                {{-- §20 - call-out fee editor (own route; Yes needs an amount; changes are kept below) --}}
+                                <form method="POST" action="{{ route('deals-v2.suppliers.callout-fee', $p) }}" class="mb-3 grid grid-cols-1 md:grid-cols-4 gap-3 items-end" data-callout-editor="{{ $p->id }}">
+                                    @csrf
+                                    <div class="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                                        @include('deals-v2.suppliers._callout-fields', ['idp' => 'sp' . $p->id, 'mode' => $p->calloutFeeStatus(), 'amount' => $p->calloutFeeAmount(), 'note' => $p->calloutFeeNote()])
+                                    </div>
+                                    <div><button type="submit" class="corex-btn-primary text-xs" style="min-width: 9rem;" data-save-callout>Save call-out fee</button></div>
+                                </form>
+                                @if(($calloutHistory[$p->id] ?? collect())->isNotEmpty())
+                                    <div class="mb-3 text-[11px]" style="color: var(--text-muted);" data-callout-history>
+                                        <div class="font-semibold uppercase tracking-wider mb-1">Call-out fee changes</div>
+                                        @foreach($calloutHistory[$p->id]->take(4) as $h)
+                                            <div>{{ \Illuminate\Support\Carbon::parse($h->created_at)->format('j M Y H:i') }} &mdash; {{ $h->by ?: 'System' }}: {{ \App\Services\DealV2\SupplierCalloutFeeService::describe($h) }}</div>
+                                        @endforeach
+                                    </div>
+                                @endif
                                 @if(($providerEvents[$p->id] ?? collect())->isNotEmpty())
                                     <div class="mb-3 text-[11px]" style="color: var(--text-muted);" data-provider-history>
                                         <div class="font-semibold uppercase tracking-wider mb-1">Recent changes</div>
@@ -370,12 +395,9 @@
                         @endif
                     @empty
                         <tr>
-                            <td colspan="6" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);" data-supplier-empty>
-                                @if($fl['q'] !== '' || $fl['kind'] !== '' || $fl['status'] !== 'all')
-                                    No suppliers match that search. <a href="{{ route('deals-v2.suppliers.index') }}" class="underline">Clear the search</a> to see everyone.
-                                @else
-                                    No providers yet. Add one above, or create inline while filling a deal.
-                                @endif
+                            <td colspan="7" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);" data-suppliers-empty>
+                                @if($filtered) No suppliers match this search. <a href="{{ route('deals-v2.suppliers.index') }}" class="underline">Clear the search</a>.
+                                @else No providers yet. Add one above, or create inline while filling a deal.@endif
                             </td>
                         </tr>
                     @endforelse
@@ -383,8 +405,6 @@
             </table>
         </div>
     </div>
-    @if($providers->hasPages())
-        <div class="px-1" data-supplier-pagination>{{ $providers->links() }}</div>
-    @endif
+    @if($providers->hasPages())<div class="px-1" data-suppliers-pages>{{ $providers->links() }}</div>@endif
 </div>
 @endsection
