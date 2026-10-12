@@ -38,6 +38,9 @@ class TitleDeedSetting extends Model
     public const DEFAULT_REMINDER_DAYS = 14;
     public const DEFAULT_MAX_REMINDERS = 3;
     public const DEFAULT_CONTACT_CHANGED_BLOCK_DAYS = 7;
+    public const DEFAULT_NOTIFY_LISTING_AGENT = true;
+    public const DEFAULT_SIGN_BY_LINK_ENABLED = true;
+    public const DEFAULT_SIGNING_LINK_MINUTES = 30;
 
     /** Every settable column, with its type — the one list the saver, the screen and the wizard read from. */
     public const FIELDS = [
@@ -53,6 +56,9 @@ class TitleDeedSetting extends Model
         'reminder_days' => 'int',
         'max_reminders' => 'int',
         'contact_changed_block_days' => 'int',
+        'notify_listing_agent' => 'bool',
+        'sign_by_link_enabled' => 'bool',
+        'signing_link_minutes' => 'int',
     ];
 
     /** Allowed range for each integer setting [min, max]. */
@@ -62,6 +68,7 @@ class TitleDeedSetting extends Model
         'reminder_days' => [1, 365],
         'max_reminders' => [0, 20],
         'contact_changed_block_days' => [0, 365],
+        'signing_link_minutes' => [5, 1440],
     ];
 
     protected $fillable = [
@@ -69,6 +76,7 @@ class TitleDeedSetting extends Model
         'pin_required', 'signature_required', 'representatives_allowed', 'rep_without_pin_mode',
         'phone_consent_allowed', 'authority_letter_required', 'collector_id_photo_required',
         'pin_lock_attempts', 'consent_validity_minutes', 'reminder_days', 'max_reminders', 'contact_changed_block_days',
+        'notify_listing_agent', 'sign_by_link_enabled', 'signing_link_minutes',
     ];
 
     protected $casts = [
@@ -78,6 +86,9 @@ class TitleDeedSetting extends Model
         'phone_consent_allowed' => 'boolean',
         'authority_letter_required' => 'boolean',
         'collector_id_photo_required' => 'boolean',
+        'notify_listing_agent' => 'boolean',
+        'sign_by_link_enabled' => 'boolean',
+        'signing_link_minutes' => 'integer',
         'pin_lock_attempts' => 'integer',
         'consent_validity_minutes' => 'integer',
         'reminder_days' => 'integer',
@@ -162,5 +173,20 @@ class TitleDeedSetting extends Model
     public static function contactChangedBlockDaysFor(?int $agencyId): int
     {
         return max(0, (int) static::value($agencyId, 'contact_changed_block_days', self::DEFAULT_CONTACT_CHANGED_BLOCK_DAYS));
+    }
+
+    public static function notifyListingAgentFor(?int $agencyId): bool
+    {
+        return (bool) static::value($agencyId, 'notify_listing_agent', self::DEFAULT_NOTIFY_LISTING_AGENT);
+    }
+
+    public static function signByLinkEnabledFor(?int $agencyId): bool
+    {
+        return (bool) static::value($agencyId, 'sign_by_link_enabled', self::DEFAULT_SIGN_BY_LINK_ENABLED);
+    }
+
+    public static function signingLinkMinutesFor(?int $agencyId): int
+    {
+        return max(1, (int) static::value($agencyId, 'signing_link_minutes', self::DEFAULT_SIGNING_LINK_MINUTES));
     }
 }

@@ -1,7 +1,7 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="w-full space-y-5">
+<div class="w-full space-y-5" x-data="deedRowActions({ returnTo: @js(request()->getRequestUri()) })">
 
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -19,6 +19,10 @@
 
     @if(session('success'))<div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">{{ session('success') }}</div>@endif
     @if(session('error'))<div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">{{ session('error') }}</div>@endif
+
+    @if($pendingWhatsapp->isNotEmpty())
+        @include('title-deeds._prepared-whatsapp', ['prepared' => $pendingWhatsapp, 'showProperty' => true])
+    @endif
 
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="GET" action="{{ route('title-deeds.index') }}" class="flex flex-wrap items-end gap-3">
@@ -84,11 +88,12 @@
                         <x-sort-header field="status" label="Status" />
                         <x-sort-header field="waiting" label="Days waiting" align="right" />
                         <x-sort-header field="collected" label="Collected" />
+                        <th class="px-3 py-3"><span class="sr-only">Actions</span></th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse($deeds as $d)
-                    <tr style="border-top: 1px solid var(--border);">
+                    <tr style="border-top: 1px solid var(--border); cursor: pointer;" class="hover:opacity-90" @click="rowClick($event, @js(route('title-deeds.show', $d->id)))">
                         <td class="px-4 py-3">
                             <a href="{{ route('title-deeds.show', $d->id) }}" class="font-medium no-underline hover:underline" style="color: var(--text-primary);">{{ $d->property_display }}</a>
                         </td>
@@ -112,10 +117,13 @@
                                 —
                             @endif
                         </td>
+                        <td class="px-3 py-2 text-right whitespace-nowrap" data-row-actions>
+                            @include('title-deeds._row-actions', ['d' => $d])
+                        </td>
                     </tr>
                     @empty
                     <tr>
-                        <td colspan="7" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">
+                        <td colspan="8" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">
                             @if($hasFilters)
                                 No title deeds match these filters.
                                 <a href="{{ route('title-deeds.index') }}" class="font-semibold" style="color: var(--brand-icon);">Clear the filters</a>
@@ -136,5 +144,35 @@
         </div>
         @endif
     </div>
+
+    {{-- ONE shared confirm dialog for every state-changing row action (same look as the app dialog); the form it posts carries the one-time token and returns to this exact list. --}}
+    <div x-show="ask" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(15, 23, 42, .5);" x-on:click.self="ask = null" x-on:keydown.escape.window="ask = null" role="dialog" aria-modal="true">
+        <form method="POST" :action="ask ? ask.url : '#'" class="rounded-md p-5 w-full max-w-md space-y-3" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" x-on:submit="sending = true">
+            @csrf
+            <input type="hidden" name="_form_token" :value="ask ? ask.token : ''">
+            <input type="hidden" name="return_to" :value="returnTo">
+            <input type="hidden" name="channel" :value="ask && ask.channel ? ask.channel : ''">
+            <h3 class="text-sm font-semibold" x-text="ask ? ask.title : ''"></h3>
+            <p class="text-sm" x-text="ask ? ask.message : ''"></p>
+            <div class="flex justify-end gap-2">
+                <button type="button" class="corex-btn-outline text-xs" x-on:click="ask = null">Cancel</button>
+                <button type="submit" class="corex-btn-primary text-xs" :disabled="sending" x-text="ask ? ask.label : 'Continue'"></button>
+            </div>
+        </form>
+    </div>
 </div>
+
+<script>
+    function deedRowActions(cfg) {
+        return {
+            ask: null, sending: false, returnTo: cfg.returnTo,
+            openAsk(a) { this.sending = false; this.ask = a; },
+            // The whole row opens the record - except a click on a link, button or form inside it.
+            rowClick(e, url) {
+                if (e.target.closest('a, button, form, input, select, textarea, label, [data-row-actions]')) return;
+                window.location.href = url;
+            },
+        };
+    }
+</script>
 @endsection

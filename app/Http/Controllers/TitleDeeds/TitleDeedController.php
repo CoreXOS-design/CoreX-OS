@@ -2,7 +2,15 @@
 
 namespace App\Http\Controllers\TitleDeeds;
 
+use App\Exceptions\TitleDeedDuplicateException;
 use App\Exceptions\TitleDeedException;
+use App\Exceptions\TitleDeedFormException;
+use App\Http\Controllers\TitleDeeds\Concerns\GuardsTitleDeedForms;
+use App\Models\Deal;
+use App\Models\TitleDeeds\TitleDeedStorageLocation;
+use App\Services\TitleDeeds\TitleDeedDealLink;
+use App\Services\TitleDeeds\TitleDeedFormGuard;
+use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\Contact;
@@ -30,6 +38,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class TitleDeedController extends Controller
 {
+    use GuardsTitleDeedForms;
+
     private const PER_PAGE = 50;
 
     public function __construct(
@@ -58,6 +68,10 @@ class TitleDeedController extends Controller
             'agents' => $this->agentOptions($user, $scope, $filters['branch_id'] ?? null),
             'total' => TitleDeed::query()->visibleTo($user)->count(),
             'statuses' => TitleDeed::STATUS_LABELS,
+            'can' => $this->can($user),
+            'pinRequired' => TitleDeedSetting::pinRequiredFor((int) $user->effectiveAgencyId()),
+            'token' => fn (string $purpose, int $deedId) => app(TitleDeedFormGuard::class)->issue($user, $purpose, $deedId),
+            'pendingWhatsapp' => $this->pendingWhatsapp($user),
         ]);
     }
 
@@ -105,7 +119,34 @@ class TitleDeedController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $user = $request->user();
-        $deed = $this->deeds->create($user, $this->validated($request));
+        $data = $this->validated($request);
+        $scan = $request->file('scan');
+
+        try {
+            // The form's one-time token is claimed in the SAME transaction as the insert: a failed create rolls the claim back (the
+            // same form can be sent again), a successful one makes any re-send of this form (Back, double click, refresh) a no-op.
+            $deed = DB::transaction(function () use ($request, $user, $data, $scan) {
+                $claim = app(TitleDeedFormGuard::class)->claim($request->input('_form_token'), $user, 'create', null);
+                $deed = $this->deeds->create($user, $data, $scan, $request->boolean('confirm_duplicate'));
+                $claim->forceFill(['result_deed_id' => $deed->id, 'title_deed_id' => $deed->id])->save();
+
+                return $deed;
+            });
+        } catch (TitleDeedFormException $e) {
+            if ($e->kind === TitleDeedFormException::ALREADY) {
+                $made = $e->claim?->result_deed_id ? TitleDeed::query()->visibleTo($user)->find($e->claim->result_deed_id) : null;
+
+                return $made
+                    ? redirect()->route('title-deeds.show', $made->id)->with('info', 'That form was already sent - this is the title deed it made. Nothing was logged twice.')
+                    : redirect()->route('title-deeds.index')->with('info', $e->getMessage());
+            }
+
+            return back()->withInput($request->except(['scan', '_form_token']))->with('error', $e->getMessage());
+        } catch (TitleDeedDuplicateException $e) {
+            return back()->withInput($request->except(['scan', '_form_token']))->with('duplicate_deed_id', $e->existing->id);
+        } catch (TitleDeedException $e) {
+            return back()->withInput($request->except(['scan', '_form_token']))->with('error', $e->getMessage());
+        }
 
         return redirect()->route('title-deeds.show', $deed->id)->with('success', 'Title deed logged.');
     }
@@ -166,26 +207,35 @@ class TitleDeedController extends Controller
             'mobile' => $r['wa']['masked'] ?? null,
         ]);
 
-        $events = $deed->events()->with('user:id,name')->limit(150)->get();
-        $prepared = $events->where('channel', TitleDeedEvent::CHANNEL_WHATSAPP)->where('status', TitleDeedEvent::STATUS_PREPARED)->values();
+        $events = $deed->events()->with(['user:id,name', 'openedBy:id,name'])->limit(150)->get();
+        $prepared = $events->filter(fn ($e) => $e->isPendingWhatsapp())->values();
+        $user = $request->user();
+        $guard = app(TitleDeedFormGuard::class);
+        $dealVisible = $deed->deal_id ? Deal::query()->visibleTo($user)->whereKey($deed->deal_id)->first() : null;
+        $earlierScans = \App\Models\Document::query()->withTrashed()->where('source_type', 'title_deed')->where('source_id', $deed->id)
+            ->when($deed->scan_document_id, fn ($q) => $q->where('id', '!=', $deed->scan_document_id))->orderByDesc('id')->get();
 
         return view('title-deeds.show', [
             'deed' => $deed,
             'recipients' => $recipients,
             'events' => $events,
             'prepared' => $prepared,
+            'deal' => $dealVisible,
+            'dealLabel' => $deed->deal_id ? ($dealVisible ? app(TitleDeedDealLink::class)->label($dealVisible) : 'Deal #' . $deed->deal_id) : null,
+            'earlierScans' => $earlierScans,
+            'additionalAgents' => $deed->additionalAgents(),
+            'tokens' => [
+                'notify' => $guard->issue($user, 'notify', $deed->id),
+                'pin_resend' => $guard->issue($user, 'pin_resend', $deed->id),
+                'pin_new' => $guard->issue($user, 'pin_new', $deed->id),
+            ],
             'audit' => $deed->audit()->with('user:id,name')->limit(300)->get(),
             'settings' => [
                 'pin_required' => TitleDeedSetting::pinRequiredFor($deed->agency_id),
                 'locked' => $deed->pin_locked_at !== null,
                 'pin_issued' => $deed->pin_version > 0 && $deed->pin_encrypted !== null,
             ],
-            'can' => [
-                'edit' => $request->user()->hasPermission('title_deeds.edit'),
-                'archive' => $request->user()->hasPermission('title_deeds.archive'),
-                'notify' => $request->user()->hasPermission('title_deeds.notify'),
-                'handover' => $request->user()->hasPermission('title_deeds.handover'),
-            ],
+            'can' => $this->can($user),
         ]);
     }
 
@@ -218,6 +268,18 @@ class TitleDeedController extends Controller
         return Storage::disk($doc->disk ?: 'local')->download($doc->storage_path, $doc->original_name);
     }
 
+    /** A scan that was replaced: kept as history, never deleted. */
+    public function downloadEarlierScan(Request $request, int $id, int $document)
+    {
+        $deed = $this->find($request, $id, withTrashed: true);
+        $doc = \App\Models\Document::query()->withTrashed()->where('source_type', 'title_deed')->where('source_id', $deed->id)->findOrFail($document);
+        abort_unless(Storage::disk($doc->disk ?: 'local')->exists($doc->storage_path), 404);
+
+        TitleDeedAuditLog::record($deed, TitleDeedAuditLog::EVENT_SCAN_DOWNLOADED, 'Earlier scan downloaded (' . $doc->original_name . ').', null, null, $request->user());
+
+        return Storage::disk($doc->disk ?: 'local')->download($doc->storage_path, $doc->original_name);
+    }
+
     /** The signature, authority letter or collector ID photo recorded at handover. */
     public function receiptFile(Request $request, int $id, string $kind)
     {
@@ -243,27 +305,36 @@ class TitleDeedController extends Controller
 
     public function notify(Request $request, int $id): RedirectResponse
     {
-        return $this->noticeAction($request, $id, fn ($user, $deed) => $this->notifier->notifyOwners($user, $deed), 'Owner notice');
+        $channel = $this->channel($request);
+
+        return $this->noticeAction($request, $id, 'notify', fn ($user, $deed) => $this->notifier->notifyOwners($user, $deed, $channel), 'Owner notice');
     }
 
     public function resendPin(Request $request, int $id): RedirectResponse
     {
-        return $this->noticeAction($request, $id, fn ($user, $deed) => $this->notifier->resendPin($user, $deed), 'PIN resent');
+        $channel = $this->channel($request);
+
+        return $this->noticeAction($request, $id, 'pin_resend', fn ($user, $deed) => $this->notifier->resendPin($user, $deed, $channel), 'PIN resent');
     }
 
     public function newPin(Request $request, int $id): RedirectResponse
     {
-        return $this->noticeAction($request, $id, fn ($user, $deed) => $this->notifier->issueNewPin($user, $deed), 'New PIN');
+        return $this->noticeAction($request, $id, 'pin_new', fn ($user, $deed) => $this->notifier->issueNewPin($user, $deed), 'New PIN');
     }
 
-    /** Send the user to WhatsApp with the message ready. The PIN is read here and never printed on a CoreX page. */
+    /**
+     * "Open WhatsApp and send": records who opened it and when, then sends the browser on to WhatsApp (a POST in a new tab that
+     * answers with a redirect to wa.me). The PIN is read here and never printed on a CoreX page.
+     */
     public function openWhatsapp(Request $request, int $id, int $event)
     {
         $deed = $this->find($request, $id);
         $row = TitleDeedEvent::query()->where('title_deed_id', $deed->id)->findOrFail($event);
-        $link = $this->notifier->whatsappLink($deed, $row);
-        if (! $link) {
-            return redirect()->route('title-deeds.show', $deed->id)->with('error', 'That WhatsApp message cannot be opened - the owner has no mobile number stored any more.');
+
+        try {
+            $link = $this->notifier->openWhatsapp($request->user(), $deed, $row);
+        } catch (TitleDeedException $e) {
+            return redirect()->route('title-deeds.show', $deed->id)->with('error', $e->getMessage());
         }
 
         return redirect()->away($link)->withHeaders(['Cache-Control' => 'no-store, private', 'Referrer-Policy' => 'no-referrer']);
@@ -280,7 +351,21 @@ class TitleDeedController extends Controller
             return back()->with('error', $e->getMessage());
         }
 
-        return back()->with('success', 'Recorded as sent.');
+        return back()->with('success', 'Marked as sent.');
+    }
+
+    public function declineWhatsapp(Request $request, int $id, int $event): RedirectResponse
+    {
+        $deed = $this->find($request, $id);
+        $row = TitleDeedEvent::query()->where('title_deed_id', $deed->id)->findOrFail($event);
+
+        try {
+            $this->notifier->declineWhatsapp($request->user(), $deed, $row);
+        } catch (TitleDeedException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        return back()->with('success', 'Recorded as not sent.');
     }
 
     /* ═════════ Pickers ═════════ */
@@ -308,11 +393,34 @@ class TitleDeedController extends Controller
     {
         $model = Property::query()->visibleTo($request->user())->findOrFail($property);
 
+        // An OPEN deed for this property already? (not archived, not collected) - agency-wide, so a colleague's counts too.
+        $existing = TitleDeed::query()->where('property_id', $model->id)->where('status', '!=', TitleDeed::STATUS_COLLECTED)->orderBy('id')->get()
+            ->map(fn (TitleDeed $d) => [
+                'id' => $d->id, 'status' => $d->status_label, 'received' => $d->received_at?->format('d M Y'),
+                'url' => TitleDeed::query()->visibleTo($request->user())->whereKey($d->id)->exists() ? route('title-deeds.show', $d->id) : null,
+            ])->values();
+
         return response()->json([
             'agent_id' => $model->agent_id,
+            'agent_name' => $model->agent?->name,
             'branch_id' => $model->branch_id,
+            'existing' => $existing,
             'owners' => $linker->sellerCandidates($model)->map(fn (Contact $c) => $this->contactOption($c))->values(),
         ]);
+    }
+
+    /** Registered DR2 deals in the user's scope, searchable by deal number, property, buyer / seller name. */
+    public function searchDeals(Request $request, TitleDeedDealLink $deals)
+    {
+        return response()->json(['results' => $deals->search($request->user(), (string) $request->get('q', ''))]);
+    }
+
+    /** What a picked deal pre-fills (visible and editable on the form). */
+    public function dealPrefill(Request $request, int $deal, TitleDeedDealLink $deals)
+    {
+        $model = $deals->registeredDeals($request->user())->findOrFail($deal);
+
+        return response()->json($deals->prefill($request->user(), $model));
     }
 
     public function searchContacts(Request $request)
@@ -330,13 +438,18 @@ class TitleDeedController extends Controller
 
     /* ═════════ helpers ═════════ */
 
-    private function noticeAction(Request $request, int $id, \Closure $do, string $label): RedirectResponse
+    private function noticeAction(Request $request, int $id, string $purpose, \Closure $do, string $label): RedirectResponse
     {
         $deed = $this->find($request, $id);
+        $to = $this->returnTo($request, route('title-deeds.show', $deed->id));
+
+        if ($redirect = $this->claimForm($request, $purpose, $deed->id, $to)) {
+            return $redirect;
+        }
         try {
             $summary = $do($request->user(), $deed);
         } catch (TitleDeedException $e) {
-            return redirect()->route('title-deeds.show', $deed->id)->with('error', $e->getMessage());
+            return redirect($to)->with('error', $e->getMessage());
         }
 
         $parts = [];
@@ -344,7 +457,7 @@ class TitleDeedController extends Controller
             $parts[] = $summary['sent'] . ' emailed';
         }
         if ($summary['prepared']) {
-            $parts[] = $summary['prepared'] . ' WhatsApp ready to send';
+            $parts[] = $summary['prepared'] . ' WhatsApp ready - open it and send';
         }
         if ($summary['failed']) {
             $parts[] = $summary['failed'] . ' failed';
@@ -353,12 +466,41 @@ class TitleDeedController extends Controller
             $parts[] = $summary['skipped'] . ' skipped';
         }
 
-        $redirect = redirect()->route('title-deeds.show', $deed->id);
-        $text = $label . ': ' . ($parts ? implode(', ', $parts) : 'nothing could be sent') . '.';
+        $text = $label . ' (' . $deed->property_display . '): ' . ($parts ? implode(', ', $parts) : 'nothing could be sent') . '.';
 
         return ($summary['failed'] > 0 || $summary['sent'] + $summary['prepared'] === 0)
-            ? $redirect->with('error', $text)
-            : $redirect->with('success', $text);
+            ? redirect($to)->with('error', $text)
+            : redirect($to)->with('success', $text);
+    }
+
+    private function channel(Request $request): string
+    {
+        return in_array($request->input('channel'), ['email', 'whatsapp'], true) ? $request->input('channel') : 'both';
+    }
+
+    /** @return array{edit:bool,archive:bool,notify:bool,handover:bool,create:bool} */
+    private function can(User $user): array
+    {
+        return [
+            'edit' => $user->hasPermission('title_deeds.edit'),
+            'archive' => $user->hasPermission('title_deeds.archive'),
+            'notify' => $user->hasPermission('title_deeds.notify'),
+            'handover' => $user->hasPermission('title_deeds.handover'),
+            'create' => $user->hasPermission('title_deeds.create'),
+        ];
+    }
+
+    /** WhatsApp messages still waiting for a person (to open them, or to say whether they sent them), for deeds the user can see. */
+    private function pendingWhatsapp(User $user)
+    {
+        if (! $user->hasPermission('title_deeds.notify') && ! $user->hasPermission('title_deeds.handover')) {
+            return collect();
+        }
+
+        return TitleDeedEvent::query()
+            ->where('channel', TitleDeedEvent::CHANNEL_WHATSAPP)->whereIn('status', [TitleDeedEvent::STATUS_PREPARED, TitleDeedEvent::STATUS_OPENED])
+            ->whereIn('title_deed_id', TitleDeed::query()->visibleTo($user)->where('status', '!=', TitleDeed::STATUS_COLLECTED)->select('title_deeds.id'))
+            ->with(['deed', 'openedBy:id,name'])->orderBy('id')->limit(20)->get();
     }
 
     /** Resolve a deed through the user's OWN / BRANCH / AGENCY scope - 404 for everything else. */
@@ -457,6 +599,7 @@ class TitleDeedController extends Controller
     private function formData(User $user, ?TitleDeed $deed): array
     {
         $scope = PermissionService::getDataScope($user, 'title_deeds');
+        $agencyId = (int) $user->effectiveAgencyId();
         $owners = $deed
             ? TitleDeedOwner::query()->where('title_deed_id', $deed->id)->get()->map(fn ($o) => ['id' => (int) $o->contact_id, 'name' => $o->display_name, 'detail' => ''])->values()
             : collect();
@@ -464,11 +607,39 @@ class TitleDeedController extends Controller
         // After a failed save, show what was picked (names are looked up again from the ids that came back).
         $oldOwnerIds = collect(session()->getOldInput('owner_ids', []))->map(fn ($i) => (int) $i)->filter()->unique()->values();
         if ($oldOwnerIds->isNotEmpty()) {
-            $names = Contact::withoutGlobalScopes()->where('agency_id', $user->effectiveAgencyId())->whereIn('id', $oldOwnerIds)->get()->keyBy('id');
+            $names = Contact::withoutGlobalScopes()->where('agency_id', $agencyId)->whereIn('id', $oldOwnerIds)->get()->keyBy('id');
             $owners = $oldOwnerIds->map(fn ($id) => ['id' => $id, 'name' => isset($names[$id]) ? trim(($names[$id]->first_name ?? '') . ' ' . ($names[$id]->last_name ?? '')) : 'Contact #' . $id, 'detail' => ''])->values();
         }
         $oldPropertyId = (int) session()->getOldInput('property_id', 0);
         $oldProperty = $oldPropertyId ? Property::query()->visibleTo($user)->find($oldPropertyId) : null;
+
+        // The deal picked before a failed save, and the people it named: shown again exactly as they were.
+        $oldDealId = (int) session()->getOldInput('deal_id', $deed?->deal_id ?? 0);
+        $dealPrefill = null;
+        if ($oldDealId) {
+            $dealModel = Deal::query()->visibleTo($user)->find($oldDealId);
+            if ($dealModel) {
+                $dealPrefill = ['id' => $dealModel->id, 'label' => app(TitleDeedDealLink::class)->label($dealModel), 'url' => route('deals-dr2.pipeline.view', $dealModel->id)];
+            }
+        }
+        $userIds = collect([session()->getOldInput('listing_agent_id', $deed?->listing_agent_id)])
+            ->merge((array) session()->getOldInput('additional_agent_ids', $deed?->additional_agent_ids ?? []))->filter()->map(fn ($i) => (int) $i)->unique();
+        $names = $userIds->isEmpty() ? collect() : User::withoutGlobalScopes()->where('agency_id', $agencyId)->whereIn('id', $userIds)->pluck('name', 'id');
+        $listingId = (int) session()->getOldInput('listing_agent_id', $deed?->listing_agent_id ?? 0) ?: null;
+        $extraIds = collect((array) session()->getOldInput('additional_agent_ids', $deed?->additional_agent_ids ?? []))->map(fn ($i) => (int) $i)->filter()->values();
+
+        $dup = null;
+        if ($dupId = session('duplicate_deed_id')) {
+            $d = TitleDeed::query()->find($dupId);
+            if ($d) {
+                $dup = ['id' => $d->id, 'status' => $d->status_label, 'received' => $d->received_at?->format('d M Y'), 'property' => $d->property_display,
+                    'url' => TitleDeed::query()->visibleTo($user)->whereKey($d->id)->exists() ? route('title-deeds.show', $d->id) : null];
+            }
+        }
+
+        $branchId = (int) (session()->getOldInput('branch_id') ?: ($deed?->branch_id ?? $user->effectiveBranchId()));
+        $locations = TitleDeedStorageLocation::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->ordered()->get(['id', 'name', 'branch_id'])
+            ->map(fn ($l) => ['id' => $l->id, 'name' => $l->name, 'branch_id' => $l->branch_id])->values();
 
         return [
             'deed' => $deed,
@@ -476,10 +647,20 @@ class TitleDeedController extends Controller
             'propertyInit' => $oldProperty
                 ? ['id' => $oldProperty->id, 'address' => $oldProperty->buildDisplayAddress()]
                 : ($deed ? ['id' => $deed->property_id, 'address' => $deed->property_display] : null),
+            'dealInit' => $dealPrefill,
+            'listingInit' => $listingId ? ['id' => $listingId, 'name' => $names[$listingId] ?? 'User #' . $listingId] : null,
+            'extraAgentsInit' => $extraIds->map(fn ($i) => ['id' => $i, 'name' => $names[$i] ?? 'User #' . $i])->values(),
             'agents' => $this->agentOptions($user, $scope, null),
             'branches' => $scope === 'all' ? Branch::query()->orderBy('name')->get(['id', 'name']) : Branch::query()->where('id', $user->effectiveBranchId())->get(['id', 'name']),
-            'defaultAgentId' => $deed?->agent_id ?? $user->id,
-            'defaultBranchId' => $deed?->branch_id ?? $user->effectiveBranchId(),
+            'defaultAgentId' => (int) (session()->getOldInput('agent_id') ?: ($deed?->agent_id ?? $user->id)),
+            'defaultBranchId' => $branchId,
+            'locations' => $locations,
+            'locationId' => (int) (session()->getOldInput('storage_location_id') ?: ($deed?->storage_location_id ?? 0)),
+            'legacyLocation' => $deed && ! $deed->storage_location_id && trim((string) $deed->storage_location) !== '' ? $deed->storage_location : null,
+            'canManageLocations' => $user->hasPermission('title_deeds.manage_settings'),
+            'duplicate' => $dup,
+            'formToken' => $deed ? null : app(TitleDeedFormGuard::class)->issue($user, 'create', null),
+            'canPickDeal' => $deed === null && $user->hasPermission('title_deeds.create'),
         ];
     }
 
@@ -487,21 +668,29 @@ class TitleDeedController extends Controller
     {
         $data = $request->validate([
             'property_id' => ['required', 'integer'],
+            'deal_id' => ['nullable', 'integer'],
             'owner_ids' => ['required', 'array', 'min:1'],
             'owner_ids.*' => ['integer'],
             'agent_id' => ['nullable', 'integer'],
             'branch_id' => ['nullable', 'integer'],
+            'listing_agent_id' => ['nullable', 'integer'],
+            'additional_agent_ids' => ['nullable', 'array'],
+            'additional_agent_ids.*' => ['integer'],
             'attorney_firm' => ['nullable', 'string', 'max:255'],
             'received_at' => ['required', 'date', 'before_or_equal:today'],
-            'storage_location' => ['nullable', 'string', 'max:255'],
+            'storage_location_id' => ['nullable', 'integer'],
             'notes' => ['nullable', 'string', 'max:5000'],
+            'scan' => ['nullable', 'file', 'max:25600', 'mimes:pdf,jpg,jpeg,png,webp,heic'],
         ], [
             'property_id.required' => 'Pick the property from the list.',
             'owner_ids.required' => 'Add at least one owner.',
             'owner_ids.min' => 'Add at least one owner.',
             'received_at.required' => 'Enter the date the deed was received.',
             'received_at.before_or_equal' => 'The received date cannot be in the future.',
+            'scan.mimes' => 'The scan must be a PDF or an image (JPG, PNG, WEBP or HEIC).',
+            'scan.max' => 'The scan is too large (25 MB at most).',
         ]);
+        unset($data['scan']);
 
         return $data;
     }

@@ -10,6 +10,8 @@ use App\Models\Property;
 use App\Models\Role;
 use App\Models\RolePermission;
 use App\Models\TitleDeeds\TitleDeed;
+use App\Models\TitleDeeds\TitleDeedStorageLocation;
+use App\Services\TitleDeeds\TitleDeedFormGuard;
 use App\Models\User;
 use App\Support\Audit\AuditContext;
 use App\Services\PermissionService;
@@ -34,6 +36,7 @@ abstract class TitleDeedTestCase extends TestCase
     protected Branch $branchB;
     protected User $admin;
     protected User $agent;
+    protected TitleDeedStorageLocation $location;
 
     protected function setUp(): void
     {
@@ -46,6 +49,8 @@ abstract class TitleDeedTestCase extends TestCase
         $this->agencyId = $this->makeAgency('Coastal');
         $this->branchA = Branch::create(['agency_id' => $this->agencyId, 'name' => 'Margate']);
         $this->branchB = Branch::create(['agency_id' => $this->agencyId, 'name' => 'Southbroom']);
+
+        $this->location = TitleDeedStorageLocation::create(['agency_id' => $this->agencyId, 'name' => 'Safe 2', 'sort_order' => 10]);
 
         $this->admin = User::factory()->create(['agency_id' => $this->agencyId, 'branch_id' => $this->branchA->id, 'role' => 'admin']);
         $this->agent = User::factory()->create(['agency_id' => $this->agencyId, 'branch_id' => $this->branchA->id, 'role' => 'agent', 'name' => 'Anele Dlamini']);
@@ -108,7 +113,7 @@ abstract class TitleDeedTestCase extends TestCase
             'branch_id' => $this->branchA->id,
             'attorney_firm' => 'Shepstone & Wylie',
             'received_at' => now()->subDays(3)->toDateString(),
-            'storage_location' => 'Safe 2, top shelf',
+            'storage_location_id' => $this->location->id,
             'notes' => null,
         ], $data));
     }
@@ -135,6 +140,12 @@ abstract class TitleDeedTestCase extends TestCase
     {
         return ['access_title_deeds', 'title_deeds.view', 'title_deeds.create', 'title_deeds.edit', 'title_deeds.archive',
             'title_deeds.notify', 'title_deeds.handover', 'title_deeds.override', 'title_deeds.manage_settings'];
+    }
+
+    /** A one-time form token for ($purpose, $deed), as a request body fragment. */
+    protected function tk(string $purpose, ?TitleDeed $deed = null, ?User $user = null, array $extra = []): array
+    {
+        return ['_form_token' => app(TitleDeedFormGuard::class)->issue($user ?? $this->admin, $purpose, $deed?->id)] + $extra;
     }
 
     protected function pngDataUri(): string

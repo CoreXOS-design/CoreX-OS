@@ -19,6 +19,7 @@ class TitleDeedReceipt extends Model
         'collector_id_number', 'collector_relationship', 'id_number_seen', 'consent_id', 'signature_path',
         'signed_typed_name', 'signed_at', 'signed_ip', 'signed_user_agent', 'recorded_by_user_id',
         'authority_letter_document_id', 'collector_id_photo_document_id', 'override_user_id', 'override_reason',
+        'signed_via', 'signing_link_id',
     ];
 
     protected $casts = ['signed_at' => 'datetime'];

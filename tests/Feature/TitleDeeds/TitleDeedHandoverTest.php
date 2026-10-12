@@ -37,9 +37,11 @@ final class TitleDeedHandoverTest extends TitleDeedTestCase
         return [$deed, app(TitleDeedPinService::class)->currentCode($deed)];
     }
 
-    private function submit(TitleDeed $deed, array $body, $user = null)
+    private function submit(TitleDeed $deed, array $body, $user = null, ?string $token = null)
     {
-        return $this->actingAs($user ?? $this->admin)->from(route('title-deeds.handover', $deed->id))->post(route('title-deeds.handover.submit', $deed->id), $body);
+        $tk = $token !== null ? ['_form_token' => $token] : $this->tk('handover', $deed, $user);
+
+        return $this->actingAs($user ?? $this->admin)->from(route('title-deeds.handover', $deed->id))->post(route('title-deeds.handover.submit', $deed->id), $tk + $body);
     }
 
     private function ownerBody(TitleDeed $deed, string $pin, array $extra = []): array
@@ -95,6 +97,29 @@ final class TitleDeedHandoverTest extends TitleDeedTestCase
         $this->assertSame(2, DB::table('title_deed_events')->where('kind', 'collected_notice')->where('status', 'sent')->count());
     }
 
+    public function test_the_deals_agents_are_told_on_collection_and_the_listing_agent_follows_the_agency_setting(): void
+    {
+        $mk = fn (string $name) => \App\Models\User::factory()->create(['agency_id' => $this->agencyId, 'branch_id' => $this->branchA->id, 'role' => 'agent', 'name' => $name]);
+        $listing = $mk('Listing One');
+        $extra = $mk('Selling Two');
+        $told = fn ($u) => $u->notifications()->get()->contains(fn ($n) => str_contains((string) json_encode($n->data), 'Title deed collected'));
+
+        [$deed, $pin] = $this->notified();
+        $deed->forceFill(['listing_agent_id' => $listing->id, 'additional_agent_ids' => [$extra->id]])->save();
+        $this->submit($deed, $this->ownerBody($deed, $pin))->assertSessionHas('success');
+        $this->assertTrue($told($this->agent), 'the responsible agent');
+        $this->assertTrue($told($extra), 'the deal\'s other selling agent');
+        $this->assertTrue($told($listing), 'the listing agent - default on');
+
+        // Agency turns the listing agent off: a second deed does not tell them again.
+        $before = $listing->notifications()->count();
+        TitleDeedSetting::query()->updateOrCreate(['agency_id' => $this->agencyId], ['notify_listing_agent' => false]);
+        [$deed2, $pin2] = $this->notified([$this->contact('Sipho', 'Dube')]);
+        $deed2->forceFill(['listing_agent_id' => $listing->id])->save();
+        $this->submit($deed2, $this->ownerBody($deed2, $pin2, ['typed_name' => 'Sipho Dube']))->assertSessionHas('success');
+        $this->assertSame($before, $listing->notifications()->count());
+    }
+
     public function test_a_wrong_pin_is_counted_and_logged_and_nothing_is_collected(): void
     {
         [$deed, $pin] = $this->notified();
@@ -130,7 +155,7 @@ final class TitleDeedHandoverTest extends TitleDeedTestCase
         $this->submit($deed, $this->ownerBody($deed, $pin))->assertSessionHas('error');
         $this->assertSame('notified', $deed->fresh()->status);
 
-        $this->actingAs($this->admin)->post(route('title-deeds.pin.new', $deed->id));
+        $this->actingAs($this->admin)->post(route('title-deeds.pin.new', $deed->id), $this->tk('pin_new', $deed));
         $deed->refresh();
         $this->assertNull($deed->pin_locked_at);
         $this->assertSame(0, $deed->pin_failed_attempts);
@@ -244,8 +269,9 @@ final class TitleDeedHandoverTest extends TitleDeedTestCase
     public function test_a_double_submit_collects_once(): void
     {
         [$deed, $pin] = $this->notified();
-        $this->submit($deed, $this->ownerBody($deed, $pin))->assertSessionHas('success');
-        $this->submit($deed, $this->ownerBody($deed, $pin))->assertSessionHas('info');   // "already collected"
+        $token = $this->tk('handover', $deed)['_form_token'];
+        $this->submit($deed, $this->ownerBody($deed, $pin), null, $token)->assertSessionHas('success');
+        $this->submit($deed, $this->ownerBody($deed, $pin), null, $token)->assertSessionHas('info');   // the SAME form sent again: already done
 
         $this->assertSame(1, TitleDeedReceipt::where('title_deed_id', $deed->id)->count());
         $this->assertSame(1, TitleDeedAuditLog::where('title_deed_id', $deed->id)->where('event', 'handover')->count());

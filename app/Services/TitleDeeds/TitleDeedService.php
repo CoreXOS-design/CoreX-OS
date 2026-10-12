@@ -2,7 +2,10 @@
 
 namespace App\Services\TitleDeeds;
 
+use App\Exceptions\TitleDeedDuplicateException;
 use App\Exceptions\TitleDeedException;
+use App\Models\Deal;
+use App\Models\TitleDeeds\TitleDeedStorageLocation;
 use App\Models\Contact;
 use App\Models\Document;
 use App\Models\DocumentType;
@@ -27,7 +30,7 @@ class TitleDeedService
      * @param array{property_id:int, owner_ids:array<int,int>, agent_id?:?int, branch_id?:?int, attorney_firm?:?string,
      *              received_at:string, storage_location?:?string, notes?:?string} $data
      */
-    public function create(User $user, array $data): TitleDeed
+    public function create(User $user, array $data, ?UploadedFile $scan = null, bool $confirmDuplicate = false): TitleDeed
     {
         $agencyId = $user->effectiveAgencyId();
         if (! $agencyId) {
@@ -36,19 +39,40 @@ class TitleDeedService
 
         $property = $this->resolveProperty($user, (int) ($data['property_id'] ?? 0));
         $owners = $this->resolveOwners($data['owner_ids'] ?? []);
+        $deal = $this->resolveDeal($user, $data['deal_id'] ?? null);
         [$branchId, $agentId] = $this->resolveBranchAndAgent($user, $property, $data['branch_id'] ?? null, $data['agent_id'] ?? null);
+        $location = $this->resolveLocation($agencyId, $data['storage_location_id'] ?? null, $branchId, null, true);
+        [$listingAgentId, $additionalIds] = $this->resolveDealAgents($agencyId, $agentId, $data, $deal);
 
-        return DB::transaction(function () use ($user, $agencyId, $property, $owners, $branchId, $agentId, $data) {
+        // A property can legitimately get a later deed (a re-sale), so an OPEN deed for the same property or deal is a warning the
+        // user must confirm, not a hard block. Agency-wide on purpose: a deed another colleague logged counts too.
+        if (! $confirmDuplicate) {
+            $existing = TitleDeed::query()->where('status', '!=', TitleDeed::STATUS_COLLECTED)
+                ->where(function ($q) use ($property, $deal) {
+                    $q->where('property_id', $property->id);
+                    if ($deal) {
+                        $q->orWhere('deal_id', $deal->id);
+                    }
+                })->orderBy('id')->first();
+            if ($existing) {
+                throw new TitleDeedDuplicateException($existing);
+            }
+        }
+
+        return DB::transaction(function () use ($user, $agencyId, $property, $owners, $branchId, $agentId, $data, $deal, $location, $listingAgentId, $additionalIds, $scan) {
             $deed = TitleDeed::create([
                 'agency_id' => $agencyId,
                 'branch_id' => $branchId,
                 'agent_id' => $agentId,
+                'listing_agent_id' => $listingAgentId,
+                'additional_agent_ids' => $additionalIds ?: null,
+                'deal_id' => $deal?->id,
                 'created_by' => $user->id,
                 'property_id' => $property->id,
                 'property_address' => mb_substr((string) $property->buildDisplayAddress(), 0, 255),
                 'attorney_firm' => $this->clean($data['attorney_firm'] ?? null, 255),
                 'received_at' => $data['received_at'],
-                'storage_location' => $this->clean($data['storage_location'] ?? null, 255),
+                'storage_location_id' => $location?->id,
                 'notes' => $this->clean($data['notes'] ?? null, 5000),
                 'status' => TitleDeed::STATUS_RECEIVED,
             ]);
@@ -56,10 +80,17 @@ class TitleDeedService
             $this->syncOwners($deed, $owners);
 
             TitleDeedAuditLog::record($deed, TitleDeedAuditLog::EVENT_CREATED,
-                'Title deed logged for ' . $deed->property_display . ' (' . $owners->count() . ' owner' . ($owners->count() === 1 ? '' : 's') . ').',
-                null, ['owners' => $owners->pluck('name')->all(), 'received_at' => (string) $data['received_at']], $user);
+                'Title deed logged for ' . $deed->property_display . ' (' . $owners->count() . ' owner' . ($owners->count() === 1 ? '' : 's') . ')'
+                . ($deal ? ' from deal ' . ($deal->deal_no ?: '#' . $deal->id) : '') . ($location ? ', kept at ' . $location->name : '') . '.',
+                null, ['owners' => $owners->pluck('name')->all(), 'received_at' => (string) $data['received_at'], 'deal_id' => $deal?->id], $user);
 
-            return $deed;
+            // Logging and uploading are ONE action: if the scan cannot be saved the whole create rolls back (the file is removed
+            // by attachScan, the deed row by this transaction) and the form keeps what was typed.
+            if ($scan) {
+                $this->attachScan($user, $deed, $scan);
+            }
+
+            return $deed->fresh();
         });
     }
 
@@ -84,8 +115,15 @@ class TitleDeedService
         $property = $this->resolveProperty($user, (int) ($data['property_id'] ?? 0), $deed);
         $owners = $this->resolveOwners($data['owner_ids'] ?? [], $deed);
         [$branchId, $agentId] = $this->resolveBranchAndAgent($user, $property, $data['branch_id'] ?? $deed->branch_id, $data['agent_id'] ?? $deed->agent_id);
+        // Required - except for an old deed that only has the legacy free text: it may be saved without picking one yet.
+        $legacyOnly = ! $deed->storage_location_id && trim((string) $deed->storage_location) !== '';
+        $location = $this->resolveLocation((int) $deed->agency_id, array_key_exists('storage_location_id', $data) ? $data['storage_location_id'] : $deed->storage_location_id, $branchId, $deed, ! $legacyOnly);
+        [$listingAgentId, $additionalIds] = $this->resolveDealAgents((int) $deed->agency_id, $agentId, [
+            'listing_agent_id' => $data['listing_agent_id'] ?? $deed->listing_agent_id,
+            'additional_agent_ids' => array_key_exists('additional_agent_ids', $data) ? $data['additional_agent_ids'] : ($deed->additional_agent_ids ?? []),
+        ], null);
 
-        return DB::transaction(function () use ($user, $deed, $property, $owners, $branchId, $agentId, $data) {
+        return DB::transaction(function () use ($user, $deed, $property, $owners, $branchId, $agentId, $data, $location, $listingAgentId, $additionalIds) {
             $locked = TitleDeed::query()->lockForUpdate()->findOrFail($deed->id);
             if ($locked->isCollected()) {
                 throw new TitleDeedException('This title deed was collected a moment ago, so it can no longer be changed (notes only).');
@@ -94,9 +132,10 @@ class TitleDeedService
             $before = [
                 'property_id' => $locked->property_id, 'agent_id' => $locked->agent_id, 'branch_id' => $locked->branch_id,
                 'attorney_firm' => $locked->attorney_firm, 'received_at' => $locked->received_at?->toDateString(),
-                'storage_location' => $locked->storage_location, 'notes' => $locked->notes,
+                'storage_location' => $locked->storage_display, 'notes' => $locked->notes,
                 'owners' => $locked->owners()->get()->map->display_name->all(),
             ];
+            $movedFrom = $locked->storage_display;
 
             $locked->update([
                 'branch_id' => $branchId,
@@ -105,18 +144,26 @@ class TitleDeedService
                 'property_address' => mb_substr((string) $property->buildDisplayAddress(), 0, 255),
                 'attorney_firm' => $this->clean($data['attorney_firm'] ?? null, 255),
                 'received_at' => $data['received_at'],
-                'storage_location' => $this->clean($data['storage_location'] ?? null, 255),
+                'storage_location_id' => $location?->id ?? $locked->storage_location_id,
+                'listing_agent_id' => $listingAgentId,
+                'additional_agent_ids' => $additionalIds ?: null,
                 'notes' => $this->clean($data['notes'] ?? null, 5000),
             ]);
             $this->syncOwners($locked, $owners);
+            $locked->unsetRelation('storageLocation');
 
             $after = [
                 'property_id' => $locked->property_id, 'agent_id' => $locked->agent_id, 'branch_id' => $locked->branch_id,
                 'attorney_firm' => $locked->attorney_firm, 'received_at' => $locked->received_at?->toDateString(),
-                'storage_location' => $locked->storage_location, 'notes' => $locked->notes,
+                'storage_location' => $locked->storage_display, 'notes' => $locked->notes,
                 'owners' => $owners->pluck('name')->all(),
             ];
             TitleDeedAuditLog::record($locked, TitleDeedAuditLog::EVENT_EDITED, 'Record edited.', $before, $after, $user);
+            if ($location && $movedFrom !== $location->name) {
+                TitleDeedAuditLog::record($locked, TitleDeedAuditLog::EVENT_LOCATION_CHANGED,
+                    'Moved from ' . ($movedFrom ?: 'no location') . ' to ' . $location->name . ' by ' . $user->name . '.',
+                    ['from' => $movedFrom], ['to' => $location->name], $user);
+            }
 
             return $locked;
         });
@@ -194,7 +241,9 @@ class TitleDeedService
                     $oldDoc->delete();
                 }
 
-                TitleDeedAuditLog::record($locked, TitleDeedAuditLog::EVENT_SCAN_UPLOADED, 'Scan uploaded (' . $doc->original_name . ').', null, ['document_id' => $doc->id], $user);
+                TitleDeedAuditLog::record($locked, $old ? TitleDeedAuditLog::EVENT_SCAN_REPLACED : TitleDeedAuditLog::EVENT_SCAN_UPLOADED,
+                    ($old ? 'Scan replaced (' : 'Scan uploaded (') . $doc->original_name . ')' . ($old ? '; the earlier file is kept in the scan history.' : '.'),
+                    $old ? ['document_id' => $old] : null, ['document_id' => $doc->id], $user);
 
                 return $doc;
             });
@@ -307,6 +356,78 @@ class TitleDeedService
                 $row->delete();
             }
         }
+    }
+
+    /** The DR2 deal the deed came from, if one was picked: must be a deal the user can see. */
+    private function resolveDeal(User $user, mixed $dealId): ?Deal
+    {
+        $dealId = (int) $dealId;
+        if (! $dealId) {
+            return null;
+        }
+        $deal = Deal::query()->visibleTo($user)->find($dealId);
+        if (! $deal) {
+            throw ValidationException::withMessages(['deal_id' => 'Pick the deal from the list - that deal could not be found.']);
+        }
+
+        return $deal;
+    }
+
+    /**
+     * "Where it is kept": one of the agency's own ACTIVE locations (for the deed's branch, where restricted). Unchanged on an
+     * edit is always fine even if it was archived since. $required: create and edit demand one; an old deed that has only legacy
+     * free text may be saved without picking one yet.
+     */
+    private function resolveLocation(int $agencyId, mixed $locationId, int $branchId, ?TitleDeed $existing, bool $required): ?TitleDeedStorageLocation
+    {
+        $locationId = (int) $locationId;
+        if (! $locationId) {
+            if ($required) {
+                $any = TitleDeedStorageLocation::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->exists();
+                throw ValidationException::withMessages(['storage_location_id' => $any
+                    ? 'Pick where the deed is kept.'
+                    : 'This agency has no storage locations yet. Ask an admin to add a storage location.']);
+            }
+
+            return null;
+        }
+        if ($existing && (int) $existing->storage_location_id === $locationId) {
+            return TitleDeedStorageLocation::withoutGlobalScopes()->withTrashed()->where('agency_id', $agencyId)->find($locationId);
+        }
+
+        $location = TitleDeedStorageLocation::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')
+            ->usableForBranch($branchId)->find($locationId);
+        if (! $location) {
+            throw ValidationException::withMessages(['storage_location_id' => 'Pick one of the storage locations in the list (for this deed\'s branch).']);
+        }
+
+        return $location;
+    }
+
+    /**
+     * The deal's agents (.ai/specs/title-deed-register.md section 14.8): the listing agent (for reference) and any further selling
+     * agents. Only active people of this agency; the responsible agent is never repeated.
+     *
+     * @return array{0:?int, 1:array<int,int>}
+     */
+    private function resolveDealAgents(int $agencyId, int $responsibleId, array $data, ?Deal $deal): array
+    {
+        $listing = (int) ($data['listing_agent_id'] ?? 0) ?: null;
+        $extra = collect((array) ($data['additional_agent_ids'] ?? []))->map(fn ($i) => (int) $i)->filter()->unique()->values();
+
+        $ids = $extra->concat([(int) $listing])->filter()->unique();
+        $active = $ids->isEmpty() ? collect() : User::withoutGlobalScopes()->where('agency_id', $agencyId)->where('is_active', 1)->whereIn('id', $ids)->pluck('id')->map(fn ($i) => (int) $i);
+
+        if ($listing && ! $active->contains($listing)) {
+            throw ValidationException::withMessages(['listing_agent_id' => 'The listing agent must be an active user of this agency.']);
+        }
+        foreach ($extra as $i) {
+            if (! $active->contains($i)) {
+                throw ValidationException::withMessages(['additional_agent_ids' => 'The extra agents must be active users of this agency.']);
+            }
+        }
+
+        return [$listing, $extra->reject(fn ($i) => $i === $responsibleId || $i === $listing)->values()->all()];
     }
 
     private function nameOf(Contact $c): string

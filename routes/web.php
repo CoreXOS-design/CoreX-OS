@@ -2006,6 +2006,8 @@ Route::middleware(['auth', 'permission:access_title_deeds', 'feature:title-deeds
     Route::get('/search/properties', [$c, 'searchProperties'])->middleware('permission:title_deeds.create,title_deeds.edit')->name('search.properties');
     Route::get('/search/property/{property}/suggestions', [$c, 'propertySuggestions'])->whereNumber('property')->middleware('permission:title_deeds.create,title_deeds.edit')->name('search.property-suggestions');
     Route::get('/search/contacts', [$c, 'searchContacts'])->middleware('permission:title_deeds.create,title_deeds.edit')->name('search.contacts');
+    Route::get('/search/deals', [$c, 'searchDeals'])->middleware('permission:title_deeds.create')->name('search.deals');
+    Route::get('/search/deal/{deal}/prefill', [$c, 'dealPrefill'])->whereNumber('deal')->middleware('permission:title_deeds.create')->name('search.deal-prefill');
 
     Route::get('/{id}', [$c, 'show'])->whereNumber('id')->middleware('permission:title_deeds.view')->name('show');
     Route::get('/{id}/edit', [$c, 'edit'])->whereNumber('id')->middleware('permission:title_deeds.edit')->name('edit');
@@ -2015,25 +2017,45 @@ Route::middleware(['auth', 'permission:access_title_deeds', 'feature:title-deeds
 
     Route::post('/{id}/scan', [$c, 'uploadScan'])->whereNumber('id')->middleware('permission:title_deeds.edit')->name('scan.upload');
     Route::get('/{id}/scan', [$c, 'downloadScan'])->whereNumber('id')->middleware('permission:title_deeds.view')->name('scan.download');
+    Route::get('/{id}/scan/{document}', [$c, 'downloadEarlierScan'])->whereNumber(['id', 'document'])->middleware('permission:title_deeds.view')->name('scan.earlier');
     Route::get('/{id}/receipt-file/{kind}', [$c, 'receiptFile'])->whereNumber('id')->middleware('permission:title_deeds.view')->name('receipt.file');
 
     Route::post('/{id}/notify', [$c, 'notify'])->whereNumber('id')->middleware('permission:title_deeds.notify')->name('notify');
     Route::post('/{id}/pin/resend', [$c, 'resendPin'])->whereNumber('id')->middleware('permission:title_deeds.notify')->name('pin.resend');
     Route::post('/{id}/pin/new', [$c, 'newPin'])->whereNumber('id')->middleware('permission:title_deeds.notify')->name('pin.new');
-    Route::get('/{id}/events/{event}/whatsapp', [$c, 'openWhatsapp'])->whereNumber(['id', 'event'])->middleware('permission:title_deeds.notify,title_deeds.handover')->name('events.whatsapp');
+    // WhatsApp is ONE honest sequence: "Open WhatsApp and send" (records who opened it, then redirects to wa.me) -> only then
+    // "Mark as sent" or "Not sent". Confirm / not-sent are refused by the server for a message nobody opened.
+    Route::post('/{id}/events/{event}/open', [$c, 'openWhatsapp'])->whereNumber(['id', 'event'])->middleware('permission:title_deeds.notify,title_deeds.handover')->name('events.open');
     Route::post('/{id}/events/{event}/confirm', [$c, 'confirmWhatsapp'])->whereNumber(['id', 'event'])->middleware('permission:title_deeds.notify,title_deeds.handover')->name('events.confirm');
+    Route::post('/{id}/events/{event}/not-sent', [$c, 'declineWhatsapp'])->whereNumber(['id', 'event'])->middleware('permission:title_deeds.notify,title_deeds.handover')->name('events.not-sent');
 
     Route::get('/{id}/handover', [$h, 'show'])->whereNumber('id')->middleware('permission:title_deeds.handover')->name('handover');
     Route::post('/{id}/handover', [$h, 'submit'])->whereNumber('id')->middleware('permission:title_deeds.handover')->name('handover.submit');
     Route::post('/{id}/consent', [$h, 'requestConsent'])->whereNumber('id')->middleware('permission:title_deeds.handover')->name('consent.request');
     Route::post('/{id}/consent/phone', [$h, 'phoneConsent'])->whereNumber('id')->middleware('permission:title_deeds.handover')->name('consent.phone');
     Route::post('/{id}/consent/{consent}/cancel', [$h, 'cancelConsent'])->whereNumber(['id', 'consent'])->middleware('permission:title_deeds.handover')->name('consent.cancel');
+
+    // Sign by link (spec section 14.10): every gate is passed at the counter first; then a one-time link for the named collector.
+    Route::post('/{id}/signing-link', [$h, 'generateLink'])->whereNumber('id')->middleware('permission:title_deeds.handover')->name('signing-link.generate');
+    Route::post('/{id}/signing-link/{link}/email', [$h, 'emailLink'])->whereNumber(['id', 'link'])->middleware('permission:title_deeds.handover')->name('signing-link.email');
+    Route::post('/{id}/signing-link/{link}/whatsapp', [$h, 'whatsappLink'])->whereNumber(['id', 'link'])->middleware('permission:title_deeds.handover')->name('signing-link.whatsapp');
+    Route::post('/{id}/signing-link/{link}/cancel', [$h, 'cancelLink'])->whereNumber(['id', 'link'])->middleware('permission:title_deeds.handover')->name('signing-link.cancel');
 });
 
 // What the handover screen polls while it waits for an owner. Under /api/v1 so it is listed in the Admin API catalogue.
 Route::middleware(['auth', 'permission:title_deeds.handover', 'feature:title-deeds'])
     ->get('/api/v1/title-deeds/{id}/consent-status', [\App\Http\Controllers\TitleDeeds\TitleDeedHandoverController::class, 'consentStatus'])
     ->whereNumber('id')->name('api.v1.title-deeds.consent-status');
+
+Route::middleware(['auth', 'permission:title_deeds.handover', 'feature:title-deeds'])
+    ->get('/api/v1/title-deeds/{id}/signing-status', [\App\Http\Controllers\TitleDeeds\TitleDeedHandoverController::class, 'signingStatus'])
+    ->whereNumber('id')->name('api.v1.title-deeds.signing-status');
+
+// A collector's one-time signing link: public, no login, the token is the credential (hashed, single use, expiring).
+Route::prefix('title-deed-sign')->group(function () {
+    Route::get('/{token}', [\App\Http\Controllers\TitleDeeds\TitleDeedSignPublicController::class, 'show'])->middleware('throttle:60,1')->name('title-deeds.sign.show');
+    Route::post('/{token}/submit', [\App\Http\Controllers\TitleDeeds\TitleDeedSignPublicController::class, 'submit'])->middleware('throttle:10,1')->name('title-deeds.sign.submit');
+});
 
 // An owner's personal consent link: public, no login, the token is the credential (stored hashed, single use, expiring).
 Route::prefix('title-deed-consent')->group(function () {
@@ -3195,6 +3217,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware(['permission:title_deeds.manage_settings', 'agency.required'])->name('corex.settings.title-deeds.edit');
     Route::post('/settings/title-deeds', [\App\Http\Controllers\TitleDeeds\TitleDeedSettingsController::class, 'update'])
         ->middleware(['permission:title_deeds.manage_settings', 'agency.required'])->name('corex.settings.title-deeds.update');
+    // AT-450 round 2 - the agency's own list of title deed storage locations (full CRUD, soft delete only).
+    Route::prefix('/settings/title-deeds/locations')->middleware(['permission:title_deeds.manage_settings', 'agency.required'])->group(function () {
+        $l = \App\Http\Controllers\TitleDeeds\TitleDeedLocationController::class;
+        Route::get('/', [$l, 'index'])->name('corex.settings.title-deeds.locations');
+        Route::post('/', [$l, 'store'])->name('corex.settings.title-deeds.locations.store');
+        Route::put('/{id}', [$l, 'update'])->whereNumber('id')->name('corex.settings.title-deeds.locations.update');
+        Route::delete('/{id}', [$l, 'destroy'])->whereNumber('id')->name('corex.settings.title-deeds.locations.destroy');
+        Route::post('/{id}/restore', [$l, 'restore'])->whereNumber('id')->name('corex.settings.title-deeds.locations.restore');
+    });
     // .ai/specs/leases.md §5.2 — expiry-notice window, agency-configurable, default 60 days.
     Route::get('/settings/leases', [\App\Http\Controllers\CoreX\LeaseSettingsController::class, 'edit'])
         ->middleware('permission:leases.manage_settings')->name('corex.settings.leases.edit');

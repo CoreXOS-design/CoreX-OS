@@ -176,6 +176,8 @@ return Application::configure(basePath: dirname(__DIR__))
             // §46 — a party signing an inspection from their personal link: the token is the credential and
             // there is no session to protect. (The agent's own "sign on this device" POST is NOT excepted.)
             'rental-inspection-sign/*/submit',
+            // AT-450 — a collector signing a title deed receipt from their one-time link (token is the credential, no session).
+            'title-deed-sign/*/submit',
         ]);
 
     })
