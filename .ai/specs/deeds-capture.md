@@ -931,6 +931,40 @@ proposal (Part 2 report), not patched.
 **Tests.** `tests/Feature/Prospecting/MatchingPromoteLinkAndMergeGuardTest.php` (13 cases; mutation-checked).
 **Not in the wizard / no setting added** (CLAUDE.md #10a does not apply).
 
+### 9.12 Ranked matches, partial scheme names, either unit number, the owner SURNAME (2026-10-12, Johan — extension 3.11.0)
+
+**What failed (Staging, Johan's retest).** CMA page: Unit/Section 6, Du Bantry [Holiday Flats], 77 Colin Street, Uvongo Beach, owner Pretorius.
+CoreX property 21729 holds "Unit 6, Du Bantry, Colin Street, Uvongo Beach" with NO street number and a seller Pretorius. The pre-check
+returned only the unit-less "77 Colin Street" record (15815). Cause: the Staging stock rule needed the scheme name to be *exactly* equal and a
+street number on both sides; and the banner showed only `matches[0]`. Mont Blanc and Pretorius Drive worked only because an earlier CMA capture
+already held their scheme number / erf. 589 of 6,130 Staging properties have the failing shape (unit + complex, no street number).
+
+**What changed (Johan's scope — nothing else):**
+
+1. **Scheme / complex name — partial match, guarded** (`AddressMatchScorer::scheme()`). One normalised name inside the other counts as the same scheme
+   ("Du Bantry" in "Du Bantry Holiday Flats"), by whole WORDS only, and only when the shorter name is substantial: at least one real word of 4+ letters that is
+   not noise (the, ss, flats, court, villa, estate, van, der …) and 5+ letters of real words in all. "Sea", "The Villas", "SS 12", "Villa", "Flats" never match every scheme; "Bantry" is not inside "Bantryside".
+2. **Unit — the section number AND the flat/unit number** (`AddressFacts::$units`, `AddressMatchScorer::unit()`). Either one equal to the CoreX unit counts. Written forms
+   "Unit 6", "6", "06", "No 6", "Flat 6", "Door 6", "#6" are one key (`AddressFacts::unitKey()`); a unit stored in the street field (property 2872 "1 DU BANTRY\n77 Colin Street") is lifted by the parser as before.
+   **Safety:** when the CMA page's two numbers disagree (section 6 / flat 7) and the CoreX unit equals only the secondary one, that is a candidate ("possible", with a sentence saying so), never exact.
+3. **A missing street number no longer excludes a record.** Two new POSSIBLE anchors: scheme + street + suburb, and unit + street + suburb, each when the street number is absent on one side. A
+   DIFFERENT number is still a veto (19 ≠ 29). The exact scheme rule (scheme + unit + suburb) already never needed a number.
+4. **Owner SURNAME as confirming evidence** (`OwnerSurnameEvidence`). The CMA owner cell is surname-first; a compound surname has its prefix words trailing ("MERWE FRANCOIS VAN DER" = Van Der Merwe).
+   Only the surname is compared — never first names (Lodewyk is captured as Leon), never ID digits. Compared with: the contacts linked to the property as seller / owner / landlord / lessor
+   (`contact_property`, agency-scoped, soft-removed links ignored), the owners captured on a tracked property (and the contact one is linked to), and — for a tracked property already promoted — that property's contacts.
+   Case, accents, hyphens and a compound prefix on one side only are tolerated; several owners: any one counts; a company/trust owner is compared by its whole name with Pty/Ltd/CC/The removed.
+   **Evidence only:** it re-orders and upgrades candidates the address matcher already found; a surname with no address signal matches nothing.
+5. **Ranking** (`DeedsCapturePreCheckRanker`, applied in `checkDuplicate()`): 1 **exact** (identity rule, or a possible whose UNIT agrees and whose surname matches — "upgraded") · 2 **surname-confirmed** · 3 **possible** · 4 **no unit** — a same-address record with no unit number,
+   labelled exactly **"Same address, no unit number - may be a different unit"** and always listed below the stronger ones. Within a group: surname-confirmed first, then the scorer's score, then the oldest id.
+   Every match carries `rank`, `rank_group`, `rank_label`, `owner_surname_match`, `owner_surname_evidence`; the response adds `match_count`. `status` is `exists` when any non-owner-name match is exact, else `possible_match`, else `not_found` (unchanged).
+   A stock match's `address` is now the full display address ("Unit 6, Du Bantry, Colin Street, Uvongo Beach") so two units of one scheme can be told apart.
+6. **Banner** (extension 3.11.0, `showDuplicateBanner()`): the title carries the count ("Already in CoreX — 2 matches, best first"), the best match as before plus its plain rank label, then the rest of the list (up to 5, "+ N more"); weaker rows are amber. Buttons and the decision log are unchanged.
+7. **Extension version** 3.10.0 → 3.11.0 on QA1 and Staging (the same build). The payload is unchanged: the section number and the flat/unit number were already both sent.
+
+**Deliberately NOT built:** first names, ID digits, storing the scheme number on stock, anything else.
+
+**Tests:** `tests/Feature/Address/AddressMatchScorerPreCheckRulesTest.php`, `tests/Unit/Prospecting/OwnerSurnameEvidenceTest.php`, `tests/Feature/Prospecting/DeedsCapturePreCheckRankedTest.php` (Johan's case, Mont Blanc, 195 Pretorius Drive, different unit, 19 vs 29, surname alone, cross-agency, several owners, compound surname, company), the node harness (`deeds-cleanslate.test.cjs`, banner list helpers).
+
 ### 9.7 Deliberately unchanged
 `extractDeed()`, `extractSaleInformation()`, `revealOwnerIdIfNeeded()`,
 `buildDeedsCapturePayload()`, `DeedsCaptureController::store()`/`ingestOne()` — all
@@ -949,6 +983,10 @@ byte-for-byte unchanged. The gate sits entirely in front of them in
 | `public/chrome-extension/portal-capture/manifest.json` | version 3.7.7 → 3.8.0 (→ 3.8.1, §9.10) |
 | `tests/Feature/Prospecting/DeedsCapturePrecheckTest.php` | new |
 | `public/chrome-extension/portal-capture/tests/deeds-cleanslate.test.cjs` | + pre-check gate test section |
+
+**§9.12 files (2026-10-12):** `app/Services/Address/AddressMatchScorer.php` (partial scheme names, either unit, number-missing anchors, wording, `record_lacks_unit`), `app/Services/Address/AddressFacts.php` (`units`, `unitKey()`),
+`app/Services/Prospecting/OwnerSurnameEvidence.php` (new), `app/Services/Prospecting/DeedsCapturePreCheckRanker.php` (new), `app/Http/Controllers/Api/DeedsCaptureController.php` (`checkDuplicate()` ranks; fuller stock address; `match_count`),
+`public/chrome-extension/portal-capture/content-cmainfo.js` (ranked-list banner), `manifest.json` / `popup.html` (3.11.0), `deeds-cleanslate.test.cjs`, and the three test files named in §9.12.
 
 ### 9.9 Deliberately NOT in the wizard
 No new agency setting — the pre-check is unconditional behaviour, not a configurable

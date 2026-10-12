@@ -52,6 +52,13 @@
  *     CoreX says yes or "possibly". The reveal only ever happens after a
  *     "not found" result or the agent's explicit "Pull anyway". See
  *     onCaptureClick()'s own docblock below for the exact sequencing.
+ *   - v3.11.0 (2026-10-12, .ai/specs/deeds-capture.md §9.12) — RANKED PRE-CHECK.
+ *     The server now returns EVERY match ranked (exact unit + scheme first,
+ *     then owner-surname-confirmed, then weaker; the "Same address, no unit
+ *     number - may be a different unit" record last) and the banner shows the
+ *     whole list with a count instead of only matches[0]. The payload is
+ *     unchanged: the CMA SECTION number and the flat/unit number were already
+ *     both sent, the owner NAME carries the surname the server compares.
  */
 
 (function () {
@@ -1738,6 +1745,9 @@
       #${BANNER_ID} .corex-deeds-banner-title { display: block !important; font-weight: 700 !important; font-size: 13px !important; margin-bottom: 4px !important; }
       #${BANNER_ID} .corex-deeds-banner-body { display: block !important; margin-bottom: 10px !important; line-height: 1.4 !important; }
       #${BANNER_ID} .corex-deeds-banner-actions { display: flex !important; gap: 6px !important; flex-wrap: wrap !important; }
+      #${BANNER_ID} .corex-deeds-banner-list { display: block !important; margin: 0 0 10px 0 !important; padding: 8px 0 0 0 !important; border-top: 1px solid #374151 !important; }
+      #${BANNER_ID} .corex-deeds-banner-row { display: block !important; margin-bottom: 8px !important; line-height: 1.35 !important; }
+      #${BANNER_ID} .corex-deeds-banner-weak { color: #fbbf24 !important; }
       #${BANNER_ID} button, #${BANNER_ID} a {
         all: unset !important;
         font-family: -apple-system, BlinkMacSystemFont, sans-serif !important;
@@ -1809,6 +1819,40 @@
     return parts.join(' · ');
   }
 
+  // v3.11.0 — the pre-check now returns EVERY match, ranked (rank / rank_label / owner_surname_match), and the banner shows the
+  // whole list with a count instead of only matches[0]. Pure helpers, so the node harness can test them.
+  const BANNER_MAX_ROWS = 5;
+
+  /** one plain row of the ranked list: { n, address, label, weak, deeplink } */
+  function describeRankedRow(match, index) {
+    const label = (match && (match.rank_label || match.reason)) || '';
+    return {
+      n: (match && match.rank) || index + 1,
+      address: (match && match.address) || 'A property in CoreX',
+      label: String(label),
+      // "Same address, no unit number - may be a different unit" and plain possibles are the weaker rows
+      weak: !!(match && match.rank_group && match.rank_group !== 'exact'),
+      deeplink: (match && match.deeplink) || null,
+    };
+  }
+
+  /** the rows after the best one, capped, plus how many were cut off */
+  function rankedOtherRows(precheck) {
+    const list = precheck && Array.isArray(precheck.matches) ? precheck.matches : [];
+    const others = list.slice(1);
+    return {
+      total: list.length,
+      rows: others.slice(0, BANNER_MAX_ROWS - 1).map((m, i) => describeRankedRow(m, i + 1)),
+      more: Math.max(0, others.length - (BANNER_MAX_ROWS - 1)),
+    };
+  }
+
+  /** " — 3 matches, best first" when there is more than one match; '' for one */
+  function describeMatchCount(precheck) {
+    const total = precheck && Array.isArray(precheck.matches) ? precheck.matches.length : 0;
+    return total > 1 ? (' — ' + total + ' matches, best first') : '';
+  }
+
   function showDuplicateBanner(precheck) {
     return new Promise((resolve) => {
       injectStyles();
@@ -1825,7 +1869,7 @@
 
       const title = document.createElement('span');
       title.className = 'corex-deeds-banner-title';
-      title.textContent = confident ? 'Already in CoreX' : (addressPossible ? 'Possible match — is this the same property?' : 'Possible match in CoreX');
+      title.textContent = (confident ? 'Already in CoreX' : (addressPossible ? 'Possible match — is this the same property?' : 'Possible match in CoreX')) + describeMatchCount(precheck);
       el.appendChild(title);
 
       const body = document.createElement('span');
@@ -1850,6 +1894,34 @@
         detailEl.className = 'corex-deeds-banner-body';
         detailEl.textContent = detail;
         el.appendChild(detailEl);
+      }
+
+      // v3.11.0 — how strong the best match is, in words (e.g. "Same address, no unit number - may be a different unit").
+      if (match && match.rank_label) {
+        const rankEl = document.createElement('span');
+        rankEl.className = 'corex-deeds-banner-body' + (match.rank_group && match.rank_group !== 'exact' ? ' corex-deeds-banner-weak' : '');
+        rankEl.textContent = match.rank_label + (match.owner_surname_evidence && String(match.rank_label).indexOf('surname') === -1 ? '. ' + match.owner_surname_evidence : '');
+        el.appendChild(rankEl);
+      }
+
+      // v3.11.0 — the rest of the ranked list, with a count.
+      const others = rankedOtherRows(precheck);
+      if (others.rows.length) {
+        const listEl = document.createElement('div');
+        listEl.className = 'corex-deeds-banner-list';
+        others.rows.forEach((row) => {
+          const rowEl = document.createElement('span');
+          rowEl.className = 'corex-deeds-banner-row' + (row.weak ? ' corex-deeds-banner-weak' : '');
+          rowEl.textContent = row.n + '. ' + row.address + (row.label ? ' — ' + row.label : '');
+          listEl.appendChild(rowEl);
+        });
+        if (others.more > 0) {
+          const moreEl = document.createElement('span');
+          moreEl.className = 'corex-deeds-banner-row';
+          moreEl.textContent = '+ ' + others.more + ' more';
+          listEl.appendChild(moreEl);
+        }
+        el.appendChild(listEl);
       }
 
       const actions = document.createElement('div');

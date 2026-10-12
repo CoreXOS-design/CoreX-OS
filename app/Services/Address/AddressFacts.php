@@ -40,6 +40,16 @@ final class AddressFacts
         public readonly ?float $lng,
         public readonly ?string $label = null,
         public readonly ?string $complexRaw = null,
+        /**
+         * Every normalised unit/section key this address carries. A CMA page gives a SECTION number and a flat/unit
+         * number; CoreX holds one unit. Either one equal to the other side's counts (Johan, 2026-10-12). `unit` stays
+         * the primary key (section first) for the code that only wants one.
+         *
+         * @var array<int, string>
+         */
+        public readonly array $units = [],
+        /** the capture's two unit values disagree (section 6 / flat 7) — a match on the SECOND one alone is never exact */
+        public readonly bool $unitsConflict = false,
     ) {
     }
 
@@ -60,6 +70,7 @@ final class AddressFacts
             $number = AddressParser::numberKey($parsed['street_number']);
         }
         $unit = self::col($m, 'section_number') ?? self::col($m, 'unit_number') ?? $parsed['unit_number'];
+        $unitCandidates = [self::col($m, 'section_number'), self::col($m, 'unit_number'), $parsed['unit_number'] ?? null];
         $complex = self::col($m, 'complex_name') ?? self::col($m, 'scheme_name') ?? $parsed['complex_name'];
         $scheme = self::col($m, 'scheme_number') ?? $parsed['scheme_number'];
         $erf = self::col($m, 'erf_number') ?? $parsed['erf_number'];
@@ -79,6 +90,7 @@ final class AddressFacts
             lng: self::coord(self::col($m, 'cma_gps_lng') ?? self::col($m, 'longitude')),
             label: self::labelOf($core, $type, $number, $suburb),
             complexRaw: $complex,
+            unitCandidates: $unitCandidates,
         );
     }
 
@@ -99,6 +111,7 @@ final class AddressFacts
             : [];
 
         $unit = $s['section_number'] ?? $s['unit_number'];
+        $unitCandidates = [$s['section_number'] ?? null, $s['unit_number'] ?? null, $facts['section_number'] ?? null, $facts['unit_number'] ?? null];
 
         return self::build(
             p24: $s['p24_suburb_id'],
@@ -111,6 +124,7 @@ final class AddressFacts
             lat: $lat, lng: $lng,
             label: self::labelOf($s['street_core'], $s['street_type'], AddressParser::numberKey($s['street_number']), $suburb),
             complexRaw: $s['complex_name'],
+            unitCandidates: $unitCandidates,
         );
     }
 
@@ -118,8 +132,20 @@ final class AddressFacts
         ?int $p24, ?string $suburb, array $neighbours, ?string $number, ?string $core, ?string $type, ?string $unit,
         ?string $complex, ?string $scheme, ?string $erf, ?string $portion, ?string $lpi, ?float $lat, ?float $lng, ?string $label,
         ?string $complexRaw = null,
+        array $unitCandidates = [],
     ): self {
-        $unitKey = $unit !== null ? TrackedPropertyAddress::normaliseNumericIdentifier($unit) : null;
+        $unitKey = $unit !== null ? self::unitKey($unit) : null;
+        $unitKeys = [];
+        foreach (array_merge([$unit], $unitCandidates) as $cand) {
+            $k = $cand !== null ? self::unitKey((string) $cand) : null;
+            if ($k !== null && ! in_array($k, $unitKeys, true)) {
+                $unitKeys[] = $k;
+            }
+        }
+        // the primary key leads, so `unit` and units[0] agree even when the primary was a prefixed form ("Unit 6")
+        if ($unitKey === null && $unitKeys !== []) {
+            $unitKey = $unitKeys[0];
+        }
         $erfKey = $erf !== null ? TrackedPropertyAddress::normaliseNumericIdentifier($erf) : null;
         $portionKey = $portion !== null ? TrackedPropertyAddress::normaliseNumericIdentifier($portion) : null;
         $schemeKey = $scheme !== null && trim($scheme) !== '' ? mb_strtolower(trim($scheme)) : null;
@@ -145,7 +171,28 @@ final class AddressFacts
             lng: $lng,
             label: $label,
             complexRaw: $complexRaw,
+            units: $unitKeys,
+            unitsConflict: count($unitKeys) > 1,
         );
+    }
+
+    /**
+     * One unit/section key: "Unit 6", "6", "06", "No 6", "Flat 6", "Door 6", "#6" are all "6"; "6A" stays "6a".
+     * Null for anything that is not a unit number at all (blank, "-").
+     */
+    public static function unitKey(?string $raw): ?string
+    {
+        if ($raw === null) {
+            return null;
+        }
+        $v = trim($raw);
+        $v = (string) preg_replace('/^(?:unit|flat|apartment|apt|door|section|sec|no|nr|number|#)\.?\s*#?\s*/iu', '', $v);
+        $v = trim($v);
+        if ($v === '' || in_array(mb_strtolower($v), ['-', 'n/a', 'na'], true)) {
+            return null;
+        }
+
+        return TrackedPropertyAddress::normaliseNumericIdentifier($v);
     }
 
     private static function col(Model $m, string $col): mixed
