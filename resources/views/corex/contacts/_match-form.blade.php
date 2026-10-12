@@ -174,6 +174,18 @@
                                style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                     </div>
 
+                    {{-- AT-432 — whether this buyer is matched to properties being sold at auction. --}}
+                    <div class="flex items-start gap-2 rounded-md p-3" style="background:var(--surface); border:1px solid var(--border);">
+                        <input type="hidden" name="open_to_auction" value="0">
+                        <input type="checkbox" id="match_open_to_auction" name="open_to_auction" value="1"
+                               @checked(old('open_to_auction', $isEdit ? (bool) $match->open_to_auction : true))
+                               class="mt-0.5">
+                        <div class="flex-1">
+                            <label for="match_open_to_auction" class="block text-xs font-semibold cursor-pointer" style="color:var(--text-primary);">Open to auction properties</label>
+                            <p class="text-[10px] mt-0.5" style="color:var(--text-muted);">Untick if this buyer will not bid at an auction — they will then not be matched to auction lots.</p>
+                        </div>
+                    </div>
+
                     {{-- Primary flag — only render when there are siblings to demote OR in edit mode --}}
                     @if($siblingCount > 0 || $isEdit)
                     <div class="flex items-start gap-2 rounded-md p-3" style="background:var(--surface); border:1px solid var(--border);">
