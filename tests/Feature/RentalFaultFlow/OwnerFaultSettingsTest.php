@@ -501,4 +501,34 @@ final class OwnerFaultSettingsTest extends TestCase
         $this->assertStringContainsString("num('handling')", $html);
         $this->assertContains('handling', \App\Support\PortalLink::TARGETS);
     }
+
+    // ── 7. the agent panel is short, aligned, and says things once (Johan's 12 Oct walk of property 6069) ──
+
+    public function test_the_panel_is_trimmed_aligned_and_says_not_set_for_a_missing_value_and_carried_over_once(): void
+    {
+        $this->property->forceFill(['rental_no_approval_spend_threshold' => 1200])->saveQuietly();
+        (require base_path('database/migrations/2026_10_27_100000_owner_fault_handling_settings.php'))->up();
+
+        $html = $this->actingAs($this->agent)->get(route('corex.properties.show', $this->property) . '?tab=rental')->assertOk()->getContent();
+        $flat = preg_replace('/\s+/', ' ', strip_tags($html));
+
+        $this->assertStringContainsString("The owner's own choices. Until confirmed, every decision goes to the owner.", $flat);
+        $this->assertStringNotContainsString("These are the OWNER's decisions", $flat);
+        $this->assertStringNotContainsString('does not count as a standing', $flat);
+
+        // the three value rows are label / value pairs in ONE grid, and a missing answer reads "not set" (never blank)
+        $this->assertSame(1, preg_match('/<div class="grid text-xs" style="grid-template-columns: minmax\(0, 1fr\) auto;[^"]*" data-owner-fault-values>(.*?)<\/div>\s*(?:@|<p|<details|<div)/s', $html) ? 1 : 0, 'one grid');
+        $this->assertSame(1, preg_match('/data-v-repair>R1 200<\/div>/', $html));
+        $this->assertSame(1, preg_match('/data-v-emergency>not set<\/div>/', $html));
+        $this->assertSame(1, preg_match('/data-v-callout>not set<\/div>/', $html), 'the call-out line says "not set" like the emergency line');
+
+        // "carried over" is said ONCE in the evidence line - the note is not repeated beside it
+        $evidence = preg_replace('/\s+/', ' ', strip_tags(preg_match('/<p[^>]*data-owner-fault-evidence>(.*?)<\/p>/s', $html, $m) ? $m[1] : ''));
+        $this->assertSame(1, substr_count(strtolower($evidence), 'carried over'), $evidence);
+        $this->assertStringNotContainsString('"Carried over', $evidence);
+
+        // the two buttons have one size
+        $this->assertSame(1, preg_match_all('/data-send-to-owner/', $html));
+        $this->assertSame(2, preg_match_all('/style="width: 16rem; max-width: 100%;" data-(?:send-to-owner|save-owner-fault-settings)/', $html), 'both buttons 16rem wide');
+    }
 }

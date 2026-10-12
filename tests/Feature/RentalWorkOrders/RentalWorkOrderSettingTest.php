@@ -82,8 +82,8 @@ final class RentalWorkOrderSettingTest extends TestCase
         $this->assertSame(350.0, RentalWorkOrderSetting::spendThresholdFor($this->agency->id));
     }
 
-    /** BUILD 2 (§17.6.2) — the limit moved to its own panel/route (with history); the rental-details endpoint no longer accepts it. */
-    public function test_property_override_is_saved_through_the_work_terms_endpoint(): void
+    /** AT-452 (rentals-faults-work-orders.md section 22.7) - the repair limit lives in ONE place (the owner's own settings); the work-terms endpoint no longer takes it. */
+    public function test_the_work_terms_endpoint_no_longer_takes_the_repair_limit(): void
     {
         $property = $this->property();
 
@@ -91,7 +91,8 @@ final class RentalWorkOrderSettingTest extends TestCase
             'no_approval_limit' => 3000,
         ])->assertRedirect();
 
-        $this->assertSame(3000.0, (float) $property->fresh()->rental_no_approval_spend_threshold);
+        $this->assertNull($property->fresh()->rental_no_approval_spend_threshold);
+        $this->assertSame(500.0, RentalWorkOrderSetting::thresholdFor($property->fresh()), 'the agency default is still the fallback while the owner has no answer');
     }
 
     public function test_the_rental_details_endpoint_ignores_the_threshold_field(): void
@@ -105,17 +106,15 @@ final class RentalWorkOrderSettingTest extends TestCase
         $this->assertSame(1800.0, (float) $property->fresh()->rental_no_approval_spend_threshold, 'only the work-terms panel can change it');
     }
 
-    /** BUILD_STANDARD §2 — optional-and-empty must clear gracefully, not 500 or silently keep a stale value. */
-    public function test_property_override_can_be_cleared_back_to_the_agency_default(): void
+    /** The legacy column is only a fallback now: it is still honoured while the owner has no answer, and the owner's own answer wins once there is one. */
+    public function test_the_legacy_value_is_a_fallback_and_the_owners_answer_wins(): void
     {
         $property = $this->property(['rental_no_approval_spend_threshold' => 3000]);
+        $this->assertSame(3000.0, RentalWorkOrderSetting::thresholdFor($property->fresh()));
 
-        $this->actingAs($this->admin)->put(route('corex.properties.rental-work-terms.update', $property), [
-            'no_approval_limit' => '',
-        ])->assertRedirect();
+        app(\App\Services\Rentals\RentalOwnerFaultSettingsService::class)->capture($property, $this->admin, ['repair_limit' => 650, 'emergency_limit' => 0, 'callout_mode' => 'no'], 'email', now(), 'Owner emailed.');
 
-        $this->assertNull($property->fresh()->rental_no_approval_spend_threshold);
-        $this->assertSame(500.0, RentalWorkOrderSetting::thresholdFor($property->fresh()));
+        $this->assertSame(650.0, RentalWorkOrderSetting::thresholdFor($property->fresh()));
     }
 
     public function test_lease_show_screen_reads_through_to_the_property_value(): void
