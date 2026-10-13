@@ -158,6 +158,8 @@ Route::prefix('v1/client-auth')->middleware([\Laravel\Sanctum\Http\Middleware\En
     Route::post('/otp/send',        [ClientAuthController::class, 'sendOtp'])->name('client-auth.otp.send');
     Route::post('/otp/verify',      [ClientAuthController::class, 'verifyOtp'])->name('client-auth.otp.verify');
     Route::post('/login',           [ClientAuthController::class, 'login'])->name('client-auth.login');
+    // §28.5 - a portal tab with no token of its own asks for one (only for a person who already signed in on this browser)
+    Route::post('/tab-token',       [ClientAuthController::class, 'tabToken'])->middleware('throttle:60,1')->name('client-auth.tab-token');
     Route::post('/password/forgot', [ClientAuthController::class, 'forgotPassword'])->name('client-auth.password.forgot');
 
     // Agent QR onboarding — spec: .ai/specs/agent-qr-onboarding.md

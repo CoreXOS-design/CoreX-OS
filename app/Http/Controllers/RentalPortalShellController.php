@@ -33,6 +33,7 @@ class RentalPortalShellController extends Controller
             'branding' => $this->brandingFor($email),
             'linkedEmail' => $email,
             'linkedContactId' => $contactId,
+            'qaLinkSignin' => \App\Support\PortalDemoSigninGate::open(),   // QA1 only: an emailed link signs its tab straight in
         ]);
     }
 
