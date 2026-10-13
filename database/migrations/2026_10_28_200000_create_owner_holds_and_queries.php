@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * AT-452 - .ai/specs/rentals-faults-work-orders.md section 22.7 / 22.13 ("Stop this" / "Query this", stage 3).
+ * AT-452 - .ai/specs/rentals-faults-work-orders.md section 22.7 / 22.12a ("Stop this" / "Query this", stage 3).
  *  - `rental_owner_holds`: the owner pressed "Stop this" - the job is PAUSED BY OWNER until a fresh authority resumes it. Append-only (a hold is closed by
  *    `resumed_at`, never deleted); an ACTIVE hold is one with `resumed_at` null.
  *  - `rental_owner_queries`: the owner's "Query this" question and the agent's answer. Append-only. Questions asked before this build (fault history lines of

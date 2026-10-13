@@ -530,6 +530,8 @@ class ClientLandlordRentalsController extends Controller
             'authorisation' => $this->authorisationFor($fault),
             // section 22.7 - "Stop this" / "Query this": the buttons' state, the hold, and the questions with the agents' answers
             'owner_actions' => $this->ownerActionsFor($fault),
+            // section 22.13.4 - the "Who pays" ruling in the owner's words (null until the agent has ruled)
+            'payer_ruling' => app(\App\Services\Rentals\RentalWhoPaysService::class)->portalPayload($fault, 'owner'),
             // section 22.4 - the contractor the agent proposes (and the call-out fee) while the owner is asked to authorise
             'proposed' => $awaiting ? app(\App\Services\Rentals\FaultInspectionService::class)->proposedFor($fault) : null,
             // AT-452 round 2 (F-OWNER) - "Reported before on <date> ..." when the same kind of fault was on this property earlier.

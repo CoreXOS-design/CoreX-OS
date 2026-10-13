@@ -23,7 +23,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 /**
- * .ai/specs/rentals-faults-work-orders.md section 22.7 / 22.13 - "Stop this" and "Query this".
+ * .ai/specs/rentals-faults-work-orders.md section 22.7 / 22.12a - "Stop this" and "Query this".
  *
  * ONE place that decides whether a job is PAUSED BY OWNER, whether the owner can still stop it (the work has not started), and that writes the hold, the
  * resume, the owner's questions and the agents' answers. Every guard site asks {@see holdReason()} - stage 2 (cost approval / emergency) must too:

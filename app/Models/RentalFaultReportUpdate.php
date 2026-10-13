@@ -56,6 +56,9 @@ class RentalFaultReportUpdate extends Model
     public const TYPE_OWNER_STOPPED = 'owner_stopped';
     public const TYPE_OWNER_RESUMED = 'owner_resumed';
     public const TYPE_OWNER_QUERY_ANSWERED = 'owner_query_answered';
+    // section 22.13 - what was found / the cause was recorded, and the agent's "Who pays" ruling
+    public const TYPE_FINDINGS_RECORDED = 'findings_recorded';
+    public const TYPE_PAYER_RULED = 'payer_ruled';
 
     protected $fillable = [
         'agency_id',

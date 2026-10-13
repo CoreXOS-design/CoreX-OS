@@ -71,6 +71,8 @@
 
         {{-- section 22.7 - Stop this / Query this for every agent-made notice above (shown once) --}}
         @include('rentals.portal._owner-notice-actions')
+        {{-- section 22.13.4 - who pays for this repair (a record; nothing has been charged) --}}
+        <section class="sec" data-fault-section="who-pays" x-show="faultDetail.payer_ruling">@include('rentals.portal._who-pays', ['p' => 'faultDetail.payer_ruling'])</section>
 
         {{-- 1. Progress (and, once a work order exists, where the repair stands) --}}
         <template x-if="!faultDetail.self_resolved && (faultDetail.progress || faultDetail.work_order)">

@@ -141,7 +141,7 @@ class RentalWorkOrderController extends Controller
             'showArchived' => $showArchived,
             'perPage' => $perPage,
             'perPageOptions' => self::PER_PAGE_OPTIONS,
-            'filters' => $request->only(['q', 'status', 'trade_type', 'priority', 'property_id', 'lease_id', 'paid_by', 'date_from', 'date_to', 'overdue', 'awaiting_owner', 'variation_pending', 'open', 'cc_scope']),
+            'filters' => $request->only(['q', 'status', 'trade_type', 'priority', 'property_id', 'lease_id', 'paid_by', 'who_pays', 'cause', 'date_from', 'date_to', 'overdue', 'awaiting_owner', 'variation_pending', 'open', 'cc_scope']),
             'filteredProperty' => $filteredProperty,
             'filteredLease' => $filteredLease,
             'tileCounts' => $tileCounts,
@@ -200,6 +200,15 @@ class RentalWorkOrderController extends Controller
         if ($paidBy = $request->get('paid_by')) {
             $query->where('rental_work_orders.paid_by', $paidBy);
         }
+        // spec section 22.13.6 - the "Who pays (ruling)" and "Cause" filters (not the existing paid_by, which is who settles the contractor's bill)
+        if ($whoPays = $request->get('who_pays')) {
+            $whoPays === 'none'
+                ? $query->whereNull('rental_work_orders.who_pays')
+                : $query->where('rental_work_orders.who_pays', $whoPays);
+        }
+        if ($cause = trim((string) $request->get('cause', ''))) {
+            $query->where(fn ($q) => $q->where('rental_work_orders.cause_label', 'like', "%{$cause}%")->orWhere('rental_work_orders.cause_note', 'like', "%{$cause}%"));
+        }
         if ($dateFrom = $request->get('date_from')) {
             $query->where('rental_work_orders.reported_at', '>=', $dateFrom);
         }
@@ -251,6 +260,12 @@ class RentalWorkOrderController extends Controller
         if ($paidBy = $request->get('paid_by')) {
             $out['Paid by'] = ucfirst(str_replace('_', ' ', $paidBy));
         }
+        if ($whoPays = $request->get('who_pays')) {
+            $out['Who pays (ruling)'] = $whoPays === 'none' ? 'Not ruled yet' : \App\Models\RentalPayerRuling::payerLabel($whoPays);
+        }
+        if ($cause = trim((string) $request->get('cause', ''))) {
+            $out['Cause'] = $cause;
+        }
         if ($request->boolean('open')) {
             $out['Open only'] = 'Yes';
         }
@@ -300,7 +315,7 @@ class RentalWorkOrderController extends Controller
             ->orderBy('rental_work_orders.reported_at', 'desc')
             ->get();
 
-        $headers = ['Property', 'Title', 'Status', 'Priority', 'Supplier', 'Paid by', 'Reported'];
+        $headers = ['Property', 'Title', 'Status', 'Priority', 'Supplier', 'Paid by', 'Cause', 'Who pays (ruling)', 'Reported'];
         $rows = $workOrders->map(fn (RentalWorkOrder $wo) => [
             $wo->property?->buildDisplayAddress() ?? 'Unknown property',
             $wo->title,
@@ -308,6 +323,8 @@ class RentalWorkOrderController extends Controller
             $wo->priority ? ucfirst($wo->priority) : '',
             $wo->supplier?->name ?? '',
             $wo->paid_by ? ucfirst(str_replace('_', ' ', $wo->paid_by)) : '',
+            $wo->causeSummary(),
+            $wo->whoPaysLabel(),
             $wo->reported_at?->format('Y-m-d') ?? '',
         ]);
 

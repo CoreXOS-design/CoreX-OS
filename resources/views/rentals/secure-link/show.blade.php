@@ -144,6 +144,7 @@
             <h2>Mark job done</h2>
             <form method="POST" action="{{ route('rentals.secure-link.mark-done', $token) }}">
                 @csrf
+                @include('rentals._report-back-fields', ['workOrder' => $workOrder])
                 <button class="btn btn-ok" type="submit">Mark done</button>
             </form>
         </div>

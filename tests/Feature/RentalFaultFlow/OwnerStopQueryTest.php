@@ -32,7 +32,7 @@ use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 /**
- * AT-452 - .ai/specs/rentals-faults-work-orders.md section 22.7 / 22.13, stage 3: "Stop this" and "Query this". The owner can stop a job their agent arranged
+ * AT-452 - .ai/specs/rentals-faults-work-orders.md section 22.7 / 22.12a, stage 3: "Stop this" and "Query this". The owner can stop a job their agent arranged
  * until the work has started (a reason is required; only the owner's own press records it - a mail scanner's GET never does); a stopped job is PAUSED BY OWNER
  * and every send / approve / start action is refused until a fresh authority resumes it. "Query this" asks the agent a question and stops nothing.
  */

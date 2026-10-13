@@ -316,6 +316,7 @@
                                                     <button type="button" class="photo-btn" :aria-label="'Open photo ' + (i + 1)" @click="openPhotos(f.reported_photos, i, $event)"><img :src="ph.thumb_url || ph.url" :alt="ph.alt || 'Photo you sent'" loading="lazy" decoding="async"></button>
                                                 </template>
                                             </div>
+                                            @include('rentals.portal._who-pays', ['p' => 'f.payer_ruling'])
                                             <a class="link" href="#" style="display:block; margin-top:8px;" x-show="f.self_resolved" data-report-again @click.prevent="reportAgain(f)">Still a problem? Report it again</a>
                                             <button class="btn btn-outline" x-show="f.rental_work_order_id" @click="tenantTab='jobs'; loadWorkOrders()">See the work order</button>
                                         </div>

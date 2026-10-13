@@ -166,6 +166,7 @@
         @include('corex.rental-fault-reports._decision-one')
     @endif
     @include('corex.rental-fault-reports._authorisation-records')
+    @include('corex.rental-fault-reports._who-pays-summary')
 
     <div class="grid grid-cols-3 gap-4">
     <div class="col-span-3 lg:col-span-2 space-y-4">

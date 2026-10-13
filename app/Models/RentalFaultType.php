@@ -127,7 +127,7 @@ class RentalFaultType extends Model
     public static function seedDefaultsFor(int $agencyId): void
     {
         foreach (self::DEFAULTS as $i => $row) {
-            static::withoutGlobalScopes()->firstOrCreate(
+            $type = static::withoutGlobalScopes()->firstOrCreate(
                 ['agency_id' => $agencyId, 'name' => $row['name']],
                 [
                     'category' => $row['category'],
@@ -138,7 +138,17 @@ class RentalFaultType extends Model
                     'is_active' => true,
                 ],
             );
+            // spec section 22.13.1 - the "who normally pays" defaults travel with the default type
+            if ($type->wasRecentlyCreated) {
+                RentalFaultTypeCause::seedForType($type);
+            }
         }
+    }
+
+    /** Spec section 22.13 - this type's self-checks and causes, each with a default "who normally pays". */
+    public function causes(): HasMany
+    {
+        return $this->hasMany(RentalFaultTypeCause::class)->orderBy('sort_order')->orderBy('id');
     }
 
     public function documents(): HasMany
