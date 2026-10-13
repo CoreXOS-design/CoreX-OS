@@ -239,6 +239,23 @@ final class MicPoolRulesTest extends TestCase
         $this->assertSame([$theirs], $this->listingIds((new LongOnMarketSelection())->candidates($this->ctx($otherUser), 50)), 'and they see only their own');
     }
 
+    /**
+     * Found on real QA1 data (34k live listings): `px.id IN (pl.matched_property_id, tp.promoted_to_property_id)`
+     * stops MySQL using the primary key and the pool query ran past 60 seconds. Small test data can never show
+     * that, so the shape itself is pinned: two plain equality checks, never an IN over two columns.
+     */
+    public function test_the_pool_query_never_uses_the_slow_in_over_two_columns_form(): void
+    {
+        $sel = new LongOnMarketSelection();
+        $m = new \ReflectionMethod($sel, 'pool');
+        $m->setAccessible(true);
+        $sql = $m->invoke($sel, $this->ctx())->toSql();
+
+        $this->assertStringNotContainsString('px.id IN', $sql);
+        $this->assertStringContainsString('px.id = pl.matched_property_id', $sql);
+        $this->assertStringContainsString('px2.id = tp.promoted_to_property_id', $sql);
+    }
+
     public function test_a_limit_of_zero_returns_nothing(): void
     {
         $this->listing(self::OLD);

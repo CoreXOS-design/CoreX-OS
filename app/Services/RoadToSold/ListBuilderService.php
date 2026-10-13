@@ -6,8 +6,8 @@ use App\Models\RoadToSold\RtsListItem;
 use App\Models\User;
 use App\Services\RoadToSold\Adapters\LaneAreaProvider;
 use App\Services\RoadToSold\Adapters\LaneWorkCalendar;
-use App\Services\RoadToSold\Adapters\NullFollowUpSource;
-use App\Services\RoadToSold\Adapters\NullSuggestionGuard;
+use App\Services\RoadToSold\Adapters\LaneFollowUpSource;
+use App\Services\RoadToSold\Adapters\LaneSuggestionGuard;
 use App\Services\RoadToSold\Contracts\AreaProvider;
 use App\Services\RoadToSold\Contracts\FollowUpSource;
 use App\Services\RoadToSold\Contracts\SuggestionGuard;
@@ -63,8 +63,8 @@ class ListBuilderService
         $this->registry = $registry ?? new SelectionRegistry();
         $this->calendar = $calendar ?? new LaneWorkCalendar();
         $this->areas = $areas ?? new LaneAreaProvider();
-        $this->guard = $guard ?? new NullSuggestionGuard();
-        $this->followUps = $followUps ?? new NullFollowUpSource();
+        $this->guard = $guard ?? new LaneSuggestionGuard();
+        $this->followUps = $followUps ?? new LaneFollowUpSource();
         $this->settingsResolver = $settingsResolver ?? fn (User $u, string $track) => BuilderSettings::forUser($u, $track);
     }
 

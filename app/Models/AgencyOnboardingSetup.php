@@ -44,6 +44,7 @@ class AgencyOnboardingSetup extends Model
         'presentations',  // 7  — Presentations / CMA
         'matches',        // 8  — Matches
         'market_intelligence', // 8a — Market Intelligence / Prospecting Setup (gated: prospecting feature)
+        'road_to_sold',   // 8b — Road to Sold (gated: road-to-sold feature) — AT-454
         'contacts',       // 9  — Contacts
         'compliance',     // 10 — Compliance
         'outgoing_mail',  // 10a — Outgoing mail (SMTP) — AT-395. Skippable; a
@@ -121,6 +122,7 @@ class AgencyOnboardingSetup extends Model
             'compliance'           => 'compliance',
             'proforma'             => 'proforma-invoices',
             'market_intelligence'  => 'prospecting',
+            'road_to_sold'         => 'road-to-sold',
             'auctions'             => 'auctions',
         ];
 

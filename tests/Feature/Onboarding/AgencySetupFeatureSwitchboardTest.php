@@ -108,8 +108,9 @@ class AgencySetupFeatureSwitchboardTest extends TestCase
         // AT-379 — 'welcome' is now the first step, so capabilities (still
         // immediately after identity) moved from index 1 to index 2.
         $this->assertSame('capabilities', AgencyOnboardingSetup::STEPS[2]);
-        // proforma + market_intelligence + welcome brought the total to 16; AT-395's outgoing_mail and the leases step to 18.
-        $this->assertSame(18, AgencyOnboardingSetup::totalSteps());
+        // proforma + market_intelligence + welcome brought the total to 16; AT-395's outgoing_mail and the leases step to 18;
+        // AT-432's auctions to 19; AT-454's road_to_sold to 20.
+        $this->assertSame(20, AgencyOnboardingSetup::totalSteps());
     }
 
     // ── Round-trip: writes through the SAME store the settings page writes ────
@@ -179,11 +180,12 @@ class AgencySetupFeatureSwitchboardTest extends TestCase
 
         PerformanceSetting::updateOrCreate(['key' => 'matches_enabled'], ['value' => 0]);
 
-        // Not in the active-step list, and the denominator drops from 18 to 17
-        // (AT-379 — proforma + market_intelligence + welcome brought it to 16; outgoing_mail and leases to 18).
+        // Not in the active-step list, and the denominator drops from 19 to 18
+        // (AT-379 — proforma + market_intelligence + welcome brought it to 16; outgoing_mail and leases to 18; AT-454's road_to_sold to 19
+        // active - the auctions step is gated off by default).
         $active = AgencyOnboardingSetup::activeSteps($agency);
         $this->assertNotContains('matches', $active);
-        $this->assertCount(17, $active);
+        $this->assertCount(18, $active);
 
         // show('matches') redirects forward (never 404s a legitimately-gated step).
         // market_intelligence is gated on a DIFFERENT feature (prospecting, still
@@ -211,7 +213,7 @@ class AgencySetupFeatureSwitchboardTest extends TestCase
         // Default is ON (no PerformanceSetting row → default 1).
         $active = AgencyOnboardingSetup::activeSteps($agency);
         $this->assertContains('matches', $active);
-        $this->assertCount(18, $active);
+        $this->assertCount(19, $active);
 
         $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'matches']))
             ->assertOk()
@@ -225,12 +227,12 @@ class AgencySetupFeatureSwitchboardTest extends TestCase
         // Everything except matches completed.
         $setup = $this->setupFor($agency, ['completed_steps' => [
             'welcome', 'identity', 'capabilities', 'branding', 'branches', 'commission', 'proforma', 'leases', 'properties',
-            'presentations', 'market_intelligence', 'contacts', 'compliance', 'outgoing_mail', 'notifications', 'roles', 'access',
+            'presentations', 'market_intelligence', 'road_to_sold', 'contacts', 'compliance', 'outgoing_mail', 'notifications', 'roles', 'access',
         ]]);
 
         PerformanceSetting::updateOrCreate(['key' => 'matches_enabled'], ['value' => 0]);
 
-        // 17 of 17 active steps done → 100% reachable without ever doing matches.
+        // 18 of 18 active steps done → 100% reachable without ever doing matches.
         $this->assertSame(100, $setup->progressPercent($agency));
     }
 

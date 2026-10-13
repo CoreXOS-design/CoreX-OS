@@ -117,11 +117,16 @@ abstract class MicPoolSelection implements Selection
             ->where(fn ($w) => $w->whereNull('tp.id')->orWhereNotIn('tp.status', ['archived', 'duplicate']))
             // never the agency's own on-market stock (the agent's own stock is selections 8 and 9)
             ->where(fn ($w) => app(OnMarketStockService::class)->applyNotStock($w, $ctx->agencyId, 'pl.portal_ref', 'pl.normalized_address'))
-            // never a property that is already ANOTHER agent's CoreX listing / prospect
+            // never a property that is already ANOTHER agent's CoreX listing / prospect. Two plain primary-key
+            // checks, NOT `px.id IN (a, b)`: that form defeats the key and scans properties for every
+            // listing (60s+ on 34k live rows, found on real QA1 data; this form takes 0.26s).
             ->whereRaw(
-                "NOT EXISTS (SELECT 1 FROM properties px WHERE px.deleted_at IS NULL AND px.agency_id = pl.agency_id
-                    AND px.id IN (pl.matched_property_id, tp.promoted_to_property_id)
+                "NOT EXISTS (SELECT 1 FROM properties px WHERE px.id = pl.matched_property_id AND px.deleted_at IS NULL
                     AND px.agent_id IS NOT NULL AND px.agent_id NOT IN ({$meIn}) AND px.status IN ({$taken}))"
+            )
+            ->whereRaw(
+                "NOT EXISTS (SELECT 1 FROM properties px2 WHERE px2.id = tp.promoted_to_property_id AND px2.deleted_at IS NULL
+                    AND px2.agent_id IS NOT NULL AND px2.agent_id NOT IN ({$meIn}) AND px2.status IN ({$taken}))"
             )
             // never a listing another agent has claimed or is pitching right now
             ->whereRaw(

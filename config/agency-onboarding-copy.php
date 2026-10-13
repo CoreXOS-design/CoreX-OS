@@ -1500,6 +1500,81 @@ return [
         'aux_partial' => 'agency-setup.steps.market-intelligence',
     ],
 
+    // AT-454 — Road to Sold. Gated on the road-to-sold feature (which itself depends on prospecting).
+    // Spec: .ai/specs/road-to-sold.md section 4. One saver (SettingsController@saveFromWizard) writes
+    // through the same path as the settings page and only touches the fields this step posts (spec 6.1).
+    'road_to_sold' => [
+        'title' => 'Road to Sold',
+        'intro' => 'Road to Sold gives every agent a daily list of properties to phone to win stock, measured against a target for each day of the week. Set the ground rules now - you can change them later.',
+        'what' => [
+            'title' => 'What Road to Sold is',
+            'body'  => 'Every morning each agent opens one page: the properties to phone today, how many they should get through, '
+                . 'and a bar showing whether they are on track for the month. CoreX builds the list for them from the prospecting '
+                . 'data it already holds - buyers who want stock, price drops, new and long-standing listings, owners it already knows, '
+                . 'and the agent\'s own expired or slow-moving stock - starting with the suburbs you give that agent. '
+                . 'The agent logs what happened on each call, and managers see the results. The numbers below set the standard week; '
+                . 'you can give individual agents their own numbers, and their own suburbs, afterwards under Settings -> Road to Sold.',
+        ],
+        'savers' => [
+            ['controller' => \App\Http\Controllers\RoadToSold\SettingsController::class, 'method' => 'saveFromWizard'],
+        ],
+        'controls' => [
+            ['key' => 'default_target_1', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 5, 'min' => 0, 'max' => 200,
+             'label' => 'Monday target',
+             'explain' => 'How many properties an agent should work on a Monday. Use 0 for a day nobody works.',
+             'affects' => 'The number shown on every agent\'s Road to Sold page on Mondays, and how many properties are added to their list. An agent can be given their own number later.'],
+            ['key' => 'default_target_2', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 5, 'min' => 0, 'max' => 200,
+             'label' => 'Tuesday target',
+             'explain' => 'How many properties an agent should work on a Tuesday.',
+             'affects' => 'The Tuesday number on every agent\'s page and list, unless that agent has their own.'],
+            ['key' => 'default_target_3', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 5, 'min' => 0, 'max' => 200,
+             'label' => 'Wednesday target',
+             'explain' => 'How many properties an agent should work on a Wednesday.',
+             'affects' => 'The Wednesday number on every agent\'s page and list, unless that agent has their own.'],
+            ['key' => 'default_target_4', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 5, 'min' => 0, 'max' => 200,
+             'label' => 'Thursday target',
+             'explain' => 'How many properties an agent should work on a Thursday.',
+             'affects' => 'The Thursday number on every agent\'s page and list, unless that agent has their own.'],
+            ['key' => 'default_target_5', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 5, 'min' => 0, 'max' => 200,
+             'label' => 'Friday target',
+             'explain' => 'How many properties an agent should work on a Friday.',
+             'affects' => 'The Friday number on every agent\'s page and list, unless that agent has their own.'],
+            ['key' => 'default_target_6', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 0, 'min' => 0, 'max' => 200,
+             'label' => 'Saturday target',
+             'explain' => 'How many properties an agent should work on a Saturday. The standard is 0 - no Saturday list.',
+             'affects' => 'Whether agents get a Saturday list and a Saturday target. At 0 they do not, and Saturdays add nothing to the month\'s target.'],
+            ['key' => 'default_target_7', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 0, 'min' => 0, 'max' => 200,
+             'label' => 'Sunday target',
+             'explain' => 'How many properties an agent should work on a Sunday. The standard is 0 - no Sunday list.',
+             'affects' => 'Whether agents get a Sunday list and a Sunday target. At 0 they do not, and Sundays add nothing to the month\'s target.'],
+            ['key' => 'half_day_leave_halves_target', 'source' => 'road_to_sold', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Half-day leave halves the target',
+             'explain' => 'Public holidays and whole days of approved leave never carry a target. This decides what happens on an approved half day of leave: off means the agent still owes the full day\'s number, on means it is halved.',
+             'affects' => 'An agent\'s target and their month-to-date figure on days they are on half-day leave.'],
+            ['key' => 'lock_agents_to_areas', 'source' => 'road_to_sold', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Lock agents to their areas',
+             'explain' => 'Each agent can be given their own suburbs. Off (recommended): their suburbs come first, then the list carries on into the rest of your agency\'s suburbs if the day is not full. On: they only ever get properties from their own suburbs.',
+             'affects' => 'Whether an agent can be sent to a suburb they have not been assigned. With this on, an agent who has no suburbs gets no call list at all.'],
+            ['key' => 'area_refresh_warn_days', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 7, 'min' => 1, 'max' => 365,
+             'label' => 'Ask for a refresh after (days)',
+             'explain' => 'Road to Sold can only suggest what CoreX has captured. When nothing has been captured for a suburb in this many days, it shows "Needs a refresh" so someone re-captures it.',
+             'affects' => 'When a suburb is flagged as stale on the Areas screen. Refreshing stays a manual job.'],
+            ['key' => 'missed_items_mode', 'source' => 'road_to_sold', 'type' => 'select', 'default' => 'show_missed',
+             'options' => ['show_missed' => 'Show them as missed', 'roll_over' => 'Roll them over to the next working day'],
+             'label' => 'Properties an agent did not get to',
+             'explain' => 'At the end of the day, any property still not worked is either shown as missed on that day, or moved onto the agent\'s next working day.',
+             'affects' => 'Whether missed properties count against the day they were meant for, or are carried forward and worked later.'],
+            ['key' => 'no_answer_drop_after', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 3, 'min' => 1, 'max' => 20,
+             'label' => 'No-answers in a row before a property drops off',
+             'explain' => 'When an agent phones an owner and gets no answer this many times in a row, the property drops off their list and shows on the manager\'s report instead.',
+             'affects' => 'How long an agent keeps chasing a number that never answers before the property is handed to the manager\'s attention.'],
+            ['key' => 'hold_days', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 30, 'min' => 1, 'max' => 365,
+             'label' => 'Days an agent keeps a property after a call',
+             'explain' => 'Once an agent logs an outcome on a property, it is theirs for this many days and is not suggested to other agents. Each new outcome restarts the clock.',
+             'affects' => 'How long a property stays reserved for the agent who last worked it, so two agents do not phone the same owner.'],
+        ],
+    ],
+
     'contacts' => [
         'title' => 'Contacts',
         'intro' => 'Your contacts are the people behind every deal — buyers, sellers, landlords, '
