@@ -33,7 +33,7 @@
 <div id="cost-decision" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-cost-decision>
     <div class="flex flex-wrap items-center gap-2">
         <div>
-            <h2 class="text-sm font-semibold">Approve the cost</h2>
+            <h2 class="text-sm font-semibold wo-embedded-title">Approve the cost</h2>
             @unless($cdAuthorised || $cdLegacy || $cdEmActive)<p class="text-xs" style="color: var(--text-muted);" data-nothing-approved>Nothing is approved until you press a button.</p>@endunless
         </div>
         @if($cdAuthorised)
@@ -60,7 +60,7 @@
     @endif
 
     {{-- the limits an agent may authorise under are the OWNER's own, read only through RentalOwnerFaultSettings, with who said so --}}
-    @if($cdOwnerSettings)
+    @if($cdOwnerSettings && ! ($cdHideLimits ?? false))
         @php
             $cdRepair = $cdOwnerSettings->repairLimit();
             $cdEmerg = $cdOwnerSettings->emergencyLimit();
@@ -228,7 +228,7 @@
                 <li @if($cr->superseded_at) style="opacity:.65" @endif data-cost-record="{{ $cr->id }}" data-cost-basis="{{ $cr->basis }}">
                     <strong>{{ $cr->isAuthorised() ? 'Authorised' : 'Declined' }}</strong> &mdash; {{ $cdSvc->recordTextFor($cr) }}
                     @if($cr->note && $cr->basis === \App\Models\RentalAuthorisation::BASIS_OWNER_INSTRUCTION)<em>&ldquo;{{ $cr->note }}&rdquo;</em>@endif
-                    <span style="color: var(--text-muted);">&middot; job was: {{ $cdSvc->stageWords($cr) ?: '-' }}@if($cr->superseded_at) &middot; <em>replaced by a newer record</em>@else &middot; <em>this is the one that stands</em>@endif</span>
+                    @if($cr->superseded_at)<span style="color: var(--text-muted);">&middot; <em>replaced by a newer record</em></span>@endif
                 </li>
             @endforeach
         </ul>
