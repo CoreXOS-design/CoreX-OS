@@ -96,6 +96,36 @@ class SettingsController extends Controller
     }
 
     /**
+     * The onboarding wizard's saver (config/agency-onboarding-copy.php, step 'road_to_sold').
+     * The wizard names its seven default-week inputs default_target_1..7; this maps them onto the
+     * settings page's default_targets[] array and calls the SAME saver, so there is one write path.
+     * Every field is optional: whatever the step did not post is left exactly as it was (spec 6.1).
+     * A 403 (no permission) is raised before anything is written so the wizard can absorb it.
+     */
+    public function saveFromWizard(Request $request): void
+    {
+        $user = $request->user();
+        abort_unless($user && $user->hasPermission('road_to_sold.manage_settings'), 403);
+
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
+        abort_unless($agencyId > 0, 403);
+
+        $week = [];
+        foreach (array_keys(RtsSetting::DEFAULT_WEEKDAY_TARGETS) as $day) {
+            if ($request->has("default_target_{$day}")) {
+                $week[$day] = $request->input("default_target_{$day}");
+            }
+        }
+        // The week is saved only when the step carried all seven days; a partial week would be refused
+        // by the saver ("enter a number for every day"), and a step that never rendered it must not error.
+        if (count($week) === count(RtsSetting::DEFAULT_WEEKDAY_TARGETS)) {
+            $request->merge(['default_targets' => $week]);
+        }
+
+        $this->saveFor($request, $agencyId, (int) $user->id);
+    }
+
+    /**
      * Canonical saver (also invoked by the onboarding wizard with a SUBSET of fields).
      * Only keys present in the request are validated and written.
      *
