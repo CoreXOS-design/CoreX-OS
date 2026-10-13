@@ -43,9 +43,28 @@
                 <select id="{{ $idp }}-specialty" name="specialty" required
                         class="w-full rounded-md px-3 py-2 text-sm"
                         style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                    @foreach($specialties as $s)
-                        <option value="{{ $s }}">{{ ucwords(str_replace('_', ' ', $s)) }}</option>
-                    @endforeach
+                    {{-- ONE source of truth for a contractor's trade: the agency's own service types (Settings -> Service types). The property-sales roles (attorney, bond originator ...)
+                         stay fixed. An agency with no service types yet still sees the old fixed list, so nothing breaks. --}}
+                    @php
+                        $salesRoles = ['transfer_attorney', 'bond_attorney', 'conveyancer', 'bond_originator', 'external_agency'];
+                        $tradeOptions = collect($serviceTypes ?? []);
+                    @endphp
+                    @if($tradeOptions->isNotEmpty())
+                        <optgroup label="Your trades">
+                            @foreach($tradeOptions as $t)
+                                <option value="type:{{ $t->code }}" @selected(in_array($t->code, $preTick ?? [], true))>{{ $t->label }}</option>
+                            @endforeach
+                        </optgroup>
+                        <optgroup label="Property sales">
+                            @foreach(array_values(array_intersect($specialties, $salesRoles)) as $s)
+                                <option value="{{ $s }}">{{ ucwords(str_replace('_', ' ', $s)) }}</option>
+                            @endforeach
+                        </optgroup>
+                    @else
+                        @foreach($specialties as $s)
+                            <option value="{{ $s }}">{{ ucwords(str_replace('_', ' ', $s)) }}</option>
+                        @endforeach
+                    @endif
                 </select>
             </div>
             <div>

@@ -415,6 +415,46 @@ class RentalApprovalGateService
         return $variation;
     }
 
+    /**
+     * Spec 22.17 - the contractor asks, on their link, for extra money BEFORE doing extra work. Nothing above the authorised amount is ever accepted (the hard lock):
+     * the request is a variation awaiting the owner (emailed; the agents are told), decided on their link or by the agent recording what they said. One open
+     * request at a time. $ownerFacingExtra is what the owner would pay on top (the contractor's extra plus the agency's fee on it, if any); $note is the
+     * contractor's own sentence (their amount and reason).
+     *
+     * @throws \LogicException when there is nothing authorised yet to add to, or a request is already waiting
+     */
+    public function raiseContractorExtra(RentalWorkOrder $workOrder, float $ownerFacingExtra, string $note): RentalWorkOrderVariation
+    {
+        if (! $workOrder->hasApprovedBaseline()) {
+            throw new \LogicException('Nothing has been authorised on this job yet, so there is nothing to add extra money to.');
+        }
+        $baseline = round((float) $workOrder->approved_amount, 2);
+        $extra = round($ownerFacingExtra, 2);
+        $newTotal = round($baseline + $extra, 2);
+        $decision = new GateDecision(
+            authorised: false, decision: RentalApprovalDecision::DECISION_NEEDS_OWNER, basis: null,
+            termKey: RentalApprovalDecision::TERM_OWNER_DECISION, termSource: RentalApprovalDecision::SOURCE_OWNER,
+            amountTested: $newTotal, baselineAmount: $baseline, limitAmount: $baseline,
+            note: 'The contractor asked for extra money: ' . $this->money($extra) . ' on top of the authorised ' . $this->money($baseline) . ' - the owner is asked to approve it first.',
+        );
+
+        $variation = DB::transaction(function () use ($workOrder, $decision, $baseline, $newTotal, $extra, $note) {
+            if ($workOrder->variations()->where('status', RentalWorkOrderVariation::STATUS_AWAITING_OWNER)->lockForUpdate()->exists()) {
+                throw new \LogicException('A request for extra money is already waiting for the owner. Please wait for the answer.');
+            }
+            $variation = $this->createVariation($workOrder, null, null, $decision, RentalWorkOrderVariation::STATUS_AWAITING_OWNER,
+                RentalWorkOrderVariation::ORIGIN_CONTRACTOR, $baseline, $newTotal, $extra, $extra);
+            $variation->forceFill(['note' => mb_substr($note, 0, 1000)])->save();
+            $this->record($workOrder, $decision, null, variation: $variation);
+            $this->logVariation($workOrder, null, 'variation_raised', 'The contractor asked for extra money (' . $this->money($extra) . ' on top of what was authorised) - sent to the owner. ' . $note);
+
+            return $variation;
+        });
+        $this->announceVariation($variation, null);
+
+        return $variation;
+    }
+
     /** The owner-facing figure of one line (VAT-inclusive when the card's VAT is frozen; else its selling total). */
     private function lineOwnerFacing(RentalJobCardLine $line): float
     {

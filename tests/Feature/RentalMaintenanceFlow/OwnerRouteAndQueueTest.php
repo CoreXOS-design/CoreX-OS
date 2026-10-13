@@ -123,14 +123,13 @@ final class OwnerRouteAndQueueTest extends TestCase
         $this->assertStringContainsString('data-owner-arranges', $html);
         $this->assertStringContainsString('Owner arranges', $html);
         $this->assertStringNotContainsString('Sent to contractor:', $html, 'nothing was sent to anyone');
-        $this->assertStringNotContainsString('>Quotes</h2>', $html);
+        $this->assertStringNotContainsString('id="wo-panel-quotes"', $html);
         $this->assertStringNotContainsString('No-approval spend limit', $html);
         $this->assertStringNotContainsString('data-fee-collapse', $html);
         $this->assertStringNotContainsString('name="quote_date"', $html);
         $this->assertStringContainsString('data-owner-route', $html);
-        $this->assertStringContainsString("Capture the contractor's name and number", $html);
-        $this->assertStringContainsString('Set the appointment with the tenant', $html);
-        $this->assertStringContainsString('mark the work order complete', $html);
+        $this->assertStringContainsString('The owner arranges and pays their own contractor - nothing is sent from here.', $html);
+        $this->assertStringContainsString('Mark the work as complete when it is done.', $html);
         $this->assertStringContainsString('data-owner-arranges-note', $html);
 
         // the list reads the same way
@@ -140,7 +139,7 @@ final class OwnerRouteAndQueueTest extends TestCase
 
         // an agency-contractor work order is untouched: it still has its Quotes block
         $other = $this->externalWorkOrder();
-        $this->assertStringContainsString('>Quotes</h2>', $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $other))->getContent());
+        $this->assertStringContainsString('id="wo-panel-quotes"', $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $other))->getContent());
     }
 
     // ── C1 ───────────────────────────────────────────────────────────────────

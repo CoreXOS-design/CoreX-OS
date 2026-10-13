@@ -26,7 +26,7 @@
     @foreach($groupRows as $c)
         {{-- one aligned line each: name | kind or trade | phone | call-out; a contractor with no way to reach them gets a plain amber line under it --}}
         <label class="cx-crow rounded-md px-2 py-1 text-sm" style="border: 1px solid var(--border);" data-contractor-row="{{ $c['id'] }}"
-               data-search="{{ mb_strtolower($c['name'] . ' ' . $c['trades'] . ' ' . $c['phone']) }}"
+               data-search="{{ $c['search'] ?? mb_strtolower($c['name'] . ' ' . $c['trades'] . ' ' . $c['phone']) }}"
                x-show="q === '' || $el.dataset.search.indexOf(q.toLowerCase()) !== -1">
             <input type="radio" name="contractor_pick" value="{{ $c['id'] }}" x-model="picked">
             <span class="font-medium cx-crow-name">{{ $c['name'] }}</span>

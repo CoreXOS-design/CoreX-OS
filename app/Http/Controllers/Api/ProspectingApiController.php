@@ -53,10 +53,6 @@ class ProspectingApiController extends Controller
             // Absent for every capture until the extension status change ships; when
             // absent the listing keeps the existing is_active=true behaviour.
             'listings.*.portal_status'     => 'nullable|string|in:active,under_offer,sold,withdrawn',
-            // AT-454 — the advert's own listed date, where the portal card/page shows one. Taken as a
-            // loose string on purpose: a malformed date must NEVER 422 the whole batch (the same
-            // lesson as the deeds-capture dates) — sanitizeListedDate() absorbs it to null.
-            'listings.*.listed_date'       => 'nullable|string|max:40',
         ]);
 
         // AT-253 (STANDARDS Rule 17) — prospecting_searches.agency_id is NOT NULL and this is a
@@ -217,15 +213,6 @@ class ProspectingApiController extends Controller
                 $existing->portal_url       = $data['portal_url'];
                 $existing->mandate_type     = $data['mandate_type'] ?? $existing->mandate_type;
 
-                // AT-454 — store the portal's real listed date. An agent's own correction is never
-                // overwritten by a later capture (listed_date_source = 'agent').
-                $listedDate = $this->sanitizeListedDate($data['listed_date'] ?? null);
-                if ($listedDate !== null
-                    && $existing->listed_date_source !== ProspectingListing::LISTED_DATE_SOURCE_AGENT) {
-                    $existing->listed_date        = $listedDate;
-                    $existing->listed_date_source = ProspectingListing::LISTED_DATE_SOURCE_PORTAL;
-                }
-
                 $existing->save();
 
                 // AT-22 item 7 — dispatch-on-update. The download job
@@ -251,7 +238,6 @@ class ProspectingApiController extends Controller
                 }
                 $updated++;
             } else {
-                $newListedDate = $this->sanitizeListedDate($data['listed_date'] ?? null);
                 $listing = ProspectingListing::create([
                     'agency_id'           => $agencyId,
                     'captured_by_user_id' => $user->id,
@@ -271,9 +257,6 @@ class ProspectingApiController extends Controller
                     'agent_name'          => $data['agent_name'] ?? null,
                     'agency_name'         => $data['agency_name'] ?? null,
                     'mandate_type'        => $data['mandate_type'] ?? null,
-                    // AT-454 — real listed date (portal's own) kept apart from first_seen_at.
-                    'listed_date'         => $newListedDate,
-                    'listed_date_source'  => $newListedDate !== null ? ProspectingListing::LISTED_DATE_SOURCE_PORTAL : null,
                     'first_seen_at'       => $now,
                     'last_seen_at'        => $now,
                     // MIC SUBURB RECONCILE — capture session that first saw it.
@@ -459,35 +442,6 @@ class ProspectingApiController extends Controller
             }
         }
         return false;
-    }
-
-    /**
-     * AT-454 — turn whatever date text the extension sent into 'Y-m-d', or null.
-     * Absorbs: blanks, unparseable text ("0", "-", "Listed today"), dates in the future (a portal
-     * "available from" date is not a listing date) and implausibly old ones (before 2000). Accepts
-     * ISO dates and the portal's own "17 July 2026" form.
-     */
-    private function sanitizeListedDate(mixed $raw): ?string
-    {
-        $text = trim((string) $raw);
-        if ($text === '' || $text === '0' || $text === '-') {
-            return null;
-        }
-        // Carbon silently rolls an impossible date over ("31 Feb" -> 3 Mar); date_parse() flags it.
-        $parsed = date_parse($text);
-        if (($parsed['error_count'] ?? 0) > 0 || ($parsed['warning_count'] ?? 0) > 0) {
-            return null;
-        }
-        try {
-            $date = Carbon::parse($text)->startOfDay();
-        } catch (\Throwable $e) {
-            return null;
-        }
-        if ($date->gt(now()->endOfDay()) || $date->lt(Carbon::create(2000, 1, 1))) {
-            return null;
-        }
-
-        return $date->toDateString();
     }
 
     /**

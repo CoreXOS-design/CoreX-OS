@@ -142,8 +142,8 @@ class FaultInspectionService
             if (! $supplier) {
                 throw new \LogicException('Choose who goes to look.');
             }
-            $eval = $this->evaluate($property, (string) $supplier->name, $supplier->calloutFeeStatus(), $supplier->calloutFeeAmount());
-            $label = (string) $supplier->name;
+            $eval = $this->evaluate($property, $supplier->displayName(), $supplier->calloutFeeStatus(), $supplier->calloutFeeAmount());
+            $label = $supplier->displayName();
             if (! app(RentalContractorJobService::class)->contactFor($supplier)['has_contact']) {
                 throw new \LogicException(self::NO_CONTACT_LINE);
             }
@@ -195,7 +195,7 @@ class FaultInspectionService
                 throw new \LogicException('Choose who would go to look.');
             }
             $supplierId = (int) $supplier->id;
-            $label = (string) $supplier->name;
+            $label = $supplier->displayName();
         } elseif (! $internal) {
             $label = null;   // nobody proposed: the owner is simply asked
         }
@@ -232,6 +232,6 @@ class FaultInspectionService
             default => 'Call-out fee not known.',
         };
 
-        return ['name' => (string) $p->name, 'callout' => $callout];
+        return ['name' => $p->displayName(), 'callout' => $callout];
     }
 }

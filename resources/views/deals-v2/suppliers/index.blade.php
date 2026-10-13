@@ -150,12 +150,14 @@
                         @php($mainName = $mainContact ? ($mainContact->attorney_name ?: $mainContact->contact_person) : null)
                         @php($kindLabel = \App\Models\DealV2\AgencyServiceProvider::kindLabel($p->kind))
                         @php($specialtyLabel = ucwords(str_replace('_', ' ', $p->specialty)))
+                        {{-- a contractor's trade is its ticked service types (Settings -> Service types), not the old fixed list; attorneys / bond originators keep their role word --}}
+                        @php($ownTrades = collect($p->typeCodes())->map(fn ($c) => $typeLabels[$c] ?? $c)->filter()->implode(', '))
+                        @php($specialtyLabel = ($ownTrades !== '' && ! in_array($p->specialty, ['transfer_attorney', 'bond_attorney', 'conveyancer', 'bond_originator'], true)) ? $ownTrades : $specialtyLabel)
                         @php($contactLine2 = collect([$mainName ? $p->email : null, $p->phone])->filter()->implode(' · '))
                         <tr id="provider-{{ $p->id }}" data-supplier-row="{{ $p->id }}" style="{{ $p->is_active ? '' : 'opacity:0.55;' }}{{ ($rf['provider'] ?? null) === $p->id ? ' outline:2px solid var(--ds-amber, #f59e0b);' : '' }}">
                             <td class="px-4 py-3">
-                                <span class="font-medium" style="color: var(--text-primary);">{{ $p->name }}</span>
+                                <span class="font-medium" style="color: var(--text-primary);" data-supplier-label>{{ $p->displayName() }}</span>
                                 @if($p->is_preferred)<span class="ds-badge ds-badge-success ml-2">Preferred</span>@endif
-                                @if($p->company)<div class="text-[11px]" style="color: var(--text-muted);">{{ $p->company }}</div>@endif
                                 {{-- phone width: the columns that fold away show as one small line under the name --}}
                                 <div class="md:hidden text-[11px]" style="color: var(--text-muted);">{{ $kindLabel }} &middot; {{ $specialtyLabel }}@unless($p->is_active) &middot; Inactive @endunless</div>
                             </td>

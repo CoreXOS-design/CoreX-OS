@@ -363,10 +363,26 @@ class RentalWorkOrderService
      *
      * @throws \LogicException the work order is finished or cancelled
      */
+    /**
+     * Johan, 14 Oct 2026 (spec 22.16): is there a tenant in the property? True when the work order's lease, or any other lease on the same property, is active.
+     * The OWNER may set the repair appointment only when this is false (an empty property); with a tenant the agent arranges it and the owner only sees it.
+     */
+    public function propertyHasTenant(RentalWorkOrder $workOrder): bool
+    {
+        return \App\Models\Lease::withoutGlobalScopes()->where('agency_id', $workOrder->agency_id)->whereNull('deleted_at')
+            ->where('status', \App\Models\Lease::STATUS_ACTIVE)
+            ->where(fn ($q) => $q->where('property_id', $workOrder->property_id)->when($workOrder->lease_id, fn ($q2) => $q2->orWhere('id', $workOrder->lease_id)))
+            ->exists();
+    }
+
     public function setAppointment(RentalWorkOrder $workOrder, \DateTimeInterface $at, ?string $note, User|\App\Models\Contact $by, ?string $viaNote = null): bool
     {
         if (in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true)) {
             throw new \LogicException('This work order is already closed - an appointment can no longer be set.');
+        }
+        // an owner (a contact, never staff) may book the repair only in an empty property: with a tenant living there the agent arranges it with them
+        if ($by instanceof \App\Models\Contact && $this->propertyHasTenant($workOrder)) {
+            throw new \LogicException('Your tenant lives in the property, so your agent arranges the appointment with them. You can see it here once it is set.');
         }
         // Johan, 9 Oct 2026: an appointment (and the email to the tenant naming the contractor) only once the job is approved - within the owner's
         // no-approval limit, approved by the owner, an emergency, or the owner's own contractor. Before that the contractor may not even have a price.
@@ -440,8 +456,152 @@ class RentalWorkOrderService
      *
      * @throws \LogicException when the work order cannot move that way
      */
+    /**
+     * Has the go-ahead gone to the contractor? True for the owner's own contractor (nothing is sent), a counted go-ahead dispatch (spec 22.15), or the agent's own
+     * "Send the go-ahead again" / "Send work order to contractor" (a `work_order_sent` history line that did not fail).
+     */
+    public function goAheadGone(RentalWorkOrder $workOrder): bool
+    {
+        if ($workOrder->isOwnerContractor()) {
+            return true;
+        }
+        if (\App\Models\RentalJobDispatch::withoutGlobalScopes()->where('rental_work_order_id', $workOrder->id)->where('recipient_kind', \App\Models\RentalJobDispatch::KIND_CONTRACTOR)
+            ->where('reason', \App\Models\RentalJobDispatch::REASON_GO_AHEAD)->whereIn('status', [\App\Models\RentalJobDispatch::STATUS_SENT, \App\Models\RentalJobDispatch::STATUS_MARKED_SENT])->exists()) {
+            return true;
+        }
+
+        return $workOrder->updates()->where('update_type', 'work_order_sent')->where('note', 'not like', '%could not be emailed%')->exists();
+    }
+
+    /**
+     * Spec 22.18 (Johan, 14 Oct 2026) - THE ONE RULE for "the work has started" / "the work is finished", for BOTH people who may report them. Null = allowed;
+     * otherwise the plain sentence to show (and to refuse with - the server checks this, hiding a button is never the only guard).
+     *   - with a TENANT in the property only the tenant acts (the owner watches); with NO tenant only the owner acts;
+     *   - only once the cost is authorised and the go-ahead has gone; never while the owner has the job stopped; never on a closed job;
+     *   - not for the agency's own crew (their job card carries the progress); not while "finished" is already waiting for the agent.
+     *
+     * @param string $actor  'owner' | 'tenant'
+     * @param string $action 'started' | 'finished' | 'not_fixed'
+     */
+    public function progressBlock(RentalWorkOrder $workOrder, string $actor, string $action): ?string
+    {
+        if ($workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL) {
+            return "This job is done by the agency's own team - its progress is updated by them.";
+        }
+        if (in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true)) {
+            return 'This job is closed.';
+        }
+        if (app(RentalOwnerHoldService::class)->holdReason($workOrder)) {
+            return 'This job is on hold - the agency will tell you when it carries on.';
+        }
+        $tenantLives = $this->propertyHasTenant($workOrder);
+        if ($actor === 'owner' && $tenantLives) {
+            return 'Your tenant lives in the property, so they tell us when the work starts and finishes. You can follow it here.';
+        }
+        if ($actor === 'tenant' && ! $tenantLives) {
+            return 'There is no tenant on record for this property, so the owner tells us when the work starts and finishes.';
+        }
+        if (! $workOrder->isOwnerContractor()) {
+            if (! app(RentalAuthorisationService::class)->hasCostAuthority($workOrder)) {
+                return 'The work can start once the owner has authorised the cost.';
+            }
+        }
+        if ($workOrder->status === RentalWorkOrder::STATUS_REPORTED || ! $this->goAheadGone($workOrder)) {
+            return 'You can tell us when the work starts and finishes once the agency has sent this to the contractor.';
+        }
+        if ($action === 'started') {
+            return null;   // already in progress is a quiet no-op
+        }
+        if ($action === 'finished' && app(RentalWorkOrderClientViewService::class)->reportedFinished($workOrder)) {
+            return 'The work has been reported finished. The agency will check it and close the job.';
+        }
+
+        return null;
+    }
+
+    /**
+     * The TENANT's two actions on a repair in their property (Johan, 14 Oct 2026): "The contractor has arrived - work has started" moves the work order to in
+     * progress (history: reported by tenant <name>); "The work is finished" records the tenant's own confirmation (a completion round reported via `tenant_portal`,
+     * confirmed in the same step) and tells the agent - it does NOT complete the work order (completion carries the final cost under the hard lock, what was found
+     * and who pays: the agent's "Mark the work as complete" does that); "It is not fixed" tells the agent and keeps the job open (an existing "finished" report
+     * becomes the usual "tenant says not fixed" dispute row). Photos (optional) ride with finished / not fixed.
+     *
+     * @param array<int, UploadedFile> $photos
+     * @throws \LogicException|\InvalidArgumentException in plain words
+     */
+    public function recordTenantProgress(RentalWorkOrder $workOrder, \App\Models\Contact $tenant, string $action, ?string $note = null, array $photos = []): void
+    {
+        if (! in_array($action, ['started', 'finished', 'not_fixed'], true)) {
+            throw new \InvalidArgumentException('Choose what to tell us.');
+        }
+        if ($blocked = $this->progressBlock($workOrder, 'tenant', $action === 'started' ? 'started' : ($action === 'finished' ? 'finished' : 'not_fixed'))) {
+            throw new \LogicException($blocked);
+        }
+        $note = trim((string) $note) !== '' ? trim((string) $note) : null;
+        $name = trim(($tenant->first_name ?? '') . ' ' . ($tenant->last_name ?? '')) ?: 'the tenant';
+        $address = $this->addressFor($workOrder);
+        $completion = app(RentalCompletionService::class);
+
+        if ($action === 'started') {
+            if ($workOrder->status === RentalWorkOrder::STATUS_IN_PROGRESS) {
+                return;
+            }
+            $workOrder->startProgress(null, 'Reported by tenant ' . $name . ' on the portal');
+            $workOrder->updates()->create([
+                'agency_id' => $workOrder->agency_id, 'update_type' => 'tenant_progress',
+                'note' => 'Work started - reported by tenant ' . $name . ' (the contractor has arrived)' . ($note ? ': ' . $note : ''),
+            ]);
+            $this->notifyAgentOfOwnerAction($workOrder->fresh(), 'rental_work_order.owner_progress', 'Tenant reported the work started - ' . $address, $workOrder->title, now());
+
+            return;
+        }
+
+        if ($action === 'finished') {
+            $round = $completion->openRound($workOrder, [
+                'reported_via' => \App\Models\RentalWorkCompletionRound::VIA_TENANT_PORTAL, 'reported_by_label' => $name . ' (tenant)', 'reported_note' => $note, 'tenant_is_reporter' => true,
+            ]);
+            if ($round->wasRecentlyCreated) {
+                // the tenant has said it, so their own answer is recorded in the same step (this is also what the agent's page shows: "Tenant says the work is finished <date>")
+                $completion->respond($round->fresh(), true, $note, [], ['contact' => $tenant]);
+            }
+            $this->storeTenantPhotos($workOrder, $photos);
+
+            return;
+        }
+
+        // not fixed
+        if (mb_strlen((string) $note) < RentalCompletionService::MIN_DISPUTE_NOTE_LENGTH) {
+            throw new \InvalidArgumentException('Please tell us what is still wrong (at least ' . RentalCompletionService::MIN_DISPUTE_NOTE_LENGTH . ' characters).');
+        }
+        $latest = \App\Models\RentalWorkCompletionRound::withoutGlobalScopes()->where('rental_work_order_id', $workOrder->id)->orderByDesc('round_no')->first();
+        if ($latest && $latest->outcome === \App\Models\RentalWorkCompletionRound::OUTCOME_AWAITING_TENANT) {
+            $completion->respond($latest, false, $note, $photos, ['contact' => $tenant]);   // the usual "tenant says not fixed" row for the agent
+            return;
+        }
+        $workOrder->updates()->create([
+            'agency_id' => $workOrder->agency_id, 'update_type' => 'tenant_progress',
+            'note' => 'Tenant ' . $name . ' says it is NOT fixed: ' . $note . ($photos ? ' (' . count($photos) . ' photo' . (count($photos) === 1 ? '' : 's') . ')' : '') . ' - the job stays open.',
+        ]);
+        // the SAME tenant-check fields every other tenant answer writes (the agent's Next line reads them): not fixed, who, when, the reason
+        $workOrder->mirrorCompletionAnswer(false, $note, $tenant->id);
+        $this->storeTenantPhotos($workOrder, $photos);
+        $this->notifyAgentOfOwnerAction($workOrder->fresh(), 'rental_work_order.owner_progress', 'Tenant says it is not fixed - ' . $address, mb_substr($note, 0, 240), now());
+    }
+
+    /** @param array<int, UploadedFile> $photos */
+    private function storeTenantPhotos(RentalWorkOrder $workOrder, array $photos): void
+    {
+        foreach (array_values(array_filter($photos, fn ($p) => $p instanceof UploadedFile)) as $file) {
+            $this->storePhoto($workOrder, $file, RentalWorkOrder::PHOTO_COMPLETED, null, null);
+        }
+    }
+
     public function recordOwnerProgress(RentalWorkOrder $workOrder, \App\Models\Contact $owner, string $action, ?string $note = null): void
     {
+        // spec 22.18 - one rule for both people: with a tenant living there only the tenant acts; also needs the authorised cost and the go-ahead gone
+        if ($blocked = $this->progressBlock($workOrder, 'owner', $action === 'started' ? 'started' : 'finished')) {
+            throw new \LogicException($blocked);
+        }
         if ($workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL) {
             throw new \LogicException("This job is done by the agency's own team - its progress is updated by them.");
         }
@@ -632,7 +792,7 @@ class RentalWorkOrderService
      * the contractor's contact(s), replacing the plain supplier mail. Returns true when a mail went out; false when the
      * contractor has no email on file (the work order is still assigned — the agent sends the printout).
      */
-    public function sendContractorWorkOrder(RentalWorkOrder $workOrder, User $by): bool
+    public function sendContractorWorkOrder(RentalWorkOrder $workOrder, ?User $by, bool $auto = false, ?string $authorisedLine = null): bool
     {
         $provider = $workOrder->supplier()->with('serviceContacts')->first();
         if (! $provider) {
@@ -645,18 +805,44 @@ class RentalWorkOrderService
         }
 
         $pdfService = app(RentalDocumentPdfService::class);
+        $sender = $this->senderFor($workOrder, $by);
+        // section 22.15 - the go-ahead carries the explicit wording and the contractor's private link (done / photos / invoice / extra money are asked for there)
+        $goAhead = app(RentalGoAheadService::class);
+        $words = $goAhead->wordsFor($workOrder);
+        $url = $expires = null;
+        try {
+            // an ADDITIONAL link: the one the contractor already has (from the job email, possibly open on their phone right now) keeps working - issueFor() would have killed it
+            $issued = app(RentalSecureAccessTokenService::class)->issueExtra(
+                $workOrder, \App\Models\RentalSecureAccessToken::PURPOSE_CONTRACTOR_WORK_ORDER,
+                $sender ?? $by ?? User::withoutGlobalScopes()->where('agency_id', $workOrder->agency_id)->orderBy('id')->firstOrFail(),
+                \App\Models\RentalPortalSetting::contractorSecureLinkExpiryDaysFor($workOrder->agency_id),
+            );
+            $url = route('rentals.secure-link.show', $issued['raw_token']);
+            $expires = $issued['token']->expires_at?->format('j M Y');
+        } catch (\Throwable $e) {
+            Log::warning('Go-ahead: could not make the contractor link', ['work_order' => $workOrder->id, 'error' => $e->getMessage()]);
+        }
         $mail = new RentalContractorWorkOrderMail(
             $workOrder,
             (string) ($contact?->name ?: $provider->name),
             $pdfService->workOrderContractorPdf($workOrder)->output(),
             $pdfService->workOrderContractorFilename($workOrder),
             $workOrder->ownerApprovalLine(),
-            $this->senderFor($workOrder, $by),
+            $sender,
+            $words,
+            $url,
+            $expires,
         );
         $sent = $this->dispatchMail($email, $mail);
+        if ($authorisedLine === null && $words !== null) {
+            $row = app(RentalAuthorisationService::class)->activeFor($workOrder, \App\Models\RentalAuthorisation::POINT_COST);
+            $authorisedLine = $row ? app(RentalAuthorisationService::class)->recordTextFor($row->loadMissing(['byUser', 'ownerContact'])) : null;
+        }
         $workOrder->updates()->create([
-            'agency_id' => $workOrder->agency_id, 'update_type' => 'work_order_sent', 'created_by_user_id' => $by->id,
-            'note' => $sent ? 'Work order emailed to ' . ($provider->name ?: 'the contractor') . ' — ' . $workOrder->ownerApprovalLine() : 'Work order could not be emailed to the contractor',
+            'agency_id' => $workOrder->agency_id, 'update_type' => 'work_order_sent', 'created_by_user_id' => $by?->id,
+            'note' => $sent
+                ? ($auto ? 'Go-ahead sent automatically to ' : 'Go-ahead emailed to ') . ($provider->name ?: 'the contractor') . ' (with the job link) — ' . ($authorisedLine ?: $workOrder->ownerApprovalLine())
+                : 'Work order could not be emailed to the contractor',
         ]);
 
         return $sent;

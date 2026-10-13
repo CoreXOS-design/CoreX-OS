@@ -50,7 +50,7 @@
                             </div>
                             <div>
                                 <label class="cxod-lbl" for="cxod-when">When did they tell you?</label>
-                                <input id="cxod-when" type="datetime-local" name="told_at" required class="cxod-input" data-od-when value="{{ old('told_at', now()->setTimezone($roTz)->format('Y-m-d\TH:i')) }}">
+                                <x-date-time-field name="told_at" id="cxod-when" data-od-when :value="old('told_at', now()->setTimezone($roTz)->format('Y-m-d\TH:i'))" />
                             </div>
                         </div>
                         <div>

@@ -49,6 +49,51 @@ class AgencyServiceProvider extends Model
     public const CALLOUT_UNKNOWN = 'unknown';
     public const CALLOUT_MODES = [self::CALLOUT_YES, self::CALLOUT_NO, self::CALLOUT_UNKNOWN];
 
+    /**
+     * THE one label for a supplier wherever one is searched, picked or listed (13 Oct 2026, Johan: a contractor added as "Steve" of "Cape Town
+     * Contractors" was identified only as "Steve"). Business name first, then the contact person: "Cape Town Contractors - Steve". Only one name
+     * -> just that name; the same text in both -> once.
+     */
+    public static function labelFor(?string $company, ?string $name): string
+    {
+        $c = trim((string) $company);
+        $n = trim((string) $name);
+        if ($c !== '' && $n !== '' && mb_strtolower($c) !== mb_strtolower($n)) {
+            return $c . ' - ' . $n;
+        }
+
+        return $c !== '' ? $c : ($n !== '' ? $n : 'Unnamed supplier');
+    }
+
+    public function displayName(): string
+    {
+        return self::labelFor($this->company, $this->name);
+    }
+
+    /**
+     * THE one search: business name, contact person, email, phone, trade (the supplier's trade AND every trade ticked on it, by code or label).
+     * "Cape", "Steve", "contractors", "plumb" all find a supplier called "Steve" of "Cape Town Contractors" with the Plumbing trade.
+     */
+    public function scopeMatching(Builder $query, ?string $term): Builder
+    {
+        $term = trim((string) $term);
+        if ($term === '') {
+            return $query;
+        }
+        $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $term) . '%';
+        $table = $query->getModel()->getTable();
+
+        return $query->where(function ($w) use ($like, $table) {
+            $w->where($table . '.name', 'like', $like)->orWhere($table . '.company', 'like', $like)->orWhere($table . '.email', 'like', $like)
+                ->orWhere($table . '.phone', 'like', $like)->orWhere($table . '.specialty', 'like', $like)
+                ->orWhereRaw(
+                    "exists (select 1 from agency_service_provider_service_types e left join agency_service_types t on t.agency_id = e.agency_id and t.code = e.service_type and t.deleted_at is null"
+                    . " where e.service_provider_id = {$table}.id and e.deleted_at is null and (e.service_type like ? or t.label like ?))",
+                    [$like, $like]
+                );
+        });
+    }
+
     /** 'yes' | 'no' | 'unknown' (a supplier nobody has asked is 'unknown'). */
     public function calloutFeeStatus(): string
     {
@@ -92,7 +137,7 @@ class AgencyServiceProvider extends Model
     {
         $map = [];
         foreach ($providers as $p) {
-            $map[(string) $p->id] = ['name' => $p->name, 'text' => $p->calloutFeeNotice(), 'status' => $p->calloutFeeStatus()];
+            $map[(string) $p->id] = ['name' => $p->displayName(), 'text' => $p->calloutFeeNotice(), 'status' => $p->calloutFeeStatus()];
         }
 
         return $map;
@@ -108,8 +153,8 @@ class AgencyServiceProvider extends Model
     public function calloutFeeNotice(): ?string
     {
         return match ($this->calloutFeeStatus()) {
-            self::CALLOUT_YES => $this->name . ' charges a call-out fee of ' . self::formatRand((float) $this->calloutFeeAmount()) . '. The owner will be told.',
-            self::CALLOUT_UNKNOWN => "We don't know if " . $this->name . ' charges a call-out fee - check before sending.',
+            self::CALLOUT_YES => $this->displayName() . ' charges a call-out fee of ' . self::formatRand((float) $this->calloutFeeAmount()) . '. The owner will be told.',
+            self::CALLOUT_UNKNOWN => "We don't know if " . $this->displayName() . ' charges a call-out fee - check before sending.',
             default => null,
         };
     }
@@ -173,6 +218,24 @@ class AgencyServiceProvider extends Model
      * service types: these two roles never rename/archive, so they are plain booleans, not pivot
      * codes. The legacy single `specialty` enum stays the primary classifier and is untouched.
      */
+    /**
+     * The ONE bridge between an agency's service types (Settings -> Service types: the source of truth for a contractor's trade) and the legacy `specialty`
+     * enum the property-sales side still reads (deal pipelines, DR work orders). A service type code/label -> the nearest legacy value; anything else is "other".
+     * Never used to DECIDE a rental match - that reads the supplier's ticked service types - only to keep `specialty` filled in for the old pickers.
+     */
+    public static function legacySpecialtyForType(?string $code, ?string $label = null): string
+    {
+        $hay = strtolower(trim((string) $code . ' ' . (string) $label));
+        return match (true) {
+            str_contains($hay, 'plumb') => 'plumber',
+            str_contains($hay, 'fence') => 'electric_fence',
+            str_contains($hay, 'beetle'), str_contains($hay, 'entomolog') => 'entomologist',
+            (bool) preg_match('/\bgas\b/', $hay) => 'gas',
+            str_contains($hay, 'electr'), (bool) preg_match('/\bcoc\b/', $hay) => 'electrician',
+            default => 'other',
+        };
+    }
+
     public const ATTORNEY_CAPABILITY_COLUMNS = [
         'transfer_attorney' => 'is_transfer_attorney',
         'bond_attorney'     => 'is_bond_attorney',

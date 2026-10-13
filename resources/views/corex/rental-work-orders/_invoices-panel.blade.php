@@ -15,7 +15,7 @@
     $invoiceSuppliers = \App\Models\DealV2\AgencyServiceProvider::query()->where('agency_id', $workOrder->agency_id)->where('is_active', true)->maintenanceContractors()->orderBy('name')->get();
 @endphp
 <div id="invoices" class="space-y-3 p-5" style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px;" data-invoices-panel>
-    <h2 class="text-sm font-bold" style="color: var(--text-primary);">Supplier invoices</h2>
+    <h2 class="text-sm font-bold wo-embedded-title" style="color: var(--text-primary);">Supplier invoices</h2>
 
     @if($errors->has('invoice') || $errors->has('document'))
         <p class="text-xs" style="color:#b3261e;" data-invoice-error>{{ $errors->first('invoice') ?: $errors->first('document') }}</p>
@@ -93,48 +93,51 @@
         </p>
     @endif
 
-    <form method="POST" action="{{ route('corex.rental-work-orders.invoices.store', $workOrder) }}" enctype="multipart/form-data" class="space-y-2 pt-2" data-invoice-upload-form>
+    <details data-file-invoice @if($errors->has('invoice') || $errors->has('document') || $liveInvoices->isEmpty()) open @endif>
+        <summary class="corex-btn-outline text-xs cursor-pointer" style="{{ $liveInvoices->isEmpty() && ! $errors->has('invoice') ? 'display:none;' : 'display:inline-flex; align-items:center; min-height:34px; list-style:none;' }}">File an invoice</summary>
+    <form method="POST" action="{{ route('corex.rental-work-orders.invoices.store', $workOrder) }}" enctype="multipart/form-data" class="space-y-3 pt-3" data-invoice-upload-form>
         @csrf
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <div class="wo-grid-4">
             <div>
-                <label class="text-xs">Invoice number</label>
-                <input type="text" name="invoice_number" required maxlength="100" value="{{ old('invoice_number') }}" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
+                <label class="wo-lbl" for="wo-inv-number">Invoice number</label>
+                <input id="wo-inv-number" type="text" name="invoice_number" required maxlength="100" value="{{ old('invoice_number') }}" class="wo-ctl">
             </div>
             <div>
-                <label class="text-xs">Invoice date</label>
-                <input type="date" name="invoice_date" required max="{{ now()->format('Y-m-d') }}" value="{{ old('invoice_date') }}" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
+                <label class="wo-lbl" for="wo-inv-date">Invoice date</label>
+                <input id="wo-inv-date" type="date" name="invoice_date" required max="{{ now()->format('Y-m-d') }}" value="{{ old('invoice_date') }}" class="wo-ctl">
             </div>
             <div>
-                <label class="text-xs">Amount (R)</label>
-                <input type="number" name="amount" required min="0" step="0.01" value="{{ old('amount') }}" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
+                <label class="wo-lbl" for="wo-inv-amount">Amount (R)</label>
+                <input id="wo-inv-amount" type="number" name="amount" required min="0" step="0.01" value="{{ old('amount') }}" class="wo-ctl">
             </div>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
             <div>
-                <label class="text-xs">Supplier</label>
-                <select name="agency_service_provider_id" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
+                <label class="wo-lbl" for="wo-inv-supplier">Supplier</label>
+                <select id="wo-inv-supplier" name="agency_service_provider_id" class="wo-ctl">
                     <option value="">Other / not in the list</option>
                     @foreach($invoiceSuppliers as $provider)
-                        <option value="{{ $provider->id }}" @selected((int) old('agency_service_provider_id', $workOrder->agency_service_provider_id) === $provider->id)>{{ $provider->name }} - {{ $provider->calloutFeeSuffix() }}</option>
+                        <option value="{{ $provider->id }}" @selected((int) old('agency_service_provider_id', $workOrder->agency_service_provider_id) === $provider->id)>{{ $provider->displayName() }} - {{ $provider->calloutFeeSuffix() }}</option>
                     @endforeach
                 </select>
             </div>
-            <div>
-                <label class="text-xs">Supplier name (if not in the list)</label>
-                <input type="text" name="supplier_name" maxlength="191" value="{{ old('supplier_name') }}" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
-            </div>
         </div>
-        <div>
-            <label class="text-xs">Invoice file ({{ $invoiceLimits }})</label>
-            <input type="file" name="document" required accept="{{ $invoiceAccept }}" class="w-full text-xs mt-1">
+        <div class="wo-grid-2">
+            <div>
+                <label class="wo-lbl" for="wo-inv-supname">Supplier name (if not in the list)</label>
+                <input id="wo-inv-supname" type="text" name="supplier_name" maxlength="191" value="{{ old('supplier_name') }}" class="wo-ctl">
+            </div>
+            <div>
+                <label class="wo-lbl" for="wo-inv-file">Invoice file ({{ $invoiceLimits }})</label>
+                <input id="wo-inv-file" type="file" name="document" required accept="{{ $invoiceAccept }}" class="w-full text-xs">
+            </div>
         </div>
         <label class="flex items-center gap-2 text-xs">
             <input type="hidden" name="share_with_owner" value="0">
             <input type="checkbox" name="share_with_owner" value="1" @checked(old('share_with_owner'))>
             Share with owner (the owner then sees this invoice on their work order; the tenant never does)
         </label>
-        <button type="submit" class="corex-btn-outline text-xs">File invoice</button>
+        <div><button type="submit" class="corex-btn-primary text-xs" style="height:38px;">File invoice</button></div>
     </form>
+    </details>
 
     @if($archivedInvoices->isNotEmpty())
         <div>

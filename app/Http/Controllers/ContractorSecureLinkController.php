@@ -80,7 +80,133 @@ class ContractorSecureLinkController extends Controller
             // section 22.7 - the owner stopped it: "On hold - do not attend" and nothing to answer, quote, photograph or mark done (the owner's reason is never shown here)
             'onHold' => app(\App\Services\Rentals\RentalOwnerHoldService::class)->activeFor($workOrder) !== null,
             'lookAndQuote' => app(\App\Services\Rentals\RentalWhoPaysService::class)->isFaultJob($workOrder),
+        ] + $this->finishingData($workOrder));
+    }
+
+    /**
+     * Spec 22.17 - what the page offers once the cost is authorised: the appointment, before/after photos, the invoice, "Ask for extra money" (and where the last
+     * request stands), and "Mark job done". `unlocked` is false until the owner has authorised the cost (old, grandfathered work counts as authorised).
+     *
+     * @return array<string,mixed>
+     */
+    private function finishingData(RentalWorkOrder $workOrder): array
+    {
+        $goAhead = app(\App\Services\Rentals\RentalGoAheadService::class);
+        $unlocked = $goAhead->jobOpenForWork($workOrder);
+        $tz = $workOrder->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $invoiceService = app(\App\Services\Rentals\RentalWorkOrderInvoiceService::class);
+        $variations = $workOrder->variations()->where('origin', \App\Models\RentalWorkOrderVariation::ORIGIN_CONTRACTOR)->orderByDesc('id')->get();
+        $ceiling = $unlocked ? $goAhead->contractorCeiling($workOrder) : null;
+
+        return [
+            'unlocked' => $unlocked,
+            'authorisedAmount' => $ceiling,
+            'appointmentText' => $workOrder->appointment_at ? $workOrder->appointment_at->copy()->setTimezone($tz)->format('l j F Y, H:i') : null,
+            'appointmentNote' => trim((string) $workOrder->appointment_note) ?: null,
+            'invoices' => $unlocked ? $workOrder->invoices()->orderBy('id')->get() : collect(),
+            'invoiceLimits' => $invoiceService->limitsText($workOrder->agency_id),
+            'extraOpen' => $variations->first(fn ($v) => $v->isAwaitingOwner()),
+            'extraLast' => $variations->first(fn ($v) => ! $v->isAwaitingOwner() && $v->status !== \App\Models\RentalWorkOrderVariation::STATUS_WITHDRAWN),
+        ];
+    }
+
+    /** The agents hear about everything the contractor does on their link (one event, one rule for who they are). */
+    private function tellAgents(RentalWorkOrder $workOrder, string $title, string $body): void
+    {
+        try {
+            $address = $workOrder->property?->buildDisplayAddress() ?: ('Property #' . $workOrder->property_id);
+            app(\App\Services\Rentals\RentalWorkOrderService::class)->notifyAgentOfOwnerAction(
+                $workOrder, \App\Services\Rentals\RentalContractorJobService::EV_RESPONDED, $title . ' - ' . $address, $body, now()
+            );
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Contractor link: agents not told', ['work_order' => $workOrder->id, 'error' => $e->getMessage()]);
+        }
+    }
+
+    private function contractorName(RentalWorkOrder $workOrder): string
+    {
+        return (string) ($workOrder->supplier?->name ?: $workOrder->contractor_name ?: 'The contractor');
+    }
+
+    /** The contractor files their invoice (number, date, amount, the document). Refused with the hard-lock words when it would go above what was authorised. */
+    public function storeInvoice(Request $request, string $token): RedirectResponse|View
+    {
+        $record = $this->resolveToken($token);
+        if (! $record) {
+            return view('rentals.secure-link.unavailable');
+        }
+        if ($held = $this->onHold($record)) {
+            return back()->withErrors(['work_order' => $held]);
+        }
+        $workOrder = $record->workOrder;
+        $invoices = app(\App\Services\Rentals\RentalWorkOrderInvoiceService::class);
+        if (! app(\App\Services\Rentals\RentalGoAheadService::class)->jobOpenForWork($workOrder)) {
+            return back()->withErrors(['invoice' => 'You can send your invoice once the owner has authorised the cost.']);
+        }
+
+        $data = $request->validate([
+            'invoice_number' => ['required', 'string', 'max:100'],
+            'invoice_date' => ['required', 'date', 'after:2000-01-01', 'before_or_equal:' . now()->addDay()->toDateString()],
+            'amount' => ['required', 'numeric', 'gt:0', 'max:99999999.99'],
+            'document' => $invoices->fileRules($workOrder->agency_id, true),
+        ], [
+            'document.required' => 'Attach your invoice (a file).',
+            'amount.gt' => 'The invoice amount must be more than R0.',
         ]);
+
+        if ($locked = app(\App\Services\Rentals\RentalGoAheadService::class)->invoiceLockMessage($workOrder, (float) $data['amount'])) {
+            return back()->withErrors(['invoice' => $locked])->withInput();
+        }
+
+        try {
+            $invoice = $invoices->upload($workOrder, [
+                'invoice_number' => $data['invoice_number'], 'invoice_date' => $data['invoice_date'], 'amount' => $data['amount'],
+                'agency_service_provider_id' => $record->agency_service_provider_id, 'share_with_owner' => false,
+            ], $request->file('document'), null, $this->contractorName($workOrder));
+        } catch (\InvalidArgumentException $e) {
+            return back()->withErrors(['invoice' => $e->getMessage()])->withInput();
+        }
+        $record->forceFill(['last_used_at' => now()])->save();
+        $this->tellAgents($workOrder, 'Contractor sent an invoice', $this->contractorName($workOrder) . ': ' . $invoice->describe());
+
+        return redirect()->route('rentals.secure-link.show', $token)->with('success', 'Thank you - your invoice was sent to the agency.');
+    }
+
+    /** "Ask for extra money": amount + reason, BEFORE the extra work. It goes to the owner under the hard lock; the contractor waits for the answer. */
+    public function requestExtra(Request $request, string $token): RedirectResponse|View
+    {
+        $record = $this->resolveToken($token);
+        if (! $record) {
+            return view('rentals.secure-link.unavailable');
+        }
+        if ($held = $this->onHold($record)) {
+            return back()->withErrors(['work_order' => $held]);
+        }
+        $workOrder = $record->workOrder;
+        if (! app(\App\Services\Rentals\RentalGoAheadService::class)->jobOpenForWork($workOrder)) {
+            return back()->withErrors(['extra' => 'You can ask for extra money once the owner has authorised the cost.']);
+        }
+
+        $data = $request->validate([
+            'extra_amount' => ['required', 'numeric', 'gt:0', 'max:99999999.99'],
+            'reason' => ['required', 'string', 'min:5', 'max:1000'],
+        ], ['reason.required' => 'Say why the extra money is needed.', 'reason.min' => 'Say why the extra money is needed.', 'extra_amount.gt' => 'The extra amount must be more than R0.']);
+
+        // what the owner would pay on top: the contractor's extra plus the agency's own fee on it, if the agency adds one
+        $extra = round((float) $data['extra_amount'], 2);
+        $feeAttrs = \App\Models\RentalWorkOrderQuote::feeAttributes($workOrder, $extra, false);
+        $ownerFacing = isset($feeAttrs['selling_amount']) && $feeAttrs['selling_amount'] !== null ? (float) $feeAttrs['selling_amount'] : $extra;
+        $note = $this->contractorName($workOrder) . ' asks for R' . number_format($extra, 2, '.', ' ') . ' extra: ' . trim($data['reason']);
+
+        try {
+            app(\App\Services\Rentals\RentalApprovalGateService::class)->raiseContractorExtra($workOrder, $ownerFacing, $note);
+        } catch (\LogicException $e) {
+            return back()->withErrors(['extra' => $e->getMessage()])->withInput();
+        }
+        $record->forceFill(['last_used_at' => now()])->save();
+        $this->tellAgents($workOrder, 'Contractor asks for extra money', $note);
+
+        return redirect()->route('rentals.secure-link.show', $token)->with('success', 'Your request was sent to the owner. Please wait for the answer before doing any extra work - we will tell you.');
     }
 
     /** The contractor's answer: accept, or decline with a reason. Last answer wins while the work order is open. */
@@ -157,17 +283,22 @@ class ContractorSecureLinkController extends Controller
         if ($held = $this->onHold($record)) {
             return back()->withErrors(['work_order' => $held]);
         }
-        if (! in_array($record->workOrder->contractor_response, [\App\Services\Rentals\RentalContractorJobService::RESPONSE_ACCEPTED, \App\Services\Rentals\RentalContractorJobService::RESPONSE_QUOTE], true)) {
+        if (! app(\App\Services\Rentals\RentalGoAheadService::class)->jobOpenForWork($record->workOrder) && ! in_array($record->workOrder->contractor_response, [\App\Services\Rentals\RentalContractorJobService::RESPONSE_ACCEPTED, \App\Services\Rentals\RentalContractorJobService::RESPONSE_QUOTE], true)) {
             return back()->withErrors(['work_order' => 'Please accept the job first.']);
         }
 
         $data = $request->validate([
             'photo' => 'required|file|mimes:jpg,jpeg,png,webp,heic,heif|max:51200',
+            'phase' => 'nullable|in:before,after',
         ]);
 
-        $service->storePhoto($record->workOrder, $request->file('photo'), RentalWorkOrder::PHOTO_COMPLETED, null, null);
+        // spec 22.17: "before / during the work" is the in-progress phase, "after the work" the completed phase; no choice keeps the old meaning (after)
+        $phase = ($data['phase'] ?? 'after') === 'before' ? RentalWorkOrder::PHOTO_IN_PROGRESS : RentalWorkOrder::PHOTO_COMPLETED;
+        $service->storePhoto($record->workOrder, $request->file('photo'), $phase, null, null);
 
         $record->forceFill(['last_used_at' => now()])->save();
+
+        $this->tellAgents($record->workOrder, 'Contractor uploaded a ' . ($phase === RentalWorkOrder::PHOTO_IN_PROGRESS ? 'before / during' : 'after') . ' photo', $this->contractorName($record->workOrder) . ': ' . $record->workOrder->title);
 
         return redirect()->route('rentals.secure-link.show', $token)->with('success', 'Photo uploaded.');
     }
@@ -181,8 +312,12 @@ class ContractorSecureLinkController extends Controller
         if ($held = $this->onHold($record)) {
             return back()->withErrors(['work_order' => $held]);
         }
-        if (! in_array($record->workOrder->contractor_response, [\App\Services\Rentals\RentalContractorJobService::RESPONSE_ACCEPTED, \App\Services\Rentals\RentalContractorJobService::RESPONSE_QUOTE], true)) {
+        if (! app(\App\Services\Rentals\RentalGoAheadService::class)->jobOpenForWork($record->workOrder) && ! in_array($record->workOrder->contractor_response, [\App\Services\Rentals\RentalContractorJobService::RESPONSE_ACCEPTED, \App\Services\Rentals\RentalContractorJobService::RESPONSE_QUOTE], true)) {
             return back()->withErrors(['work_order' => 'Please accept the job first.']);
+        }
+        // spec 22.17: a request for extra money is still with the owner - say THAT (the job is authorised; it is the extra that waits)
+        if ($record->workOrder->openVariation()) {
+            return back()->withErrors(['work_order' => 'Your request for extra money is still waiting for the owner. You can mark the job done once they have answered - we will tell you.']);
         }
         // section 22.6: nothing is finished before its cost is authorised - in the contractor's words, never the office's (cc4's walk of QA1, item 1)
         if (! app(\App\Services\Rentals\RentalApprovalGateService::class)->authoriseToProceed($record->workOrder, false)->authorised) {
@@ -210,6 +345,8 @@ class ContractorSecureLinkController extends Controller
         }
 
         $record->forceFill(['last_used_at' => now()])->save();
+
+        $this->tellAgents($record->workOrder, 'Contractor says the job is done', $this->contractorName($record->workOrder) . ': ' . $record->workOrder->title);
 
         return redirect()->route('rentals.secure-link.show', $token)->with('success', 'Marked as done. The agency has been notified.');
     }

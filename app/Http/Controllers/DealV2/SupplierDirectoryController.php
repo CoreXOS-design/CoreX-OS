@@ -48,8 +48,7 @@ class SupplierDirectoryController extends Controller
             ]);
         // §20.4 - search (name, company, email, phone), status and call-out filters, sortable columns; default order unchanged.
         if ($f['q'] !== '') {
-            $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $f['q']) . '%';
-            $query->where(fn ($w) => $w->where('name', 'like', $like)->orWhere('company', 'like', $like)->orWhere('email', 'like', $like)->orWhere('phone', 'like', $like));
+            $query->matching($f['q']);   // the ONE supplier search: business name, contact person, email, phone and trade
         }
         if ($f['status'] !== 'all') {
             $query->where('is_active', $f['status'] === 'active');
@@ -517,6 +516,17 @@ class SupplierDirectoryController extends Controller
     private function validated(Request $request, bool $withCallout = false): array
     {
         // rentals-faults-work-orders.md section 21.1 - a caretaker / insurer / owner's team / body corporate has no trade: it is always saved as "Other".
+        // The Trade / Specialty dropdown offers the agency's own service types ("type:CODE"). The type is ticked on the supplier (the source of truth the rental fault
+        // match reads) and the legacy `specialty` is derived from it so the property-sales pickers keep working.
+        $postedTrade = (string) $request->input('specialty', '');
+        if (str_starts_with($postedTrade, 'type:')) {
+            $code = substr($postedTrade, 5);
+            $label = AgencyServiceType::withoutGlobalScope(AgencyScope::class)->where('agency_id', (int) $request->user()?->effectiveAgencyId())->where('code', $code)->value('label');
+            $request->merge([
+                'specialty' => AgencyServiceProvider::legacySpecialtyForType($code, $label),
+                'service_types' => array_values(array_unique(array_merge((array) $request->input('service_types', []), [$code]))),
+            ]);
+        }
         $kind = (string) $request->input('kind', '');
         if ($kind === 'bond_originator') {
             $request->merge(['specialty' => 'bond_originator']);
@@ -664,7 +674,7 @@ class SupplierDirectoryController extends Controller
     private function row(AgencyServiceProvider $p): array
     {
         return [
-            'id' => $p->id, 'name' => $p->name, 'specialty' => $p->specialty,
+            'id' => $p->id, 'name' => $p->name, 'label' => $p->displayName(), 'specialty' => $p->specialty,
             'kind' => $p->kind ?: AgencyServiceProvider::KIND_CONTRACTOR, 'kind_label' => AgencyServiceProvider::kindLabel($p->kind),
             'company' => $p->company, 'email' => $p->email, 'phone' => $p->phone,
             'is_preferred' => (bool) $p->is_preferred, 'is_active' => (bool) $p->is_active,

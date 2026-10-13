@@ -214,8 +214,23 @@ class RentalInspectionCopiesService
         $contacts = Contact::withoutGlobalScopes()->whereIn('id', collect($latest)->pluck('recipient_contact_id')->filter())->get()->keyBy('id');
         $roleLabels = ['tenant' => 'Tenant', 'landlord' => 'Landlord', 'agency' => 'Agency copy', 'inspector' => 'Inspector', 'creator' => 'Agent who created it'];
 
-        return collect($latest)->sortByDesc(fn ($r) => $r->id)->map(function (SignedDocumentDistributionLog $row) use ($contacts, $roleLabels, $inspection) {
-            $name = $row->recipient_contact_id ? ($contacts->get($row->recipient_contact_id)?->full_name ?? 'Contact removed') : ($roleLabels[$row->recipient_role] ?? ucfirst((string) $row->recipient_role));
+        // A copy that went to a person who is not a contact (the agent who created the inspection, the inspector, the
+        // agency's own copy address) has no contact name: read it from the inspection itself. The role label is the
+        // role, never the name - "Retha Kelly (Agent who created it)", not "Agent who created it (Agent who created it)".
+        $agencyName = \App\Models\Agency::withoutGlobalScopes()->whereKey($inspection->agency_id)->value('name');
+
+        return collect($latest)->sortByDesc(fn ($r) => $r->id)->map(function (SignedDocumentDistributionLog $row) use ($contacts, $roleLabels, $inspection, $agencyName) {
+            if ($row->recipient_contact_id) {
+                $name = $contacts->get($row->recipient_contact_id)?->full_name ?? 'Contact removed';
+            } else {
+                $name = match ($row->recipient_role) {
+                    'creator'   => $inspection->createdBy?->name,
+                    'inspector' => $inspection->inspector?->name,
+                    'agency'    => $agencyName,
+                    default     => null,
+                };
+                $name = trim((string) $name) !== '' ? $name : ($row->recipient_email ?: ($roleLabels[$row->recipient_role] ?? ucfirst((string) $row->recipient_role)));
+            }
 
             return [
                 'log_id' => $row->id,

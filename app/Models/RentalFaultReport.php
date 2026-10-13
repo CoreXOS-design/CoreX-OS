@@ -517,6 +517,14 @@ class RentalFaultReport extends Model
             return 'Arranged by your agent';   // item I - informed, never asked
         }
 
+        // the work is reported finished but the agent has not closed the work order: say so - never "Work order raised" next to a detail that reads finished
+        if ($this->status === self::STATUS_WORK_ORDER_RAISED && $this->rental_work_order_id) {
+            $wo = RentalWorkOrder::withoutGlobalScopes()->where('agency_id', $this->agency_id)->whereNull('deleted_at')->find($this->rental_work_order_id);
+            if ($wo && app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->reportedFinished($wo)) {
+                return (string) config('rental-fault-progress.reported_finished.owner');
+            }
+        }
+
         return match ($this->status) {
             self::STATUS_REPORTED, self::STATUS_UNDER_REVIEW => 'With your agent',
             self::STATUS_AWAITING_APPROVAL => 'Waiting for your decision',
@@ -1097,9 +1105,17 @@ class RentalFaultReport extends Model
      */
     public function resolveFromCompletedWorkOrder(RentalWorkOrder $workOrder, ?User $by = null): bool
     {
-        if ((int) $this->rental_work_order_id !== (int) $workOrder->id || $workOrder->status !== RentalWorkOrder::STATUS_COMPLETED
-            || in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
+        if ($workOrder->status !== RentalWorkOrder::STATUS_COMPLETED || in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
             return false;
+        }
+        // The link is two-way (fault.rental_work_order_id <-> work_order.reported_fault_report_id). A completed work order that points at this fault always closes it, unless the fault
+        // is pointed at a DIFFERENT, still-live work order (then that one decides). A one-sided or stale link (empty, or a cancelled / archived work order) is healed, never skipped silently.
+        if ((int) $this->rental_work_order_id !== (int) $workOrder->id) {
+            $other = $this->rental_work_order_id ? RentalWorkOrder::withoutGlobalScopes()->withTrashed()->find($this->rental_work_order_id) : null;
+            if ($other && ! $other->trashed() && $other->status !== RentalWorkOrder::STATUS_CANCELLED) {
+                return false;
+            }
+            $this->forceFill(['rental_work_order_id' => $workOrder->id])->save();
         }
         try {
             $this->setOutcome([

@@ -211,9 +211,11 @@ final class NightFlowFixesTest extends TestCase
         $p = $payload($wo);
         $this->assertFalse($p['owner_can_start']);
         $this->assertFalse($p['owner_can_finish']);
-        $this->assertStringContainsString('sent this to the contractor', $p['owner_progress_note']);
+        $this->assertStringContainsString('authorised the cost', $p['owner_progress_note'], 'AT-452 22.18: nothing to report before the cost is authorised');
 
-        $wo->forceFill(['status' => RentalWorkOrder::STATUS_ORDERED])->save();
+        // authorised by the owner, and the go-ahead has gone to the contractor (the agent's send on the history)
+        $wo->forceFill(['status' => RentalWorkOrder::STATUS_ORDERED, 'owner_approval_status' => RentalWorkOrder::APPROVAL_APPROVED, 'approved_amount' => 1000])->save();
+        $wo->updates()->create(['agency_id' => $wo->agency_id, 'update_type' => 'work_order_sent', 'note' => 'Go-ahead emailed to Acme (with the job link)']);
         $p = $payload($wo);
         $this->assertTrue($p['owner_can_start']);
         $this->assertTrue($p['owner_can_finish']);
@@ -303,7 +305,7 @@ final class NightFlowFixesTest extends TestCase
         $this->assertStringContainsString('data-quote-declined', $html);
         $this->assertStringContainsString('data-quote-declined-badge', $html);
         $this->assertStringContainsString('Far too expensive', $html);
-        $this->assertStringContainsString('capture another quote', $html);
+        $this->assertStringContainsString('Capture another quote', $html);
         $this->assertStringContainsString('cancel the work order', $html);
         $this->assertStringContainsString('closes the fault as', $html);
 
@@ -338,7 +340,7 @@ final class NightFlowFixesTest extends TestCase
         // even before the repair the page already shows the declined state and the way forward
         $html = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
         $this->assertStringContainsString('data-quote-declined', $html);
-        $this->assertStringContainsString('capture another quote', $html);
+        $this->assertStringContainsString('Capture another quote', $html);
         $this->assertStringNotContainsString('>Selected<', $html);
 
         (require database_path('migrations/2026_10_09_120000_backfill_declined_quotes_on_rental_work_orders.php'))->up();
@@ -497,7 +499,11 @@ final class NightFlowFixesTest extends TestCase
         $this->assertSame($wo->fresh()->contractorLabel(), $tenant['contractor_name'], 'the contractor is the chosen quote\'s supplier (Q3)');
         $this->assertNotNull($tenant['contractor_name']);
         $this->assertNotNull($tenant['appointment_at']);
-        $this->assertTrue($svc->payload($wo->fresh(), RentalWorkOrderClientViewService::AUDIENCE_LANDLORD)['owner_can_appoint']);
+        // AT-452 22.16 (Johan, 14 Oct 2026): a tenant lives in the property, so the OWNER only sees the appointment - the agent arranges it
+        $ownerView = $svc->payload($wo->fresh(), RentalWorkOrderClientViewService::AUDIENCE_LANDLORD);
+        $this->assertTrue($ownerView['owner_tenant_in_property']);
+        $this->assertFalse($ownerView['owner_can_appoint']);
+        $this->assertNotNull($ownerView['appointment_at']);
     }
 
     // ── C. the tenant's progress line follows real state ──
@@ -523,8 +529,8 @@ final class NightFlowFixesTest extends TestCase
 
         $wo->fresh()->recordApproval($this->landlord, ['decision' => 'approved', 'evidence_type' => \App\Models\RentalApproval::EVIDENCE_PORTAL]);
         $t = $line('tenant');
-        $this->assertSame('Being arranged with the contractor', $t['sent_to_contractor']['detail']);
-        $this->assertSame('todo', $t['sent_to_contractor']['state'], 'approved is not sent');
+        // AT-452 22.15: the go-ahead goes out by itself the moment the owner's approval covers the quote, so the job IS sent now
+        $this->assertSame('done', $t['sent_to_contractor']['state'], 'approved = the go-ahead went to the contractor');
         $this->assertSame('done', $t['appointment_set']['state'], 'now the appointment is real');
     }
 

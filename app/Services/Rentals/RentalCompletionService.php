@@ -111,7 +111,10 @@ class RentalCompletionService
                 $card->returnFromDispute();
             }
 
-            $tenantCheck = $this->evaluateTenantCheck($wo);
+            // spec 22.18: when the TENANT is the one reporting the work finished there is nobody to ask - no tenant-check mail, the round waits for the agent
+            $tenantCheck = ! empty($report['tenant_is_reporter'])
+                ? ['notify_status' => RentalWorkCompletionRound::NOTIFY_NO_TENANT, 'outcome' => RentalWorkCompletionRound::OUTCOME_AWAITING_TENANT, 'window_ends_at' => null]
+                : $this->evaluateTenantCheck($wo);
             $roundNo = (int) ($latest?->round_no ?? 0) + 1;
 
             $round = RentalWorkCompletionRound::withoutGlobalScopes()->create([
@@ -141,6 +144,7 @@ class RentalCompletionService
 
         if ($round->wasRecentlyCreated) {
             if ($round->outcome === RentalWorkCompletionRound::OUTCOME_AWAITING_TENANT
+                && empty($report['tenant_is_reporter'])
                 && $round->tenant_notify_status !== RentalWorkCompletionRound::NOTIFY_NO_EMAIL) {
                 SendTenantCompletionCheckMailJob::dispatch((int) $round->id)->afterCommit();
             }
@@ -200,6 +204,7 @@ class RentalCompletionService
             RentalWorkCompletionRound::VIA_CREW_LINK => 'crew link',
             RentalWorkCompletionRound::VIA_CREW_PAGE => 'crew page',
             RentalWorkCompletionRound::VIA_SIGNED_COPY => 'signed copy',
+            RentalWorkCompletionRound::VIA_TENANT_PORTAL => 'the tenant on the portal',
             RentalWorkCompletionRound::VIA_CONTRACTOR_CAPTURED => 'captured by the office from the contractor',
             default => 'recorded by the office',
         };

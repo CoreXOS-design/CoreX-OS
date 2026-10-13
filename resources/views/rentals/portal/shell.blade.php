@@ -346,6 +346,32 @@
                                             </template>
                                         </div>
 
+                                        {{-- spec 22.18 (Johan, 14 Oct 2026): with a tenant in the property THEY tell us the work has started / is finished / is not fixed (the owner only watches). The server decides (tenant_can_start / tenant_can_finish). --}}
+                                        <template x-if="w.tenant_can_start || w.tenant_can_finish">
+                                            <div data-tenant-progress style="margin-top:12px; padding-top:12px; border-top:1px solid #e3e8ef;">
+                                                <h2>The repair</h2>
+                                                <button class="btn btn-ok" x-show="w.tenant_can_start" :disabled="!!(progressBusy)" @click="sendProgress(w, 'started')" data-tenant-started>The contractor has arrived - work has started</button>
+                                                <template x-if="w.tenant_can_finish && (!progressForm || progressForm.workOrderId !== w.id)">
+                                                    <div>
+                                                        <button class="btn" :class="w.tenant_can_start ? 'btn-outline' : 'btn-ok'" @click="openProgress(w, 'finished')" data-tenant-finished>The work is finished</button>
+                                                        <button class="btn btn-outline" @click="openProgress(w, 'not_fixed')" data-tenant-not-fixed>It is not fixed</button>
+                                                    </div>
+                                                </template>
+                                                <template x-if="w.tenant_can_finish && progressForm && progressForm.workOrderId === w.id">
+                                                    <div data-tenant-progress-form>
+                                                        <label x-text="progressForm.kind === 'not_fixed' ? 'What is still wrong?' : 'Anything to add? (optional)'"></label>
+                                                        <textarea rows="3" x-model="progressForm.note" :placeholder="progressForm.kind === 'not_fixed' ? 'For example: the tap is fixed but it still drips.' : 'For example: all done, thank you.'"></textarea>
+                                                        <label>Photos (optional)</label>
+                                                        @include('rentals.portal._photo-picker', ['bind' => 'progressForm'])
+                                                        <button class="btn" :class="progressForm.kind === 'not_fixed' ? 'btn-danger' : 'btn-ok'" :disabled="!!(progressBusy || progressForm.photoBusy)" @click="sendProgress(w, progressForm.kind)" x-text="progressBusy ? 'Sending…' : (progressForm.kind === 'not_fixed' ? 'Send - it is not fixed' : 'Send - the work is finished')"></button>
+                                                        <button class="btn btn-outline" @click="progressForm = null">Cancel</button>
+                                                    </div>
+                                                </template>
+                                                <p class="error" x-show="progressError" x-text="progressError"></p>
+                                            </div>
+                                        </template>
+                                        <p class="muted" x-show="w.tenant_progress_note && !w.tenant_can_start && !w.tenant_can_finish" x-text="w.tenant_progress_note" data-tenant-progress-note></p>
+
                                         {{-- §17.10.4 — "Is this finished?" — only while a completion round waits on this tenant. --}}
                                         <template x-if="w.awaiting_answer">
                                             <div data-finished-block style="margin-top:12px; padding-top:12px; border-top:1px solid #e3e8ef;">
@@ -523,7 +549,8 @@
                                                         <button class="btn btn-outline" @click="setAppointment(w)" x-text="w.appointment_at ? 'Change the appointment' : 'Set the appointment'"></button>
                                                     </div>
                                                 </template>
-                                                <p class="muted" x-show="!w.owner_can_appoint && !w.owner_work_started" data-owner-appointment-locked>The appointment can be set once the job is approved.</p>
+                                                <p class="muted" x-show="!w.owner_can_appoint && !w.owner_work_started && w.owner_tenant_in_property" data-owner-appointment-tenant>Your tenant lives in the property, so your agent arranges the appointment with them. You will see it here once it is set.</p>
+                                                <p class="muted" x-show="!w.owner_can_appoint && !w.owner_work_started && !w.owner_tenant_in_property" data-owner-appointment-locked>The appointment can be set once the job is approved.</p>
                                                 {{-- Only the buttons that will work (the server decides: owner_can_start / owner_can_finish), else the plain reason why not. --}}
                                                 <template x-if="w.who !== 'our_team'">
                                                     <div data-owner-progress>
@@ -580,6 +607,7 @@
                                         <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.thumb_url || ph.url" alt="Photo of the extra work" loading="lazy" decoding="async"></a>
                                     </template>
                                 </div>
+                                <p class="muted" x-show="v.reason" data-variation-reason x-text="v.reason"></p>
                                 <p style="margin-top:10px;">Extra work: <strong x-text="'R ' + Number(v.extra_amount).toFixed(2)"></strong> &middot; New total: <strong x-text="'R ' + Number(v.new_total).toFixed(2)"></strong></p>
                                 <p class="muted" x-show="v.term_text" x-text="v.term_text"></p>
                                 <button class="btn btn-ok" :disabled="!!(busy['var' + v.id])" @click="decideVariation(v, 'approve')" x-text="busy['var' + v.id] ? 'Sending…' : 'Approve'"></button>
@@ -750,6 +778,8 @@ async function portalFetch(url, options = {}) {
     if (window.__portalContact) headers['X-Portal-Contact'] = String(window.__portalContact);
     // which login THIS page believes it is acting as: if the browser's session has become somebody else's (another tab signed in), the server refuses
     if (window.__portalExpect) headers['X-Portal-Expect'] = String(window.__portalExpect);
+    // a QA demo tab is fixed to ONE side for its whole life; the server refuses a call that belongs to the other side (EnsurePortalRole)
+    if (window.__portalRole) headers['X-Portal-Role'] = String(window.__portalRole);
     if (!(options.body instanceof FormData) && options.body) {
         headers['Content-Type'] = 'application/json';
     }
@@ -773,6 +803,7 @@ async function portalUpload(url, form, key, onProgress) {
         xhr.setRequestHeader('X-XSRF-TOKEN', getCookie('XSRF-TOKEN'));
         if (window.__portalContact) xhr.setRequestHeader('X-Portal-Contact', String(window.__portalContact));
         if (window.__portalExpect) xhr.setRequestHeader('X-Portal-Expect', String(window.__portalExpect));
+        if (window.__portalRole) xhr.setRequestHeader('X-Portal-Role', String(window.__portalRole));
         if (key) xhr.setRequestHeader('X-Submission-Key', key);
         if (xhr.upload && onProgress) {
             xhr.upload.onprogress = (e) => { if (e.lengthComputable && e.total > 0) onProgress(Math.min(99, Math.round(e.loaded / e.total * 100))); };
@@ -810,6 +841,7 @@ function rentalsPortal() {
         linkContactId: @json($linkedContactId ?? null),   // the contact the link was written for, from the signed reference
         roles: [],
         activeRole: null,
+        demoTab: false,   // opened from the QA demo sign-in link: fixed to one side for the life of the tab
         login: { step: 'email', email: '', password: '', code: '', newPassword: '', newPasswordConfirm: '', error: null, mustSetPassword: false },
         tenantTab: 'home',
         landlordTab: 'home',
@@ -829,7 +861,7 @@ function rentalsPortal() {
         faultForm: { decision: '', handled_by: '', contractor_name: '', contractor_phone: '', agency_service_provider_id: '', note: '', error: null, busy: false, other: false },
         apptDraft: {},
         // BUILD 3 — the portal's Jobs are work orders (§17.3.5); the "is this finished?" answer form (§17.10.4).
-        workOrders: [], declineOpen: {}, declineNote: {}, declineError: {}, answerForm: null, answerBusy: false, answerError: null, answerKeys: {},
+        workOrders: [], declineOpen: {}, declineNote: {}, declineError: {}, answerForm: null, answerBusy: false, answerError: null, progressForm: null, progressBusy: false, progressError: null, progressKeys: {}, answerKeys: {},
         landlordFaultWizard: { open: false, step: 'form', property: null, faultTypeId: '', ftype: null, showAid: false, title: '', description: '', photos: [], photoError: null, photoBusy: false, photoPending: 0, sending: false, progress: 0, error: null, key: null },
         landlordFaultTypesByProperty: {},
 
@@ -856,6 +888,19 @@ function rentalsPortal() {
             const linked = String(@json($linkedEmail ?? null) || new URLSearchParams(window.location.search).get('email') || '').trim();
             if (linked && linked.length <= 255 && /^[^\s@]+@[^\s@]+$/.test(linked)) { this.login.email = linked; this.linkEmail = linked; }
             window.__portalContact = this.linkContactId || null;
+            // QA DEMO TAB (never on Staging/live: only the QA-only demo sign-in link adds ?demo=1). Owner and tenant are two tabs of one browser on one
+            // login, so the side must belong to the TAB, not to anything the other tab can overwrite: it comes from this tab's own URL (?as=) and
+            // sessionStorage (per tab), never localStorage, and is sent on every portal call so the server refuses a call from the wrong side.
+            try {
+                const dq = new URLSearchParams(window.location.search);
+                if (dq.get('demo') === '1') sessionStorage.setItem('portal.demo', '1');
+                this.demoTab = sessionStorage.getItem('portal.demo') === '1';
+                if (this.demoTab) {
+                    const asRole = { owner: 'owner', tenant: 'tenant' }[dq.get('as')] || sessionStorage.getItem('portal.demo.role') || null;
+                    if (asRole) sessionStorage.setItem('portal.demo.role', asRole);
+                    window.__portalRole = asRole;
+                }
+            } catch (e) { this.demoTab = false; window.__portalRole = null; }
             window.__portalOnSessionChanged = () => { this.sessionChanged = true; };
             // coming back to this tab: has the browser's login changed under it while it sat in the background?
             if (typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') this.recheckSession(); });
@@ -923,8 +968,8 @@ function rentalsPortal() {
             if (!d) return '';
             return (u.length <= 2 ? u[0] + '*' : u[0] + '*'.repeat(Math.min(6, u.length - 2)) + u[u.length - 1]) + '@' + d;
         },
-        rememberedRole() { try { return window.localStorage.getItem('portal.role.' + ((this.me && this.me.client && this.me.client.id) || '')) || null; } catch (e) { return null; } },
-        rememberRole(role) { try { window.localStorage.setItem('portal.role.' + ((this.me && this.me.client && this.me.client.id) || ''), role); } catch (e) { /* private window: the choice just is not remembered */ } },
+        rememberedRole() { try { if (this.demoTab) return window.sessionStorage.getItem('portal.demo.role') === 'owner' ? 'landlord' : (window.sessionStorage.getItem('portal.demo.role') === 'tenant' ? 'tenant' : null); return window.localStorage.getItem('portal.role.' + ((this.me && this.me.client && this.me.client.id) || '')) || null; } catch (e) { return null; } },
+        rememberRole(role) { try { if (this.demoTab) return; window.localStorage.setItem('portal.role.' + ((this.me && this.me.client && this.me.client.id) || ''), role); } catch (e) { /* private window: the choice just is not remembered */ } },
 
         async loadBranding() {
             const r = await portalFetch('/api/v1/client/rentals/branding');
@@ -934,9 +979,11 @@ function rentalsPortal() {
         async detectRoles() {
             this.loadBranding();
             const roles = [];
-            const leases = await portalFetch('/api/v1/client/rentals/leases');
+            // a demo tab asks only about ITS OWN side (the server would refuse the other side's calls), so it is never offered the other view
+            const only = window.__portalRole || null;
+            const leases = only === 'owner' ? { ok: false } : await portalFetch('/api/v1/client/rentals/leases');
             if (leases.ok && leases.data.leases && leases.data.leases.length) roles.push('tenant');
-            const props = await portalFetch('/api/v1/client/rentals/landlord/properties');
+            const props = only === 'tenant' ? { ok: false } : await portalFetch('/api/v1/client/rentals/landlord/properties');
             if (props.ok && props.data.properties && props.data.properties.length) roles.push('landlord');
             this.roles = roles;
             if (leases.ok && leases.data.leases) this.tenantLeases = leases.data.leases;
@@ -1102,6 +1149,30 @@ function rentalsPortal() {
                 const r = await portalFetch('/api/v1/client/rentals/work-orders');
                 if (r.ok) this.workOrders = r.data.work_orders;
             }
+        },
+        // spec 22.18 - the tenant's "work has started" / "the work is finished" / "it is not fixed" (optional note and photos on the last two)
+        openProgress(w, kind) { this.progressError = null; this.progressForm = { workOrderId: w.id, kind, note: '', photos: [], photoError: null, photoBusy: false, photoPending: 0 }; },
+        async sendProgress(w, action) {
+            if (this.progressBusy) return;
+            this.progressError = null;
+            const f = (this.progressForm && this.progressForm.workOrderId === w.id) ? this.progressForm : null;
+            const note = f ? (f.note || '').trim() : '';
+            if (action === 'not_fixed' && note.length < 5) { this.progressError = 'Please tell us what is still wrong (at least 5 characters).'; return; }
+            const form = new FormData();
+            form.append('action', action);
+            if (note) form.append('note', note);
+            const photos = (f && action !== 'started') ? f.photos : [];
+            photos.forEach(p => form.append('photos[]', p.file, p.file.name));
+            const slot = w.id + action;
+            if (!this.progressKeys[slot]) this.progressKeys[slot] = 'progress-' + this.uuid();
+            this.progressBusy = true;
+            const r = await portalFetch('/api/v1/client/rentals/work-orders/' + w.id + '/progress', { method: 'POST', body: form, key: this.progressKeys[slot] });
+            this.progressBusy = false;
+            if (!r.ok) { this.progressError = r.data?.message || 'Could not send that.'; return; }
+            delete this.progressKeys[slot];
+            photos.forEach(p => URL.revokeObjectURL(p.url));
+            this.progressForm = null;
+            await this.loadWorkOrders();
         },
         openNotComplete(w) { this.answerError = null; this.answerForm = { workOrderId: w.id, note: '', photos: [], photoError: null, photoBusy: false, photoPending: 0 }; },
         // §17.10.4 — confirm ("All done") or say it is NOT complete (a note of at least 5 characters, up to the agency's photo limit).

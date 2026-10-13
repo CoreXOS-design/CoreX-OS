@@ -570,6 +570,7 @@ class RentalAuthorisationService
         $wo->refresh();
         $wo->jobCard?->fresh()?->syncStatusFromWorkOrder();   // an own-crew card that was waiting on this moves to "Approved - ready to book"
         $this->tellOwner($row);
+        app(RentalGoAheadService::class)->onCostAuthorised($wo, $row, $by);   // section 22.15 - the contractor is told the go-ahead by itself
 
         return $row->fresh();
     }
@@ -670,6 +671,9 @@ class RentalAuthorisationService
         if ($approved && $upTo !== null) {
             // the amount the owner approved up to is the baseline later extras are measured against
             $wo->forceFill(['approved_amount' => $upTo, 'approval_basis' => RentalWorkOrder::BASIS_OWNER_DECISION])->save();
+        }
+        if ($approved) {
+            app(RentalGoAheadService::class)->onCostAuthorised($wo, $row, $by instanceof User ? $by : null);   // section 22.15 - after the surrounding commit
         }
 
         return $row;

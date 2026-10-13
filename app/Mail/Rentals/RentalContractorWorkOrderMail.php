@@ -19,6 +19,9 @@ class RentalContractorWorkOrderMail extends RentalMaintenanceMail
         string $pdfFilename,
         public string $ownerApprovalLine,
         ?User $agent = null,
+        public ?string $goAheadText = null,
+        public ?string $jobUrl = null,
+        public ?string $jobUrlExpires = null,
     ) {
         $this->pdfContents = $pdfContents;
         $this->pdfFilename = $pdfFilename;
@@ -34,7 +37,7 @@ class RentalContractorWorkOrderMail extends RentalMaintenanceMail
 
     protected function subjectText(): string
     {
-        return 'Work order — ' . $this->address();
+        return ($this->goAheadText ? 'You may go ahead — ' : 'Work order — ') . $this->address();
     }
 
     protected function viewName(): string
@@ -50,6 +53,9 @@ class RentalContractorWorkOrderMail extends RentalMaintenanceMail
             'description' => $this->workOrder->description,
             'trade' => $this->workOrder->trade_type ? ucfirst($this->workOrder->trade_type) : null,
             'ownerApprovalLine' => $this->ownerApprovalLine,
+            'goAheadText' => $this->goAheadText,
+            'jobUrl' => $this->jobUrl,
+            'jobUrlExpires' => $this->jobUrlExpires,
         ];
     }
 }

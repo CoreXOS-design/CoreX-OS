@@ -25,8 +25,7 @@
 @endphp
 <div id="who-pays" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
     <div>
-        <h2 class="text-sm font-semibold">Who pays</h2>
-        <p class="text-xs" style="color: var(--text-muted);">A record of the decision. CoreX does not raise a charge.</p>
+        <h2 class="text-sm font-semibold wo-embedded-title">Who pays</h2>
     </div>
 
     @unless($wpActive)
@@ -34,7 +33,7 @@
             <span class="text-sm" style="color: var(--text-muted);">Decided once we know what was found.</span>
             @permission('rental_work_orders.manage_completion')
             <details>
-                <summary class="corex-btn-outline text-xs cursor-pointer" style="{{ $wpBtn }}">Enter what was found</summary>
+                <summary class="corex-btn-outline text-xs cursor-pointer" style="{{ $wpBtn }}" data-wp-rule-open>Enter what was found</summary>
                 <div class="mt-2">@include('corex.rental-work-orders._who-pays-findings-form')</div>
             </details>
             @endpermission
@@ -90,7 +89,7 @@
         <div class="text-sm"><strong>{{ $wpRuling->summary() }}</strong> &mdash; {{ $wpRuling->reason }}</div>
         <div class="text-xs" style="color: var(--text-muted);">By {{ $wpRuling->ruledBy?->name ?? 'an agent' }}, {{ $wpRuling->ruled_at?->copy()->setTimezone($wpTz)->format('j M Y H:i') }}.
             Owner {{ $wpRuling->owner_told_at ? 'told ' . $wpRuling->owner_told_at->copy()->setTimezone($wpTz)->format('j M H:i') : 'not emailed' }};
-            tenant {{ $wpRuling->tenant_told_at ? 'told ' . $wpRuling->tenant_told_at->copy()->setTimezone($wpTz)->format('j M H:i') : 'not emailed' }}.
+            tenant {{ $wpRuling->tenant_told_at ? 'told ' . $wpRuling->tenant_told_at->copy()->setTimezone($wpTz)->format('j M H:i') : ($wp->tenantInvolved($wpRuling) ? 'not emailed' : 'not told (nothing for them to pay)') }}.
             @if($wpRuling->evidence_path)<a class="underline" href="{{ route('corex.rental-work-orders.who-pays.evidence', [$workOrder, $wpRuling->id]) }}">Evidence: {{ $wpRuling->evidence_name }}</a>@endif</div>
     </div>
     @endif
@@ -98,7 +97,7 @@
     @permission('rental_work_orders.manage_completion')
     @if($wpHasFindings && $workOrder->status !== \App\Models\RentalWorkOrder::STATUS_CANCELLED)
     <details>
-        <summary class="corex-btn-primary text-xs cursor-pointer" style="{{ $wpBtn }}">{{ $wpRuling ? 'Replace the ruling' : 'Rule who pays' }}</summary>
+        <summary class="corex-btn-primary text-xs cursor-pointer" style="{{ $wpBtn }}" data-wp-rule-open>{{ $wpRuling ? 'Replace the ruling' : 'Rule who pays' }}</summary>
         <form method="POST" action="{{ route('corex.rental-work-orders.who-pays.rule', $workOrder) }}" enctype="multipart/form-data" class="space-y-2 mt-2 max-w-xl" id="wp-rule-form">
             @csrf
             <div>

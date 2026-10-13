@@ -109,6 +109,8 @@ final class OwnerCardPolishTest extends TestCase
     public function test_p4_progress_buttons_and_the_appointment_box_fit_the_stage(): void
     {
         $wo = $this->externalWorkOrder(['status' => RentalWorkOrder::STATUS_ORDERED, 'owner_approval_status' => RentalWorkOrder::APPROVAL_APPROVED, 'approved_amount' => 4120]);
+        // AT-452 22.18: the owner may report progress only once the go-ahead has gone to the contractor (here: the agent's own send is on the history)
+        $wo->updates()->create(['agency_id' => $wo->agency_id, 'update_type' => 'work_order_sent', 'note' => 'Go-ahead emailed to Acme (with the job link)']);
         $p = $this->ownerPayload($wo);
         $this->assertTrue($p['owner_can_start']);
         $this->assertTrue($p['owner_can_appoint'], 'before the work starts the owner may set the appointment');
@@ -136,7 +138,7 @@ final class OwnerCardPolishTest extends TestCase
         $this->assertSame(RentalWorkOrder::STATUS_IN_PROGRESS, $wo->status, 'nothing is closed');
         $p = $this->ownerPayload($wo);
         $this->assertSame('reported_finished', $p['stage']);
-        $this->assertSame('Reported finished', $p['stage_label']);
+        $this->assertSame('Work reported finished - your agent is closing it off', $p['stage_label']);
         $this->assertStringStartsWith('Reported finished by you on ', $p['reported_finished']['text']);
         $this->assertFalse($p['owner_can_start'] || $p['owner_can_finish']);
         $this->assertFalse($p['owner_can_appoint']);

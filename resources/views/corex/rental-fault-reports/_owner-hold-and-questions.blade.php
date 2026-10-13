@@ -40,7 +40,7 @@
                                 </div>
                                 <div>
                                     <label class="cxhold-lbl" for="cxhold-when">When did they tell you?</label>
-                                    <input id="cxhold-when" type="datetime-local" name="told_at" required class="cxhold-input" data-resume-when value="{{ now()->setTimezone($ohTz)->format('Y-m-d\TH:i') }}">
+                                    <x-date-time-field name="told_at" id="cxhold-when" data-resume-when :value="now()->setTimezone($ohTz)->format('Y-m-d\TH:i')" />
                                 </div>
                             </div>
                             <div>

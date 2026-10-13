@@ -68,7 +68,7 @@
                         </div>
                         <div>
                             <label class="text-xs font-medium" for="tc-at">When?</label>
-                            <input id="tc-at" type="datetime-local" name="at" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);" value="{{ old('at', now()->setTimezone($tpTz)->format('Y-m-d\TH:i')) }}">
+                            <x-date-time-field name="at" id="tc-at" class="mt-1" :value="old('at', now()->setTimezone($tpTz)->format('Y-m-d\TH:i'))" />
                         </div>
                     </div>
                     <div>

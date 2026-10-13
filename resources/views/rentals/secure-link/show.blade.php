@@ -27,7 +27,7 @@
         h2 { font-size:15px; margin:0 0 10px; }
         label { display:block; font-size:13px; font-weight:600; margin:10px 0 4px; }
         input, textarea { width:100%; padding:11px 12px; border:1px solid var(--border); border-radius:10px; font-size:15px; font-family:inherit; }
-        .btn { display:inline-block; width:100%; text-align:center; padding:12px; border-radius:10px; border:none; font-weight:700; font-size:15px; cursor:pointer; margin-top:10px; }
+        .btn { display:flex; align-items:center; justify-content:center; box-sizing:border-box; width:100%; min-height:46px; text-align:center; padding:10px 12px; border-radius:10px; border:none; font-weight:700; font-size:15px; line-height:1.2; cursor:pointer; margin-top:10px; }
         .btn-primary { background:var(--accent); color:#fff; }
         .btn-ok { background:var(--ok); color:#fff; }
         .muted { color:var(--muted); font-size:13px; }
@@ -53,7 +53,7 @@
             @if ($accessNotes)
                 <p class="muted"><strong>Getting in:</strong> {{ $accessNotes }}</p>
             @endif
-            @if (! empty($lookAndQuote))
+            @if (! empty($lookAndQuote) && empty($unlocked))
                 <p data-look-and-quote><strong>This is a visit to look at the problem and give a quote.</strong> Any repair work is agreed with the owner separately, before it starts.</p>
             @endif
             @if ($jobCard?->access_notes)
@@ -94,6 +94,7 @@
             </div>
         @else
         {{-- AT-452 round 2 (§19) - the contractor's answer. --}}
+        @if (empty($unlocked))
         <div class="card" data-contractor-answer>
             <h2>Can you take this job?</h2>
             <p class="muted" data-contractor-answer-state>{{ $response ? $responseLabel : 'Not answered yet' }}@if ($response === 'declined' && $workOrder->contractor_decline_reason) &mdash; {{ $workOrder->contractor_decline_reason }}@endif</p>
@@ -112,6 +113,7 @@
                 </form>
             @endif
         </div>
+        @endif
 
         @if ($tasks->count())
             <div class="card">
@@ -125,7 +127,21 @@
         @endif
 
 
-        @if ($response !== 'declined')
+        @php
+            // a quote the agency has already chosen for this job (not declined, not replaced): the contractor is told where it stands instead of being offered the form again
+            $heldQuote = $workOrder->quotes->first(fn ($q) => $q->is_selected && ! $q->declined_at && ! $q->isSuperseded() && (int) $q->agency_service_provider_id === (int) $workOrder->agency_service_provider_id);
+            $heldWhere = match ($workOrder->owner_approval_status) {
+                \App\Models\RentalWorkOrder::APPROVAL_PENDING => 'is with the owner',
+                \App\Models\RentalWorkOrder::APPROVAL_APPROVED => 'has been approved',
+                default => 'has been received',
+            };
+        @endphp
+        @if ($response !== 'declined' && empty($unlocked) && $heldQuote)
+        <div class="card" data-contractor-quote-held>
+            <h2>Your quote</h2>
+            <p>Your quote of R{{ number_format((float) $heldQuote->amount, 2) }} {{ $heldWhere }}. The agency will tell you when you can go ahead.</p>
+        </div>
+        @elseif ($response !== 'declined' && empty($unlocked))
         <div class="card" data-contractor-quote>
             <h2>Upload a quote</h2>
             <form method="POST" action="{{ route('rentals.secure-link.quote', $token) }}" enctype="multipart/form-data">
@@ -141,11 +157,89 @@
                 <button class="btn btn-primary" type="submit">Submit quote</button>
             </form>
         </div>
-
         @endif
 
-        {{-- "What did you find?" and the after photos only make sense once the job is accepted --}}
-        @if (in_array($response, ['accepted', 'quote_uploaded'], true))
+        @if (! empty($unlocked))
+        {{-- spec 22.17 - the cost is authorised: everything the contractor needs to finish the job is on this page --}}
+        <div class="card" data-go-ahead style="border:2px solid var(--ok);">
+            <h2 style="color:var(--ok);">You may go ahead</h2>
+            <p>The owner has authorised the cost{!! $authorisedAmount !== null ? ': <strong>R' . e(number_format($authorisedAmount, 2, '.', ' ')) . '</strong>' : '' !!}.
+                Any work that would take the cost above that must first be authorised by the owner - use &ldquo;Ask for extra money&rdquo; below and wait for the answer.</p>
+        </div>
+
+        <div class="card" data-contractor-appointment>
+            <h2>Appointment</h2>
+            @if ($appointmentText)
+                <p><strong>{{ $appointmentText }}</strong></p>
+                @if ($appointmentNote)<p class="muted">{{ $appointmentNote }}</p>@endif
+            @else
+                <p class="muted">No appointment has been set yet. The agency arranges it and will tell you.</p>
+            @endif
+        </div>
+
+        <div class="card" data-contractor-photos>
+            <h2>Photos</h2>
+            <form method="POST" action="{{ route('rentals.secure-link.photo', $token) }}" enctype="multipart/form-data">
+                @csrf
+                <label style="display:flex;align-items:center;gap:8px;font-weight:500;"><input type="radio" name="phase" value="before" style="width:auto;"> Before or during the work</label>
+                <label style="display:flex;align-items:center;gap:8px;font-weight:500;"><input type="radio" name="phase" value="after" style="width:auto;" checked> After the work</label>
+                <input type="file" name="photo" accept="image/*" capture="environment" required style="margin-top:8px;">
+                <button class="btn btn-primary" type="submit">Upload photo</button>
+            </form>
+        </div>
+
+        <div class="card" data-contractor-extra>
+            <h2>Ask for extra money</h2>
+            @if ($extraOpen)
+                <p data-extra-waiting><strong>Waiting for the owner.</strong> {{ $extraOpen->note }}</p>
+                <p class="muted">Please do not do the extra work until we tell you the owner has agreed.</p>
+            @else
+                @if ($extraLast)
+                    <p class="muted" data-extra-last>Your last request ({{ $extraLast->note }}): <strong>{{ $extraLast->status === 'approved' ? 'the owner agreed' : 'the owner did not agree' }}</strong>.</p>
+                @endif
+                <p class="muted">Only if the work needs more than the authorised amount - ask BEFORE doing the extra work. Nothing above the authorised amount is accepted until the owner agrees.</p>
+                <form method="POST" action="{{ route('rentals.secure-link.extra', $token) }}">
+                    @csrf
+                    <label>Extra amount needed (R)</label>
+                    <input type="number" step="0.01" min="0.01" name="extra_amount" required value="{{ old('extra_amount') }}">
+                    <label>Why is it needed?</label>
+                    <textarea name="reason" rows="2" maxlength="1000" required>{{ old('reason') }}</textarea>
+                    <button class="btn btn-primary" type="submit">Send to the owner</button>
+                </form>
+            @endif
+        </div>
+
+        <div class="card" data-contractor-invoice>
+            <h2>Your invoice</h2>
+            @foreach ($invoices as $inv)
+                <p class="muted" style="margin:0 0 4px;">Sent: {{ $inv->describe() }}</p>
+            @endforeach
+            <form method="POST" action="{{ route('rentals.secure-link.invoice', $token) }}" enctype="multipart/form-data">
+                @csrf
+                <label>Invoice number</label>
+                <input type="text" name="invoice_number" required maxlength="100" value="{{ old('invoice_number') }}">
+                <label>Invoice date</label>
+                <input type="date" name="invoice_date" required value="{{ old('invoice_date', now()->toDateString()) }}">
+                <label>Invoice amount (R)</label>
+                <input type="number" step="0.01" min="0.01" name="amount" required value="{{ old('amount') }}">
+                <label>Invoice file</label>
+                <input type="file" name="document" required>
+                <p class="muted">{{ $invoiceLimits }}</p>
+                <button class="btn btn-primary" type="submit">Send invoice</button>
+            </form>
+        </div>
+
+        <div class="card" data-contractor-done>
+            <h2>The work is done</h2>
+            <form method="POST" action="{{ route('rentals.secure-link.mark-done', $token) }}">
+                @csrf
+                @include('rentals._report-back-fields', ['workOrder' => $workOrder])
+                <button class="btn btn-ok" type="submit">Mark job done</button>
+            </form>
+        </div>
+
+        @elseif (in_array($response, ['accepted', 'quote_uploaded'], true))
+        {{-- before the cost is authorised: only the old after-photo and done controls (kept as they were) --}}
         <div class="card" data-contractor-photos>
             <h2>Upload after photos</h2>
             <form method="POST" action="{{ route('rentals.secure-link.photo', $token) }}" enctype="multipart/form-data">
@@ -163,6 +257,7 @@
                 <button class="btn btn-ok" type="submit">Mark done</button>
             </form>
         </div>
+        <p class="muted">You can send your invoice and ask for extra money here once the owner has authorised the cost.</p>
         @endif
         @endif
     </div>

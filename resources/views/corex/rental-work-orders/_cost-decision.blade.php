@@ -33,8 +33,7 @@
 <div id="cost-decision" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-cost-decision>
     <div class="flex flex-wrap items-center gap-2">
         <div>
-            <h2 class="text-sm font-semibold">Approve the cost</h2>
-            @unless($cdAuthorised || $cdLegacy || $cdEmActive)<p class="text-xs" style="color: var(--text-muted);" data-nothing-approved>Nothing is approved until you press a button.</p>@endunless
+            <h2 class="text-sm font-semibold wo-embedded-title">Approve the cost</h2>
         </div>
         @if($cdAuthorised)
             <span class="ds-badge ds-badge-success" data-cost-status="authorised">Cost authorised</span>
@@ -60,7 +59,7 @@
     @endif
 
     {{-- the limits an agent may authorise under are the OWNER's own, read only through RentalOwnerFaultSettings, with who said so --}}
-    @if($cdOwnerSettings)
+    @if($cdOwnerSettings && ! ($cdHideLimits ?? false))
         @php
             $cdRepair = $cdOwnerSettings->repairLimit();
             $cdEmerg = $cdOwnerSettings->emergencyLimit();
@@ -102,6 +101,7 @@
                 get amount() { if (this.measure !== null) { return Number(this.measure); } const t = parseFloat(this.typed); return t > 0 ? t : null; },
                 get limit() { return this.emergency ? this.emerg : this.repair; },
                 get word() { return this.emergency ? 'emergency limit' : 'repair limit'; },
+                get coversByEmergency() { return {{ $cdCanEmergency ? 'true' : 'false' }} && !this.emergency && this.amount !== null && this.emerg !== null && this.amount <= this.emerg + 0.001; },
                 get can() { return this.amount !== null && this.limit !== null && this.amount <= this.limit + 0.001 && (!this.emergency || this.reason.trim() !== ''); },
                 get line() {
                     if (this.amount === null) { return 'Nothing is priced yet - select a quote or type an amount.'; }
@@ -130,7 +130,7 @@
             </div>
 
             @if($cdCanEmergency)
-            <div class="space-y-2">
+            <div class="space-y-2" x-show="emerg !== null && (amount === null || amount <= emerg + 0.001) || emergency">
                 <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="emergency" data-cost-emergency> This is an emergency <span class="text-xs" style="color: var(--text-muted);">(uses the owner's emergency limit; the reason is required)</span></label>
                 <div x-show="emergency" x-cloak>
                     <label class="text-xs font-medium" for="cost-reason">Why is it an emergency? <span style="color: var(--ds-crimson);">*</span></label>
@@ -148,11 +148,11 @@
                 <input type="hidden" name="emergency_reason" x-bind:value="emergency ? reason : ''">
             </form>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2" data-cost-buttons>
+            <div class="flex flex-wrap gap-2" data-cost-buttons>
                 @if($cdCanAuthorise)
-                    <button type="button" class="corex-btn-primary text-xs w-full" x-bind:disabled="!can || busy" x-bind:style="(!can || busy) ? 'opacity:.45; cursor:not-allowed;' : ''" x-on:click="authorise()" data-cost-authorise
+                    <button type="button" class="corex-btn-primary text-xs flex-1" x-show="can || coversByEmergency" x-bind:disabled="!can || busy" x-bind:style="(!can || busy) ? 'opacity:.45; cursor:not-allowed;' : ''" x-on:click="authorise()" data-cost-authorise
                             x-text="amount !== null ? 'Authorise ' + money(amount) + ' within the ' + word : 'Authorise within the ' + word">Authorise within the repair limit</button>
-                    <button type="button" class="corex-btn-outline text-xs w-full" x-on:click="open = true" data-cost-owner-decision-open>Record the owner's decision</button>
+                    <button type="button" class="corex-btn-outline text-xs flex-1" x-on:click="open = true" data-cost-owner-decision-open>Record the owner's decision</button>
                 @else
                     <p class="text-xs sm:col-span-2" style="color: var(--text-muted);">Only staff who may record approvals can authorise the cost.</p>
                 @endif
@@ -200,7 +200,7 @@
                             </div>
                             <div>
                                 <label class="cxod-lbl" for="cxcd-when">When did they tell you?</label>
-                                <input id="cxcd-when" type="datetime-local" name="told_at" required class="cxod-input" data-od-when value="{{ old('told_at', now()->setTimezone($cdTz)->format('Y-m-d\TH:i')) }}">
+                                <x-date-time-field name="told_at" id="cxcd-when" data-od-when :value="old('told_at', now()->setTimezone($cdTz)->format('Y-m-d\TH:i'))" />
                             </div>
                         </div>
                         <div>
@@ -228,7 +228,7 @@
                 <li @if($cr->superseded_at) style="opacity:.65" @endif data-cost-record="{{ $cr->id }}" data-cost-basis="{{ $cr->basis }}">
                     <strong>{{ $cr->isAuthorised() ? 'Authorised' : 'Declined' }}</strong> &mdash; {{ $cdSvc->recordTextFor($cr) }}
                     @if($cr->note && $cr->basis === \App\Models\RentalAuthorisation::BASIS_OWNER_INSTRUCTION)<em>&ldquo;{{ $cr->note }}&rdquo;</em>@endif
-                    <span style="color: var(--text-muted);">&middot; job was: {{ $cdSvc->stageWords($cr) ?: '-' }}@if($cr->superseded_at) &middot; <em>replaced by a newer record</em>@else &middot; <em>this is the one that stands</em>@endif</span>
+                    @if($cr->superseded_at)<span style="color: var(--text-muted);">&middot; <em>replaced by a newer record</em></span>@endif
                 </li>
             @endforeach
         </ul>
@@ -236,6 +236,7 @@
 </div>
 @once
 <style>
+    [data-cost-buttons] > * { min-width: 220px; }
     .cxod-overlay { position: fixed; inset: 0; z-index: 90000; display: flex; align-items: flex-start; justify-content: center; padding: 4vh 12px; background: rgba(15, 23, 42, .55); overflow-y: auto; }
     .cxod-overlay[x-cloak] { display: none; }
     .cxod-box { width: 100%; max-width: 640px; background: var(--surface, #fff); color: var(--text-primary, #141821); border: 1px solid var(--border, #ddd); border-radius: 10px; padding: 18px 20px; }

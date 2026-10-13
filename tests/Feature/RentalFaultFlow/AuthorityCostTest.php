@@ -515,7 +515,8 @@ final class AuthorityCostTest extends TestCase
         $this->ownerLimits(1500.0);
         $wo = $this->quoted(1200.0);
         $before = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->getContent();
-        $this->assertStringContainsString('data-nothing-approved', $before);
+        $this->assertStringNotContainsString('data-nothing-approved', $before, 'the Next line already says what is waiting');
+        $this->assertStringNotContainsString('Nothing is approved until you press a button.', $before);
 
         $this->authoriseCostOf($wo);
         $after = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->getContent();
@@ -526,8 +527,8 @@ final class AuthorityCostTest extends TestCase
         $this->assertSame(1, substr_count($text, 'R1,200.00') >= 1 ? 1 : 0);
         $this->assertStringNotContainsString('R1 200.00', $text, 'one money format on the page');
         $this->assertStringNotContainsString('Authorised up to', $text);
-        $this->assertMatchesRegularExpression('/job was: [A-Z]/', $text);
-        $this->assertDoesNotMatchRegularExpression('/job was: (ordered|reported|under_review)/i', $text);
+        $this->assertStringNotContainsString('job was:', $text, 'no jargon: the record already says when and how');
+        $this->assertStringNotContainsString('this is the one that stands', $text);
 
         // declined by the owner: one line of guidance
         $other = $this->quoted(2900.0);
@@ -574,7 +575,7 @@ final class AuthorityCostTest extends TestCase
         $this->assertStringContainsString('data-cost-decision', $html);
         $this->assertStringContainsString('href="#cost-decision"', $html, '"What happens next" links straight to the box');
         $this->assertStringContainsString('Approve the cost', $html);
-        $this->assertStringContainsString('Nothing is approved until you press a button.', $html);
+        $this->assertStringNotContainsString('Nothing is approved until you press a button.', $html);
         $this->assertStringNotContainsString('Decision 2', $html);
         $this->assertStringContainsString('data-cost-authorise', $html);
         $this->assertStringContainsString("Record the owner's decision", $html);
@@ -586,8 +587,8 @@ final class AuthorityCostTest extends TestCase
         $this->assertFalse(\Illuminate\Support\Facades\Route::has('corex.rental-work-orders.emergency-approval.store'));
 
         // the limits shown are the OWNER's, on two aligned lines, with who said so and a link to where they are kept
-        $this->assertStringContainsString('Repairs you may authorise:', $html);
-        $this->assertStringContainsString('Emergency repairs you may authorise:', $html);
+        $this->assertStringContainsString('Repairs: up to R1,500.00', $html);
+        $this->assertStringContainsString('Emergencies: up to R3,000.00', $html);
         $this->assertStringContainsString('up to R1,500.00', $html);
         $this->assertStringContainsString('up to R3,000.00', $html);
         $this->assertStringContainsString('Confirmed by the owner', $html);
@@ -617,11 +618,10 @@ final class AuthorityCostTest extends TestCase
         $this->assertStringNotContainsString('id="approval-panel"', $html);
 
         // said ONCE, under "Approve the cost"
-        $this->assertSame(1, substr_count($text, 'Nothing is approved until you press a button.'));
+        $this->assertSame(0, substr_count($text, 'Nothing is approved until you press a button.'));
         foreach (['Nothing is approved by itself', 'Selecting a quote approves nothing', 'Nothing is approved by that', 'Nothing has been priced or approved'] as $repeated) {
             $this->assertStringNotContainsString($repeated, $text);
         }
-        $this->assertStringContainsString("Capture the contractor's quote, or let them upload it from their link.", $text);
         $this->assertStringContainsString('An appointment can be set once the cost is authorised.', $text);
 
         // the detail block drops empty lines and what the Supplier / Appointment cards already say

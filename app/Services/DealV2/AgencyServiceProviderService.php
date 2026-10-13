@@ -21,10 +21,7 @@ class AgencyServiceProviderService
             ->active()
             ->when($specialty, fn ($q) => $q->capableOf($specialty)) // AT-364 — attorney pickers surface capability-flagged firms too
 
-            ->when($term, function ($q) use ($term) {
-                $t = '%' . trim($term) . '%';
-                $q->where(fn ($w) => $w->where('name', 'like', $t)->orWhere('company', 'like', $t)->orWhere('email', 'like', $t));
-            })
+            ->matching($term)   // the ONE supplier search (AgencyServiceProvider::scopeMatching)
             ->pickerOrder()
             ->limit($limit)
             ->get();

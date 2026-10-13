@@ -212,7 +212,7 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
 
     // AT-445 — .ai/specs/rental-portal-access.md §9. Tenant rentals.
     // §22 — `portal.once`: every state-changing request in the tenant / owner portal does its work once (double tap = one record).
-    Route::prefix('rentals')->name('client.rentals.')->middleware(['portal.same-login', 'portal.once'])->group(function () {
+    Route::prefix('rentals')->name('client.rentals.')->middleware(['portal.same-login', 'portal.role', 'portal.once'])->group(function () {
         // §22 — the agency's logo / name for the portal header (any signed-in tenant or owner).
         Route::get('/branding', [ClientTenantRentalsController::class, 'branding'])->name('branding');
         // §22 — a PDF / document on a fault type's first-aid panel (gated to the person's own agency's active fault types).
@@ -239,6 +239,8 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             // §17.3.5 — the portal's Jobs are work orders: the tenant's list, and their answer to "is this finished?".
             Route::get('/work-orders', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'tenantIndex'])->name('work-orders.index');
             Route::post('/work-orders/{workOrder}/completion-response', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'completionResponse'])->middleware('portal.photos')->name('work-orders.completion-response');
+            // spec 22.18 (Johan, 14 Oct 2026): with a tenant in the property THEY tell us the work has started / is finished / is not fixed (the owner only watches)
+            Route::post('/work-orders/{workOrder}/progress', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'tenantProgress'])->whereNumber('workOrder')->middleware('portal.photos')->name('work-orders.progress');
             // BUILD 3 END
         });
 

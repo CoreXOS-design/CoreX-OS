@@ -92,13 +92,15 @@ final class RentalLifecycleAgencyContractorTest extends TestCase
             $this->assertSame(RentalWorkOrder::APPROVAL_APPROVED, $wo->fresh()->owner_approval_status);
         }, ['9.1']);
 
-        $this->step('9.5', 'with the cost authorised the job is cleared to go ahead - the contractor was told once and is not mailed a second time', 'cc6', function () use ($wo, $supplier) {
+        $this->step('9.5', 'with the cost authorised the job is cleared to go ahead - the contractor was told when appointed and hears the go-ahead by itself, once', 'cc6', function () use ($wo, $supplier) {
             $this->asStaff();
             $this->assertSame(RentalWorkOrder::STATUS_ORDERED, $wo->fresh()->status);
             $this->assertSame('sent_to_contractor', $this->progress('tenant')['current']);
             $this->assertSame('sent_to_contractor', $this->progress('owner')['current']);
             $sent = \App\Models\RentalJobDispatch::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->where('channel', \App\Models\RentalJobDispatch::CHANNEL_EMAIL)->get();
-            $this->assertCount(1, $sent, 'still the one job email');
+            // AT-452 22.15: the job email when appointed + the go-ahead the moment the cost was authorised
+            $this->assertCount(2, $sent, 'the job email and the go-ahead');
+            $this->assertSame(1, $sent->where('reason', 'go_ahead')->count());
             $this->assertSame($supplier->email, $sent->first()->destination);
         }, ['9.4']);
 

@@ -46,7 +46,8 @@ class WorkOrderController extends Controller
             ->where('is_active', true)
             ->with(['serviceContacts' => fn ($q) => $q->where('is_active', true)])
             ->orderByDesc('is_preferred')->orderBy('name')
-            ->get(['id', 'name', 'company', 'email', 'specialty', 'is_preferred']);
+            ->get(['id', 'name', 'company', 'email', 'specialty', 'is_preferred'])
+            ->each(fn ($p) => $p->setAttribute('label', $p->displayName()));
 
         return response()->json([
             'service_type' => $serviceType,
@@ -486,6 +487,7 @@ class WorkOrderController extends Controller
                 // the supplier dropdown by the row's required type. `specialty` is kept for attorney rows.
                 $p->setAttribute('types', $p->serviceTypes->pluck('service_type')->unique()->values()->all());
                 $p->unsetRelation('serviceTypes');
+                $p->setAttribute('label', $p->displayName());   // the ONE supplier label (business name - contact person)
 
                 return $p;
             });

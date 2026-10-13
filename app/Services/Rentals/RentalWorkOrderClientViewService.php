@@ -277,6 +277,10 @@ class RentalWorkOrderClientViewService
                 : null,
         ];
 
+        if ($audience === self::AUDIENCE_TENANT) {
+            $payload += $this->tenantProgressActions($workOrder);
+        }
+
         if ($audience === self::AUDIENCE_LANDLORD) {
             // The owner-facing amount only (§17.2): the selected quote's selling figure, else the final amount
             // once the work order is closed. Never cost, markup or margin.
@@ -309,7 +313,9 @@ class RentalWorkOrderClientViewService
             // the appointment box on the owner's card: only once the job is approved (the server refuses it before) and only until the work has started
             $workStarted = $reportedFinished || in_array($workOrder->status, [RentalWorkOrder::STATUS_IN_PROGRESS, RentalWorkOrder::STATUS_DISPUTED], true);
             $payload['owner_work_started'] = $workStarted;
-            $payload['owner_can_appoint'] = ! $workStarted && ! in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true) && $this->jobApproved($workOrder);
+            // Johan, 14 Oct 2026: the owner may set it only when nobody lives in the property; with a tenant they only SEE it (the server refuses it too)
+            $payload['owner_tenant_in_property'] = app(RentalWorkOrderService::class)->propertyHasTenant($workOrder);
+            $payload['owner_can_appoint'] = ! $workStarted && ! $payload['owner_tenant_in_property'] && ! in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true) && $this->jobApproved($workOrder);
             // §17.31 — supplier invoices the agent has chosen to share. LANDLORD only: the tenant payload never carries this key.
             $payload['invoices'] = app(RentalWorkOrderInvoiceService::class)->ownerPayload($workOrder);
         }
@@ -340,17 +346,36 @@ class RentalWorkOrderClientViewService
             || in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true)) {
             return $none(null);
         }
-        if ($workOrder->status === RentalWorkOrder::STATUS_REPORTED) {
-            return $none('You can tell us when the work starts and finishes once the agency has sent this to the contractor.');
-        }
-        if ($checkWaiting) {
-            return $none('The work has been reported finished. The agency will check it and close the job.');
+        // spec 22.18 - the SAME rule the server refuses with (RentalWorkOrderService::progressBlock): with a tenant in the property the owner only watches
+        $svc = app(RentalWorkOrderService::class);
+        if ($block = $svc->progressBlock($workOrder, 'owner', 'finished')) {
+            return $none($block);
         }
 
         return [
             'owner_can_start' => $workOrder->status === RentalWorkOrder::STATUS_ORDERED,
             'owner_can_finish' => true,
             'owner_progress_note' => null,
+        ];
+    }
+
+    /**
+     * Spec 22.18 - what the TENANT may press on a repair in their property: "The contractor has arrived - work has started" and "The work is finished"
+     * (with "it is not fixed" as the alternative). Same rule the server refuses with.
+     *
+     * @return array{tenant_can_start:bool, tenant_can_finish:bool, tenant_progress_note:?string}
+     */
+    public function tenantProgressActions(RentalWorkOrder $workOrder): array
+    {
+        $svc = app(RentalWorkOrderService::class);
+        $startBlock = $svc->progressBlock($workOrder, 'tenant', 'started');
+        $finishBlock = $svc->progressBlock($workOrder, 'tenant', 'finished');
+        $quiet = $workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL || in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true);
+
+        return [
+            'tenant_can_start' => $startBlock === null && $workOrder->status === RentalWorkOrder::STATUS_ORDERED,
+            'tenant_can_finish' => $finishBlock === null,
+            'tenant_progress_note' => $quiet ? null : ($finishBlock ?? $startBlock),
         ];
     }
 

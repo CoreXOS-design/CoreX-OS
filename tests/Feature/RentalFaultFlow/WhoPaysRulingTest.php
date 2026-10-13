@@ -126,6 +126,27 @@ final class WhoPaysRulingTest extends TestCase
         $this->assertSame('tenant', $row->default_payer);
     }
 
+    public function test_the_catalogue_migration_seeds_types_only_and_a_new_agency_gets_types_and_defaults(): void
+    {
+        // the old catalogue migration (2026_09_29_183000) runs before the causes table exists: it must call the types-only seeder
+        $other = Agency::create(['name' => 'Fresh Agency', 'slug' => 'fr-' . uniqid()]);
+        RentalFaultType::withoutGlobalScopes()->where('agency_id', $other->id)->get()->each->forceDelete();
+        RentalFaultTypeCause::withoutGlobalScopes()->where('agency_id', $other->id)->forceDelete();
+
+        RentalFaultType::seedDefaultTypesFor($other->id);
+        $this->assertSame(count(RentalFaultType::DEFAULTS), RentalFaultType::withoutGlobalScopes()->where('agency_id', $other->id)->count());
+        $this->assertSame(0, RentalFaultTypeCause::withoutGlobalScopes()->where('agency_id', $other->id)->count(), 'types only - no cause rows');
+
+        // the run-time seeder adds the "who normally pays" defaults (also to types that already exist) and is idempotent
+        RentalFaultType::seedDefaultsFor($other->id);
+        $drain = RentalFaultType::withoutGlobalScopes()->where('agency_id', $other->id)->where('name', 'Blocked drain / toilet')->firstOrFail();
+        $labels = RentalFaultTypeCause::withoutGlobalScopes()->where('rental_fault_type_id', $drain->id)->pluck('default_payer', 'label')->all();
+        $this->assertSame('tenant', $labels['Foreign object in the drain']);
+        $before = RentalFaultTypeCause::withoutGlobalScopes()->where('agency_id', $other->id)->count();
+        RentalFaultType::seedDefaultsFor($other->id);
+        $this->assertSame($before, RentalFaultTypeCause::withoutGlobalScopes()->where('agency_id', $other->id)->count());
+    }
+
     public function test_the_fault_type_screen_creates_edits_archives_and_restores_with_no_hard_delete(): void
     {
         $url = route('corex.rental-fault-types.causes.store', $this->type);
@@ -256,7 +277,7 @@ final class WhoPaysRulingTest extends TestCase
         $wo = $this->found($this->workOrder($fault), 'Roots in the pipe');
 
         $html = $this->actingAs($this->agent)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
-        foreach (['Who pays', 'Pour hot water down the drain.', 'Normally: Tenant', 'Tenant tried it twice', 'A toy car was stuck in the pipe', 'Roots in the pipe', 'Owner (The default for', 'Rule who pays', 'A record of the decision. CoreX does not raise a charge.'] as $needle) {
+        foreach (['Who pays', 'Pour hot water down the drain.', 'Normally: Tenant', 'Tenant tried it twice', 'A toy car was stuck in the pipe', 'Roots in the pipe', 'Owner (The default for', 'Rule who pays'] as $needle) {
             $this->assertStringContainsString($needle, $html, $needle);
         }
         $this->assertStringNotContainsString('Not reported yet', $html);
@@ -302,7 +323,7 @@ final class WhoPaysRulingTest extends TestCase
         foreach (['&amp;#9744;', '&amp;#10003;', '&amp;mdash;'] as $literal) {
             $this->assertStringNotContainsString($literal, $html, $literal);
         }
-        $this->assertStringNotContainsString('Paid by:', $html, 'the old line is gone on a job from a fault');
+        $this->assertStringNotContainsString('Paid by</dt>', $html, 'the old line is gone on a job from a fault');
         $this->assertStringNotContainsString('Not yet paid', $html);
 
         // the completion form no longer asks twice: paid_by follows the ruling (owner / tenant), else not yet paid
@@ -316,7 +337,7 @@ final class WhoPaysRulingTest extends TestCase
         // a work order that did NOT come from a fault is exactly as before
         $plain = $this->workOrder(null, ['reported_fault_report_id' => null, 'status' => RentalWorkOrder::STATUS_COMPLETED, 'completed_at' => now(), 'paid_by' => 'owner']);
         $page = $this->actingAs($this->agent)->get(route('corex.rental-work-orders.show', $plain))->assertOk()->getContent();
-        $this->assertStringContainsString('Paid by:', $page);
+        $this->assertStringContainsString('Paid by</dt>', $page);
     }
 
     // ── the ruling ────────────────────────────────────────────────────────────
@@ -390,7 +411,7 @@ final class WhoPaysRulingTest extends TestCase
 
     // ── the owner and the tenant are told ─────────────────────────────────────
 
-    public function test_the_owner_and_the_tenant_are_each_emailed_the_ruling_in_their_own_words(): void
+    public function test_a_tenant_ruling_emails_the_owner_and_the_tenant_and_a_shared_one_tells_the_tenant_only_their_share(): void
     {
         $wo = $this->found($this->workOrder());
         $this->svc()->rule($wo, $this->agent, 'tenant', null, 'A toy was in the drain');
@@ -403,11 +424,63 @@ final class WhoPaysRulingTest extends TestCase
         $this->assertNotNull($r->owner_told_at);
         $this->assertNotNull($r->tenant_told_at);
 
-        // the mail never carries or links the evidence, and a replacement says it replaces
+        // a replacement to "shared": the tenant reads ONLY their own share, never the owner's side
         Mail::fake();
         $this->svc()->rule($wo->fresh(), $this->agent, 'shared', 25, 'On review');
-        Mail::assertQueued(RentalPayerRulingMail::class, fn ($m) => $m->replacesEarlier && $m->audience === 'tenant' && $m->words['headline'] === 'The cost is shared: the owner pays 75% and you pay 25%.');
+        Mail::assertQueued(RentalPayerRulingMail::class, fn ($m) => $m->replacesEarlier && $m->audience === 'tenant' && $m->words['headline'] === 'You are asked to pay 25% of the cost.');
         Mail::assertQueued(RentalPayerRulingMail::class, fn ($m) => $m->audience === 'owner' && $m->words['headline'] === 'The cost is shared: you pay 75% and the tenant pays 25%.');
+        $tenantMail = collect(Mail::queued(RentalPayerRulingMail::class))->first(fn ($m) => $m->audience === 'tenant');
+        $text = html_entity_decode(strip_tags($tenantMail->render()));
+        $this->assertStringNotContainsString('75%', $text, "the owner's share is never shown to the tenant");
+        $this->assertStringNotContainsString('owner pays', $text);
+    }
+
+    public function test_an_owner_or_insurance_ruling_tells_the_tenant_nothing_and_the_tenant_portal_shows_no_who_pays_line(): void
+    {
+        foreach (['owner', 'insurance_body_corporate'] as $payer) {
+            Mail::fake();
+            $fault = $this->fault();
+            $wo = $this->found($this->workOrder($fault));
+            $this->svc()->rule($wo, $this->agent, $payer, null, 'Not the tenant\'s doing');
+
+            Mail::assertQueued(RentalPayerRulingMail::class, 1);   // the owner only
+            Mail::assertQueued(RentalPayerRulingMail::class, fn ($m) => $m->audience === 'owner');
+            Mail::assertNotQueued(RentalPayerRulingMail::class, fn ($m) => $m->audience === 'tenant');
+            $r = $this->svc()->currentRuling($wo->fresh());
+            $this->assertNotNull($r->owner_told_at);
+            $this->assertNull($r->tenant_told_at);
+            $this->assertNull($this->svc()->portalPayload($fault->fresh(), 'tenant'), 'nothing on the tenant portal');
+            $this->assertNotNull($this->svc()->portalPayload($fault->fresh(), 'owner'), 'the owner always sees the ruling');
+
+            // the staff line says why the tenant was not told
+            $page = $this->actingAs($this->agent)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
+            $this->assertStringContainsString('tenant not told (nothing for them to pay)', $page);
+        }
+    }
+
+    public function test_replacing_a_ruling_tells_the_tenant_only_what_changed_for_them(): void
+    {
+        // tenant pays -> the owner pays: the tenant is told they are no longer asked, with no reason (it may speak of the owner)
+        $wo = $this->found($this->workOrder());
+        $this->svc()->rule($wo, $this->agent, 'tenant', null, 'A toy was in the drain');
+        Mail::fake();
+        $this->svc()->rule($wo->fresh(), $this->agent, 'owner', null, 'On review it was the old pipe, the owner carries it');
+        Mail::assertQueued(RentalPayerRulingMail::class, 2);
+        Mail::assertQueued(RentalPayerRulingMail::class, fn ($m) => $m->audience === 'tenant' && $m->replacesEarlier && $m->words['headline'] === 'You are no longer asked to pay for this repair.' && $m->words['reason'] === '');
+        $tenantMail = collect(Mail::queued(RentalPayerRulingMail::class))->first(fn ($m) => $m->audience === 'tenant');
+        $this->assertStringNotContainsString('old pipe', html_entity_decode(strip_tags($tenantMail->render())));
+        $this->assertNotNull($this->svc()->currentRuling($wo->fresh())->tenant_told_at);
+
+        // the owner pays -> insurance: nothing for the tenant either way
+        Mail::fake();
+        $this->svc()->rule($wo->fresh(), $this->agent, 'insurance_body_corporate', null, 'Covered by the body corporate');
+        Mail::assertQueued(RentalPayerRulingMail::class, 1);
+        Mail::assertNotQueued(RentalPayerRulingMail::class, fn ($m) => $m->audience === 'tenant');
+
+        // insurance -> the tenant pays: the tenant is told
+        Mail::fake();
+        $this->svc()->rule($wo->fresh(), $this->agent, 'tenant', null, 'Back to the tenant');
+        Mail::assertQueued(RentalPayerRulingMail::class, fn ($m) => $m->audience === 'tenant' && $m->words['headline'] === 'You are asked to pay for this.');
     }
 
     public function test_the_portal_payloads_carry_the_ruling_for_each_audience(): void
@@ -415,12 +488,12 @@ final class WhoPaysRulingTest extends TestCase
         $fault = $this->fault();
         $wo = $this->found($this->workOrder($fault));
         $this->assertNull($this->svc()->portalPayload($fault->fresh(), 'tenant'));
-        $this->svc()->rule($wo, $this->agent, 'owner', null, 'Roots are the owner\'s');
+        $this->svc()->rule($wo, $this->agent, 'shared', 40, 'Both contributed');
 
         $tenant = $this->svc()->portalPayload($fault->fresh(), 'tenant');
         $owner = $this->svc()->portalPayload($fault->fresh(), 'owner');
-        $this->assertSame('The owner pays for this.', $tenant['headline']);
-        $this->assertSame('You will pay for this.', $owner['headline']);
+        $this->assertSame('You are asked to pay 40% of the cost.', $tenant['headline']);
+        $this->assertSame('The cost is shared: you pay 60% and the tenant pays 40%.', $owner['headline']);
         $this->assertSame('A toy car was stuck in the pipe', $tenant['found']);
         $this->assertSame('Foreign object in the drain', $owner['cause']);
         $this->assertArrayNotHasKey('evidence_path', $tenant);
