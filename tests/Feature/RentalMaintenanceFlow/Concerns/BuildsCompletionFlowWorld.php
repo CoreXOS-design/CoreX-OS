@@ -113,6 +113,8 @@ trait BuildsCompletionFlowWorld
             'title' => 'Replace burst pipe', 'description' => 'Pipe burst under the sink', 'status' => RentalWorkOrder::STATUS_ORDERED,
             'reported_by_type' => RentalWorkOrder::REPORTED_BY_AGENT_NOTICED, 'reported_by_user_id' => $this->admin->id,
             'owner_approval_status' => RentalWorkOrder::APPROVAL_NOT_REQUIRED, 'reported_at' => now(), 'created_by_user_id' => $this->admin->id,
+            // section 22.6: an ordered job that is being closed was authorised before these fixtures start (the "already under way" state)
+            'approval_basis' => RentalWorkOrder::BASIS_LEGACY_GRANDFATHERED,
         ], $overrides));
     }
 

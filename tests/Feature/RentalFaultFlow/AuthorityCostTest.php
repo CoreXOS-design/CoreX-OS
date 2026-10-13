@@ -434,6 +434,49 @@ final class AuthorityCostTest extends TestCase
         $this->assertContains('wo_send', $types(), 'authorised: the work order is ready to go to the contractor');
     }
 
+    public function test_a_job_nobody_authorised_cannot_be_finished_by_the_office_or_by_the_contractors_link(): void
+    {
+        $this->ownerLimits(1500.0);
+        $this->setting(['completion_requires_photo' => false]);
+        $wo = $this->quoted(1200.0);   // selected, inside the limit, NOT authorised
+        $wo->forceFill(['status' => RentalWorkOrder::STATUS_ORDERED])->save();
+
+        try {
+            $wo->fresh()->complete($this->admin, ['paid_by' => 'owner', 'cost_amount' => 100]);
+            $this->fail('an unauthorised job cannot be completed');
+        } catch (\LogicException $e) {
+            $this->assertStringContainsString('has not been authorised yet', $e->getMessage());
+        }
+        $this->assertSame(RentalWorkOrder::STATUS_ORDERED, $wo->fresh()->status);
+
+        // the contractor's own link: refused in the contractor's words, nothing finished
+        $raw = app(\App\Services\Rentals\RentalSecureAccessTokenService::class)->issueFor($wo->fresh(), $this->admin)['raw_token'];
+        $this->post(route('rentals.secure-link.mark-done', $raw), [])->assertSessionHasErrors('work_order');
+        $this->assertStringContainsString('has not been authorised yet - the agency will tell you', session('errors')->first('work_order'));
+        $this->assertStringNotContainsString('Approve the cost', session('errors')->first('work_order'));
+        $this->assertSame(RentalWorkOrder::STATUS_ORDERED, $wo->fresh()->status);
+
+        // authorised: it can be finished
+        $this->authoriseCostOf($wo->fresh());
+        $wo->fresh()->complete($this->admin, ['paid_by' => 'owner', 'cost_amount' => 100]);
+        $this->assertSame(RentalWorkOrder::STATUS_COMPLETED, $wo->fresh()->status);
+    }
+
+    public function test_the_tenants_self_check_reads_for_the_agent_and_never_shows_an_unfilled_placeholder(): void
+    {
+        $svc = app(\App\Services\Rentals\RentalFaultTypeService::class);
+        $tenantFallback = "Your agent hasn't recorded where the main water valve is — check near the meter/boundary.";
+        $w = $svc->agentWording($tenantFallback);
+        $this->assertSame('Main water valve location not recorded on this property', $w['text']);
+        $this->assertSame('rental_main_water_valve_location', $w['field']);
+        $this->assertSame('DB board location not recorded on this property', $svc->agentWording('Your agent hasn\'t recorded where the DB board is — check near the meter/boundary.')['text']);
+        $raw = $svc->agentWording('Your main water valve is at: {{main_water_valve_location}}. Close it.');
+        $this->assertStringNotContainsString('{{', $raw['text']);
+        $this->assertSame('Main water valve location not recorded on this property', $raw['text']);
+        $this->assertSame('Main water valve is at: Behind the gate. Close it.', $svc->agentWording('Your main water valve is at: Behind the gate. Close it.')['text']);
+        $this->assertSame('Check the washer', $svc->agentWording('Check the washer')['text']);
+    }
+
     // ── old work keeps working ────────────────────────────────────────
 
     public function test_work_approved_before_stage_2_keeps_working_without_a_record(): void
@@ -470,18 +513,67 @@ final class AuthorityCostTest extends TestCase
         $this->assertStringNotContainsString('approved automatically', $html);
         $this->assertFalse(\Illuminate\Support\Facades\Route::has('corex.rental-work-orders.emergency-approval.store'));
 
-        // the limits shown are the OWNER's, with who said so
-        $this->assertStringContainsString("The owner's limits", $html);
-        $this->assertStringContainsString('R1 500.00', $html);
-        $this->assertStringContainsString('R3 000.00', $html);
-        $this->assertStringContainsString('Confirmed by owner', $html);
+        // the limits shown are the OWNER's, on two aligned lines, with who said so and a link to where they are kept
+        $this->assertStringContainsString('Repairs you may authorise:', $html);
+        $this->assertStringContainsString('Emergency repairs you may authorise:', $html);
+        $this->assertStringContainsString('up to R1 500.00', $html);
+        $this->assertStringContainsString('up to R3 000.00', $html);
+        $this->assertStringContainsString('Confirmed by the owner', $html);
+        $this->assertStringContainsString("Owner's fault settings", $html);
+        $this->assertStringContainsString('#owner-fault-settings-panel', $html);
         $this->ownerLimits(900.0, null, \App\Models\RentalPropertyFaultSetting::STATUS_CAPTURED);
         $again = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->getContent();
-        $this->assertStringContainsString('Recorded by agent', $again);
-        $this->assertStringContainsString('has not confirmed it yet', $again);
-        $this->assertStringContainsString('not set - the owner decides', $again, 'no emergency limit set');
+        $this->assertStringContainsString('Recorded by ', $again);
+        $this->assertStringContainsString('not yet confirmed by the owner', $again);
+        $this->assertStringContainsString('not set - ask the owner', $again, 'no emergency limit set');
         $this->ownerLimits(null, null, 'not_set');
         $this->assertStringContainsString('Not set yet', $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->getContent());
+    }
+
+    public function test_the_work_order_page_has_one_approval_section_and_says_nothing_is_approved_once(): void
+    {
+        $this->ownerLimits(1500.0, 3000.0);
+        $wo = $this->quoted(1200.0);
+        $html = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
+        $text = $this->visibleText($html);
+
+        // ONE section: no separate "Approval" card ("Why was this approved?", "Approval decision", "Work cannot start yet")
+        $this->assertSame(1, substr_count($html, 'id="cost-decision"'));
+        foreach (['Approval decision:', 'Why was this approved?', "Why is the owner's approval needed?", 'Work cannot start yet', 'No approval decision recorded'] as $gone) {
+            $this->assertStringNotContainsString($gone, $text);
+        }
+        $this->assertStringNotContainsString('id="approval-panel"', $html);
+
+        // said ONCE, under "Approve the cost"
+        $this->assertSame(1, substr_count($text, 'Nothing is approved until you press a button.'));
+        foreach (['Nothing is approved by itself', 'Selecting a quote approves nothing', 'Nothing is approved by that', 'Nothing has been priced or approved'] as $repeated) {
+            $this->assertStringNotContainsString($repeated, $text);
+        }
+        $this->assertStringContainsString("Capture the contractor's quote, or let them upload it from their link.", $text);
+        $this->assertStringContainsString('An appointment can be set once the cost is authorised.', $text);
+
+        // the detail block drops empty lines and what the Supplier / Appointment cards already say
+        $this->assertStringNotContainsString('Item:', $text);
+        $this->assertStringNotContainsString('Trade: —', $text);
+        $this->assertStringNotContainsString('Who does the work:', $text);
+        $this->assertStringNotContainsString('Appointment: Not booked yet', $text);
+
+        // the records come below the buttons, in the same section
+        $this->authoriseCostOf($wo);
+        $after = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->getContent();
+        $this->assertLessThan(strpos($after, 'data-cost-records'), strpos($after, 'id="cost-decision"'));
+        $this->assertSame(1, substr_count($after, 'id="cost-decision"'));
+    }
+
+    public function test_when_nothing_is_priced_the_authorise_button_is_off_with_one_line_and_no_second_paragraph(): void
+    {
+        $this->ownerLimits(1500.0);
+        $wo = $this->externalWorkOrder();
+        $html = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
+        $this->assertStringContainsString('data-cost-line', $html);
+        $this->assertStringContainsString('Nothing is priced yet - select a quote or type an amount.', $html);
+        $this->assertStringNotContainsString('data-cost-pending', $html);
+        $this->assertStringNotContainsString('Select a quote, price the job card, or type the amount if it is a small job', $html);
     }
 
     public function test_the_authorise_press_and_the_recording_work_through_the_screen_routes(): void

@@ -39,7 +39,7 @@ class ContractorSecureLinkTest extends TestCase
         return RentalWorkOrder::withoutGlobalScopes()->create([
             'agency_id' => $agency->id, 'branch_id' => $property->branch_id, 'property_id' => $property->id,
             'assignment_type' => RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER,
-            'title' => $title, 'description' => 'Gate motor broken', 'status' => RentalWorkOrder::STATUS_ORDERED,
+            'title' => $title, 'description' => 'Gate motor broken', 'status' => RentalWorkOrder::STATUS_ORDERED, 'approval_basis' => RentalWorkOrder::BASIS_LEGACY_GRANDFATHERED,
             'priority' => RentalWorkOrder::PRIORITY_NORMAL, 'reported_by_type' => RentalWorkOrder::REPORTED_BY_AGENT_NOTICED,
             'reported_at' => now(),
         ]);

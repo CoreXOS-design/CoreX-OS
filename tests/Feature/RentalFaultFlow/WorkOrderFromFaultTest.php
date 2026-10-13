@@ -349,7 +349,8 @@ final class WorkOrderFromFaultTest extends TestCase
         $sent->saveOwnerVersion(['owner_title' => 'T', 'owner_description' => 'D'], $this->agent);
         $sent->fresh()->requestApproval($this->agent);
         $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $sent))->assertOk()->getContent();
-        $this->assertStringContainsString('data-waiting-for-owner', $html);
+        $this->assertStringContainsString('data-already-with-owner', $html, 'waiting for the owner is said once, in the "Who goes to look first?" box');
+        $this->assertStringNotContainsString('data-waiting-for-owner', $html);
         $this->assertStringContainsString('data-owner-decision-open', $html, "section 22: 'Record the owner's decision' is there while the owner's answer is awaited");
         $this->assertStringNotContainsString('data-appoint-contractor', $html);
         $this->assertStringNotContainsString('Save outcome', $html);
@@ -567,7 +568,7 @@ final class WorkOrderFromFaultTest extends TestCase
 
         $this->assertSame('Quote Giver Plumbing', $wo->fresh()->contractorLabel());
         $html = $this->actingAs($this->agent)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
-        $this->assertMatchesRegularExpression('/Supplier:<\/span>\s*Quote Giver Plumbing/', $html);
+        $this->assertMatchesRegularExpression('/Supplier:<\/span>\s*Quote Giver Plumbing/', $html, 'no supplier is appointed yet, so the chosen quote\'s supplier names the contractor');
         $this->assertStringNotContainsString('Supplier:</span> —', $html);
     }
 
@@ -582,7 +583,7 @@ final class WorkOrderFromFaultTest extends TestCase
         // just created: capture the quote; nothing for later stages
         $html = $get();
         $this->assertStringContainsString('data-next-step', $html);
-        $this->assertStringContainsString('Nothing is approved by itself', $html);
+        $this->assertStringContainsString('then approve its cost under', $html);
         $this->assertStringContainsString("Capture Ramsgate Plumbing's quote", $html);
         $this->assertStringNotContainsString('data-complete-work-order', $html, 'no Complete before it is sent');
         $this->assertStringContainsString('data-complete-later', $html);

@@ -80,6 +80,7 @@
                 @endif
             </span>
         </div>
+        @include('partials.header-actions-style')
         <div class="flex flex-wrap items-center gap-2" data-header-actions>
             @permission('rental_fault_reports.cancel')
                 {{-- J7 (Johan, 9 Oct 2026): "Cancel report" only while the owner has not decided; once decided the fault is handled through its work order / outcome. --}}
@@ -272,7 +273,7 @@
     @php
         // the loose "Tenancy / Item / Reported by / Channel / Captured by / Reported at" lines are gone (they repeat "What the tenant reported"); this card
         // now exists only when it has something the page does not already say
-        $detailHas = $faultReport->reportedInspectionObservation?->inspection || $faultReport->workOrder || $faultReport->owner_approval_status !== \App\Models\RentalFaultReport::APPROVAL_NOT_REQUIRED
+        $detailHas = $faultReport->reportedInspectionObservation?->inspection || $faultReport->workOrder
             || $faultReport->outcome || $faultReport->status === 'cancelled'
             || ($faultReport->status === \App\Models\RentalFaultReport::STATUS_REPORTED && ! in_array($faultReport->reported_by_type, [\App\Models\RentalFaultReport::REPORTED_BY_TENANT, \App\Models\RentalFaultReport::REPORTED_BY_LANDLORD], true));
     @endphp
@@ -298,9 +299,6 @@
                         <span class="ds-badge ds-badge-info">Tenant asked to check (optional)</span>
                     @endif
                 </div>
-            @endif
-            @if($faultReport->owner_approval_status !== \App\Models\RentalFaultReport::APPROVAL_NOT_REQUIRED)
-                <div><span style="color: var(--text-muted);">Owner approval:</span> {{ ucfirst($faultReport->owner_approval_status) }}{{ $faultReport->approval_route ? ' — ' . str_replace('_', ' ', ucfirst($faultReport->approval_route)) : '' }}</div>
             @endif
             @if($faultReport->outcome)
                 <div><span style="color: var(--text-muted);">Outcome:</span> {{ ucfirst(str_replace('_', ' ', $faultReport->outcome)) }}{{ $faultReport->repaired_at ? ' — ' . $faultReport->repaired_at->format('Y-m-d') : '' }}</div>
@@ -378,11 +376,6 @@
                 <p class="text-xs" style="color: var(--text-muted);">{{ $faultReport->workOrderBlockReason() }}</p>
             @endif
         @endpermission
-
-
-        @if(! $decisionSummary && $faultReport->rental_work_order_id === null && $stage === 'with_owner')
-            <p class="text-xs" style="color: var(--text-muted);" data-waiting-for-owner>Waiting for the owner. If they have told you their decision another way, use &ldquo;Record the owner's decision&rdquo; in the box above.</p>
-        @endif
     </div>
     @endif
 

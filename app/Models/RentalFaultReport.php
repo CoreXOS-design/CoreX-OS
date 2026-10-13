@@ -553,6 +553,12 @@ class RentalFaultReport extends Model
         )));
 
         $fromStatus = $this->status;
+        // pressing Save and then a decision button saves the same words twice: the second save changes nothing, so it is not written to the history again
+        $unchanged = $this->owner_version_saved_at !== null
+            && (string) $this->owner_title === $title
+            && (string) $this->owner_description === (string) ($attributes['owner_description'] ?? '')
+            && (string) $this->owner_agent_note === (string) ($attributes['owner_agent_note'] ?? '')
+            && array_map('intval', (array) $this->owner_photo_ids) === $photoIds;
         $this->forceFill([
             'owner_title' => $title,
             'owner_description' => $attributes['owner_description'] ?? null,
@@ -563,6 +569,9 @@ class RentalFaultReport extends Model
             'status' => $this->status === self::STATUS_REPORTED ? self::STATUS_UNDER_REVIEW : $this->status,
         ])->save();
 
+        if ($unchanged && $fromStatus === $this->status) {
+            return;
+        }
         $this->logUpdate(
             RentalFaultReportUpdate::TYPE_OWNER_VERSION_SAVED,
             $by,

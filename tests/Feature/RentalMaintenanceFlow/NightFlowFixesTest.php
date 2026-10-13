@@ -154,7 +154,7 @@ final class NightFlowFixesTest extends TestCase
     {
         $wo = $this->externalWorkOrder();
         $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()
-            ->assertSee('selected automatically', false)->assertDontSee('Select this quote now');
+            ->assertSee('The first quote is selected for you', false)->assertDontSee('Select this quote now');
 
         // the state WO 65 was in: a quote exists, none is selected -> said loudly, not silently
         $quote = $this->postQuote($wo, 4120);
@@ -392,8 +392,9 @@ final class NightFlowFixesTest extends TestCase
         $this->assertSame($sweep->id, (int) $fresh->agency_service_provider_id, 'the assigned supplier follows the chosen quote');
         $this->assertTrue($fresh->updates()->where('update_type', 'supplier_changed')->where('note', 'Contractor changed from ZZ Sunday Contractor to CC2 SWEEP with the chosen quote.')->exists());
         $html = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
-        $this->assertMatchesRegularExpression('/Supplier:<\/span>\s*CC2 SWEEP/', $html);
-        $this->assertStringNotContainsString('Supplier:</span> ZZ Sunday', $html);
+        // the Supplier card names who it is (the detail block no longer repeats it)
+        $this->assertMatchesRegularExpression('/data-supplier-name>\s*CC2 SWEEP/', $html);
+        $this->assertDoesNotMatchRegularExpression('/data-supplier-name>\s*ZZ Sunday/', $html);
     }
 
     public function test_q4_a_decline_needs_its_reason_from_the_agent_and_from_the_owner(): void

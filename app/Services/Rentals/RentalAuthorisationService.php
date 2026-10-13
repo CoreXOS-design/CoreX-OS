@@ -434,7 +434,7 @@ class RentalAuthorisationService
         $base = ['amount' => $amount, 'source' => $source, 'label' => $label, 'kind' => $kind, 'limit' => $limit, 'agent_can' => false, 'basis' => null];
 
         if ($amount === null) {
-            return $base + ['line' => 'Nothing is priced yet. Select a quote, price the job card, or type the amount if it is a small job you already know the price of.'];
+            return $base + ['line' => 'Nothing is priced yet - select a quote or type an amount.'];
         }
         if ($limit === null) {
             $disputed = $settings && $settings->status() === 'disputed';
