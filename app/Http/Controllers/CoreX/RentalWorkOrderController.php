@@ -831,6 +831,10 @@ class RentalWorkOrderController extends Controller
             ])],
             'cost_amount' => ['nullable', 'numeric', 'min:0'],
             'completion_notes' => ['nullable', 'string'],
+            // section 24.5: for a job that came from a fault, "what was found" + the cause are entered in this SAME form (one step, not three)
+            'found_text' => ['nullable', 'string', 'max:2000'],
+            'cause_id' => ['nullable', 'integer'],
+            'cause_note' => ['nullable', 'string', 'max:500'],
         ]);
 
         // §17.12 — an internal job is closed from its JOB CARD, which closes the card and this work order together (or neither).
@@ -842,10 +846,22 @@ class RentalWorkOrderController extends Controller
             return back()->withErrors(['rental_work_order' => 'Our own team\'s job is closed from its job card — use "Complete job card" there, which closes this work order with it.']);
         }
 
+        // section 24.5: what was found + the cause, saved first (a bad cause stops here with nothing completed); completing is then refused or allowed by the gates exactly as before
+        $whoPays = app(\App\Services\Rentals\RentalWhoPaysService::class);
+        if (trim((string) ($validated['found_text'] ?? '')) !== '' && $whoPays->isFaultJob($rentalWorkOrder)) {
+            try {
+                $whoPays->recordFindings($rentalWorkOrder, $validated['found_text'], ($validated['cause_id'] ?? null) ? (int) $validated['cause_id'] : null, $validated['cause_note'] ?? null, $request->user()->name . ' (agent)', $request->user());
+            } catch (\InvalidArgumentException $e) {
+                return back()->withErrors(['rental_work_order' => $e->getMessage()])->withInput();
+            }
+        }
+
+        // section 24.5: the agent is not on site and the contractor never presses "in progress" - completing straight from "go-ahead sent" is allowed, and history says so
+        $viaNote = $rentalWorkOrder->status === RentalWorkOrder::STATUS_ORDERED ? 'Completed (was: go-ahead sent)' : null;
         try {
-            $rentalWorkOrder->complete($request->user(), $validated);
+            $rentalWorkOrder->complete($request->user(), $validated, $viaNote);
         } catch (\LogicException|\InvalidArgumentException $e) {
-            return back()->withErrors(['rental_work_order' => $e->getMessage()]);
+            return back()->withErrors(['rental_work_order' => $e->getMessage()])->withInput();
         }
 
         $service->notifyCompleted($rentalWorkOrder->fresh(), $request->user());

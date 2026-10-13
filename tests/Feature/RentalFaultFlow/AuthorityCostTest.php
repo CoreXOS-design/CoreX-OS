@@ -515,7 +515,8 @@ final class AuthorityCostTest extends TestCase
         $this->ownerLimits(1500.0);
         $wo = $this->quoted(1200.0);
         $before = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->getContent();
-        $this->assertStringContainsString('data-nothing-approved', $before);
+        $this->assertStringNotContainsString('data-nothing-approved', $before, 'the Next line already says what is waiting');
+        $this->assertStringNotContainsString('Nothing is approved until you press a button.', $before);
 
         $this->authoriseCostOf($wo);
         $after = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->getContent();
@@ -574,7 +575,7 @@ final class AuthorityCostTest extends TestCase
         $this->assertStringContainsString('data-cost-decision', $html);
         $this->assertStringContainsString('href="#cost-decision"', $html, '"What happens next" links straight to the box');
         $this->assertStringContainsString('Approve the cost', $html);
-        $this->assertStringContainsString('Nothing is approved until you press a button.', $html);
+        $this->assertStringNotContainsString('Nothing is approved until you press a button.', $html);
         $this->assertStringNotContainsString('Decision 2', $html);
         $this->assertStringContainsString('data-cost-authorise', $html);
         $this->assertStringContainsString("Record the owner's decision", $html);
@@ -617,7 +618,7 @@ final class AuthorityCostTest extends TestCase
         $this->assertStringNotContainsString('id="approval-panel"', $html);
 
         // said ONCE, under "Approve the cost"
-        $this->assertSame(1, substr_count($text, 'Nothing is approved until you press a button.'));
+        $this->assertSame(0, substr_count($text, 'Nothing is approved until you press a button.'));
         foreach (['Nothing is approved by itself', 'Selecting a quote approves nothing', 'Nothing is approved by that', 'Nothing has been priced or approved'] as $repeated) {
             $this->assertStringNotContainsString($repeated, $text);
         }

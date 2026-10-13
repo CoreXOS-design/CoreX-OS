@@ -48,6 +48,11 @@ final class RentalWorkOrderScreen
         // the go-ahead = the work order PDF emailed to the contractor (RentalWorkOrderService::sendContractorWorkOrder writes a 'work_order_sent' update; a failed send says so). NOT the job link:
         // sending the JOB (the contractor's own link, to quote) already moves the work order to "ordered".
         $goAheadAt = $wo->updates->where('update_type', 'work_order_sent')->filter(fn ($u) => ! str_contains((string) $u->note, 'could not'))->sortByDesc('created_at')->first()?->created_at;
+        // what the tenant said about the work (their own check / the tenant-portal "work is finished" / "it is not fixed"): AT-445 columns on the work order
+        $tenantSays = ($wo->tenant_confirmed_at && $wo->tenant_confirmed_fixed !== null) ? [
+            'fixed' => (bool) $wo->tenant_confirmed_fixed, 'at' => $wo->tenant_confirmed_at, 'note' => trim((string) $wo->tenant_confirmation_note),
+            'name' => $wo->tenant_confirmed_by_contact_id ? trim((string) (\App\Models\Contact::withoutGlobalScopes()->find($wo->tenant_confirmed_by_contact_id)?->full_name)) : '',
+        ] : null;
         $started = in_array($wo->status, [RentalWorkOrder::STATUS_IN_PROGRESS, RentalWorkOrder::STATUS_COMPLETED], true);
         $goAheadDone = $goAheadAt !== null || $started;
         $goAheadAt ??= $started ? $wo->ordered_at : null;
@@ -105,20 +110,29 @@ final class RentalWorkOrderScreen
         } elseif ($variation) {
             $next = ['key' => 'extra_waiting', 'tone' => 'warn', 'text' => 'Extra work of ' . self::money($variation->extra_amount) . ' is waiting for the owner (new total ' . self::money($variation->new_total) . '). The job cannot close until the owner decides.', 'panel' => 'cost',
                 'button' => ($can['record_approval'] ?? false) ? $btnGo("Record the owner's reply", 'cost', '#variation-panel summary') : null];
+        } elseif ($tenantSays !== null && ! $internal && in_array($wo->status, [RentalWorkOrder::STATUS_ORDERED, RentalWorkOrder::STATUS_IN_PROGRESS], true)) {
+            $tn = $tenantSays['name'] ?: 'The tenant';
+            if ($tenantSays['fixed']) {
+                $next = ['key' => 'tenant_finished', 'tone' => 'warn', 'text' => $tn . ' says the work is finished (' . $fmt($tenantSays['at']) . ').', 'panel' => 'completion',
+                    'button' => ($can['complete'] ?? false) ? $btnGo('Mark the work as complete', 'completion', '[data-complete-work-order]') : null];
+            } else {
+                $next = ['key' => 'tenant_not_fixed', 'tone' => 'danger', 'text' => 'Tenant says it is NOT fixed' . ($tenantSays['note'] ? ' - ' . $tenantSays['note'] : '.'), 'panel' => 'contractor',
+                    'button' => (($can['create'] ?? false) && ($js['can_send'] ?? false)) ? $btnForm('Send the contractor back', 'wo-send-job-form') : $btnGo('Open the completion check', 'completion')];
+            }
         } elseif ($finished && in_array($wo->status, [RentalWorkOrder::STATUS_ORDERED, RentalWorkOrder::STATUS_IN_PROGRESS], true)) {
             $by = $finished->reported_via === \App\Models\RentalWorkCompletionRound::VIA_OWNER_PORTAL ? 'The owner' : ($finished->reported_by_label ?: 'The contractor');
             $next = ['key' => 'reported_finished', 'tone' => 'warn', 'text' => $by . ' reported the work finished on ' . $fmt($finished->opened_at) . '. Check it and complete the job.', 'panel' => 'completion',
-                'button' => ($can['complete'] ?? false) ? $btnGo('Complete', 'completion', '[data-complete-work-order]') : null];
+                'button' => ($can['complete'] ?? false) ? $btnGo('Mark the work as complete', 'completion', '[data-complete-work-order]') : null];
         } elseif ($wo->status === RentalWorkOrder::STATUS_DISPUTED) {
             $next = ['key' => 'disputed', 'tone' => 'danger', 'text' => 'The tenant says the work is not fixed. It has been sent back - waiting for ' . $contractor . ' to report it fixed.', 'panel' => 'completion',
                 'button' => $btnGo('Open the completion check', 'completion')];
         } elseif ($wo->status === RentalWorkOrder::STATUS_IN_PROGRESS) {
             $next = ['key' => 'in_progress', 'tone' => 'info', 'text' => 'Work is in progress.' . ($internal ? ' The crew works from the job card.' : ''), 'panel' => 'completion',
                 'button' => $internal ? ($wo->jobCard ? ['kind' => 'link', 'label' => 'Open the job card', 'href' => route('corex.rental-job-cards.show', $wo->jobCard)] : null)
-                    : (($can['complete'] ?? false) ? $btnGo('Complete', 'completion', '[data-complete-work-order]') : null)];
+                    : (($can['complete'] ?? false) ? $btnGo('Mark the work as complete', 'completion', '[data-complete-work-order]') : null)];
         } elseif ($ownerC && $wo->status === RentalWorkOrder::STATUS_ORDERED) {
-            $next = ['key' => 'owner_arranges', 'tone' => 'info', 'text' => 'The owner arranges and pays their own contractor - nothing is sent from here. Mark it in progress when the work starts.', 'panel' => 'completion',
-                'button' => ($can['create'] ?? false) ? $btnForm('Mark in progress', 'wo-start-progress-form') : null];
+            $next = ['key' => 'owner_arranges', 'tone' => 'info', 'text' => 'The owner arranges and pays their own contractor - nothing is sent from here. Mark the work as complete when it is done.', 'panel' => 'completion',
+                'button' => ($can['complete'] ?? false) ? $btnGo('Mark the work as complete', 'completion', '[data-complete-work-order]') : null];
         } elseif ($internal) {
             $m = $c['costMeasure'] ?? ['amount' => null];
             if ($proceed->authorised && ($costActive?->isAuthorised() || $wo->approved_amount !== null || $wo->hasApprovedBaseline())) {
@@ -147,7 +161,7 @@ final class RentalWorkOrderScreen
                     'button' => $btnGo('Capture a quote', 'quotes', '[data-capture-quote-toggle]')];
             } elseif ($authorised && $goAheadAt && $wo->status === RentalWorkOrder::STATUS_ORDERED) {
                 $next = ['key' => 'go_ahead_sent', 'tone' => 'ok', 'text' => 'Approved. Go-ahead sent to ' . $contractor . ' ' . $fmt($goAheadAt) . '.', 'panel' => 'completion',
-                    'button' => ($can['create'] ?? false) ? $btnForm('Mark in progress', 'wo-start-progress-form') : null];
+                    'button' => ($can['complete'] ?? false) ? $btnGo('Mark the work as complete', 'completion', '[data-complete-work-order]') : null];
             } elseif ($authorised) {
                 $next = ['key' => 'authorised', 'tone' => 'ok', 'text' => 'Approved' . ($selected ? ' (' . $amount . ')' : '') . '. The go-ahead has not been sent to ' . $contractor . ' yet.', 'panel' => 'contractor',
                     'button' => ($can['create'] ?? false) && $selected ? $btnForm('Send the go-ahead', 'wo-go-ahead-form') : null];
@@ -187,7 +201,9 @@ final class RentalWorkOrderScreen
             'contractor' => $internal ? 'Our maintenance team'
                 : ($ownerC ? "Owner's own contractor" . ($wo->contractor_name ? ': ' . $wo->contractor_name : '')
                 : ($js['provider'] ? $js['provider']->name . ' - ' . ($goAheadDone ? 'go-ahead sent' . ($goAheadAt ? ' ' . $fmt($goAheadAt) : '')
-                    : ($js['sent'] ? 'job sent ' . $fmt($js['sent']->sent_at) . ' - ' . ($js['response_label'] ?: 'no answer yet') : 'job not sent')) : 'No contractor chosen yet')),
+                    : ($selected ? 'quote received ' . $amount
+                    : ($wo->quotes->isNotEmpty() ? 'quote received'
+                    : ($js['sent'] ? 'job sent ' . $fmt($js['sent']->sent_at) . ' - ' . ($js['response_label'] ?: 'no answer yet') : 'job not sent')))) : 'No contractor chosen yet')),
             'jobcard' => $wo->jobCard ? ucfirst(str_replace('_', ' ', $wo->jobCard->status)) . ($wo->jobCard->crew?->name ? ' - ' . $wo->jobCard->crew->name : '') : 'No job card',
             'quotes' => $wo->quotes->isEmpty() ? 'No quotes yet' : $wo->quotes->count() . ($wo->quotes->count() === 1 ? ' quote' : ' quotes') . ($selected ? ' - selected ' . $amount . ' from ' . ($selected->supplier?->name ?? 'the contractor') : ' - none selected'),
             'cost' => $variation ? 'Extra work waiting for the owner'
@@ -198,7 +214,9 @@ final class RentalWorkOrderScreen
             'whopays' => $ruling ? $ruling->summary() . ' - ruled ' . $fmt($ruling->ruled_at) : ($who->hasFindings($wo) ? 'Findings recorded - not ruled yet' : 'Not ruled yet'),
             'invoices' => ($n = $wo->invoices()->count()) === 0 ? 'None filed' : $n . ($n === 1 ? ' invoice' : ' invoices') . ' - ' . self::money(app(RentalWorkOrderInvoiceService::class)->total($wo)),
             'photos' => ($n = $wo->photos->count()) === 0 ? 'No photos' : $n . ($n === 1 ? ' photo' : ' photos'),
-            'history' => ($h = $wo->history()->last()) ? $fmt($h['at']) . ' - ' . $h['action'] : 'No history yet',
+            'history' => ($h = $wo->history()->reject(fn ($e) => in_array($e['action'], ['Note added', 'Logged'], true))->last())
+                ? $fmt($h['at']) . ' - ' . ($h['action'] === 'Status changed' && $h['to'] ? 'Now: ' . $h['to'] : (($h['note'] && mb_strlen((string) $h['note']) <= 70) ? $h['note'] : $h['action']))
+                : ($wo->history()->count() ? 'Logged ' . $fmt($wo->history()->first()['at']) : 'No history yet'),
         ];
 
         return ['steps' => $out, 'next' => $next, 'panels' => $panels, 'tz' => $tz, 'cancelled' => $cancelled];

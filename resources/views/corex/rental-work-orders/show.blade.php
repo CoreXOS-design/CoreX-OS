@@ -96,6 +96,8 @@
     .wo-panel-body .wo-embedded-title { display: none; }
     .wo-btnrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .wo-btnrow .corex-btn-primary, .wo-btnrow .corex-btn-outline, .wo-next .corex-btn-primary, .wo-next .corex-btn-outline, .wo-foot .corex-btn-outline { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; }
+    .wo-appt-form { display: grid; grid-template-columns: minmax(280px, 1.5fr) minmax(200px, 1fr) auto; gap: 12px; align-items: end; }
+    @media (max-width: 760px) { .wo-appt-form { grid-template-columns: 1fr; } }
     .wo-foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-top: 4px; }
     @media (max-width: 900px) { .wo-cards { grid-template-columns: 1fr; } }
     @media (max-width: 600px) {
@@ -631,17 +633,17 @@
             {{-- Johan, 9 Oct 2026: an appointment (and the email to the tenant) only once the job is approved. --}}
             @if($proceed->authorised || in_array($workOrder->status, [\App\Models\RentalWorkOrder::STATUS_ORDERED, \App\Models\RentalWorkOrder::STATUS_IN_PROGRESS, \App\Models\RentalWorkOrder::STATUS_DISPUTED], true))
                 @php $apptValue = $workOrder->appointment_at?->copy()->setTimezone($woTz)->format('Y-m-d\TH:i'); @endphp
-                <form method="POST" action="{{ route('corex.rental-work-orders.appointment.store', $workOrder) }}" class="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                <form method="POST" action="{{ route('corex.rental-work-orders.appointment.store', $workOrder) }}" class="wo-appt-form">
                     @csrf
                     <div>
                         <label class="text-xs font-medium">Date and time</label>
-                        <input type="datetime-local" name="appointment_at" required value="{{ old('appointment_at', $apptValue) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                        <x-date-time-field name="appointment_at" id="wo-appointment-at" class="mt-1" :value="old('appointment_at', $apptValue)" />
                     </div>
                     <div>
                         <label class="text-xs font-medium">Note for the tenant (optional)</label>
-                        <input type="text" name="appointment_note" maxlength="500" value="{{ old('appointment_note', $workOrder->appointment_note) }}" placeholder="e.g. the plumber will call 30 minutes before" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                        <input type="text" name="appointment_note" maxlength="500" value="{{ old('appointment_note', $workOrder->appointment_note) }}" placeholder="e.g. the plumber will call 30 minutes before" class="w-full cx-dt-ctl mt-1">
                     </div>
-                    <div><button type="submit" class="corex-btn-primary text-xs">{{ $workOrder->appointment_at ? 'Change appointment' : 'Set appointment' }}</button></div>
+                    <div><button type="submit" class="corex-btn-primary text-xs" style="height:38px; margin-top:4px;">{{ $workOrder->appointment_at ? 'Change appointment' : 'Set appointment' }}</button></div>
                 </form>
                 <p class="text-xs mt-2" style="color: var(--text-muted);">The tenant is emailed when you set or change this.</p>
             @else
@@ -656,21 +658,29 @@
     {{-- 5. Completion: mark in progress, complete, the contractor reports done, the tenant check --}}
     <x-wo-panel key="completion" title="Completion" :summary="$woPanels['completion']" :open="$isOpenPanel('completion')">
         @if($isOpen && ! $isInternal)
+            @php
+                $whoPaysSvc = app(\App\Services\Rentals\RentalWhoPaysService::class);
+                $completeNeedsFindings = $woFault && ! $whoPaysSvc->hasFindings($workOrder);
+                $causeOptions = $completeNeedsFindings ? $whoPaysSvc->causeOptions($workOrder) : collect();
+                $canCompleteNow = $woCan['complete'] && $proceed->authorised && in_array($workOrder->status, [\App\Models\RentalWorkOrder::STATUS_ORDERED, \App\Models\RentalWorkOrder::STATUS_IN_PROGRESS], true);
+                $completeOpen = old('cost_amount') !== null || old('found_text') !== null;
+            @endphp
             <div class="wo-btnrow">
+                @if($canCompleteNow)
+                    <button type="button" onclick="document.getElementById('complete-work-order-form').classList.toggle('hidden')" class="corex-btn-primary text-xs" data-complete-work-order>Mark the work as complete</button>
+                @elseif($woCan['complete'])
+                    <span class="text-xs" style="color: var(--text-muted);" data-complete-later>The work can be marked complete once the cost is authorised and the go-ahead has gone.</span>
+                @endif
+                {{-- a small secondary action, for crews and job cards: the contractor rarely presses it --}}
                 @if($woCan['create'] && $workOrder->status === \App\Models\RentalWorkOrder::STATUS_ORDERED)
                     <form id="wo-start-progress-form" method="POST" action="{{ route('corex.rental-work-orders.start-progress', $workOrder) }}">
                         @csrf
-                        <button type="submit" class="corex-btn-primary text-xs" @disabled(!$proceed->authorised)>Mark in progress</button>
+                        <button type="submit" class="corex-btn-outline text-xs" @disabled(!$proceed->authorised)>Mark in progress</button>
                     </form>
-                @endif
-                @if($woCan['complete'] && $workOrder->status === \App\Models\RentalWorkOrder::STATUS_IN_PROGRESS)
-                    <button type="button" onclick="document.getElementById('complete-work-order-form').classList.toggle('hidden')" class="corex-btn-primary text-xs" data-complete-work-order>Complete</button>
-                @elseif($woCan['complete'])
-                    <span class="text-xs" style="color: var(--text-muted);" data-complete-later>Complete is available once the work is in progress.</span>
                 @endif
             </div>
             @if($woCan['complete'])
-            <form id="complete-work-order-form" method="POST" action="{{ route('corex.rental-work-orders.complete', $workOrder) }}" enctype="multipart/form-data" class="hidden space-y-3">
+            <form id="complete-work-order-form" method="POST" action="{{ route('corex.rental-work-orders.complete', $workOrder) }}" enctype="multipart/form-data" class="{{ $completeOpen ? '' : 'hidden ' }}space-y-3">
                 @csrf
                 @if($workOrder->reported_fault_report_id)
                     {{-- section 22.13: a job from a fault has ONE place for who pays - the "Who pays" panel. This field follows the ruling (owner / tenant), else stays "not yet paid". --}}
@@ -687,16 +697,35 @@
                 </div>
                 @endif
                 <div>
-                    <label class="text-xs font-medium">Cost (R, optional)</label>
+                    <label class="text-xs font-medium">Final cost (R, optional)</label>
                     @php $suggestedInvoiceCost = app(\App\Services\Rentals\RentalWorkOrderInvoiceService::class)->suggestedCost($workOrder); @endphp
                     <input type="number" name="cost_amount" step="0.01" min="0" value="{{ old('cost_amount', $suggestedInvoiceCost !== null ? number_format($suggestedInvoiceCost, 2, '.', '') : '') }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                     @if($suggestedInvoiceCost !== null)
                         <p class="text-xs mt-1" style="color: var(--text-muted);" data-cost-from-invoices>From the supplier invoices filed ({{ $money($suggestedInvoiceCost) }}) &mdash; change it if the final cost is different.</p>
                     @endif
                 </div>
+                @if($completeNeedsFindings)
+                <div data-complete-findings>
+                    <label class="text-xs font-medium" for="wo-found">What was found (required)</label>
+                    <textarea id="wo-found" name="found_text" rows="2" required maxlength="2000" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('found_text') }}</textarea>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs font-medium" for="wo-cause">Cause (required)</label>
+                        <select id="wo-cause" name="cause_id" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                            @foreach($causeOptions as $o)<option value="{{ $o->id }}" @selected((int) old('cause_id') === $o->id)>{{ $o->label }}</option>@endforeach
+                            <option value="" @selected(old('found_text') !== null && ! old('cause_id'))>Something else (describe it)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium" for="wo-cause-note">Cause in words (for &ldquo;Something else&rdquo;)</label>
+                        <input id="wo-cause-note" type="text" name="cause_note" maxlength="500" value="{{ old('cause_note') }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                    </div>
+                </div>
+                @endif
                 <div>
                     <label class="text-xs font-medium">Completion notes</label>
-                    <textarea name="completion_notes" rows="2" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);"></textarea>
+                    <textarea name="completion_notes" rows="2" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('completion_notes') }}</textarea>
                 </div>
                 <p class="text-xs" style="color: var(--text-muted);">{{ $completionRequiresPhoto ? 'A "completed" photo is required before this can be saved.' : 'A "completed" photo is optional.' }}</p>
                 <button type="submit" class="corex-btn-primary text-xs">Mark complete</button>

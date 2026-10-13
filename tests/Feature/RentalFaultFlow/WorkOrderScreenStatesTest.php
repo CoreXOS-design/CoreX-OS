@@ -190,17 +190,18 @@ final class WorkOrderScreenStatesTest extends TestCase
         app(\App\Services\Rentals\RentalWorkOrderService::class)->sendContractorWorkOrder($wo->fresh(), $this->admin);
         $html = $this->page($wo);
 
-        $this->assertNext($html, 'go_ahead_sent', 'Approved. Go-ahead sent to Quote Plumbing', 'Mark in progress');
-        $this->assertStringContainsString('form="wo-start-progress-form"', $html);
-        $this->assertStringContainsString('id="wo-start-progress-form"', $html);
+        $this->assertNext($html, 'go_ahead_sent', 'Approved. Go-ahead sent to Quote Plumbing', 'Mark the work as complete');
+        $this->assertStringContainsString('id="wo-start-progress-form"', $html, '"Mark in progress" stays as a small secondary action');
+        $this->assertStringNotContainsString('form="wo-start-progress-form"', $html, 'but it is no longer the Next button');
         $this->assertStringContainsString('data-go-ahead-sent', $html, 'the contractor panel shows the same date');
         $this->assertStringContainsString('Send the go-ahead again', $html, 'and offers it again as a secondary action');
         $this->assertSame('done', $this->step($html, 'go_ahead'));
         $this->assertSame('current', $this->step($html, 'in_progress'));
+        $this->assertStringContainsString('data-complete-work-order', $html, 'completing straight from go-ahead sent is offered');
 
         $wo->fresh()->startProgress($this->admin);
         $html = $this->page($wo);
-        $this->assertNext($html, 'in_progress', 'Work is in progress.', 'Complete');
+        $this->assertNext($html, 'in_progress', 'Work is in progress.', 'Mark the work as complete');
         $this->assertStringContainsString('data-complete-work-order', $html);
         $this->assertSame('current', $this->step($html, 'completed'));
         $this->assertMatchesRegularExpression('/id="wo-panel-completion"[^>]* open/', $html);
@@ -331,5 +332,53 @@ final class WorkOrderScreenStatesTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('/\b20\d\d-\d\d-\d\d\b/', $text, 'dates are "13 Oct 2026 08:57", never 2026-10-13');
         $this->assertStringContainsString('Cancel work order', $html);
         $this->assertGreaterThan(strpos($html, 'id="wo-panel-history"'), strpos($html, 'Cancel work order'), 'Cancel sits at the bottom, after every panel');
+    }
+
+    // ── corrections from Johan's look at work order 158 ──────────────────────
+
+    public function test_the_contractor_summary_follows_the_real_state_and_authorise_is_only_a_button_when_it_can_be_used(): void
+    {
+        $this->ownerLimits(1000.0);
+        $sup = $this->supplier('Acme Plumbing');
+        $wo = $this->quoted(2000.0, $sup->id);
+        $wo->forceFill(['agency_service_provider_id' => $sup->id])->save();
+        \App\Models\RentalJobDispatch::create([
+            'agency_id' => $this->agency->id, 'rental_work_order_id' => $wo->id, 'recipient_kind' => \App\Models\RentalJobDispatch::KIND_CONTRACTOR, 'agency_service_provider_id' => $sup->id,
+            'recipient_name' => $sup->name, 'channel' => 'email', 'destination' => $sup->email, 'status' => 'sent', 'reason' => 'appointed', 'idempotency_key' => uniqid('k', true), 'sent_by_user_id' => $this->admin->id, 'sent_at' => now(),
+        ]);
+        $html = $this->page($wo);
+
+        $this->assertMatchesRegularExpression('/data-wo-panel="contractor".*?data-panel-summary>Acme Plumbing - quote received R2,000\.00</s', $html, 'not "Waiting for their answer" while their quote is in');
+        $this->assertStringNotContainsString('Nothing is approved until you press a button.', $html);
+        $this->assertStringContainsString('x-show="can || coversByEmergency"', $html, 'Authorise is only shown when the repair limit (or an emergency limit) can cover it');
+        $this->assertStringContainsString("Record the owner's decision", $html);
+    }
+
+    public function test_the_history_header_never_says_note_added(): void
+    {
+        $this->ownerLimits(1500.0);
+        $wo = $this->quoted(850.0);
+        $wo->addNote('just a note', $this->admin);
+        $html = $this->page($wo);
+
+        preg_match('/data-wo-panel="history".*?data-panel-summary>(.*?)<\/span>/s', $html, $m);
+        $this->assertStringNotContainsString('Note added', $m[1] ?? '');
+        $this->assertNotSame('', trim($m[1] ?? ''));
+    }
+
+    public function test_the_tenant_says_the_work_is_finished_or_that_it_is_not_fixed(): void
+    {
+        $this->ownerLimits(1500.0);
+        $sup = $this->supplier('Quote Plumbing');
+        $wo = $this->quoted(850.0, $sup->id);
+        $this->authoriseCostOf($wo);
+        $wo->fresh()->assignSupplier($sup->id, null, $this->admin);
+        $tenant = \App\Models\Contact::withoutGlobalScope(\App\Scopes\AgencyScope::class)->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'first_name' => 'Thandi', 'last_name' => 'Mokoena']);
+
+        $wo->forceFill(['tenant_confirmed_at' => \Illuminate\Support\Carbon::parse('2026-10-13 14:10', 'Africa/Johannesburg'), 'tenant_confirmed_fixed' => true, 'tenant_confirmed_by_contact_id' => $tenant->id])->save();
+        $this->assertNext($this->page($wo), 'tenant_finished', 'Thandi Mokoena says the work is finished (13 Oct 2026 14:10).', 'Mark the work as complete');
+
+        $wo->forceFill(['tenant_confirmed_fixed' => false, 'tenant_confirmation_note' => 'It still drips'])->save();
+        $this->assertNext($this->page($wo), 'tenant_not_fixed', 'Tenant says it is NOT fixed - It still drips', 'Open the completion check');
     }
 }
