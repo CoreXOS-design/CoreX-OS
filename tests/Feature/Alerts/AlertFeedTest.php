@@ -20,8 +20,8 @@ use Tests\TestCase;
  * (actingAs, the web guard — never Sanctum, which is how the first build's token-only route passed its tests and then answered
  * every real staff browser with 401). A real-browser run on deployed QA1 is the other half of the proof.
  *
- * Input paths proven: no cursor (baseline) -> no alerts + a cursor, and no notifications query at all; cursor -> only newer
- * unread alerts; read alerts skipped; another user's alerts never; in-app off -> nothing; more than the page size -> has_more;
+ * Input paths proven: no cursor (a new tab) -> the unread alerts of the last N minutes (agency setting, default 10) + a cursor;
+ * cursor (the tab's stored point, so a page change never loses an alert) -> only newer unread alerts, with a few seconds of overlap; read alerts skipped; another user's alerts never; in-app off -> nothing; more than the page size -> has_more;
  * malformed / ancient cursor; guest -> 401; a user with a large unread history is not counted or loaded; the query is answered
  * from notifications_feed_index.
  */
@@ -78,20 +78,64 @@ final class AlertFeedTest extends TestCase
         $this->getJson(route('api.v1.alerts.unread'))->assertUnauthorized();
     }
 
-    public function test_the_baseline_poll_returns_no_alerts_and_a_cursor_and_touches_notifications_not_at_all(): void
+    public function test_a_new_tab_gets_the_unread_alerts_of_the_last_ten_minutes_and_nothing_older_or_read(): void
     {
         $user = $this->user();
-        $this->alert($user, 'Already waiting');
+        $recent = $this->alert($user, 'Fault reported - 3 minutes ago', now()->subMinutes(3));
+        $this->alert($user, 'Too old', now()->subMinutes(11));
+        $this->alert($user, 'Read already', now()->subMinutes(2), true);
+        $this->alert($this->user(), 'Someone else', now()->subMinute());
 
-        DB::flushQueryLog();
-        DB::enableQueryLog();
         $json = $this->feed($user)->assertOk()->json();
-        $touched = collect(DB::getQueryLog())->pluck('query')->filter(fn ($q) => str_contains($q, '`notifications`'))->all();
 
-        $this->assertSame([], $json['items'], 'what was already waiting is never popped up');
+        $this->assertTrue($json['catchup']);
         $this->assertTrue($json['in_app']);
+        $this->assertSame([$recent], array_column($json['items'], 'id'));
         $this->assertNotEmpty($json['cursor']);
-        $this->assertSame([], $touched, 'the baseline runs no notifications query');
+    }
+
+    public function test_the_catch_up_window_is_the_agency_setting_and_is_clamped(): void
+    {
+        $user = $this->user();
+        $this->alert($user, 'Twenty minutes ago', now()->subMinutes(20));
+
+        $this->assertSame([], $this->feed($user)->json('items'), 'default 10 minutes: too old');
+
+        \App\Models\CommandCenter\AgencyDashboardSetting::withoutGlobalScopes()->updateOrCreate(['agency_id' => $this->agency->id], ['alert_catchup_minutes' => 30]);
+        $this->assertCount(1, $this->feed($user)->json('items'), 'the agency widened it to 30 minutes');
+
+        \App\Models\CommandCenter\AgencyDashboardSetting::withoutGlobalScopes()->where('agency_id', $this->agency->id)->update(['alert_catchup_minutes' => 0]);
+        $this->assertSame(1, \App\Services\CommandCenter\AlertSwitchService::clampCatchupMinutes(0));
+        $this->assertSame(240, \App\Services\CommandCenter\AlertSwitchService::clampCatchupMinutes(99999));
+        $this->assertSame(10, \App\Services\CommandCenter\AlertSwitchService::clampCatchupMinutes(null));
+        $this->assertSame(10, \App\Services\CommandCenter\AlertSwitchService::clampCatchupMinutes('abc'));
+    }
+
+    public function test_an_alert_that_arrives_between_two_pages_is_delivered_by_the_next_page_from_the_stored_cursor(): void
+    {
+        $user = $this->user();
+        $cursor = $this->feed($user)->json('cursor');        // page A's last poll; the browser keeps this in the tab
+        $this->travel(5)->seconds();
+        $arrived = $this->alert($user, 'Fault reported while the agent was clicking');
+        $this->travel(5)->seconds();
+
+        // page B loads: it asks from the stored cursor, not from "now"
+        $json = $this->feed($user, $cursor)->assertOk()->json();
+
+        $this->assertFalse($json['catchup']);
+        $this->assertSame([$arrived], array_column($json['items'], 'id'));
+    }
+
+    public function test_the_cursor_has_a_few_seconds_of_overlap_so_a_late_committing_row_is_not_lost(): void
+    {
+        $user = $this->user();
+        $cursor = now()->toIso8601String();
+        $late = $this->alert($user, 'Committed just after the last poll', now()->subSeconds(3));
+
+        $this->assertSame([$late], array_column($this->feed($user, $cursor)->json('items'), 'id'));
+
+        $this->alert($user, 'Ten seconds before the cursor', now()->subSeconds(10));
+        $this->assertCount(1, $this->feed($user, $cursor)->json('items'), 'the overlap is seconds, not minutes');
     }
 
     public function test_only_alerts_since_the_cursor_come_back_and_read_ones_and_other_peoples_do_not(): void
@@ -149,7 +193,7 @@ final class AlertFeedTest extends TestCase
         $user = $this->user();
         $this->alert($user, 'Two days old', now()->subDays(2));
 
-        $this->feed($user, 'not-a-date')->assertOk()->assertJsonPath('items', []);   // treated as the baseline
+        $this->feed($user, 'not-a-date')->assertOk()->assertJsonPath('items', []);   // treated as a new tab
         $this->feed($user, now()->subYears(5)->toIso8601String())->assertOk()->assertJsonPath('items', []);  // capped at 24 hours back
         $this->feed($user, '')->assertOk();
     }
@@ -200,5 +244,7 @@ final class AlertFeedTest extends TestCase
         $this->assertStringContainsString('csrf-token', $html, 'a 401 is checked against the session-armour probe before giving up');
         $this->assertStringContainsString('MAX_DELAY_MS', $html);
         $this->assertStringContainsString('failures++', $html);
+        $this->assertStringContainsString('corex_alerts_cursor_' . $user->id, $html, 'the last-checked point survives a page change in this tab');
+        $this->assertStringContainsString("sessionStorage.setItem(CURSOR_KEY", $html);
     }
 }

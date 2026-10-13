@@ -1,3 +1,4 @@
+@props(['flash' => true])
 {{-- Global Toast Notification System --}}
 {{-- Include once in the main layout (layouts.corex) --}}
 {{-- Usage from JS: window.showToast('Message', 'success|error|info|warning', 4000) --}}
@@ -124,6 +125,7 @@ window.showToast = function(message, type, duration, url) {
     }));
 };
 
+@if($flash)
 // Pick up Laravel flash session messages on page load
 document.addEventListener('DOMContentLoaded', function() {
     @if(session('success'))
@@ -142,4 +144,5 @@ document.addEventListener('DOMContentLoaded', function() {
         window.showToast(@json(session('status')), 'success');
     @endif
 });
+@endif
 </script>
