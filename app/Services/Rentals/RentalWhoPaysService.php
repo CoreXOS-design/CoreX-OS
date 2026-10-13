@@ -242,9 +242,21 @@ class RentalWhoPaysService
 
     // ───────────────────────── telling the owner and the tenant ─────────────────────────
 
+    /**
+     * Johan, 14 Oct 2026: the TENANT hears about a ruling only when they have something to pay - "Tenant" (all of it) or "Shared" (their share only). For "Owner" and
+     * "Insurance or body corporate" they are told nothing and their portal shows no who-pays line. The owner is always told.
+     */
+    public function tenantInvolved(?RentalPayerRuling $ruling): bool
+    {
+        return $ruling !== null && in_array($ruling->payer, [RentalPayerRuling::PAYER_TENANT, RentalPayerRuling::PAYER_SHARED], true);
+    }
+
     public function tellParties(RentalWorkOrder $wo, RentalPayerRuling $ruling): void
     {
-        $replaces = RentalPayerRuling::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->where('id', '<', $ruling->id)->exists();
+        $previous = RentalPayerRuling::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->where('id', '<', $ruling->id)->orderByDesc('id')->first();
+        $replaces = $previous !== null;
+        // the tenant is told when THEY pay something now, or when an earlier ruling that asked them to pay no longer does (what changed for them)
+        $tenantMail = $this->tenantInvolved($ruling) ? 'ruling' : ($this->tenantInvolved($previous) ? 'released' : null);
         $sentOwner = $sentTenant = 0;
         try {
             if (RentalPortalSetting::notifyLandlordOnDecisionNeededFor($wo->agency_id)) {
@@ -255,10 +267,12 @@ class RentalWhoPaysService
                     }
                 }
             }
-            foreach ($wo->lease?->tenantContacts() ?? [] as $tenant) {
-                if ($tenant->email) {
-                    Mail::to($tenant->email)->send(new \App\Mail\Rentals\RentalPayerRulingMail($wo, $ruling, 'tenant', $this->payload($ruling, 'tenant'), $tenant, $replaces));
-                    $sentTenant++;
+            if ($tenantMail !== null) {
+                foreach ($wo->lease?->tenantContacts() ?? [] as $tenant) {
+                    if ($tenant->email) {
+                        Mail::to($tenant->email)->send(new \App\Mail\Rentals\RentalPayerRulingMail($wo, $ruling, 'tenant', $this->payload($ruling, 'tenant', $tenantMail === 'released'), $tenant, $replaces));
+                        $sentTenant++;
+                    }
                 }
             }
         } catch (\Throwable $e) {
@@ -270,17 +284,22 @@ class RentalWhoPaysService
     // ───────────────────────── the words ─────────────────────────
 
     /** The ruling in plain words for one audience ('owner' | 'tenant'). Factual; the tenant's version never accuses. */
-    public function payload(RentalPayerRuling $r, string $audience): array
+    public function payload(RentalPayerRuling $r, string $audience, bool $tenantReleased = false): array
     {
         $owner = $audience === 'owner';
         $o = (int) $r->owner_percent;
         $t = (int) $r->tenant_percent;
         $headline = match ($r->payer) {
-            RentalPayerRuling::PAYER_OWNER => $owner ? 'You will pay for this.' : 'The owner pays for this.',
+            RentalPayerRuling::PAYER_OWNER => 'You will pay for this.',
             RentalPayerRuling::PAYER_TENANT => $owner ? 'The tenant will pay for this.' : 'You are asked to pay for this.',
-            RentalPayerRuling::PAYER_SHARED => $owner ? "The cost is shared: you pay {$o}% and the tenant pays {$t}%." : "The cost is shared: the owner pays {$o}% and you pay {$t}%.",
-            default => $owner ? 'Your insurer or the body corporate is expected to pay for this.' : "The owner's insurer or the body corporate is expected to pay for this.",
+            // the tenant reads ONLY their own share - never the owner's side
+            RentalPayerRuling::PAYER_SHARED => $owner ? "The cost is shared: you pay {$o}% and the tenant pays {$t}%." : "You are asked to pay {$t}% of the cost.",
+            default => 'Your insurer or the body corporate is expected to pay for this.',
         };
+        if (! $owner && $tenantReleased) {
+            // an earlier ruling asked the tenant to pay; this one no longer does - say only what changed for them (no reason: it may speak of the owner)
+            $headline = 'You are no longer asked to pay for this repair.';
+        }
         $tz = $r->workOrder?->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
 
         return [
@@ -288,8 +307,8 @@ class RentalWhoPaysService
             'headline' => $headline,
             'found' => (string) $r->found_text,
             'cause' => (string) $r->cause_text,
-            'reason' => (string) $r->reason,
-            'closing' => 'Your agency will be in touch about payment.',
+            'reason' => (! $owner && $tenantReleased) ? '' : (string) $r->reason,
+            'closing' => (! $owner && $tenantReleased) ? 'Nothing more is needed from you.' : 'Your agency will be in touch about payment.',
             'at' => $r->ruled_at?->copy()->setTimezone($tz)->format('j M Y H:i'),
         ];
     }
@@ -298,6 +317,10 @@ class RentalWhoPaysService
     public function portalPayload(RentalFaultReport $fault, string $audience): ?array
     {
         $ruling = $this->rulingForFault($fault);
+        // the tenant's portal shows a who-pays line only when THEY have something to pay
+        if ($audience === 'tenant' && ! $this->tenantInvolved($ruling)) {
+            return null;
+        }
 
         return $ruling ? $this->payload($ruling, $audience) : null;
     }

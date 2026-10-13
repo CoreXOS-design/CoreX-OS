@@ -14,7 +14,7 @@
         <p><strong>What was found:</strong> {{ $words['found'] }}</p>
         <p><strong>{{ $audience === 'tenant' ? 'Cause recorded' : 'Cause' }}:</strong> {{ $words['cause'] }}</p>
         <p><strong>Who pays:</strong> {{ $words['headline'] }}</p>
-        <p><strong>{{ $audience === 'tenant' ? 'Reason recorded' : 'Why' }}:</strong> {{ $words['reason'] }}</p>
+        @if(($words['reason'] ?? '') !== '')<p><strong>{{ $audience === 'tenant' ? 'Reason recorded' : 'Why' }}:</strong> {{ $words['reason'] }}</p>@endif
         <p>{{ $words['closing'] }}</p>
         <p style="text-align: center; margin: 24px 0;"><a href="{{ $portalUrl }}" style="background-color: #1a365d; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">See the details</a></p>
         <p style="color: #666; font-size: 13px;">You will be asked to sign in first. Nothing has been charged yet.</p>
