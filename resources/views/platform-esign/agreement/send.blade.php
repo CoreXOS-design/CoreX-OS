@@ -74,8 +74,8 @@
                 <div>
                     <label class="ds-label block mb-1" for="variation_type">Discount type</label>
                     <select id="variation_type" name="variation_type" class="ds-field w-full">
-                        <option value="percent">Percentage of the monthly bill (%)</option>
-                        <option value="amount" @selected($dType === 'amount')>Rand amount off each month (R)</option>
+                        <option value="percent">Percentage (%)</option>
+                        <option value="amount" @selected($dType === 'amount')>Rand amount (R)</option>
                     </select>
                 </div>
                 <div>
