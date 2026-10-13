@@ -445,7 +445,6 @@
 
     @include('corex.rental-work-orders._approval-panel')
     @include('corex.rental-work-orders._completion-panel')
-    @include('corex.rental-work-orders._who-pays-panel')
 
     {{-- §3.4a — only for a work order raised directly (no upstream fault
          report already satisfied this). Applies to both assignment paths —
@@ -699,6 +698,9 @@
         @endpermission
     </div>
     @endif
+
+    {{-- section 22.13 - Who pays: after the working sections (supplier / progress / completion), before Photos and History; one collapsed line until there is something to act on --}}
+    @include('corex.rental-work-orders._who-pays-panel')
 
     <div id="wo-photos" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Photos</h2>

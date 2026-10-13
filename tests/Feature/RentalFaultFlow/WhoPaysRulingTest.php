@@ -254,12 +254,40 @@ final class WhoPaysRulingTest extends TestCase
         $wo = $this->found($this->workOrder($fault), 'Roots in the pipe');
 
         $html = $this->actingAs($this->agent)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
-        foreach (['Who pays', 'Pour hot water down the drain.', 'Normally: Tenant', 'Tenant tried it twice', 'A toy car was stuck in the pipe', 'Roots in the pipe', 'Owner (The default for', 'Rule who pays', 'No ruling yet'] as $needle) {
+        foreach (['Who pays', 'Pour hot water down the drain.', 'Normally: Tenant', 'Tenant tried it twice', 'A toy car was stuck in the pipe', 'Roots in the pipe', 'Owner (The default for', 'Rule who pays', 'A record of the decision. CoreX does not raise a charge.'] as $needle) {
             $this->assertStringContainsString($needle, $html, $needle);
         }
+        $this->assertStringNotContainsString('Not reported yet', $html);
+        $this->assertStringNotContainsString('No ruling yet', $html);
+        $this->assertStringNotContainsString('No default for this cause', $html);
+        // it sits after the working sections and before Photos
+        $this->assertGreaterThan(strpos($html, 'id="approval-panel"'), strpos($html, 'id="who-pays"'));
+        $this->assertLessThan(strpos($html, 'id="wo-photos"'), strpos($html, 'id="who-pays"'));
         // a work order that did not come from a fault has no block
         $plain = $this->workOrder(null, ['reported_fault_report_id' => null]);
         $this->actingAs($this->agent)->get(route('corex.rental-work-orders.show', $plain))->assertOk()->assertDontSee('id="who-pays"', false);
+    }
+
+    public function test_before_anything_is_reported_it_is_one_collapsed_line_and_opens_when_there_is_something_to_act_on(): void
+    {
+        $wo = $this->workOrder(null, ['status' => RentalWorkOrder::STATUS_ORDERED]);
+        $html = $this->actingAs($this->agent)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
+        $this->assertStringContainsString('data-who-pays-collapsed', $html);
+        $this->assertStringContainsString('Decided once we know what was found.', $html);
+        $this->assertStringContainsString('Enter what was found', $html);
+        foreach (['Pour hot water', 'Nothing recorded yet', 'Rule who pays', 'What the tenant says they checked'] as $absent) {
+            $this->assertStringNotContainsString($absent, $html, $absent);
+        }
+
+        // the job is under way: the block opens, says nothing is recorded, and shows the plain no-self-checks line
+        $wo->forceFill(['status' => RentalWorkOrder::STATUS_IN_PROGRESS])->save();
+        $fault = $this->svc()->faultFor($wo);
+        $fault->forceFill(['tenant_self_checks' => null])->save();
+        $html = $this->actingAs($this->agent)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
+        $this->assertStringNotContainsString('data-who-pays-collapsed', $html);
+        $this->assertStringContainsString('Nothing recorded yet.', $html);
+        $this->assertStringContainsString('No self-checks were shown for this fault.', $html);
+        $this->assertStringNotContainsString('The tenant was shown no self-checks.', $html);
     }
 
     // ── the ruling ────────────────────────────────────────────────────────────

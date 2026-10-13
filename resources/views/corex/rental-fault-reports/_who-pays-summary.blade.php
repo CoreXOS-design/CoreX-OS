@@ -6,7 +6,8 @@
 @endphp
 @if($wpWo && ($wpWo->found_text || $wpRuling))
 <div class="rounded-md p-4 space-y-1" style="background: var(--surface); border: 1px solid var(--border);" data-who-pays-summary>
-    <h2 class="text-sm font-semibold">Who pays <span class="font-normal text-xs" style="color: var(--text-muted);">&mdash; a record only; nothing is charged</span></h2>
+    <h2 class="text-sm font-semibold">Who pays</h2>
+    <p class="text-xs" style="color: var(--text-muted);">A record of the decision. CoreX does not raise a charge.</p>
     @if($wpWo->found_text)
         <div class="text-sm"><strong>What was found:</strong> {{ $wpWo->found_text }}</div>
         <div class="text-sm"><strong>Cause:</strong> {{ $wpSvc->causeText($wpWo) }}</div>
