@@ -7,8 +7,9 @@
  * Override with PUPPETEER_BROWSER_PATH if needed.
  */
 import puppeteer from 'puppeteer';
-import { existsSync } from 'fs';
-import { resolve } from 'path';
+import { existsSync, mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { resolve, join } from 'path';
 import { pathToFileURL } from 'url';
 import { normalisePrivateUseGlyphs } from './lib/pdf-glyph-normalise.mjs';
 
@@ -28,15 +29,32 @@ if (!existsSync(inputPath)) {
 }
 
 // Puppeteer ships its own Chromium; allow override via env or common system paths
+// Per-run browser profile, removed on EVERY exit path. Puppeteer's default profile
+// (/tmp/puppeteer_dev_chrome_profile-*, ~120 MB each) used to be left behind whenever the browser
+// did not shut down cleanly — 211 of them (2.9 GB) filled / on 13 Oct 2026. Chromium also ran with
+// --single-process, which crashes on shutdown and leaves a crash dump in /var/crash; removed.
+const profileDir = mkdtempSync(join(tmpdir(), 'corex-pdf-profile-'));
+let browser;
+let cleaned = false;
+async function cleanup() {
+    if (cleaned) return;
+    cleaned = true;
+    try { if (browser) await Promise.race([browser.close(), new Promise(r => setTimeout(r, 5000))]); } catch (e) {}
+    try { const proc = browser && browser.process && browser.process(); if (proc && !proc.killed) proc.kill('SIGKILL'); } catch (e) {}
+    try { rmSync(profileDir, { recursive: true, force: true }); } catch (e) {}
+}
+for (const sig of ['SIGTERM', 'SIGINT']) {
+    process.on(sig, () => { cleanup().finally(() => process.exit(1)); });
+}
+
 const launchOptions = {
     headless: 'new',
+    userDataDir: profileDir,
     args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
-        '--no-zygote',
-        '--single-process',
         '--disable-crash-reporter',
         '--disable-breakpad',
     ],
@@ -56,7 +74,6 @@ if (executablePath) {
     launchOptions.executablePath = executablePath;
 }
 
-let browser;
 try {
     browser = await puppeteer.launch(launchOptions);
 
@@ -134,7 +151,9 @@ try {
     console.log(JSON.stringify({ success: true, output: outputPath }));
 } catch (err) {
     console.error(JSON.stringify({ success: false, error: err.message }));
-    process.exit(1);
+    // Not process.exit(1) here: that skips the finally block and leaves the browser and its profile behind.
+    process.exitCode = 1;
 } finally {
-    if (browser) await browser.close();
+    await cleanup();
 }
+process.exit(process.exitCode || 0);

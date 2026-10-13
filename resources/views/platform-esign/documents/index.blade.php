@@ -48,6 +48,7 @@
                         <td class="px-5 py-4">
                             <a href="{{ route('platform-esign.documents.show', $d->id) }}" class="font-semibold" style="color: var(--text-primary);">{{ $d->title }}</a>
                             <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $d->agency?->name ?? 'No agency' }}</div>
+                            @if($d->isWebdoc() && ($dw = \App\Services\PlatformEsign\Agreement\AgreementDiscount::summary((array) $d->rr_data)))<div class="text-xs mt-0.5" style="color: var(--text-muted);">Discount: {{ $dw }}</div>@endif
                         </td>
                         <td class="px-5 py-4 text-xs" style="color: var(--text-secondary);">
                             @foreach($d->signers as $s)<div>{!! $s->status === 'signed' ? '<span style="color: var(--ds-green);">✓</span>' : '<span style="color: var(--text-muted);">○</span>' !!} {{ $s->name }} <span style="color: var(--text-muted);">({{ $s->role_label }})</span></div>@endforeach

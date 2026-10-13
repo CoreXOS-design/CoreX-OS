@@ -414,6 +414,35 @@ the agreed-variation text and amount are RR-side fields set **at send** (visible
 countersign — otherwise the monthly total and the mandate debit amount would change after the agency has signed. To change them after
 sending, void and re-send.
 
+### 11.7a Agreed discount — type, value, duration (13 Oct 2026, Johan; QA1 first)
+Before: one rand amount, off every month for the whole term, free-text note required. Now the sender chooses on the send form
+(`/corex/platform-esign/agreements/create`, "Agreed discount"): **type** (percentage | rand amount), **value** and **for how many months**
+(blank = the whole term), plus an optional note. "30% for 3 months" is `percent / 30 / 3`.
+- **What it applies to:** the WHOLE monthly bill — every recurring line of section 3 (CoreX Team seats; Agency base fee; seats 1-10, 11-20, 21+;
+  additional branches). The only once-off line, "Once-off setup and onboarding fee", is the fixed word *Waived* (no amount can be entered), so there is
+  nothing once-off to discount. Each month is billed on the actual seats and branches (clause B10), so a percentage is always that % of that month's
+  bill; the figures printed are the fees at the start (the table).
+- **VAT:** the agreement has no VAT line — RR Technologies is not VAT registered and "the amounts quoted are the full amounts payable" (and become
+  VAT-inclusive once registered). The discount reduces the full amount payable; there is no incl/excl split to maintain.
+- **Rounding:** percentage discount = round(monthly subtotal x % / 100, 2); a rand amount is capped at the subtotal (the bill never goes below R0).
+  Money prints as elsewhere (`R1 046.50`, whole rands without cents).
+- **Validation (`AgreementDiscount::parseInput`):** percentage 0-100 (two decimals, `%` and a decimal comma accepted); rand amount `\d{1,9}(.\d{1,2})?`;
+  months a whole number 1-120 or blank; months without a value is refused; 0% / R0 means no discount; anything else is refused in plain words.
+  A rand amount larger than the fee is accepted and capped at the document, because the fee is only known once the recipient enters agents/branches.
+- **Storage (no migration):** `documents.rr_data` keys `variation_type` (`percent`|`amount`), `variation_percent`, `variation_amount` (the original key,
+  rand), `variation_months`. An agreement WITHOUT `variation_type` was sent before this and renders exactly as before.
+- **The document states it in plain words** (inside the existing "Agreed variations" cell — the pinned wording version is not changed): the sender's note
+  (if any), then *"Agreed discount: 30% off each monthly bill for the first 3 months billed (months 1 to 3). Normal monthly fee: R3 600. Discount:
+  R1 080 a month. Monthly fee for months 1 to 3: R2 520. Monthly fee from month 4: R3 600. These figures are at the fees in the table below. Each month
+  is billed on the actual seats and branches in that month (clause B10); the discount is 30% of that month's whole bill."* The fee table row shows the
+  rand discount, and the Monthly total is the discounted fee, marked "(months 1 to 3)". The figures follow the recipient's entries live
+  (`_js.blade.php`, mirrors `AgreementDiscount::figures`). The Netcash mandate Amount is the first debit (the discounted fee).
+- **Billing:** nothing charges from the agreement. The discount is printed and pre-fills the mandate amount; the agency's billing record
+  (`AgencySubscription.discount_percent / discount_months / discount_starts_on`) is separate and is set in Admin -> Billing after signing.
+- **Where it shows:** send form (live wording + worked example), the agreement page owner panel, the documents list, the review/countersign screens,
+  the recipient page and both PDFs; audit event `discount_set`. Changing it after sending = void and re-send (unchanged).
+- Tests: `tests/Feature/Platform/Agreement/AgreementDiscountTest.php`.
+
 ### 11.8 Wet-ink option (phase c)
 "Download to sign by hand": PDF with the values typed so far and blank initial/signature lines (audited). "Upload signed copy":
 pdf/jpg/png, ≤ 10240 KB each, several files allowed, private disk, SHA-256, earlier uploads become *Superseded* (kept). Status

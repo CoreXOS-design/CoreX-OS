@@ -82,6 +82,11 @@
 #   scripts/lane-test.sh --filter=some_test_method tests/Feature/Foo.php
 #   scripts/lane-test.sh --fresh tests/Feature/Foo.php   # force a full rebuild
 #   scripts/lane-test.sh --status        # setup lock, every slot, every busy schema
+#   scripts/lane-test.sh --drop-schema   # drop THIS worktree's test schema — run it BEFORE `git worktree remove`
+#
+# Orphan schemas (worktree already removed) are swept automatically: a run starts scripts/lane-test-sweep.sh in the
+# background at most once a day, and a weekly cron runs it too (same safety checks; never touches anything touched in
+# the last 2 hours or any worktree git still lists). `scripts/lane-test-sweep.sh --dry-run` shows what it would drop.
 #
 # Never calls artisan test directly, never deletes the lock file, never
 # touches or kills a process belonging to another lane/worktree.
@@ -187,6 +192,10 @@ if [[ "${1:-}" == "--status" ]]; then
     echo "[lane-test] status:"
     print_status
     exit 0
+fi
+
+if [[ "${1:-}" == "--drop-schema" ]]; then
+    exec "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lane-test-sweep.sh" --drop-mine "$(pwd)"
 fi
 
 [[ $# -ge 1 ]] || die "usage: $0 <artisan test args...>  |  $0 --fresh <args...>  |  $0 --status"
@@ -499,6 +508,13 @@ fi
 SLOT_INFO="${SLOT_PREFIX}.${SLOT_N}.info"
 write_info "$SLOT_INFO" "$@"
 log "slot $SLOT_N of $MAX_SLOTS acquired (schema: $DB)."
+
+# Daily, in the background, never delaying this run: drop test schemas whose worktree has been removed.
+SWEEP_STAMP=/tmp/corex-lane-test-sweep.stamp
+if [[ -x "$(dirname "${BASH_SOURCE[0]}")/lane-test-sweep.sh" ]] && [[ -z "$(find "$SWEEP_STAMP" -mmin -1440 2>/dev/null)" ]]; then
+    touch "$SWEEP_STAMP" 2>/dev/null || true
+    ( setsid nohup "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lane-test-sweep.sh" >> /tmp/corex-lane-test-sweep.log 2>&1 < /dev/null & ) 2>/dev/null || true
+fi
 
 log "running: php8.2 artisan test $* (schema: $DB)"
 # Own process group (setsid) so cleanup() can take the whole tree down on kill/Ctrl-C.

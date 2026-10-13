@@ -145,7 +145,7 @@ class AgreementTakeOnTest extends TestCase
         $this->assertStringContainsString('.send-agreement-form .ds-field::placeholder { color: #94a3b8;', $html);
         $this->assertStringContainsString('.send-agreement-form select.ds-field:invalid { color: #94a3b8; }', $html, 'the empty "choose" state reads as a placeholder');
         $this->assertStringContainsString('class="send-agreement-form', $html);
-        foreach (['name="name"', 'name="email"', 'name="cell"', 'name="note"', 'name="variation_text"', 'name="variation_amount"'] as $field) {
+        foreach (['name="name"', 'name="email"', 'name="cell"', 'name="note"', 'name="variation_text"', 'name="variation_value"', 'name="variation_months"'] as $field) {
             $this->assertMatchesRegularExpression('/' . preg_quote($field, '/') . '[^>]*placeholder="[^"]+"/', $html, $field . ' has a placeholder');
         }
         $this->assertDoesNotMatchRegularExpression('/<(input|select|textarea)[^>]*\b(disabled|readonly)\b/i', explode('<form', $html, 2)[1] ?? '', 'nothing on the form is disabled or read-only except the hidden placeholder option');

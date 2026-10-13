@@ -6,6 +6,7 @@
     /* Editable boxes on this form read as editable: white, normal text, a visible edge; placeholders and the empty "choose" state are clearly lighter.
        (The theme's input colour equals the card colour here, which made every box look disabled.) */
     .send-agreement-form .ds-field { background: #ffffff; color: #0f172a; border: 1px solid #94a3b8; border-radius: 6px; padding: .5rem .7rem; }
+    .send-agreement-form .disc-grid .ds-field { height: 2.5rem; box-sizing: border-box; }
     .send-agreement-form .ds-field:focus { border-color: #0ea5e9; box-shadow: 0 0 0 2px rgba(14,165,233,.2); outline: none; }
     .send-agreement-form .ds-field::placeholder { color: #94a3b8; opacity: 1; }
     .send-agreement-form select.ds-field:invalid { color: #94a3b8; }
@@ -66,19 +67,31 @@
             <textarea id="note" name="note" rows="2" maxlength="490" class="ds-field w-full" placeholder="A line or two for the recipient (optional)">{{ old('note') }}</textarea>
         </div>
 
-        <details class="rounded-md p-3" style="border: 1px solid var(--border);" @if(old('variation_text') || old('variation_amount')) open @endif>
-            <summary class="text-sm font-semibold cursor-pointer" style="color: var(--text-primary);">Agreed variation or discount <span class="font-normal" style="color: var(--text-muted);">(optional — set now, the recipient sees it before signing)</span></summary>
-            <div class="grid sm:grid-cols-3 gap-3 mt-3">
-                <div class="sm:col-span-2">
-                    <label class="ds-label block mb-1" for="variation_text">Describe it</label>
-                    <input id="variation_text" name="variation_text" value="{{ old('variation_text') }}" maxlength="500" class="ds-field w-full" placeholder="e.g. Launch discount for the first 3 months">
+        @php $dType = old('variation_type', 'percent'); @endphp
+        <details class="rounded-md p-3" style="border: 1px solid var(--border);" @if(old('variation_value') || old('variation_amount') || old('variation_months') || old('variation_text')) open @endif id="discount-box" data-example="{{ $exampleFee }}">
+            <summary class="text-sm font-semibold cursor-pointer" style="color: var(--text-primary);">Agreed discount <span class="font-normal" style="color: var(--text-muted);">(optional — the agreement states it in words before the recipient signs)</span></summary>
+            <div class="grid sm:grid-cols-3 gap-3 mt-3 disc-grid">
+                <div>
+                    <label class="ds-label block mb-1" for="variation_type">Discount type</label>
+                    <select id="variation_type" name="variation_type" class="ds-field w-full">
+                        <option value="percent">Percentage (%)</option>
+                        <option value="amount" @selected($dType === 'amount')>Rand amount (R)</option>
+                    </select>
                 </div>
                 <div>
-                    <label class="ds-label block mb-1" for="variation_amount">Monthly discount (R)</label>
-                    <input id="variation_amount" name="variation_amount" inputmode="decimal" value="{{ old('variation_amount') }}" maxlength="14" class="ds-field w-full" placeholder="e.g. 500">
+                    <label class="ds-label block mb-1" for="variation_value" id="variation_value_label">Discount (%)</label>
+                    <input id="variation_value" name="variation_value" inputmode="decimal" value="{{ old('variation_value', old('variation_amount')) }}" maxlength="14" class="ds-field w-full" placeholder="e.g. 30" autocomplete="off">
+                </div>
+                <div>
+                    <label class="ds-label block mb-1" for="variation_months">For how many months</label>
+                    <input id="variation_months" name="variation_months" inputmode="numeric" value="{{ old('variation_months') }}" maxlength="3" class="ds-field w-full" placeholder="Whole term" autocomplete="off">
+                </div>
+                <div class="sm:col-span-3">
+                    <label class="ds-label block mb-1" for="variation_text">Note on the agreement <span class="font-normal" style="color: var(--text-muted);">(optional)</span></label>
+                    <input id="variation_text" name="variation_text" value="{{ old('variation_text') }}" maxlength="500" class="ds-field w-full" placeholder="e.g. Launch offer for the first 3 months">
                 </div>
             </div>
-            <p class="text-xs mt-2" style="color: var(--text-muted);">Set before sending, so the monthly total and the debit order amount are what the agency actually signs. To change it later, void this one and send again.</p>
+            <p class="text-sm mt-3" style="color: var(--text-primary);" id="discount-preview" aria-live="polite"></p>
         </details>
 
         <details class="rounded-md p-3" style="border: 1px solid var(--border);" @if(old('plan')) open @endif>
@@ -108,6 +121,28 @@
     if (!sel || !out) return;
     const show = () => { const o = sel.options[sel.selectedIndex]; out.innerHTML = (o && o.value) ? 'Take-on month <strong>' + o.text + '</strong> · billing starts <strong>' + o.dataset.billing + '</strong>' : ''; };
     sel.addEventListener('change', show); show();
+})();
+</script>
+<script>
+// Live wording of the agreed discount, with a worked example on the Agency base fee (the real figures follow the recipient's own entries).
+(function () {
+    const box = document.getElementById('discount-box'); if (!box) return;
+    const type = document.getElementById('variation_type'), val = document.getElementById('variation_value'), mon = document.getElementById('variation_months'),
+          lab = document.getElementById('variation_value_label'), out = document.getElementById('discount-preview'), fee = parseFloat(box.dataset.example) || 0;
+    const money = (n) => { const w = Math.abs(n % 1) < 1e-9, p = (w ? n.toFixed(0) : n.toFixed(2)).split('.'); p[0] = p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' '); return 'R' + p.join('.'); };
+    const num = (t) => parseFloat(String(t).replace(/[\s%R]/gi, '').replace(',', '.'));
+    const show = () => {
+        const pct = type.value === 'percent'; lab.textContent = pct ? 'Discount (%)' : 'Discount (R a month)'; val.placeholder = pct ? 'e.g. 30' : 'e.g. 500';
+        const v = num(val.value), m = parseInt(mon.value, 10), mt = mon.value.trim();
+        if (!val.value.trim() && !mt) { out.textContent = ''; return; }
+        if (!(v > 0) || (pct && v > 100)) { out.textContent = pct ? 'Enter a percentage from 0 to 100.' : 'Enter the discount in rand.'; return; }
+        if (mt && !(m >= 1 && m <= 120 && /^\d+$/.test(mt))) { out.textContent = 'Months must be a whole number from 1 to 120, or blank for the whole term.'; return; }
+        const off = Math.min(Math.round((pct ? fee * v / 100 : v) * 100) / 100, fee), now = Math.round((fee - off) * 100) / 100;
+        const what = pct ? (v + '%') : (money(v) + ' a month');
+        const span = !mt ? 'for the whole term' : (m === 1 ? 'for the first month' : 'for the first ' + m + ' months');
+        out.innerHTML = 'The agreement will say: <strong>' + what + ' off each monthly bill ' + span + '.</strong> Example on the ' + money(fee) + ' Agency base fee: ' + money(off) + ' off, ' + money(now) + (mt ? ' for ' + (m === 1 ? 'month 1' : 'months 1 to ' + m) + ', then ' + money(fee) + ' from month ' + (m + 1) : ' a month') + '.';
+    };
+    [type, val, mon].forEach((e) => { e.addEventListener('input', show); e.addEventListener('change', show); }); show();
 })();
 </script>
 <script>

@@ -1704,12 +1704,19 @@
                         @if($rentalApplication->approved_subject_to_fica_at)
                             <p class="mb-2">FICA is still outstanding for this applicant. The approval will resolve automatically once compliance verifies FICA — no need to come back and check.</p>
                         @endif
-                        <p class="mb-2">Confirm what the tenant is looking for, then send the approval. If you skip this, the email still goes out with a general list of available rentals under their approved amount.</p>
+                        @if($rentalApplication->property_id)
+                            <p class="mb-2">The approval goes to the applicant for this property, and tells them the lease is next.</p>
+                        @else
+                            <p class="mb-2">Confirm what the tenant is looking for, then send the approval. If you skip this, the email still goes out with a general list of available rentals under their approved amount.</p>
+                        @endif
                         <div class="flex flex-wrap gap-2">
+                            @unless($rentalApplication->property_id)
                             <button type="button" @click="wishlistDrawerOpen = true" class="corex-btn-outline text-xs">
                                 {{ $existingWishlist ? 'Review tenant wishlist' : 'Add tenant wishlist' }}
                             </button>
-                            <form method="POST" action="{{ route('corex.rental-applications.review.send', $rentalApplication) }}">
+                            @endunless
+                            <form method="POST" action="{{ route('corex.rental-applications.review.send', $rentalApplication) }}"
+                                  data-confirm="Send the approval to {{ $rentalApplication->recipientEmail() ?: 'the applicant' }} now? It tells them they are approved for R{{ number_format($rentalApplication->approved_rental_amount, 2) }} a month{{ $rentalApplication->property_id ? ' for ' . ($rentalApplication->property?->addressFreeDescriptor() ?? 'the property') : '' }}{{ $rentalApplication->approved_subject_to_fica_at ? ', subject to FICA verification' : '' }}. It cannot be unsent.">
                                 @csrf
                                 <button type="submit" class="corex-btn-primary text-xs">Send approval to applicant</button>
                             </form>
@@ -2138,6 +2145,9 @@
                             <button type="button" data-qa="decline-application-open" class="corex-btn-outline text-xs w-full mb-1.5" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" @click="declineModalOpen = true">Decline application</button>
                         @else
                             <button type="button" data-qa="submit-for-approval" class="corex-btn-primary text-xs w-full mb-1.5" :disabled="submittingForApproval" @click="submitForApproval()" x-text="submittingForApproval ? 'Submitting…' : 'Submit for approval'"></button>
+                            @if(!empty($oneStepNote))
+                                <p class="text-[11px] mb-1.5" style="color: var(--text-muted);" data-qa="one-step-note">{{ $oneStepNote }}</p>
+                            @endif
                         @endif
                     @endunless
                     @if($rentalApplication->generations->count() > 1)

@@ -47,6 +47,7 @@ class RentalApplicationApprovedMail extends Mailable implements ShouldQueue
         public Collection $properties,
         public bool $isSubjectToFica = false,
         public ?string $ficaContinueUrl = null,
+        public bool $ficaSubmitted = false,
     ) {
         // Queueable already declares $queue — set it via onQueue() rather than
         // redeclaring the property (fatals as an incompatible trait-property
@@ -59,10 +60,13 @@ class RentalApplicationApprovedMail extends Mailable implements ShouldQueue
 
     public function envelope(): Envelope
     {
+        // Three honest states: FICA still to do / FICA submitted and being checked / nothing outstanding.
         return new Envelope(
-            subject: $this->isSubjectToFica
+            subject: $this->isSubjectToFica && ! $this->ficaSubmitted
                 ? "You're approved, subject to FICA verification — {$this->agencyName}"
-                : "Congratulations — you're approved to rent! — {$this->agencyName}",
+                : ($this->isSubjectToFica
+                    ? "You're approved — we are checking your FICA documents — {$this->agencyName}"
+                    : "Congratulations — you're approved to rent! — {$this->agencyName}"),
         );
     }
 
@@ -87,7 +91,17 @@ class RentalApplicationApprovedMail extends Mailable implements ShouldQueue
                 : null,
         ]);
 
+        // The property they APPLIED for (a named property): the email is about that property and the lease that follows - no
+        // unrelated listings. Only an application with no property of its own gets the matched list.
+        $named = $this->application->property_id ? $this->application->property : null;
+        $namedCard = $named ? [
+            'descriptor' => $named->addressFreeDescriptor(),
+            'suburb' => trim((string) ($named->suburb ?: $named->town)),
+        ] : null;
+
         return new Content(view: 'emails.rental-application-approved', with: [
+            'namedCard' => $namedCard,
+            'ficaSubmitted' => $this->ficaSubmitted,
             'properties' => $this->properties,
             'propertyCards' => $cards,
             'viewAllUrl' => app(\App\Services\RentalApplications\RentalApplicationPropertyMatcher::class)->viewAllUrl($this->application),

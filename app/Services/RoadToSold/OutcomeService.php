@@ -3,6 +3,7 @@
 namespace App\Services\RoadToSold;
 
 use App\Models\Contact;
+use App\Models\Scopes\ContactScope;
 use App\Models\ContactConsentRecord;
 use App\Models\ContactNote;
 use App\Models\Prospecting\TrackedProperty;
@@ -108,8 +109,12 @@ class OutcomeService
                 $nextAt = null;
             }
 
+            // The property's owner is the property's fact, not a list the caller browses: ContactScope (own / branch /
+            // an assistant's granted breadth) decides which contacts a person SEES, so with it on, an assistant - or an
+            // agent whose contacts are "own" - calling an owner a colleague captured would lose the owner from the outcome.
+            // The agency wall stays (agency_id here + BelongsToAgency).
             $contact = $tp->owner_contact_id
-                ? Contact::query()->where('agency_id', $agencyId)->find($tp->owner_contact_id)
+                ? Contact::query()->withoutGlobalScope(ContactScope::class)->where('agency_id', $agencyId)->find($tp->owner_contact_id)
                 : null;
 
             $eventId = null;
