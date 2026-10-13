@@ -138,7 +138,9 @@ class LeaseRenewalController extends Controller
             return back()->withErrors($e->errors());
         }
 
-        return redirect()->route('corex.leases.show', $result)->with('success', 'Renewal recorded and activated.');
+        return redirect()->route('corex.leases.show', $result)->with('success', $result->isSignedRenewalAwaitingStart()
+            ? 'Renewal recorded - it starts on ' . $result->start_date->format('j M Y') . '. The current lease stays active until then.'
+            : 'Renewal recorded and activated.');
     }
 
     /**

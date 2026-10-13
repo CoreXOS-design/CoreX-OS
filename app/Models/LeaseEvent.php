@@ -22,6 +22,10 @@ class LeaseEvent extends Model
     public const TYPE_RENEWAL_DRAFT_CREATED = 'renewal_draft_created';
     public const TYPE_RENEWAL_ACTIVATED = 'renewal_activated';
     public const TYPE_RENEWAL_DRAFT_CANCELLED = 'renewal_draft_cancelled';
+    /** A renewal signed (and approved) before its start date: the running lease stays active, the renewal waits for its start. */
+    public const TYPE_RENEWAL_SIGNED_AWAITING_START = 'renewal_signed_awaiting_start';
+    /** The tenancy ended on its move-out / end date (out-inspection confirmed vacant, date reached). */
+    public const TYPE_TENANCY_ENDED = 'tenancy_ended';
 
     // LEASE-AGREEMENT BEGIN (leases.md §15.15 — Build L1). All <= 40 characters (event_type is string(40)).
     // They reach the tenancy log with no change to LeaseTimelineService (it lists every LeaseEvent row).

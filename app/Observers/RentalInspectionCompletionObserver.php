@@ -3,9 +3,8 @@
 namespace App\Observers;
 
 use App\Models\Lease;
-use App\Models\LeaseSetting;
 use App\Models\RentalInspection;
-use App\Services\Rentals\PropertyStatusFollowsLeaseService;
+use App\Services\Rentals\LeaseTermAdvanceService;
 
 /**
  * .ai/specs/rental-renewals.md §15 — GATE 2 row 6: "lease ended AND
@@ -34,25 +33,14 @@ class RentalInspectionCompletionObserver
             return;
         }
 
+        // The tenancy ends on its move-out date, not when the inspection is completed: completing it early only records that the
+        // property is vacant. LeaseTermAdvanceService ends the lease now when the date has come, and the daily leases:advance-terms
+        // does it on the date otherwise (rental-renewals.md §22).
         $lease = Lease::withoutGlobalScopes()->find($inspection->lease_id);
-        if (!$lease || $lease->status !== Lease::STATUS_ACTIVE || $lease->renewed_lease_id) {
-            // Already renewed, cancelled, or not a currently-active term —
-            // rows 3/4/7 own those paths, this row is specifically "ended
-            // with nothing else having happened to it."
+        if (!$lease) {
             return;
         }
 
-        if (!LeaseSetting::autoRestoreStatusOnLeaseEndedFor($lease->agency_id)) {
-            return;
-        }
-
-        $lease->status = Lease::STATUS_EXPIRED;
-        $lease->save();
-
-        app(PropertyStatusFollowsLeaseService::class)->restorePreLetStatus(
-            $lease,
-            "Lease #{$lease->id} ended — out-inspection confirmed vacant",
-            now()->toDateString(),
-        );
+        app(LeaseTermAdvanceService::class)->endIfVacated($lease);
     }
 }

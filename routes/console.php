@@ -48,6 +48,11 @@ Schedule::command('signatures:check-lease-expiry')->dailyAt('06:00');
 // Lease rent escalations recorded with a future effective date — applied once due.
 Schedule::command('leases:apply-due-escalations')->dailyAt('00:10')->withoutOverlapping();
 
+// .ai/specs/rental-renewals.md §22 - a lease term changes state on its date: a signed renewal goes active on its start date
+// (the lease it renews expires with it); a tenancy ends on its move-out date once the out-inspection is on file. Runs before
+// the 05:30 month-to-month check so a lease that has just been renewed is not switched.
+Schedule::command('leases:advance-terms')->dailyAt('00:35')->withoutOverlapping();
+
 // .ai/specs/leases.md §15.15 (Build L3b) — safety net for the lease e-sign agreement: re-reads every lease whose
 // agreement is still in flight and repairs any e-sign announcement that was missed. Agency by agency; idempotent.
 Schedule::command('leases:reconcile-signing')->dailyAt('00:20')->withoutOverlapping();

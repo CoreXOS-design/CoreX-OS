@@ -209,7 +209,8 @@ final class LeaseSigningReconcileTest extends TestCase
     {
         Mail::fake();
         $previous = Lease::create($this->leaseAttributes(['status' => Lease::STATUS_ACTIVE, 'rental_amount' => 8000, 'start_date' => '2025-11-01', 'end_date' => '2026-10-31']));
-        [$renewal, $envelope, $document] = $this->leaseOut(['previous_lease_id' => $previous->id, 'start_date' => '2026-11-01', 'end_date' => '2027-10-31']);
+        // the renewal's start date has come: a renewal signed ahead of its start waits for it (RenewalWalkFixesTest)
+        [$renewal, $envelope, $document] = $this->leaseOut(['previous_lease_id' => $previous->id, 'start_date' => now()->toDateString(), 'end_date' => now()->addYear()->toDateString()]);
 
         $this->finalise($envelope, $document);
 

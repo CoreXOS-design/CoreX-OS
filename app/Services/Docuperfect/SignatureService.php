@@ -5717,6 +5717,14 @@ class SignatureService
                     // so the document's own owner stands in, same actor this
                     // method's CheckLeaseExpiry sibling already uses.
                     if ($draftLease->previous_lease_id) {
+                        // rental-renewals.md §22 - a renewal signed ahead of its start date waits for it; the running lease stays active.
+                        $renewalService = app(\App\Services\Rentals\LeaseRenewalService::class);
+                        if ($renewalService->startsLater($draftLease)) {
+                            $renewalService->holdUntilStart($draftLease, User::find($document->owner_id));
+
+                            return $draftLease->fresh();
+                        }
+
                         $actingUser = User::find($document->owner_id);
                         if ($actingUser) {
                             return app(\App\Services\Rentals\LeaseRenewalService::class)

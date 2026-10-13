@@ -351,7 +351,7 @@ final class LeaseRenewalTest extends TestCase
         $user = $this->makeUser($agency, $branch);
 
         $response = $this->actingAs($user)->post(route('corex.leases.renewal.upload', $current), [
-            'start_date' => now()->addDay()->toDateString(),
+            'start_date' => now()->toDateString(),   // a renewal starting later waits for its start date (RenewalWalkFixesTest)
             'rental_amount' => 9200,
             'signed_document' => UploadedFile::fake()->create('renewal.pdf', 100, 'application/pdf'),
         ]);

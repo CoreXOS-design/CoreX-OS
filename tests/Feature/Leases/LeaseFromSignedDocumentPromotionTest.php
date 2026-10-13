@@ -212,7 +212,8 @@ final class LeaseFromSignedDocumentPromotionTest extends TestCase
             'source' => 'manual', 'previous_lease_id' => $previousTerm->id, 'created_by_user_id' => $this->agent->id,
         ]);
 
-        $template = $this->signedLeaseTemplate();
+        // The renewal's start date has come (a renewal signed AHEAD of its start waits for it - RenewalWalkFixesTest).
+        $template = $this->signedLeaseTemplate(['lease_start' => now()->toDateString(), 'lease_end' => now()->addYear()->toDateString()]);
         $lease = app(SignatureService::class)->createLeaseFromSignedDocument($template);
 
         self::assertNotNull($lease);

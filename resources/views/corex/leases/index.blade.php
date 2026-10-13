@@ -208,7 +208,7 @@
                                 Was {{ $lease->archived_from_status ?: $lease->status }}@if($lease->archive_reason) — {{ \Illuminate\Support\Str::limit($lease->archive_reason, 80) }}@endif
                             </div>
                         @else
-                            <span class="ds-badge {{ $statusBadgeClass($lease->status) }}">{{ ucfirst($lease->status) }}</span>
+                            <span class="ds-badge {{ $statusBadgeClass($lease->status) }}">{{ $lease->displayStatus() }}</span>
                             @if($lease->signingStatusLabel())
                                 <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $lease->signingStatusLabel() }}</div>
                             @endif

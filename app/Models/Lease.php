@@ -219,6 +219,29 @@ class Lease extends Model
         return $this->hasMany(self::class, 'previous_lease_id')->where('status', self::STATUS_DRAFT);
     }
 
+    /**
+     * A renewal that is signed and approved but whose start date has not come: the lease it renews keeps running until its own end
+     * date and this one stays a draft - shown as "Signed - starts <date>" - until `leases:advance-terms` (or the agent) activates it on
+     * its start date.
+     */
+    public function isSignedRenewalAwaitingStart(): bool
+    {
+        return $this->status === self::STATUS_DRAFT
+            && $this->previous_lease_id !== null
+            && $this->start_date !== null
+            && $this->start_date->toDateString() > now()->toDateString()
+            && (($this->signing_status === self::SIGNING_SIGNED && $this->accepted_at !== null)
+                || $this->signing_status === self::SIGNING_SIGNED_ON_PAPER);
+    }
+
+    /** The status as a person reads it: a signed renewal waiting for its start date says so instead of "Draft". */
+    public function displayStatus(): string
+    {
+        return $this->isSignedRenewalAwaitingStart()
+            ? 'Signed - starts ' . $this->start_date->format('j M Y')
+            : ucfirst((string) $this->status);
+    }
+
     public function hasPendingRenewalDraft(): bool
     {
         return $this->renewalDrafts()->exists();
