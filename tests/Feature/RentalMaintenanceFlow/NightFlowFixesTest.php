@@ -497,7 +497,11 @@ final class NightFlowFixesTest extends TestCase
         $this->assertSame($wo->fresh()->contractorLabel(), $tenant['contractor_name'], 'the contractor is the chosen quote\'s supplier (Q3)');
         $this->assertNotNull($tenant['contractor_name']);
         $this->assertNotNull($tenant['appointment_at']);
-        $this->assertTrue($svc->payload($wo->fresh(), RentalWorkOrderClientViewService::AUDIENCE_LANDLORD)['owner_can_appoint']);
+        // AT-452 22.16 (Johan, 14 Oct 2026): a tenant lives in the property, so the OWNER only sees the appointment - the agent arranges it
+        $ownerView = $svc->payload($wo->fresh(), RentalWorkOrderClientViewService::AUDIENCE_LANDLORD);
+        $this->assertTrue($ownerView['owner_tenant_in_property']);
+        $this->assertFalse($ownerView['owner_can_appoint']);
+        $this->assertNotNull($ownerView['appointment_at']);
     }
 
     // ── C. the tenant's progress line follows real state ──

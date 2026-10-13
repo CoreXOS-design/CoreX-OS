@@ -69,6 +69,9 @@ Route::prefix('secure/work-orders/{token}')->middleware('throttle:30,1')->group(
     Route::post('/quote', [\App\Http\Controllers\ContractorSecureLinkController::class, 'storeQuote'])->name('rentals.secure-link.quote');
     Route::post('/photo', [\App\Http\Controllers\ContractorSecureLinkController::class, 'storePhoto'])->name('rentals.secure-link.photo');
     Route::post('/mark-done', [\App\Http\Controllers\ContractorSecureLinkController::class, 'markDone'])->name('rentals.secure-link.mark-done');
+    // spec 22.17 - once the cost is authorised the contractor files their invoice and asks for extra money from the same private link
+    Route::post('/invoice', [\App\Http\Controllers\ContractorSecureLinkController::class, 'storeInvoice'])->name('rentals.secure-link.invoice');
+    Route::post('/extra', [\App\Http\Controllers\ContractorSecureLinkController::class, 'requestExtra'])->name('rentals.secure-link.extra');
 });
 
 // ── Crew per-job secure link (public, no auth) — .ai/specs/rental-work-orders.md §14.28 ──
@@ -88,6 +91,8 @@ Route::prefix('secure/completion/{token}')->middleware('throttle:30,1')->group(f
 // BUILD 3 END
 
 // ── Tenant/Landlord Portal web shell (public page, session auth via Alpine+fetch) — AT-445 ──
+// QA DEMO SIGN-IN (never on Staging/live): registers nothing unless APP_ENV=qa AND clientauth.demo_signin_enabled - .ai/specs/rental-portal-access.md
+\App\Support\PortalDemoSigninGate::registerRoutes();
 Route::get('/portal/{any?}', [\App\Http\Controllers\RentalPortalShellController::class, 'show'])
     ->where('any', '.*')
     ->name('rentals.portal.shell');

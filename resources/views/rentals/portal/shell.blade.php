@@ -523,7 +523,8 @@
                                                         <button class="btn btn-outline" @click="setAppointment(w)" x-text="w.appointment_at ? 'Change the appointment' : 'Set the appointment'"></button>
                                                     </div>
                                                 </template>
-                                                <p class="muted" x-show="!w.owner_can_appoint && !w.owner_work_started" data-owner-appointment-locked>The appointment can be set once the job is approved.</p>
+                                                <p class="muted" x-show="!w.owner_can_appoint && !w.owner_work_started && w.owner_tenant_in_property" data-owner-appointment-tenant>Your tenant lives in the property, so your agent arranges the appointment with them. You will see it here once it is set.</p>
+                                                <p class="muted" x-show="!w.owner_can_appoint && !w.owner_work_started && !w.owner_tenant_in_property" data-owner-appointment-locked>The appointment can be set once the job is approved.</p>
                                                 {{-- Only the buttons that will work (the server decides: owner_can_start / owner_can_finish), else the plain reason why not. --}}
                                                 <template x-if="w.who !== 'our_team'">
                                                     <div data-owner-progress>
@@ -580,6 +581,7 @@
                                         <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.thumb_url || ph.url" alt="Photo of the extra work" loading="lazy" decoding="async"></a>
                                     </template>
                                 </div>
+                                <p class="muted" x-show="v.reason" data-variation-reason x-text="v.reason"></p>
                                 <p style="margin-top:10px;">Extra work: <strong x-text="'R ' + Number(v.extra_amount).toFixed(2)"></strong> &middot; New total: <strong x-text="'R ' + Number(v.new_total).toFixed(2)"></strong></p>
                                 <p class="muted" x-show="v.term_text" x-text="v.term_text"></p>
                                 <button class="btn btn-ok" :disabled="!!(busy['var' + v.id])" @click="decideVariation(v, 'approve')" x-text="busy['var' + v.id] ? 'Sending…' : 'Approve'"></button>

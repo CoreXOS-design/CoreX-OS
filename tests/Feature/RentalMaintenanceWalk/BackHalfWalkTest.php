@@ -253,15 +253,18 @@ final class BackHalfWalkTest extends TestCase
         $this->assertTrue($wo->isOwnerContractor());
         $this->assertSame("Sent to the owner's contractor for scheduling", $this->tenantLine($fault)['current_label']);
 
-        // The owner books the appointment from the portal; the tenant is told (existing appointment mail) and the line shows who.
+        // AT-452 22.16 (Johan, 14 Oct 2026): a tenant lives in the property, so the owner may NOT book the appointment from the portal - the agent does; the tenant is told and the line shows who.
         $this->asOwner();
-        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/appointment", ['appointment_at' => now()->addDays(2)->setTime(8, 30)->format('Y-m-d\TH:i'), 'note' => 'Call first'])->assertOk();
+        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/appointment", ['appointment_at' => now()->addDays(2)->setTime(8, 30)->format('Y-m-d\TH:i'), 'note' => 'Call first'])->assertStatus(422);
+        $this->assertNull($wo->fresh()->appointment_at);
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.appointment.store', $wo), ['appointment_at' => now()->addDays(2)->setTime(8, 30)->format('Y-m-d\TH:i'), 'appointment_note' => 'Call first'])->assertSessionHasNoErrors();
         $step = collect($this->tenantLine($fault)['steps'])->firstWhere('key', 'appointment_set');
         $this->assertSame('done', $step['state']);
         $this->assertStringContainsString('Bob the Plumber', $step['detail']);
         $this->assertSame('appointment_set', $this->ownerLine($fault)['current']);
 
         // The owner reports it started, then finished.
+        $this->asOwner();   // (the agent's session above replaced the owner's login)
         $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/progress", ['action' => 'started'])->assertOk();
         $this->assertSame('in_progress', $this->tenantLine($fault)['current']);
         $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/progress", ['action' => 'finished', 'note' => 'All done'])->assertOk();

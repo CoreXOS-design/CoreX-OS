@@ -306,6 +306,8 @@ class WorkOrderFlowTest extends TestCase
     public function test_the_owner_can_set_the_appointment_from_the_link_and_the_tenant_is_told(): void
     {
         $wo = $this->ownerContractorWorkOrder();
+        // AT-452 22.16 (Johan, 14 Oct 2026): the owner books the appointment only when nobody lives in the property - these tests are about that case
+        \App\Models\Lease::withoutGlobalScopes()->where('property_id', $wo->property_id)->update(['status' => \App\Models\Lease::STATUS_EXPIRED]);
         Sanctum::actingAs($this->clientUserFor($this->landlord), ['client']);
 
         $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/appointment", [
@@ -360,6 +362,8 @@ class WorkOrderFlowTest extends TestCase
 
         $notifier = \Mockery::spy(\App\Services\CommandCenter\NotificationDispatcher::class);
         $this->app->instance(\App\Services\CommandCenter\NotificationDispatcher::class, $notifier);
+        // AT-452 22.16 (Johan, 14 Oct 2026): the owner books the appointment only when nobody lives in the property - these tests are about that case
+        \App\Models\Lease::withoutGlobalScopes()->where('property_id', $wo->property_id)->update(['status' => \App\Models\Lease::STATUS_EXPIRED]);
         Sanctum::actingAs($this->clientUserFor($this->landlord), ['client']);
         $base = "/api/v1/client/rentals/landlord/work-orders/{$wo->id}";
 
@@ -413,6 +417,8 @@ class WorkOrderFlowTest extends TestCase
     {
         \Illuminate\Support\Facades\Notification::fake();
         $wo = $this->ownerContractorWorkOrder();
+        // AT-452 22.16 (Johan, 14 Oct 2026): the owner books the appointment only when nobody lives in the property - these tests are about that case
+        \App\Models\Lease::withoutGlobalScopes()->where('property_id', $wo->property_id)->update(['status' => \App\Models\Lease::STATUS_EXPIRED]);
         Sanctum::actingAs($this->clientUserFor($this->landlord), ['client']);
         $url = "/api/v1/client/rentals/landlord/work-orders/{$wo->id}/appointment";
 

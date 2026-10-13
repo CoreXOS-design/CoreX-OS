@@ -5,6 +5,7 @@
         @else
             <p>While working on <strong>{{ $title }}</strong> at {{ $address }}, extra work has come up that goes beyond what you approved and needs your approval before it is done:</p>
         @endif
+        @if(($reason ?? '') !== '')<p><strong>The contractor says:</strong> {{ $reason }}</p>@endif
         <div class="box">
             <table class="sum">
                 <tr><td>Approved so far</td><td class="r">R{{ $baseline }}</td></tr>
