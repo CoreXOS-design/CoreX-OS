@@ -203,46 +203,6 @@ class SettingsService
         return (int) $this->scalar('stuck_stock_lookback_days');
     }
 
-    /** The most an agent can add to their day in one go. */
-    public function addToDayMax(): int
-    {
-        return (int) $this->scalar('add_to_day_max');
-    }
-
-    /** Hot-pocket score weights: what one buyer / one lead / one sale adds to a suburb's score. */
-    public function hotPocketWeightBuyers(): int
-    {
-        return (int) $this->scalar('hot_pocket_weight_buyers');
-    }
-
-    public function hotPocketWeightLeads(): int
-    {
-        return (int) $this->scalar('hot_pocket_weight_leads');
-    }
-
-    public function hotPocketWeightSales(): int
-    {
-        return (int) $this->scalar('hot_pocket_weight_sales');
-    }
-
-    /** @return string[] buyer match levels that make a listing "stock for a buyer" */
-    public function buyerMatchTiers(): array
-    {
-        return $this->pickList('buyer_match_tiers');
-    }
-
-    /** @return string[] buyer states that count as an active buyer */
-    public function buyerActiveStates(): array
-    {
-        return $this->pickList('buyer_active_states');
-    }
-
-    /** @return string[] property statuses that count as "on the market" for the agent's own stock */
-    public function onMarketStatuses(): array
-    {
-        return $this->pickList('on_market_statuses');
-    }
-
     // ── Outcomes / holds (read by lane 3) ─────────────────────────────────
 
     public function noAnswerDropAfter(): int
@@ -300,21 +260,6 @@ class SettingsService
     }
 
     // ── internals ─────────────────────────────────────────────────────────
-
-    /**
-     * A pick-list setting: the stored values that are still in the catalogue (catalogue order), or the
-     * standard list when nothing usable is stored.
-     *
-     * @return string[]
-     */
-    private function pickList(string $column): array
-    {
-        $stored  = $this->row->{$column};
-        $allowed = array_keys(RtsSetting::LIST_CATALOGUES[$column]);
-        $picked  = is_array($stored) ? array_values(array_intersect($allowed, array_map('strval', $stored))) : [];
-
-        return $picked !== [] ? $picked : RtsSetting::LIST_DEFAULTS[$column];
-    }
 
     /** Stored value, or the code default when the row is missing / the column is null. */
     private function scalar(string $column): mixed

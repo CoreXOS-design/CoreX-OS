@@ -142,10 +142,6 @@
                     ['stuck_stock_lookback_days', '...counted over the last', $settings->stuckStockLookbackDays(), 1, 3650, 'days'],
                     ['hot_pocket_lookback_days', 'Hottest pockets: look back', $settings->hotPocketLookbackDays(), 1, 3650, 'days'],
                     ['price_drop_lookback_days', 'Price drops: look back', $settings->priceDropLookbackDays(), 1, 3650, 'days'],
-                    ['add_to_day_max', 'Add to my day: an agent can add up to', $settings->addToDayMax(), 1, 500, 'properties at once'],
-                    ['hot_pocket_weight_buyers', 'Hottest pockets: each active buyer adds', $settings->hotPocketWeightBuyers(), 0, 100, 'points'],
-                    ['hot_pocket_weight_leads', 'Hottest pockets: each lead on your own listings adds', $settings->hotPocketWeightLeads(), 0, 100, 'points'],
-                    ['hot_pocket_weight_sales', 'Hottest pockets: each of your own sales adds', $settings->hotPocketWeightSales(), 0, 100, 'points'],
                 ] as [$name, $label, $value, $min, $max, $unit])
                     <div>
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="{{ $name }}">{{ $label }}</label>
@@ -153,31 +149,6 @@
                                class="w-28 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                         <span class="text-xs ml-2" style="color:var(--text-muted);">{{ $unit }} (standard: {{ $defaults[$name] }})</span>
                     </div>
-                @endforeach
-            </div>
-        </div>
-
-        {{-- Which buyers / statuses count --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
-            <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
-                <h3 class="text-sm font-bold" style="color:var(--text-primary);">What counts as a match, a buyer and "on the market"</h3>
-            </div>
-            <div class="p-5 grid grid-cols-1 sm:grid-cols-3 gap-6">
-                <input type="hidden" name="list_settings_present" value="1">
-                @foreach([
-                    ['buyer_match_tiers', 'Stock for buyers: a property counts when a buyer matches at', $settings->buyerMatchTiers()],
-                    ['buyer_active_states', 'Stock for buyers: buyers that count', $settings->buyerActiveStates()],
-                    ['on_market_statuses', 'Not selling: your listing counts as on the market when its status is', $settings->onMarketStatuses()],
-                ] as [$name, $label, $picked])
-                    <fieldset>
-                        <legend class="block text-xs font-semibold mb-2" style="color:var(--text-muted);">{{ $label }}</legend>
-                        @foreach(\App\Models\RoadToSold\RtsSetting::LIST_CATALOGUES[$name] as $value => $valueLabel)
-                            <label class="flex items-center gap-2 text-sm mb-1" style="color:var(--text-primary);">
-                                <input type="checkbox" name="{{ $name }}[]" value="{{ $value }}" @checked(in_array($value, (array) old($name, $picked), true))>
-                                <span>{{ $valueLabel }}</span>
-                            </label>
-                        @endforeach
-                    </fieldset>
                 @endforeach
             </div>
         </div>

@@ -89,7 +89,7 @@ class SettingsController extends Controller
             'selections'    => RtsSetting::normaliseOrderedToggles(null, RtsSetting::selectionCatalogue(self::TRACK)),
             'summary_steps' => RtsSetting::normaliseOrderedToggles(null, RtsSetting::summaryStepCatalogue(self::TRACK)),
             'default_weekday_targets' => RtsSetting::DEFAULT_WEEKDAY_TARGETS,
-        ] + RtsSetting::LIST_DEFAULTS;
+        ];
         $this->persist($agencyId, (int) $user->id, $reset);
 
         return redirect()->route('road-to-sold.settings.index')->with('success', 'Road to Sold settings are back to the defaults.');
@@ -149,10 +149,6 @@ class SettingsController extends Controller
             'hot_pocket_lookback_days'     => ['sometimes', 'integer', 'min:1', 'max:3650'],
             'price_drop_lookback_days'     => ['sometimes', 'integer', 'min:1', 'max:3650'],
             'stuck_stock_lookback_days'    => ['sometimes', 'integer', 'min:1', 'max:3650'],
-            'add_to_day_max'               => ['sometimes', 'integer', 'min:1', 'max:500'],
-            'hot_pocket_weight_buyers'     => ['sometimes', 'integer', 'min:0', 'max:100'],
-            'hot_pocket_weight_leads'      => ['sometimes', 'integer', 'min:0', 'max:100'],
-            'hot_pocket_weight_sales'      => ['sometimes', 'integer', 'min:0', 'max:100'],
             'no_answer_drop_after'         => ['sometimes', 'integer', 'min:1', 'max:20'],
             'hold_days'                    => ['sometimes', 'integer', 'min:1', 'max:365'],
             'summary_green_from_pct'       => ['sometimes', 'integer', 'min:1', 'max:100'],
@@ -180,19 +176,6 @@ class SettingsController extends Controller
             $messages["{$field}.in"]      = "{$label}: pick one of the choices shown.";
         }
 
-        // The pick-lists (buyer match levels, buyer states, on-market statuses). The settings page sends a hidden
-        // marker so that un-ticking everything is an error, not a silent "no change".
-        foreach (RtsSetting::LIST_CATALOGUES as $field => $catalogue) {
-            $rules[$field]         = ['sometimes', 'array', 'min:1'];
-            $rules["{$field}.*"]   = ['string', 'in:' . implode(',', array_keys($catalogue))];
-            $messages["{$field}.min"]   = self::LIST_LABELS[$field] . ': tick at least one.';
-            $messages["{$field}.array"] = self::LIST_LABELS[$field] . ': tick at least one.';
-            $messages["{$field}.*.in"]  = self::LIST_LABELS[$field] . ': pick from the choices shown.';
-            if ($request->has('list_settings_present') && ! filled($request->input($field))) {
-                throw ValidationException::withMessages([$field => self::LIST_LABELS[$field] . ': tick at least one.']);
-            }
-        }
-
         $data = $request->validate($rules, $messages);
 
         // Cross-field: the green line must sit above the red line (final values, so a partial save is judged too).
@@ -210,12 +193,6 @@ class SettingsController extends Controller
                 $changes[$field] = is_bool(RtsSetting::SCALAR_DEFAULTS[$field])
                     ? (bool) $data[$field]
                     : (is_numeric($data[$field]) ? (int) $data[$field] : (string) $data[$field]);
-            }
-        }
-        foreach (array_keys(RtsSetting::LIST_CATALOGUES) as $field) {
-            if (array_key_exists($field, $data)) {
-                // catalogue order, no duplicates
-                $changes[$field] = array_values(array_intersect(array_keys(RtsSetting::LIST_CATALOGUES[$field]), $data[$field]));
             }
         }
         if (array_key_exists('selections', $data)) {
@@ -300,7 +277,7 @@ class SettingsController extends Controller
             'selections'    => RtsSetting::normaliseOrderedToggles(null, RtsSetting::selectionCatalogue(self::TRACK)),
             'summary_steps' => RtsSetting::normaliseOrderedToggles(null, RtsSetting::summaryStepCatalogue(self::TRACK)),
             'default_weekday_targets' => RtsSetting::DEFAULT_WEEKDAY_TARGETS,
-            default         => RtsSetting::SCALAR_DEFAULTS[$field] ?? RtsSetting::LIST_DEFAULTS[$field] ?? null,
+            default         => RtsSetting::SCALAR_DEFAULTS[$field] ?? null,
         };
     }
 
@@ -359,13 +336,6 @@ class SettingsController extends Controller
         return $warnings;
     }
 
-    /** Plain-English names of the pick-list settings. */
-    public const LIST_LABELS = [
-        'buyer_match_tiers'   => 'Stock for buyers - match levels',
-        'buyer_active_states' => 'Stock for buyers - buyers that count',
-        'on_market_statuses'  => 'My stock that is not selling - statuses that count as on the market',
-    ];
-
     /** Plain-English field names used in validation messages (STANDARDS F.8). */
     public const FIELD_LABELS = [
         'area_refresh_warn_days'  => 'Days before an area needs refreshing',
@@ -380,10 +350,6 @@ class SettingsController extends Controller
         'stuck_stock_lookback_days' => 'Not selling - views and leads counted over (days)',
         'no_answer_drop_after'    => 'No answers in a row before a property drops off',
         'hold_days'               => 'Days an agent keeps a property after an outcome',
-        'add_to_day_max'          => 'Most an agent can add to their day at once',
-        'hot_pocket_weight_buyers' => 'Hottest pockets - what each buyer adds',
-        'hot_pocket_weight_leads'  => 'Hottest pockets - what each lead adds',
-        'hot_pocket_weight_sales'  => 'Hottest pockets - what each sale adds',
         'summary_green_from_pct'  => 'Green from (%)',
         'summary_red_below_pct'   => 'Red below (%)',
         'missed_items_mode'       => 'Missed items',

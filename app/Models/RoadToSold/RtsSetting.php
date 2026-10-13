@@ -32,8 +32,6 @@ class RtsSetting extends Model
         'selections', 'new_on_market_days', 'long_on_market_days', 'owner_known_quantity',
         'stuck_stock_min_days', 'stuck_stock_max_views', 'stuck_stock_max_leads',
         'hot_pocket_lookback_days', 'price_drop_lookback_days', 'stuck_stock_lookback_days',
-        'add_to_day_max', 'hot_pocket_weight_buyers', 'hot_pocket_weight_leads', 'hot_pocket_weight_sales',
-        'buyer_match_tiers', 'buyer_active_states', 'on_market_statuses',
         'no_answer_drop_after', 'hold_days',
         'summary_steps', 'summary_green_from_pct', 'summary_red_below_pct',
         'default_weekday_targets', 'updated_by_user_id',
@@ -52,13 +50,6 @@ class RtsSetting extends Model
         'hot_pocket_lookback_days'     => 'integer',
         'price_drop_lookback_days'     => 'integer',
         'stuck_stock_lookback_days'    => 'integer',
-        'add_to_day_max'               => 'integer',
-        'hot_pocket_weight_buyers'     => 'integer',
-        'hot_pocket_weight_leads'      => 'integer',
-        'hot_pocket_weight_sales'      => 'integer',
-        'buyer_match_tiers'            => 'array',
-        'buyer_active_states'          => 'array',
-        'on_market_statuses'           => 'array',
         'no_answer_drop_after'         => 'integer',
         'hold_days'                    => 'integer',
         'summary_green_from_pct'       => 'integer',
@@ -83,45 +74,10 @@ class RtsSetting extends Model
         'hot_pocket_lookback_days'     => 180,
         'price_drop_lookback_days'     => 30,
         'stuck_stock_lookback_days'    => 30,
-        'add_to_day_max'               => 100,
-        'hot_pocket_weight_buyers'     => 1,
-        'hot_pocket_weight_leads'      => 1,
-        'hot_pocket_weight_sales'      => 1,
         'no_answer_drop_after'         => 3,
         'hold_days'                    => 30,
         'summary_green_from_pct'       => 90,
         'summary_red_below_pct'        => 70,
-    ];
-
-    /**
-     * Pick-lists the builder reads (JSON columns; NULL = the standard list). key => label, in the order shown.
-     * The DEFAULT lists are the values the builder used before they were settings.
-     */
-    public const LIST_CATALOGUES = [
-        'buyer_match_tiers' => [
-            'perfect'     => 'Perfect match (90 and above)',
-            'strong'      => 'Strong match (80 and above)',
-            'approximate' => 'Approximate match (50 and above)',
-        ],
-        'buyer_active_states' => [
-            'new'  => 'New',
-            'warm' => 'Warm',
-            'cold' => 'Cold',
-        ],
-        'on_market_statuses' => [
-            'active'      => 'Active',
-            'for_sale'    => 'For sale',
-            'on_show'     => 'On show',
-            'under_offer' => 'Under offer',
-            'on_auction'  => 'On auction',
-            'to_let'      => 'To let',
-        ],
-    ];
-
-    public const LIST_DEFAULTS = [
-        'buyer_match_tiers'   => ['perfect', 'strong'],
-        'buyer_active_states' => ['new', 'warm'],
-        'on_market_statuses'  => ['active', 'for_sale', 'on_show'],
     ];
 
     /** Default agency weekday targets (ISO 1=Mon … 7=Sun). Mon–Fri 5, weekend 0. */
