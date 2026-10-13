@@ -379,6 +379,6 @@ final class WorkOrderScreenStatesTest extends TestCase
         $this->assertNext($this->page($wo), 'tenant_finished', 'Thandi Mokoena says the work is finished (13 Oct 2026 14:10).', 'Mark the work as complete');
 
         $wo->forceFill(['tenant_confirmed_fixed' => false, 'tenant_confirmation_note' => 'It still drips'])->save();
-        $this->assertNext($this->page($wo), 'tenant_not_fixed', 'Tenant says it is NOT fixed - It still drips', 'Open the completion check');
+        $this->assertNext($this->page($wo), 'tenant_not_fixed', 'Tenant says it is NOT fixed - It still drips', 'Send the contractor back');
     }
 }

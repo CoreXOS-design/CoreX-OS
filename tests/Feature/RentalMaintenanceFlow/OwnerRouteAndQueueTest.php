@@ -129,7 +129,7 @@ final class OwnerRouteAndQueueTest extends TestCase
         $this->assertStringNotContainsString('name="quote_date"', $html);
         $this->assertStringContainsString('data-owner-route', $html);
         $this->assertStringContainsString('The owner arranges and pays their own contractor - nothing is sent from here.', $html);
-        $this->assertStringContainsString('Mark it in progress when the work starts.', $html);
+        $this->assertStringContainsString('Mark the work as complete when it is done.', $html);
         $this->assertStringContainsString('data-owner-arranges-note', $html);
 
         // the list reads the same way

@@ -152,10 +152,9 @@ final class WorkOrderCompletionAndDateTimeTest extends TestCase
         $this->assertStringNotContainsString('20 Oct 2026 12:30', $text, 'never shifted by two hours');
 
         // the tenant's email
-        $mails = $this->sent(RentalWorkOrderAppointmentMail::class);
-        $this->assertNotEmpty($mails, 'the tenant was emailed');
-        $this->assertStringContainsString('14:30', end($mails)->when);
-        $this->assertStringContainsString('Tuesday 20 October 2026', end($mails)->when);
+        \Illuminate\Support\Facades\Mail::assertQueued(RentalWorkOrderAppointmentMail::class, function ($mail) {
+            return $mail->hasTo($this->tenant->email) && str_contains($mail->when, '14:30') && str_contains($mail->when, 'Tuesday 20 October 2026');
+        });
 
         // the owner's portal (the API hands the browser an ISO moment with its offset; the portal prints it in the viewer's SA clock)
         $owner = app(RentalWorkOrderClientViewService::class)->payload($wo, RentalWorkOrderClientViewService::AUDIENCE_LANDLORD);
