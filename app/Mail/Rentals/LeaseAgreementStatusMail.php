@@ -31,7 +31,7 @@ class LeaseAgreementStatusMail extends BaseSignatureMail
     {
         $agency = $this->lease->agency ?? $this->lease->property?->agency;
 
-        return $agency?->trading_name ?: ($agency?->name ?: config('mail.from.name', 'Your agency'));
+        return \App\Models\Agency::displayNameFor($agency, (string) config('mail.from.name', 'Your agency'));
     }
 
     protected function address(): string

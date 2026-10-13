@@ -149,7 +149,7 @@ class RentalPortalOverviewService
             : null;
 
         return [
-            'agency' => $agency ? ($agency->trading_name ?: $agency->name) : null,
+            'agency' => $agency ? \App\Models\Agency::displayNameFor($agency) : null,
             'branch' => $branch?->name,
             // The branch's own details first; the agency's when the branch has none.
             'phone' => $branch?->phone ?: ($agency?->phone ?: null),

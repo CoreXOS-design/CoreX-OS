@@ -33,7 +33,7 @@ class RentalTenantCompletionCheckMail extends BaseSignatureMail
     {
         $agency = $this->workOrder->agency;
 
-        return $agency?->trading_name ?: ($agency?->name ?: 'Your agency');
+        return \App\Models\Agency::displayNameFor($agency);
     }
 
     public function envelope(): Envelope

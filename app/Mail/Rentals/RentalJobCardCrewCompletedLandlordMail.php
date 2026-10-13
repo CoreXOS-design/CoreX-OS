@@ -31,7 +31,7 @@ class RentalJobCardCrewCompletedLandlordMail extends BaseSignatureMail
 
     public function envelope(): Envelope
     {
-        $agency = $this->jobCard->agency?->trading_name ?: ($this->jobCard->agency?->name ?: 'Your agency');
+        $agency = \App\Models\Agency::displayNameFor($this->jobCard->agency);
 
         return new Envelope(
             from: $this->getFromAddress(),
@@ -43,7 +43,7 @@ class RentalJobCardCrewCompletedLandlordMail extends BaseSignatureMail
     public function content(): Content
     {
         return new Content(view: 'emails.rentals.crew-completed-landlord', with: [
-            'agencyName' => $this->jobCard->agency?->trading_name ?: ($this->jobCard->agency?->name ?: 'Your agency'),
+            'agencyName' => \App\Models\Agency::displayNameFor($this->jobCard->agency),
             'landlordName' => $this->landlordName,
             'title' => $this->jobCard->title,
             'address' => $this->jobCard->property?->buildDisplayAddress(),

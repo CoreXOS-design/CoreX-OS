@@ -147,7 +147,7 @@ TEXT;
     public static function draftFor(RentalApplication $application, string $declineReason, string $declineGuidance): array
     {
         $applicantName = $application->contact?->full_name ?: 'there';
-        $agencyName = $application->agency->name ?? config('mail.from.name', 'CoreX OS');
+        $agencyName = \App\Models\Agency::displayNameFor($application->agency, (string) config('mail.from.name', 'CoreX OS'));
         $propertyReference = $application->property?->buildDisplayAddress() ?: $application->property_address_override ?: null;
 
         $wording = self::forAgency((int) $application->agency_id);

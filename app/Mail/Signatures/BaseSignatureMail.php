@@ -265,7 +265,7 @@ abstract class BaseSignatureMail extends Mailable
             // $agency can be null here too — an agent with no resolvable
             // agency (e.g. a System Owner passed to fromAgent()). Falls back
             // to the platform identity rather than a specific tenant's name.
-            'agency_name'      => $agency?->name ?? config('mail.from.name', 'CoreX OS'),
+            'agency_name'      => \App\Models\Agency::displayNameFor($agency, (string) config('mail.from.name', 'CoreX OS')),
         ];
     }
 }

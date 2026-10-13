@@ -29,7 +29,7 @@ class RentalJobCardCrewLinkMail extends BaseSignatureMail
 
     public function envelope(): Envelope
     {
-        $agency = $this->jobCard->agency?->trading_name ?: ($this->jobCard->agency?->name ?: 'Your agency');
+        $agency = \App\Models\Agency::displayNameFor($this->jobCard->agency);
 
         return new Envelope(
             from: $this->getFromAddress(),
@@ -43,7 +43,7 @@ class RentalJobCardCrewLinkMail extends BaseSignatureMail
         $property = $this->jobCard->property;
 
         return new Content(view: 'emails.rentals.crew-link', with: [
-            'agencyName' => $this->jobCard->agency?->trading_name ?: ($this->jobCard->agency?->name ?: 'Your agency'),
+            'agencyName' => \App\Models\Agency::displayNameFor($this->jobCard->agency),
             'title' => $this->jobCard->title,
             'address' => $property?->buildDisplayAddress(),
             'scheduledAt' => $this->jobCard->scheduled_at?->copy()->setTimezone($this->jobCard->agency?->outreachTimezone() ?: config('app.timezone'))->format('D j M Y, H:i'),

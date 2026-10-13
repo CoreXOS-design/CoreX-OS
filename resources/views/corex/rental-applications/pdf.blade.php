@@ -12,7 +12,7 @@
 <div class="corex-h1">Rental Application Process and Requirements</div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">
     @php
-        $policySentence = \App\Models\RentalApplicationQualifyingSetting::renderedInvitePolicySentenceFor($application->agency_id ?? null, $agency->name ?? null);
+        $policySentence = \App\Models\RentalApplicationQualifyingSetting::renderedInvitePolicySentenceFor($application->agency_id ?? null, isset($agency) && $agency ? \App\Models\Agency::displayNameFor($agency) : null);
     @endphp
     {{ $policySentence }} Please complete this form and submit it with your
     supporting documents to

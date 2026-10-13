@@ -939,7 +939,7 @@ class Agency extends Model
         $a = static::withoutGlobalScopes()->find($agencyId);
 
         return [
-            'name'    => ($a && $a->name) ? (string) $a->name : 'our agency',
+            'name'    => static::displayNameFor($a, 'our agency'),
             'logoUrl' => ($a && $a->logo_path) ? asset('storage/' . $a->logo_path) : null,
             'colors'  => [
                 'sidebar' => ($a && $a->sidebar_color) ? $a->sidebar_color : '#0b2a4a',

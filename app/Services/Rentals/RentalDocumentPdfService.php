@@ -35,7 +35,7 @@ class RentalDocumentPdfService
         $pdf = Pdf::loadView('corex.rental-work-orders.pdf', [
             'workOrder' => $workOrder,
             'logo' => $this->logoDataUri($workOrder->branch?->logo_path, $workOrder->agency?->logo_path),
-            'agencyName' => $workOrder->agency?->name ?: 'CoreX',
+            'agencyName' => \App\Models\Agency::displayNameFor($workOrder?->agency, 'CoreX'),
         ])->setPaper('a4', 'portrait');
 
         $this->applyOptions($pdf);
@@ -88,7 +88,7 @@ class RentalDocumentPdfService
             'vatRegistered' => (bool) $workOrder->agency?->vat_registered,
             'vatNumber' => $workOrder->agency?->vat_registered ? $workOrder->agency?->vat_no : null,
             'logo' => $this->logoDataUri($workOrder->branch?->logo_path, $workOrder->agency?->logo_path),
-            'agencyName' => $workOrder->agency?->name ?: 'CoreX',
+            'agencyName' => \App\Models\Agency::displayNameFor($workOrder?->agency, 'CoreX'),
         ])->setPaper('a4', 'portrait');
 
         $this->applyOptions($pdf);
@@ -116,7 +116,7 @@ class RentalDocumentPdfService
             'quote' => $quote,
             'ownerApprovalLine' => $workOrder->ownerApprovalLine(),
             'logo' => $this->logoDataUri($workOrder->branch?->logo_path, $workOrder->agency?->logo_path),
-            'agencyName' => $workOrder->agency?->name ?: 'CoreX',
+            'agencyName' => \App\Models\Agency::displayNameFor($workOrder?->agency, 'CoreX'),
         ])->setPaper('a4', 'portrait');
 
         $this->applyOptions($pdf);
@@ -149,7 +149,7 @@ class RentalDocumentPdfService
             'vatRegistered' => (bool) $workOrder->agency?->vat_registered,
             'vatNumber' => $workOrder->agency?->vat_registered ? $workOrder->agency?->vat_no : null,
             'logo' => $this->logoDataUri($workOrder->branch?->logo_path, $workOrder->agency?->logo_path),
-            'agencyName' => $workOrder->agency?->name ?: 'CoreX',
+            'agencyName' => \App\Models\Agency::displayNameFor($workOrder?->agency, 'CoreX'),
         ])->setPaper('a4', 'portrait');
 
         $this->applyOptions($pdf);
@@ -170,7 +170,7 @@ class RentalDocumentPdfService
         $pdf = Pdf::loadView('corex.rental-fault-reports.pdf', [
             'faultReport' => $faultReport,
             'logo' => $this->logoDataUri($faultReport->branch?->logo_path, $faultReport->agency?->logo_path),
-            'agencyName' => $faultReport->agency?->name ?: 'CoreX',
+            'agencyName' => \App\Models\Agency::displayNameFor($faultReport?->agency, 'CoreX'),
         ])->setPaper('a4', 'portrait');
 
         $this->applyOptions($pdf);
@@ -202,7 +202,7 @@ class RentalDocumentPdfService
             'lifecycle' => $lifecycle,
             'landlords' => $lease->landlordContacts(),
             'logo' => $this->logoDataUri($lease->branch?->logo_path, $lease->agency?->logo_path),
-            'agencyName' => $lease->agency?->name ?: 'CoreX',
+            'agencyName' => \App\Models\Agency::displayNameFor($lease?->agency, 'CoreX'),
         ])->setPaper('a4', 'portrait');
 
         $this->applyOptions($pdf);
@@ -239,7 +239,7 @@ class RentalDocumentPdfService
             // BUILD 2 (§17.8.3) — "Approved as emergency work on {date}" on any quote PDF for an emergency-approved work order.
             'emergencyBanner' => $workOrder?->emergencyBanner(),
             'logo' => $this->logoDataUri($workOrder?->branch?->logo_path, $workOrder?->agency?->logo_path),
-            'agencyName' => $workOrder?->agency?->name ?: 'CoreX',
+            'agencyName' => \App\Models\Agency::displayNameFor($workOrder?->agency, 'CoreX'),
             // §17.11 — the estimate wording printed on every owner quote; the caller passes the snapshotted text.
             'estimateTerm' => $estimateTerm ?? \App\Models\RentalWorkOrderSetting::quoteEstimateTermFor($jobCard->agency_id),
         ])->setPaper('a4', 'portrait');
@@ -288,7 +288,7 @@ class RentalDocumentPdfService
             'costVat' => $costsOn ? app(RentalJobCardVatService::class)->costBreakdown($jobCard) : null,
             'vatNumber' => $workOrder?->agency?->vat_no,
             'logo' => $this->logoDataUri($workOrder?->branch?->logo_path, $workOrder?->agency?->logo_path),
-            'agencyName' => $workOrder?->agency?->name ?: 'CoreX',
+            'agencyName' => \App\Models\Agency::displayNameFor($workOrder?->agency, 'CoreX'),
         ])->setPaper('a4', 'portrait');
 
         $this->applyOptions($pdf);
@@ -315,7 +315,7 @@ class RentalDocumentPdfService
             'notice' => $notice,
             'bodyHtml' => $renderedHtml,
             'logo' => $this->logoDataUri($lease?->branch?->logo_path, $lease?->agency?->logo_path),
-            'agencyName' => $lease?->agency?->name ?: 'CoreX',
+            'agencyName' => \App\Models\Agency::displayNameFor($lease?->agency, 'CoreX'),
         ])->setPaper('a4', 'portrait');
 
         $this->applyOptions($pdf);
