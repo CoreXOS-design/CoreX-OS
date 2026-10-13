@@ -1395,24 +1395,6 @@
                       class="prop-input w-full text-xs"></textarea>
         </div>
 
-        <div x-show="lifecycleError" x-cloak class="text-xs" style="color:#ef4444;" x-text="lifecycleError"></div>
-
-        {{-- §45.3 (Build I-1) — the checklist of items still to record, shown when Complete (or Send for
-             signature) was refused because items are ungraded. Each room name jumps to that room. --}}
-        <div x-show="ungradedItems.length" x-cloak data-qa="ungraded-items-panel" class="text-xs space-y-1 rounded-md p-2"
-             style="border:1px solid #ef4444; background:color-mix(in srgb, #ef4444 8%, transparent); color:var(--text-primary);">
-            <div class="flex items-center justify-between gap-2">
-                <span class="font-semibold" style="color:#ef4444;" x-text="'Still to record: ' + ungradedItems.length + (ungradedItems.length === 1 ? ' item' : ' items') + ' (Not applicable counts as recorded)'"></span>
-                <button type="button" class="underline font-semibold" @click="setFilterMode('unrecorded')">Show only what is left</button>
-            </div>
-            <template x-for="g in ungradedRoomGroups()" :key="g.key">
-                <div>
-                    <button type="button" class="font-semibold underline" @click="jumpToUngradedRoom({{ $sectionJs }}, g.roomId)" x-text="g.label + ' (' + g.items.length + ')'"></button>
-                    <span x-text="': ' + g.items.join(', ')"></span>
-                </div>
-            </template>
-        </div>
-
         {{-- §45.5 (Build I-3) — who attended, in what capacity, and what the invitation trail says about each
              party. Facts only: the screen never says what attendance means for anyone's rights (§45.11). Each
              expected party (every lease tenant, each invited landlord, the inspector) needs an outcome before
@@ -1511,6 +1493,14 @@
             </div>
         </div>
 
+        {{-- 13 Oct 2026 (Johan, Sherry demo) - the signing controls live where the agent FINISHES, not below eleven rooms:
+             a bar pinned to the foot of the screen with the one-line state and the next step (Ready to sign / Complete); "Signing"
+             opens everything about signing (links, QR, sign on this device, the signature rows) above it. --}}
+        <div x-data="{ signOpen: false, openedOnce: false }"
+             x-effect="if (!openedOnce && currentInspection({{ $sectionJs }}).status === 'awaiting_signature') { signOpen = true; openedOnce = true; }"
+             @signing-open.window="signOpen = true"
+             data-qa="signoff-bar" class="sticky bottom-0 rounded-md" style="z-index:30; background:var(--surface); border:1px solid var(--border); box-shadow:0 -8px 20px rgba(0,0,0,.08);">
+            <div x-show="signOpen" x-cloak class="px-3 pt-2 space-y-2" style="max-height:60vh; overflow-y:auto; border-bottom:1px solid var(--border);" data-qa="signoff-drawer">
         {{-- Conductor brief 2026-09-29 — "print for signature": the same
              report, plus blank signature blocks for every outstanding
              party, to print and send/hand for a wet-ink signature. Not
@@ -1557,20 +1547,6 @@
              agent alone has no refusal option. markCompleted() does not
              yet require any of this on either type (Stage 5) — Complete
              still works unsigned/undispositioned in the meantime. --}}
-        <template x-if="currentInspection({{ $sectionJs }}).status !== 'awaiting_signature'">
-            <div class="flex justify-end items-center gap-3 pt-1">
-                {{-- §52 — the count is always shown; an agency rule can make it a hard stop (the server refuses). --}}
-                <span x-show="(currentInspection({{ $sectionJs }}).items_without_photo || []).length" x-cloak data-qa="items-without-photo"
-                      class="text-xs font-semibold px-2 py-1 rounded-md" style="background:color-mix(in srgb, #d97706 14%, transparent); color:#b45309;"
-                      :title="(currentInspection({{ $sectionJs }}).items_without_photo || []).map(i => (i.room ? i.room + ' — ' : '') + i.label).join('\n')"
-                      x-text="(currentInspection({{ $sectionJs }}).items_without_photo || []).length + ((currentInspection({{ $sectionJs }}).items_without_photo || []).length === 1 ? ' item has' : ' items have') + ' no photo'"></span>
-                <button type="button" :disabled="hasUnresolvedDiscrepancy({{ $sectionJs }})" @click="startAwaitingSignature({{ $sectionJs }})"
-                        class="px-4 py-2 rounded-md text-sm font-semibold"
-                        :style="hasUnresolvedDiscrepancy({{ $sectionJs }}) ? 'background:var(--surface-2); color:var(--text-muted);' : 'background:var(--brand-button,#0ea5e9); color:#fff;'">
-                    Ready to sign
-                </button>
-            </div>
-        </template>
 
         <template x-if="currentInspection({{ $sectionJs }}).status === 'awaiting_signature'">
             <div class="space-y-2 pt-1" style="border-top:1px solid var(--border);">
@@ -1716,17 +1692,59 @@
                     </template>
                 </div>
 
-                <div class="flex justify-end items-center gap-3 pt-1">
-                    <span x-show="readyToComplete({{ $sectionJs }})" x-cloak data-qa="ready-to-complete"
-                          class="text-xs font-semibold px-2 py-1 rounded-md" style="background:color-mix(in srgb, #059669 14%, transparent); color:#059669;">Ready to complete</span>
-                    <button type="button" :disabled="hasUnresolvedDiscrepancy({{ $sectionJs }})" @click="completeInspection({{ $sectionJs }})"
-                            class="px-4 py-2 rounded-md text-sm font-semibold"
-                            :style="hasUnresolvedDiscrepancy({{ $sectionJs }}) ? 'background:var(--surface-2); color:var(--text-muted);' : 'background:var(--brand-button,#0ea5e9); color:#fff;'">
-                        Complete
-                    </button>
-                </div>
             </div>
         </template>
+            </div>
+            <div class="px-3 py-2 space-y-1.5">
+        <div x-show="lifecycleError" x-cloak class="text-xs" style="color:#ef4444;" x-text="lifecycleError"></div>
+
+        {{-- §45.3 (Build I-1) — the checklist of items still to record, shown when Complete (or Send for
+             signature) was refused because items are ungraded. Each room name jumps to that room. --}}
+        <div x-show="ungradedItems.length" x-cloak data-qa="ungraded-items-panel" class="text-xs space-y-1 rounded-md p-2"
+             style="border:1px solid #ef4444; background:color-mix(in srgb, #ef4444 8%, transparent); color:var(--text-primary);">
+            <div class="flex items-center justify-between gap-2">
+                <span class="font-semibold" style="color:#ef4444;" x-text="'Still to record: ' + ungradedItems.length + (ungradedItems.length === 1 ? ' item' : ' items') + ' (Not applicable counts as recorded)'"></span>
+                <button type="button" class="underline font-semibold" @click="setFilterMode('unrecorded')">Show only what is left</button>
+            </div>
+            <template x-for="g in ungradedRoomGroups()" :key="g.key">
+                <div>
+                    <button type="button" class="font-semibold underline" @click="jumpToUngradedRoom({{ $sectionJs }}, g.roomId)" x-text="g.label + ' (' + g.items.length + ')'"></button>
+                    <span x-text="': ' + g.items.join(', ')"></span>
+                </div>
+            </template>
+        </div>
+                <div class="flex items-center justify-between gap-3 flex-wrap">
+                    <div class="flex items-center gap-2 flex-wrap min-w-0">
+                        <span class="text-sm font-semibold" style="color:var(--text-primary);" data-qa="signoff-summary" x-text="signSummary({{ $sectionJs }})"></span>
+                        <span x-show="(currentInspection({{ $sectionJs }}).items_without_photo || []).length" x-cloak data-qa="items-without-photo"
+                              class="text-xs font-semibold px-2 py-1 rounded-md" style="background:color-mix(in srgb, #d97706 14%, transparent); color:#b45309;"
+                              :title="(currentInspection({{ $sectionJs }}).items_without_photo || []).map(i => (i.room ? i.room + ' — ' : '') + i.label).join('\n')"
+                              x-text="(currentInspection({{ $sectionJs }}).items_without_photo || []).length + ((currentInspection({{ $sectionJs }}).items_without_photo || []).length === 1 ? ' item has' : ' items have') + ' no photo'"></span>
+                        <span x-show="readyToComplete({{ $sectionJs }})" x-cloak data-qa="ready-to-complete"
+                              class="text-xs font-semibold px-2 py-1 rounded-md" style="background:color-mix(in srgb, #059669 14%, transparent); color:#059669;">Ready to complete</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button type="button" @click="signOpen = !signOpen" data-qa="signoff-toggle"
+                                class="px-4 py-2 rounded-md text-sm font-semibold" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);"
+                                x-text="signOpen ? 'Hide signing' : 'Signing'"></button>
+                        <template x-if="!['awaiting_signature', 'completed', 'cancelled'].includes(currentInspection({{ $sectionJs }}).status)">
+                            <button type="button" :disabled="hasUnresolvedDiscrepancy({{ $sectionJs }})" @click="startAwaitingSignature({{ $sectionJs }})" data-qa="ready-to-sign"
+                                    class="px-4 py-2 rounded-md text-sm font-semibold"
+                                    :style="hasUnresolvedDiscrepancy({{ $sectionJs }}) ? 'background:var(--surface-2); color:var(--text-muted);' : 'background:var(--brand-button,#0ea5e9); color:#fff;'">
+                                Ready to sign
+                            </button>
+                        </template>
+                        <template x-if="currentInspection({{ $sectionJs }}).status === 'awaiting_signature'">
+                            <button type="button" :disabled="hasUnresolvedDiscrepancy({{ $sectionJs }})" @click="completeInspection({{ $sectionJs }})" data-qa="complete"
+                                    class="px-4 py-2 rounded-md text-sm font-semibold"
+                                    :style="hasUnresolvedDiscrepancy({{ $sectionJs }}) ? 'background:var(--surface-2); color:var(--text-muted);' : 'background:var(--brand-button,#0ea5e9); color:#fff;'">
+                                Complete
+                            </button>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
         @endunless
     </div>
 </template>

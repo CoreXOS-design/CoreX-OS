@@ -38,7 +38,8 @@ class RentalInspectionSigningController extends Controller
         }
 
         // An agent previewing a link while logged in is not "the party opened it".
-        if (! auth()->check()) {
+        // The "not ready yet" page quietly re-checks itself (X-Signing-Poll): that is not the party opening the link again.
+        if (! auth()->check() && ! $request->hasHeader('X-Signing-Poll')) {
             $this->links->recordOpen($link);
         }
 

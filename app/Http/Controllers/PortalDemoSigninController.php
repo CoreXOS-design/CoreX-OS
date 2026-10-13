@@ -30,8 +30,8 @@ class PortalDemoSigninController extends Controller
         $login = $contact && $contact->client_user_id ? ClientUser::find($contact->client_user_id) : null;
         abort_unless($contact && $login, 404);
 
-        Auth::guard('client-web')->login($login);
-        $request->session()->regenerate();
+        // a staff page open in this browser keeps its CSRF token (StaffSafeSession)
+        \App\Support\StaffSafeSession::loginPortal($request, Auth::guard('client-web'), $login);
 
         $record->forceFill(['last_used_at' => now(), 'use_count' => (int) $record->use_count + 1])->save();
         app(ClientAuthService::class)->log($login, (int) $contact->agency_id, (int) $contact->id, 'demo_signin', $request, ['role' => $record->role, 'demo_signin_id' => $record->id]);

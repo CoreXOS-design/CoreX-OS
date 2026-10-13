@@ -503,10 +503,14 @@ final class RentalInspectionSigningLinkTest extends TestCase
     public function test_before_ready_to_sign_the_report_can_be_read_but_not_signed(): void
     {
         $inspection = $this->inspection(RentalInspection::TYPE_IN, readyToSign: false);
-        $link = $this->issue($inspection, 'tenant', $this->tenant->id);
+        // a link handed out earlier, before this inspection could be opened for signing (issuing one now opens signing itself)
+        $link = RentalInspectionSigningLink::create([
+            'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id, 'party_role' => 'tenant', 'party_contact_id' => $this->tenant->id,
+            'token' => \Illuminate\Support\Str::random(48), 'expires_at' => now()->addDays(30), 'created_by_user_id' => $this->admin->id,
+        ]);
         $this->guest();
 
-        $this->get($link->url())->assertOk()->assertSee('Lounge Ceiling')->assertSee('Signing opens when the agent finishes the inspection')->assertDontSee('Sign the report');
+        $this->get($link->url())->assertOk()->assertSee('Lounge Ceiling')->assertSee('The agent is still recording this inspection')->assertSee('data-qa="sign-unavailable"', false)->assertDontSee('Sign the report');
         $this->submit($link)->assertStatus(409)->assertJson(['reason' => 'not_ready']);
         $this->assertSame(0, RentalInspectionSignature::count());
         $this->assertNull($link->fresh()->outcome);
@@ -1098,5 +1102,171 @@ final class RentalInspectionSigningLinkTest extends TestCase
 
             return true;
         });
+    }
+
+    // ═══ 13 Oct 2026 (Sherry demo) — handing out a link IS "ready to sign" ═══════════════════════════════════
+
+    /** A draft inspection with a second checklist item nobody has recorded (in a named room). */
+    private function draftWithAnUnrecordedItem(): RentalInspection
+    {
+        $inspection = $this->inspection(RentalInspection::TYPE_IN, readyToSign: false);
+        $room = \App\Models\PropertyRoom::create(['agency_id' => $this->agency->id, 'property_id' => $this->property->id, 'type' => 'Kitchen', 'label' => 'Kitchen', 'source' => 'manual', 'sort_order' => 1, 'created_by_user_id' => $this->admin->id]);
+        RentalInspectionItem::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id, 'property_room_id' => $room->id,
+            'kind' => RentalInspectionItem::KIND_SPACE, 'label' => 'Stove', 'created_by_user_id' => $this->admin->id,
+        ]);
+
+        return $inspection->fresh();
+    }
+
+    private function liveLinkOn(RentalInspection $inspection, string $role = 'tenant', ?int $contactId = null): RentalInspectionSigningLink
+    {
+        return RentalInspectionSigningLink::create([
+            'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id, 'party_role' => $role, 'party_contact_id' => $contactId ?? ($role === 'tenant' ? $this->tenant->id : null),
+            'token' => \Illuminate\Support\Str::random(48), 'expires_at' => now()->addDays(30), 'created_by_user_id' => $this->admin->id,
+        ]);
+    }
+
+    public function test_handing_a_party_their_link_opens_signing_by_itself_when_every_item_is_recorded(): void
+    {
+        $inspection = $this->inspection(RentalInspection::TYPE_IN, readyToSign: false);
+        $this->assertSame('draft', $inspection->status);
+
+        $this->postJson(route('corex.rental-inspections.signing-links.issue', $inspection), ['party_role' => 'tenant', 'party_contact_id' => $this->tenant->id, 'channel' => 'copied'])->assertStatus(201);
+
+        $fresh = $inspection->fresh();
+        $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $fresh->status, 'no hidden "Ready to sign" step');
+        $this->assertNotNull($fresh->signing_deadline_at);
+        $panel = $this->getJson(route('corex.rental-inspections.signing-links.index', $inspection))->assertOk()->json();
+        $this->assertTrue($panel['ready_to_sign']);
+        $this->assertSame('signing', $panel['readiness']['state']);
+
+        $this->postJson(route('corex.rental-inspections.signing-links.issue', $inspection), ['party_role' => 'landlord', 'party_contact_id' => $this->landlord->id])->assertStatus(201);
+        $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $inspection->fresh()->status, 'a second link changes nothing');
+    }
+
+    public function test_with_items_still_to_record_nothing_is_issued_and_the_agent_is_told_how_many_and_where(): void
+    {
+        $inspection = $this->draftWithAnUnrecordedItem();
+
+        $res = $this->postJson(route('corex.rental-inspections.signing-links.issue', $inspection), ['party_role' => 'tenant', 'party_contact_id' => $this->tenant->id, 'channel' => 'qr'])->assertStatus(409);
+
+        $this->assertSame('not_ready', $res->json('reason'));
+        $this->assertStringContainsString('1 item is still to record: Kitchen (1)', $res->json('message'));
+        $this->assertSame(1, $res->json('readiness.unrecorded'));
+        $this->assertSame('Kitchen', $res->json('readiness.rooms.0.room'));
+        $this->assertSame('draft', $inspection->fresh()->status, 'not opened for signing');
+        $this->assertSame(0, RentalInspectionSigningLink::count(), 'no link was made');
+    }
+
+    public function test_the_panel_says_what_is_missing_without_anyone_pressing_anything(): void
+    {
+        $blocked = $this->draftWithAnUnrecordedItem();
+        $panel = $this->getJson(route('corex.rental-inspections.signing-links.index', $blocked))->assertOk()->json();
+        $this->assertSame('blocked', $panel['readiness']['state']);
+        $this->assertSame(1, $panel['readiness']['unrecorded']);
+        $this->assertStringContainsString('Kitchen (1)', $panel['readiness']['summary']);
+        $this->assertFalse($panel['ready_to_sign']);
+
+        $ok = $this->inspection(RentalInspection::TYPE_OUT, readyToSign: false);
+        RentalInspectionItem::where('label', 'Stove')->delete();
+        $this->assertSame('ready', $this->getJson(route('corex.rental-inspections.signing-links.index', $ok))->json('readiness.state'));
+    }
+
+    public function test_the_ready_to_sign_button_in_the_panel_is_the_same_action_and_names_what_is_missing(): void
+    {
+        $inspection = $this->draftWithAnUnrecordedItem();
+        $this->postJson(route('corex.rental-inspections.start-awaiting-signature', $inspection))->assertStatus(409)
+            ->assertJsonPath('ungraded_items.0.room_label', 'Kitchen');
+
+        RentalInspectionItem::where('label', 'Stove')->delete();
+        $this->postJson(route('corex.rental-inspections.start-awaiting-signature', $inspection))->assertOk();
+        $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $inspection->fresh()->status);
+    }
+
+    public function test_the_qr_the_device_page_and_the_email_each_open_signing_too(): void
+    {
+        $qr = $this->inspection(RentalInspection::TYPE_IN, readyToSign: false);
+        $qrLink = $this->liveLinkOn($qr);
+        $this->getJson(route('corex.rental-inspections.signing-links.qr', [$qr, $qrLink]))->assertOk();
+        $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $qr->fresh()->status);
+
+        $device = $this->inspection(RentalInspection::TYPE_OUT, readyToSign: false);
+        $deviceLink = $this->liveLinkOn($device);
+        $this->get(route('corex.rental-inspections.signing-links.device', [$device, $deviceLink]))->assertOk()->assertSee('Sign the report', false);
+        $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $device->fresh()->status);
+
+        $mail = $this->inspection(RentalInspection::TYPE_INTERIM, readyToSign: false);
+        $mailLink = $this->liveLinkOn($mail);
+        $this->postJson(route('corex.rental-inspections.signing-links.email', [$mail, $mailLink]))->assertOk();
+        $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $mail->fresh()->status);
+    }
+
+    public function test_a_blocked_inspection_refuses_the_qr_and_the_email_with_the_same_plain_sentence(): void
+    {
+        $inspection = $this->draftWithAnUnrecordedItem();
+        $link = $this->liveLinkOn($inspection);
+
+        $this->getJson(route('corex.rental-inspections.signing-links.qr', [$inspection, $link]))->assertStatus(409)->assertJsonPath('reason', 'not_ready');
+        $this->postJson(route('corex.rental-inspections.signing-links.email', [$inspection, $link]))->assertStatus(409)->assertJsonPath('reason', 'not_ready');
+        $this->assertSame('draft', $inspection->fresh()->status);
+        Mail::assertNothingSent();
+    }
+
+    public function test_email_everyone_on_a_blocked_inspection_sends_nothing_and_says_why_once(): void
+    {
+        $inspection = $this->draftWithAnUnrecordedItem();
+
+        $res = $this->postJson(route('corex.rental-inspections.signing-links.send-all', $inspection))->assertStatus(409);
+
+        $this->assertStringContainsString('still to record', $res->json('message'));
+        Mail::assertNothingSent();
+        $this->assertSame(0, RentalInspectionSigningLink::count());
+    }
+
+    public function test_the_device_page_of_a_blocked_inspection_opens_on_the_one_line_state_not_a_dead_end(): void
+    {
+        $inspection = $this->draftWithAnUnrecordedItem();
+        $link = $this->liveLinkOn($inspection);
+
+        $this->get(route('corex.rental-inspections.signing-links.device', [$inspection, $link]))->assertOk()
+            ->assertSee('The agent is still recording this inspection')->assertDontSee('Sign the report');
+        $this->assertSame('draft', $inspection->fresh()->status);
+    }
+
+    public function test_the_agents_own_link_never_opens_signing(): void
+    {
+        $inspection = $this->inspection(RentalInspection::TYPE_IN, readyToSign: false);
+
+        $this->postJson(route('corex.rental-inspections.signing-links.issue', $inspection), ['party_role' => 'agent'])->assertStatus(201);
+
+        $this->assertSame('draft', $inspection->fresh()->status);
+    }
+
+    public function test_the_not_ready_page_polling_itself_is_not_the_party_opening_the_link_again(): void
+    {
+        $inspection = $this->inspection(RentalInspection::TYPE_IN, readyToSign: false);
+        $link = $this->liveLinkOn($inspection);
+        $this->guest();
+
+        $this->get($link->url())->assertOk();
+        $this->assertSame(1, $link->fresh()->open_count);
+        $this->get($link->url(), ['X-Signing-Poll' => '1'])->assertOk();
+        $this->get($link->url(), ['X-Signing-Poll' => '1'])->assertOk();
+        $this->assertSame(1, $link->fresh()->open_count, 'the quiet re-check does not inflate "opened"');
+    }
+
+    public function test_once_signing_opens_the_same_link_shows_the_form(): void
+    {
+        $inspection = $this->inspection(RentalInspection::TYPE_IN, readyToSign: false);
+        $link = $this->liveLinkOn($inspection);
+        $this->guest();
+        $this->get($link->url())->assertSee('data-qa="sign-unavailable"', false);
+
+        $this->actingAs($this->admin);
+        $inspection->fresh()->startAwaitingSignature();
+        $this->guest();
+
+        $this->get($link->url())->assertOk()->assertDontSee('data-qa="sign-unavailable"', false)->assertSee('Sign the report');
     }
 }

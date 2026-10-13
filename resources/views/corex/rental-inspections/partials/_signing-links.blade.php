@@ -16,17 +16,20 @@
 <div x-data="inspectionSigningLinks({ inspectionId: {{ $inspectionIdJs }}, base: @js(url('/corex/rental-inspections')), reloadOnChange: @js($reloadOnChange) })"
      x-init="init()" x-show="!loading && panel && panel.enabled" x-cloak
      class="space-y-2 pt-2" data-qa="signing-links-panel" style="border-top:1px solid var(--border);">
+    <style>.sg-btn{display:inline-flex;align-items:center;justify-content:center;height:2rem;padding:0 .75rem;font-size:.75rem;font-weight:600;border-radius:.375rem;white-space:nowrap}</style>
     <div class="flex items-center justify-between gap-3 flex-wrap">
         <label class="block text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary);">Sign by link</label>
-        <button type="button" @click="sendAll()" :disabled="busy !== ''"
-                class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--brand-button,#0ea5e9); color:#fff;" data-qa="signing-links-send-all">
-            Email everyone their link
-        </button>
+        <div class="flex items-center gap-2 flex-wrap">
+            <button type="button" x-show="canMarkReady" x-cloak @click="markReady()" :disabled="busy !== ''" data-qa="signing-links-ready"
+                    class="sg-btn" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">Ready to sign</button>
+            <button type="button" @click="sendAll()" :disabled="busy !== ''"
+                    class="sg-btn" style="background:var(--brand-button,#0ea5e9); color:#fff;" data-qa="signing-links-send-all">
+                Email everyone their link
+            </button>
+        </div>
     </div>
-    <p class="text-xs" style="color:var(--text-muted);" x-show="panel && !panel.ready_to_sign">
-        Each person can already read the report from their link. Signing opens when the inspection is marked ready to sign.
-    </p>
-    <p class="text-xs" style="color:#dc2626;" x-show="error" x-cloak x-text="error" data-qa="signing-links-error"></p>
+    <p class="text-xs font-semibold" style="color:#b45309;" x-show="readinessLine" x-cloak x-text="readinessLine" data-qa="signing-readiness"></p>
+    <p class="text-xs" style="color:#dc2626;" x-show="error && error !== readinessLine" x-cloak x-text="error" data-qa="signing-links-error"></p>
     <p class="text-xs" style="color:#059669;" x-show="notice" x-cloak x-text="notice"></p>
 
     <template x-for="row in (panel ? panel.rows : [])" :key="row.key">
@@ -43,21 +46,21 @@
 
             <div class="flex items-center gap-2 flex-wrap mt-1.5" x-show="row.can_issue">
                 <button type="button" @click="email(row)" :disabled="busy !== '' || !row.email" :title="row.email ? ('Email to ' + row.email) : 'No email address on file'"
-                        class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);"
+                        class="sg-btn" style="background:var(--surface-2); color:var(--text-secondary);"
                         x-text="row.link && row.link.last_sent_channel === 'email' && row.link.live ? 'Resend email' : 'Email'"></button>
                 <template x-if="!row.is_agent">
                     <button type="button" @click="whatsapp(row)" :disabled="busy !== ''"
-                            class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">WhatsApp</button>
+                            class="sg-btn" style="background:var(--surface-2); color:var(--text-secondary);">WhatsApp</button>
                 </template>
                 <button type="button" @click="copy(row)" :disabled="busy !== ''"
-                        class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Copy link</button>
+                        class="sg-btn" style="background:var(--surface-2); color:var(--text-secondary);">Copy link</button>
                 <template x-if="!row.is_agent">
                     <button type="button" @click="showQr(row)" :disabled="busy !== ''"
-                            class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);" data-qa="signing-row-qr">Show QR</button>
+                            class="sg-btn" style="background:var(--surface-2); color:var(--text-secondary);" data-qa="signing-row-qr">Show QR</button>
                 </template>
                 <template x-if="!row.is_agent">
-                    <button type="button" @click="signHere(row)" :disabled="busy !== '' || !panel.ready_to_sign" :title="panel.ready_to_sign ? '' : 'Mark the inspection ready to sign first'"
-                            class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);" data-qa="signing-row-device">Sign on this device</button>
+                    <button type="button" @click="signHere(row)" :disabled="busy !== ''"
+                            class="sg-btn" style="background:var(--surface-2); color:var(--text-secondary);" data-qa="signing-row-device">Sign on this device</button>
                 </template>
                 <button type="button" x-show="row.link && row.link.live && !row.link.outcome_at" @click="revoke(row)" :disabled="busy !== ''"
                         class="text-xs font-medium underline" style="color:var(--text-secondary);">Revoke</button>

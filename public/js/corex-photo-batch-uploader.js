@@ -182,7 +182,10 @@
                             return resolve();
                         }
                         entry.status = 'failed';
-                        entry.error = body.message || ('Upload failed (HTTP ' + xhr.status + ').');
+                        // A dead session (419 / 401) is not the photos' fault: say so, and the failed row below keeps them for Retry.
+                        entry.error = (xhr.status === 419 || xhr.status === 401)
+                            ? 'Your session has ended. Sign in again in a new tab, then press Retry - the photos are kept on this screen.'
+                            : (body.message || ('Upload failed (HTTP ' + xhr.status + ').'));
                         resolve();
                     };
                     xhr.onerror = () => { entry.status = 'failed'; entry.error = 'Network error during upload.'; resolve(); };

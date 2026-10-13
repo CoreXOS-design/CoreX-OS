@@ -199,8 +199,7 @@ class ClientAuthController extends Controller
         // steal. Mobile (never stateful) is completely unchanged.
         $sessionToken = null;
         if ($this->isStatefulRequest($request)) {
-            Auth::guard('client-web')->login($tokenable);
-            $request->session()->regenerate();
+            \App\Support\StaffSafeSession::loginPortal($request, Auth::guard('client-web'), $tokenable);
         } else {
             $deviceName = $data['device_name'] ?? config('clientauth.token.name_default', 'CoreX Client App');
             $sessionToken = $this->service->issueSanctumToken($tokenable, $deviceName);
@@ -276,8 +275,7 @@ class ClientAuthController extends Controller
         $token = null;
         $deviceName = 'Web portal (session)';
         if ($stateful) {
-            Auth::guard('client-web')->login($clientUser);
-            $request->session()->regenerate();
+            \App\Support\StaffSafeSession::loginPortal($request, Auth::guard('client-web'), $clientUser);
         } else {
             $deviceName = $data['device_name'] ?? config('clientauth.token.name_default', 'CoreX Client App');
             $token = $this->service->issueSanctumToken($clientUser, $deviceName);
@@ -534,7 +532,8 @@ class ClientAuthController extends Controller
         if (! Auth::guard('web')->check()) {
             $request->session()->invalidate();
         }
-        $request->session()->regenerateToken();
+        // A staff page open in this browser keeps its CSRF token (StaffSafeSession).
+        \App\Support\StaffSafeSession::rotateToken($request);
     }
 
     private function isStatefulRequest(Request $request): bool
