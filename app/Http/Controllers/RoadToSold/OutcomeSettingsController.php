@@ -5,6 +5,7 @@ namespace App\Http\Controllers\RoadToSold;
 use App\Http\Controllers\Controller;
 use App\Models\RoadToSold\RtsOutcomeDefinition as Def;
 use App\Services\RoadToSold\OutcomeDefinitionService;
+use App\Services\RoadToSold\Track;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -32,14 +33,15 @@ class OutcomeSettingsController extends Controller
     public function index(Request $request)
     {
         $agencyId = $this->agencyId($request);
-        $this->service->ensureDefaults($agencyId);
+        $track = Track::fromRequest($request);
+        $this->service->ensureDefaults($agencyId, $track);
 
         $status = in_array($request->query('status'), ['active', 'off', 'archived', 'all'], true) ? $request->query('status') : 'all';
         $q = trim((string) $request->query('q', ''));
         $sort = in_array($request->query('sort'), ['order', 'name', 'kind'], true) ? $request->query('sort') : 'order';
 
         $query = $status === 'archived' || $status === 'all' ? Def::withTrashed() : Def::query();
-        $query->where('agency_id', $agencyId)->where('track', 'sales');
+        $query->where('agency_id', $agencyId)->where('track', $track);
         if ($status === 'active') {
             $query->where('is_active', true);
         } elseif ($status === 'off') {
@@ -58,6 +60,7 @@ class OutcomeSettingsController extends Controller
 
         return view('road-to-sold.settings.outcomes', [
             'outcomes' => $query->paginate(50)->withQueryString(),
+            'track'    => $track,
             'status'   => $status,
             'q'        => $q,
             'sort'     => $sort,
@@ -70,13 +73,14 @@ class OutcomeSettingsController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $agencyId = $this->agencyId($request);
+        $track = Track::fromRequest($request);
         try {
-            $def = $this->service->save($agencyId, $request->user()->id, $this->input($request));
+            $def = $this->service->save($agencyId, $request->user()->id, $this->input($request), null, $track);
         } catch (ValidationException $e) {
             return back()->withErrors($e->errors(), 'outcome')->withInput()->with('rts_open_add', true);
         }
 
-        return redirect()->route('road-to-sold.settings.outcomes.index')->with('status', "Added the outcome \"{$def->label}\".");
+        return redirect()->route('road-to-sold.settings.outcomes.index', Track::params($track))->with('status', "Added the outcome \"{$def->label}\".");
     }
 
     public function update(Request $request, Def $definition): RedirectResponse
@@ -88,7 +92,7 @@ class OutcomeSettingsController extends Controller
             return back()->withErrors($e->errors(), 'outcome')->withInput()->with('rts_open_edit', $definition->id);
         }
 
-        return redirect()->route('road-to-sold.settings.outcomes.index')->with('status', "Saved \"{$definition->label}\".");
+        return redirect()->route('road-to-sold.settings.outcomes.index', Track::params((string) $definition->track))->with('status', "Saved \"{$definition->label}\".");
     }
 
     public function toggle(Request $request, Def $definition): RedirectResponse

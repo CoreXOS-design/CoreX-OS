@@ -281,6 +281,22 @@ final class ReportTest extends TestCase
         }
     }
 
+    public function test_a_call_on_an_archived_property_is_in_the_figure_and_in_the_drill(): void
+    {
+        $this->seedActivity();
+        $gone = TrackedProperty::create(['agency_id' => $this->agencyId, 'street_number' => '9', 'street_name' => 'Old Road', 'suburb' => 'Uvongo']);
+        $this->log($this->anna, 'no_answer', 2, ['tracked_property_id' => $gone->id]);
+        $gone->delete();
+
+        $cell = $this->figuresFor($this->anna)['row']['cells']['attempts'];
+        $this->assertSame(6, $cell['value'], 'the two calls on the archived property still count');
+
+        $q = ['agent_id' => $this->anna->id, 'period' => 'custom', 'start' => '2026-10-01', 'end' => '2026-10-31', 'metric' => 'attempts'];
+        $drill = $this->actingAs($this->anna)->getJson(route('road-to-sold.drilldown', $q))->assertOk();
+        $this->assertSame($cell['value'], $drill->json('total'), 'report and drill agree');
+        $this->assertSame(2, collect($drill->json('rows'))->filter(fn ($r) => str_contains($r['property'], 'property archived'))->count());
+    }
+
     public function test_the_compare_drill_needs_a_comparison_and_other_agents_are_a_404(): void
     {
         $base = ['metric' => 'attempts', 'period' => 'this_month'];
