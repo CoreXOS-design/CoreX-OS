@@ -29,7 +29,7 @@ use Tests\TestCase;
  * AT-454 (lane 3) - the Road to Sold report: figures, comparison, drill-down (current AND comparison period),
  * filters / sort / pagination, scope, and print / PDF / XLSX. Spec section 10.6.
  *
- * Paths proven: every column's figure (target, worked, attempts, conversations, each outcome, valuations
+ * Paths proven: every column's figure (target, worked, attempts, conversations, each outcome, evaluations
  * booked, extra over target, missed or rolled over, dropped); an outcome archived after use keeps its column;
  * active outcomes with no calls still show a zero column; comparison figures and their direction; the drill
  * total equals the figure for every column, current and comparison; last_30_days preset; bad period and bad
@@ -118,7 +118,7 @@ final class ReportTest extends TestCase
         $this->log($this->anna, 'no_answer', 3);
         $this->log($this->anna, 'no_answer', 1, ['dropped' => true, 'no_answer_streak' => 3]);
         $this->log($this->anna, 'spoke_call_back', 2);
-        $this->log($this->anna, 'spoke_valuation_booked', 1, ['valuation_booked' => true]);
+        $this->log($this->anna, 'spoke_evaluation_booked', 1, ['valuation_booked' => true]);
         $this->log($this->bheki, 'no_answer', 5);
         foreach ([['worked', 'auto', 3], ['worked', 'follow_up', 1], ['worked', 'added', 2], ['missed', 'auto', 1], ['rolled', 'rollover', 1]] as [$st, $or, $n]) {
             for ($i = 0; $i < $n; $i++) {
@@ -150,7 +150,7 @@ final class ReportTest extends TestCase
         $this->assertSame(3, $v('conversations'));
         $this->assertSame(4, $v('outcome:no_answer'));
         $this->assertSame(2, $v('outcome:spoke_call_back'));
-        $this->assertSame(1, $v('valuations_booked'));
+        $this->assertSame(1, $v('evaluations_booked'));
         $this->assertSame(2, $v('added_worked'), 'items added on top are reported apart');
         $this->assertSame(2, $v('missed'), 'missed + rolled over');
         $this->assertSame(1, $v('dropped'));

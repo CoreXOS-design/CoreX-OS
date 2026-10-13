@@ -14,7 +14,7 @@ interface SuggestionGuard
      * Of these tracked property ids, the ones that must NOT be suggested to $user: held by another
      * agent, marked do-not-contact, or otherwise blocked for every agent.
      *
-     * Also blocked for THIS agent: what their own latest outcome parked (a future return date, the wrong-number list, a booked valuation,
+     * Also blocked for THIS agent: what their own latest outcome parked (a future return date, the wrong-number list, a booked evaluation,
      * dropped after no-answers) - see HoldService::ownParkedIds(). $on is the day the list is for (default today).
      *
      * @param  int[]  $trackedPropertyIds

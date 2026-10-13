@@ -30,7 +30,7 @@ use Tests\TestCase;
  * Spec: .ai/specs/road-to-sold.md section 10.
  *
  * Input paths proven: every seeded outcome; attempt vs conversation counted apart; no-answer run
- * (1, 2, drop on 3, reset by a conversation); picked date required / past rejected; valuation
+ * (1, 2, drop on 3, reset by a conversation); picked date required / past rejected; evaluation
  * booked from the seeded outcome and as the extra on a conversation (refused on an attempt, needs a
  * time); hold blocks another agent, lapses, restarts; do-not-contact with and without an owner
  * contact (consent record + never-suggest marker, bypasses another agent's hold); wrong number
@@ -303,21 +303,21 @@ final class OutcomeServiceTest extends TestCase
         $this->assertSame('2026-10-14', $ok->next_action_at->toDateString(), 'today is allowed');
     }
 
-    public function test_a_valuation_cannot_be_booked_in_the_past(): void
+    public function test_an_evaluation_cannot_be_booked_in_the_past(): void
     {
         $tp = $this->tp();
-        foreach (['spoke_valuation_booked' => ['appointment_at' => '2026-10-13 15:00'], 'spoke_call_back' => ['valuation_booked' => true, 'appointment_at' => '2026-10-14 08:00', 'next_action_at' => '2026-10-20']] as $key => $in) {
+        foreach (['spoke_evaluation_booked' => ['appointment_at' => '2026-10-13 15:00'], 'spoke_call_back' => ['valuation_booked' => true, 'appointment_at' => '2026-10-14 08:00', 'next_action_at' => '2026-10-20']] as $key => $in) {
             try {
                 $this->record($key, $tp, $in);
-                $this->fail('a past valuation should be refused');
+                $this->fail('a past evaluation should be refused');
             } catch (RoadToSoldException $e) {
                 $this->assertStringContainsString('past', $e->getMessage());
             }
         }
-        $this->assertSame(0, RtsContactOutcome::withoutGlobalScopes()->count(), 'nothing is saved when the valuation is refused');
+        $this->assertSame(0, RtsContactOutcome::withoutGlobalScopes()->count(), 'nothing is saved when the evaluation is refused');
         $this->assertSame(0, \App\Models\CommandCenter\CalendarEvent::withoutGlobalScopes()->count());
 
-        $ok = $this->record('spoke_valuation_booked', $tp, ['appointment_at' => '2026-10-14 09:30']);
+        $ok = $this->record('spoke_evaluation_booked', $tp, ['appointment_at' => '2026-10-14 09:30']);
         $this->assertTrue((bool) $ok->valuation_booked, 'later today is fine');
     }
 
@@ -328,12 +328,12 @@ final class OutcomeServiceTest extends TestCase
         $this->record('mandated_other_agency_sole', $tp);
     }
 
-    public function test_valuation_booked_creates_the_calendar_appointment_and_leaves_the_list(): void
+    public function test_evaluation_booked_creates_the_calendar_appointment_and_leaves_the_list(): void
     {
         $owner = $this->owner();
         $tp = $this->tp($owner->id);
 
-        $o = $this->record('spoke_valuation_booked', $tp, ['appointment_at' => '2026-10-20 10:00']);
+        $o = $this->record('spoke_evaluation_booked', $tp, ['appointment_at' => '2026-10-20 10:00']);
 
         $this->assertTrue($o->valuation_booked);
         $this->assertSame('calendar_appointment', $o->next_action);
@@ -346,7 +346,7 @@ final class OutcomeServiceTest extends TestCase
         $this->assertCount(0, $this->svc()->followUpsDue($this->agent, '2027-01-01'));
     }
 
-    public function test_valuation_booked_is_offered_on_any_conversation_but_never_on_an_attempt_and_needs_a_time(): void
+    public function test_evaluation_booked_is_offered_on_any_conversation_but_never_on_an_attempt_and_needs_a_time(): void
     {
         $tp = $this->tp();
         $o = $this->record('spoke_call_back', $tp, ['valuation_booked' => '1', 'appointment_at' => '2026-10-21 14:30']);
@@ -356,7 +356,7 @@ final class OutcomeServiceTest extends TestCase
 
         $tp2 = $this->tp();
         $att = $this->record('no_answer', $tp2, ['valuation_booked' => '1', 'appointment_at' => '2026-10-21 14:30']);
-        $this->assertFalse($att->valuation_booked, 'an attempt cannot book a valuation');
+        $this->assertFalse($att->valuation_booked, 'an attempt cannot book an evaluation');
         $this->assertNull($att->calendar_event_id);
 
         $tp3 = $this->tp();

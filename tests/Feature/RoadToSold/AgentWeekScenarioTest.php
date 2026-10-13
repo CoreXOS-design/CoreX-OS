@@ -73,7 +73,7 @@ final class AgentWeekScenarioTest extends TestCase
 
     private const KIND = [
         'no_answer' => 'attempt', 'wrong_number' => 'attempt',
-        'spoke_valuation_booked' => 'conversation', 'spoke_call_back' => 'conversation', 'spoke_not_interested' => 'conversation',
+        'spoke_evaluation_booked' => 'conversation', 'spoke_call_back' => 'conversation', 'spoke_not_interested' => 'conversation',
         'listed_other_agency_open' => 'conversation', 'mandated_other_agency_sole' => 'conversation', 'do_not_contact' => 'conversation',
     ];
 
@@ -250,14 +250,16 @@ final class AgentWeekScenarioTest extends TestCase
         $this->assertSame('2026-10-19', $m1->next_action_at->toDateString());
         $this->assertNull($this->owner['M01']->fresh()?->last_contacted_at);
 
-        // 2. Spoke - valuation booked: a calendar appointment is created and the property leaves the list.
-        $val = $row($this->tpid('U02'), 'spoke_valuation_booked');
+        // 2. Spoke - evaluation booked: a calendar appointment is created and the property leaves the list.
+        $val = $row($this->tpid('U02'), 'spoke_evaluation_booked');
         $this->assertTrue((bool) $val->valuation_booked);
         $this->assertSame('calendar_appointment', $val->next_action);
         $event = DB::table('calendar_events')->where('id', $val->calendar_event_id)->first();
-        $this->assertNotNull($event, 'the valuation is in the calendar');
+        $this->assertNotNull($event, 'the evaluation is in the calendar');
         $this->assertSame('property_evaluation', $event->category);
         $this->assertSame('2026-10-20 10:00:00', (string) $event->event_date);
+        $this->assertStringStartsWith('Evaluation: ', $event->title, 'the appointment title says evaluation');
+        $this->assertSame('Spoke - evaluation booked', $val->outcome_label);
         $this->assertSame($this->ben->id, (int) $event->user_id);
 
         // 3-6. The conversation outcomes that come back: their dates, and the owner's "last contacted" moved.
@@ -360,7 +362,7 @@ final class AgentWeekScenarioTest extends TestCase
         $this->assertSame('follow_up', $first->origin);
         $this->assertStringContainsString('Follow-up: Spoke - call back, due 13 Oct', $first->reason);
         $this->assertSame(['follow_up', 'auto', 'auto', 'auto'], $ben->pluck('origin')->all());
-        // ...and nothing Ben has parked, dropped or booked comes back as "new": U01 dropped, U02 valuation, U04 back on 20 Oct.
+        // ...and nothing Ben has parked, dropped or booked comes back as "new": U01 dropped, U02 evaluation, U04 back on 20 Oct.
         $this->assertSame([], array_values(array_intersect($this->ids('U01', 'U02', 'U04'), $ben->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all())));
 
         // Anna: 6 on Tuesday, every one free: not held by Ben, not hers-and-parked, not do-not-contact, not another agent's stock.
@@ -501,10 +503,10 @@ final class AgentWeekScenarioTest extends TestCase
 
             $this->assertSame(count($mine), $bar['calls_made']['actual'], "{$name}: calls made = outcomes captured");
             $this->assertSame(count(array_filter($mine, fn ($e) => $e['kind'] === 'conversation')), $bar['conversations']['actual'], "{$name}: conversations");
-            $this->assertSame(count(array_filter($mine, fn ($e) => $e['valuation'])), $bar['valuations_booked']['actual'], "{$name}: valuations booked");
+            $this->assertSame(count(array_filter($mine, fn ($e) => $e['valuation'])), $bar['evaluations_booked']['actual'], "{$name}: evaluations booked");
             $this->assertSame($this->expectedMonthToDate($name, self::FRI), $bar['calls_made']['should_be'], "{$name}: should-be-by-today skips the holiday and leave");
             $this->assertNull($bar['conversations']['should_be'], 'conversations have no monthly target (Q9): actual only');
-            $this->assertSame(0, $bar['valuations_done']['actual']);
+            $this->assertSame(0, $bar['evaluations_done']['actual']);
             $this->assertSame(0, $bar['mandates_signed']['actual']);
             $this->assertSame(0, $bar['listings_live']['actual']);
 
@@ -512,12 +514,14 @@ final class AgentWeekScenarioTest extends TestCase
             $page = $this->visible($this->actingAs($agent)->get(route('road-to-sold.index'))->assertOk()->getContent());
             $this->assertMatchesRegularExpression('/Calls made\s+' . count($mine) . '\s+of\s+' . $bar['calls_made']['should_be'] . '\b/', $page, "{$name}: the page shows the same calls made");
             $this->assertMatchesRegularExpression('/Conversations\s+' . count(array_filter($mine, fn ($e) => $e['kind'] === 'conversation')) . '\b/', $page);
-            $this->assertMatchesRegularExpression('/Valuations booked\s+' . count(array_filter($mine, fn ($e) => $e['valuation'])) . '\b/', $page);
+            $this->assertMatchesRegularExpression('/Evaluations booked\s+' . count(array_filter($mine, fn ($e) => $e['valuation'])) . '\b/', $page);
+            $this->assertDoesNotMatchRegularExpression(self::OLD_WORD, $page, "{$name}: the list page never says the old word");
 
             // click a step -> the rows behind it: the drill-down total is the figure
-            foreach (['calls_made', 'conversations', 'valuations_booked'] as $step) {
+            foreach (['calls_made', 'conversations', 'evaluations_booked'] as $step) {
                 $drill = $this->actingAs($agent)->getJson(route('road-to-sold.drilldown', ['metric' => $step, 'agent_id' => $agent->id, 'period' => 'custom', 'start' => '2026-10-01', 'end' => self::FRI]))->assertOk();
                 $this->assertSame($bar[$step]['actual'], $drill->json('total'), "{$name}: {$step} drill");
+                $this->assertDoesNotMatchRegularExpression(self::OLD_WORD, json_encode($drill->json()), "{$name}: {$step} drill never says the old word");
                 $this->assertCount($bar[$step]['actual'], $drill->json('rows'));
             }
         }
@@ -532,6 +536,7 @@ final class AgentWeekScenarioTest extends TestCase
         foreach (['agent' => $this->anna, 'manager' => $this->mo, 'admin' => $this->adi] as $who => $viewer) {
             foreach ($periods as $preset => [$from, $to]) {
                 $res = $this->actingAs($viewer)->get(route('road-to-sold.report', ['period' => $preset]))->assertOk();
+                $this->assertDoesNotMatchRegularExpression(self::OLD_WORD, $this->visible($res->getContent()), "{$who}/{$preset}: the report never says the old word");
                 $rows = collect($res->viewData('rows'));
                 $totals = $res->viewData('totals');
 
@@ -553,7 +558,7 @@ final class AgentWeekScenarioTest extends TestCase
                     if ($isAgent) {
                         $this->assertSame(count(array_filter($mine, fn ($e) => $e['kind'] === 'attempt')), $c('attempts'), "{$who}/{$preset}/{$row['name']}: attempts");
                         $this->assertSame(count(array_filter($mine, fn ($e) => $e['kind'] === 'conversation')), $c('conversations'), "{$who}/{$preset}/{$row['name']}: conversations");
-                        $this->assertSame(count(array_filter($mine, fn ($e) => $e['valuation'])), $c('valuations_booked'), "{$who}/{$preset}/{$row['name']}: valuations booked");
+                        $this->assertSame(count(array_filter($mine, fn ($e) => $e['valuation'])), $c('evaluations_booked'), "{$who}/{$preset}/{$row['name']}: evaluations booked");
                         $this->assertSame(count(array_filter($mine, fn ($e) => $e['dropped'])), $c('dropped'), "{$who}/{$preset}/{$row['name']}: dropped after no-answers");
                         foreach (array_keys(self::KIND) as $key) {
                             $this->assertSame(count(array_filter($mine, fn ($e) => $e['key'] === $key)), $c('outcome:' . $key), "{$who}/{$preset}/{$row['name']}: outcome {$key}");
@@ -671,7 +676,7 @@ final class AgentWeekScenarioTest extends TestCase
         foreach ([1, 2, 3] as $n) {
             $this->capture($this->ben, 'U01', 'no_answer', [], $this->itemFor($this->ben, 'U01', self::MON));
         }
-        $this->capture($this->ben, 'U02', 'spoke_valuation_booked', ['appointment_at' => '2026-10-20 10:00'], $this->itemFor($this->ben, 'U02', self::MON));
+        $this->capture($this->ben, 'U02', 'spoke_evaluation_booked', ['appointment_at' => '2026-10-20 10:00'], $this->itemFor($this->ben, 'U02', self::MON));
         $this->capture($this->ben, 'U03', 'spoke_call_back', ['next_action_at' => self::TUE], $this->itemFor($this->ben, 'U03', self::MON));
         $this->capture($this->ben, 'U04', 'spoke_not_interested', ['next_action_at' => '2026-10-20'], $this->itemFor($this->ben, 'U04', self::MON));
 
@@ -704,7 +709,7 @@ final class AgentWeekScenarioTest extends TestCase
         $this->workNext($this->ben, 'spoke_call_back', ['next_action_at' => self::FRI]);
         $this->workNext($this->anna, 'no_answer');
         $this->workNext($this->anna, 'no_answer');
-        $this->workNext($this->anna, 'spoke_valuation_booked', ['appointment_at' => '2026-10-22 14:00']);
+        $this->workNext($this->anna, 'spoke_evaluation_booked', ['appointment_at' => '2026-10-22 14:00']);
         $this->workNext($this->cara, 'wrong_number');
         $this->workNext($this->cara, 'spoke_call_back', ['next_action_at' => self::WED]);                  // due on the holiday: comes back next working day
 
@@ -751,7 +756,7 @@ final class AgentWeekScenarioTest extends TestCase
         $run = ($key === 'no_answer' && ($this->runs[$forAgent->id . ':' . $tp] ?? 0) >= 0) ? ($this->runs[$forAgent->id . ':' . $tp] ?? 0) + 1 : 0;
         $this->runs[$forAgent->id . ':' . $tp] = $key === 'no_answer' ? $run : 0;
         $this->ledger[] = [
-            'user' => $forAgent->id, 'key' => $key, 'kind' => self::KIND[$key], 'valuation' => isset($extra['appointment_at']) || $key === 'spoke_valuation_booked',
+            'user' => $forAgent->id, 'key' => $key, 'kind' => self::KIND[$key], 'valuation' => isset($extra['appointment_at']) || $key === 'spoke_evaluation_booked',
             'dropped' => $run >= 3, 'day' => Carbon::now()->toDateString(), 'item' => $item?->id, 'origin' => $item?->origin,
         ];
         $this->assertSame($this->ledger[array_key_last($this->ledger)]['dropped'], (bool) $row->dropped, "{$key} on {$property}: dropped after three no-answers in a row");
@@ -820,6 +825,9 @@ final class AgentWeekScenarioTest extends TestCase
     {
         return array_map(fn ($n) => $this->tpid($n), $names);
     }
+
+    /** Johan's rule: CoreX says "evaluation", never the old word (identifiers such as the valuation_booked column are never on screen). */
+    private const OLD_WORD = '/(?<![eE])valuation/i';
 
     private function visible(string $html): string
     {

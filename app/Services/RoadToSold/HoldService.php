@@ -95,7 +95,7 @@ class HoldService
      * said they should - whatever the 30-day hold says (a hold lapses; the agent's own date does not):
      *   - a return date still in the future (return after N days, a picked date, a mandate expiry date);
      *   - "move to the list" (wrong number: it is on the find-the-right-contact list, not the new-property list);
-     *   - a booked valuation (the appointment is the follow-up);
+     *   - a booked evaluation (the appointment is the follow-up);
      *   - dropped after N no-answers in a row (it is on the manager's report, off this agent's list).
      * A return date that has ARRIVED is a follow-up, not parked: it comes back through the follow-ups (OutcomeService::followUpsDue).
      * Another agent is not affected: for them the property is free again when the hold lapses (spec section 1: "lapses -> free").

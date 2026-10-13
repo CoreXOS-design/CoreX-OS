@@ -26,8 +26,8 @@ class SummaryBarService
     public const STEP_METRIC = [
         'calls_made'        => 'calls_made',
         'conversations'     => 'conversations',
-        'valuations_booked' => 'valuations_booked',
-        'valuations_done'   => 'valuations_done',
+        'evaluations_booked' => 'evaluations_booked',
+        'evaluations_done'   => 'evaluations_done',
         'mandates_signed'   => 'mandates_signed',
         'listings_live'     => 'listings_live',
     ];

@@ -16,7 +16,7 @@ use Illuminate\Support\Str;
  * Figures (each one drills to its rows through DrilldownService, which counts the same way):
  *   target            the call target over the period (WorkdayService - holidays and leave carry none)
  *   worked            list items worked toward the target
- *   attempts / conversations / valuations_booked / each outcome / dropped   from the call log
+ *   attempts / conversations / evaluations_booked / each outcome / dropped   from the call log
  *   added_worked      items worked on top of the target ("added" via Add to my day)
  *   missed            items missed or rolled over
  *
@@ -32,7 +32,7 @@ class ReportService
         'conversations'     => ['Conversations', 'higher_is_better'],
     ];
     public const TAIL = [
-        'valuations_booked' => ['Valuations booked', 'higher_is_better'],
+        'evaluations_booked' => ['Evaluations booked', 'higher_is_better'],
         'added_worked'      => ['Extra over target', 'higher_is_better'],
         'missed'            => ['Missed / rolled over', 'lower_is_better'],
         'dropped'           => ['Dropped after no-answers', 'lower_is_better'],
@@ -163,7 +163,7 @@ class ReportService
             $out[$u]['outcome:' . $r->outcome_key] = ($out[$u]['outcome:' . $r->outcome_key] ?? 0) + (int) $r->n;
             $kindKey = $r->kind === 'conversation' ? 'conversations' : 'attempts';
             $out[$u][$kindKey] = ($out[$u][$kindKey] ?? 0) + (int) $r->n;
-            $out[$u]['valuations_booked'] = ($out[$u]['valuations_booked'] ?? 0) + (int) $r->vb;
+            $out[$u]['evaluations_booked'] = ($out[$u]['evaluations_booked'] ?? 0) + (int) $r->vb;
             $out[$u]['dropped'] = ($out[$u]['dropped'] ?? 0) + (int) $r->dr;
         }
 
