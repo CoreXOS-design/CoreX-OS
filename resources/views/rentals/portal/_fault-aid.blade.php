@@ -34,7 +34,7 @@
                     <a :href="d.url" target="_blank" rel="noopener"><img :src="d.thumb_url || d.url" :alt="d.caption || 'Photo'" loading="lazy" decoding="async" class="aid-doc-img"></a>
                 </template>
                 <template x-if="d.type !== 'image'">
-                    <a class="link" :href="d.url" target="_blank" rel="noopener" x-text="(d.type === 'video_link' ? 'Watch: ' : 'Open: ') + (d.caption || (d.type === 'video_link' ? 'video' : 'document'))"></a>
+                    <a class="link" :href="d.url" target="_blank" rel="noopener" @click="openFile($event, d.url, false)" x-text="(d.type === 'video_link' ? 'Watch: ' : 'Open: ') + (d.caption || (d.type === 'video_link' ? 'video' : 'document'))"></a>
                 </template>
                 <span class="muted" x-show="d.type === 'image' && d.caption" x-text="d.caption"></span>
             </div>

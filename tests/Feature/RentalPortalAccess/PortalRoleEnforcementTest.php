@@ -101,7 +101,7 @@ final class PortalRoleEnforcementTest extends TestCase
         $this->assertStringContainsString("xhr.setRequestHeader('X-Portal-Role'", $shell);
         // a demo tab keeps its side in sessionStorage (per tab) and never writes it to localStorage
         $this->assertStringContainsString("sessionStorage.setItem('portal.demo.role'", $shell);
-        $this->assertStringContainsString('rememberRole(role) { try { if (this.demoTab) return;', $shell);
+        $this->assertMatchesRegularExpression('/rememberRole\(role\) \{\s+try \{\s+if \(this\.demoTab\) return;/', $shell);
         // and asks only about its own side
         $this->assertStringContainsString("only === 'owner' ? { ok: false }", $shell);
     }

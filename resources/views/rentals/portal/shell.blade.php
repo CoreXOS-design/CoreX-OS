@@ -531,8 +531,8 @@
                                                     <div class="row"><strong x-text="'Invoice ' + inv.invoice_number"></strong><span x-text="'R ' + Number(inv.amount).toFixed(2)"></span></div>
                                                     <div class="muted" x-text="[inv.supplier, inv.invoice_date].filter(Boolean).join(' · ')"></div>
                                                     <div style="display:flex; gap:14px; margin-top:6px;">
-                                                        <a class="link" :href="inv.view_url" target="_blank" rel="noopener">View</a>
-                                                        <a class="link" :href="inv.download_url">Download</a>
+                                                        <a class="link" :href="inv.view_url" target="_blank" rel="noopener" @click="openFile($event, inv.view_url, false)">View</a>
+                                                        <a class="link" :href="inv.download_url" @click="openFile($event, inv.download_url, true)">Download</a>
                                                     </div>
                                                 </div>
                                             </template>
@@ -574,7 +574,7 @@
                                                 <p class="muted">Quote: <strong x-text="money(w.owner_facing_amount)" data-wo-quote-amount></strong></p>
                                                 {{-- P2: what the quote covers, so there is something to judge the figure by --}}
                                                 <p data-wo-quote-details x-show="w.quote && w.quote.details" style="white-space:pre-line;" x-text="w.quote ? w.quote.details : ''"></p>
-                                                <p x-show="w.quote && w.quote.document_url"><a class="link" data-wo-quote-document :href="w.quote ? w.quote.document_url : '#'" target="_blank" rel="noopener">Open the contractor's quote document →</a></p>
+                                                <p x-show="w.quote && w.quote.document_url"><a class="link" data-wo-quote-document :href="w.quote ? w.quote.document_url : '#'" target="_blank" rel="noopener" @click="openFile($event, w.quote && w.quote.document_url, false)">Open the contractor's quote document →</a></p>
                                                 <p class="muted" x-show="!w.quote || (!w.quote.details && !w.quote.document_url)" data-wo-quote-nodetails>No further details were attached to this quote.</p>
                                                 <button class="btn btn-ok" :disabled="!!(busy['wo' + w.id])" @click="decideWorkOrder(w.id, 'approve')" x-text="busy['wo' + w.id] ? 'Sending…' : 'Approve'" data-wo-approve></button>
                                                 <button class="btn btn-danger" x-show="!declineOpen[w.id]" :disabled="!!(busy['wo' + w.id])" @click="declineOpen[w.id] = true" data-wo-decline>Decline</button>
@@ -766,18 +766,32 @@ async function ensureCsrfCookie() {
     }
 }
 
+// §28.5 PER-TAB SIGN-IN. This tab holds its OWN login as a short-lived token (sessionStorage = per tab, kept through reloads, gone when the tab
+// closes) and sends it on every portal call, so an owner in one tab and a tenant in another never sign each other out. If the browser will not
+// store it, the token lives in memory for the page's life and a reload asks the server for a new one (it remembers who signed in on this browser).
+let __tabToken = null;
+function tabTokenGet() {
+    if (__tabToken) return __tabToken;
+    try { __tabToken = window.sessionStorage.getItem('portal.tab.token') || null; } catch (e) { /* storage blocked: memory only */ }
+    return __tabToken;
+}
+function tabTokenSet(token) {
+    __tabToken = token || null;
+    try { if (token) window.sessionStorage.setItem('portal.tab.token', token); else window.sessionStorage.removeItem('portal.tab.token'); } catch (e) { /* memory only */ }
+}
+
 // §22 — `options.key` is the form's submission key: the server does the work once per key and replays its answer on a second press.
 async function portalFetch(url, options = {}) {
     await ensureCsrfCookie();
     const headers = Object.assign({
         'Accept': 'application/json',
         'X-XSRF-TOKEN': getCookie('XSRF-TOKEN'),
-    }, options.headers || {});
+    }, tabTokenGet() ? { 'Authorization': 'Bearer ' + tabTokenGet() } : {}, options.headers || {});
     if (options.key) headers['X-Submission-Key'] = options.key;
     // the contact the LINK named (a signed link says who it is for): the server uses it to choose among this login's own contacts, never for access
     if (window.__portalContact) headers['X-Portal-Contact'] = String(window.__portalContact);
     // which login THIS page believes it is acting as: if the browser's session has become somebody else's (another tab signed in), the server refuses
-    if (window.__portalExpect) headers['X-Portal-Expect'] = String(window.__portalExpect);
+    if (window.__portalExpect && !tabTokenGet()) headers['X-Portal-Expect'] = String(window.__portalExpect);
     // a QA demo tab is fixed to ONE side for its whole life; the server refuses a call that belongs to the other side (EnsurePortalRole)
     if (window.__portalRole) headers['X-Portal-Role'] = String(window.__portalRole);
     if (!(options.body instanceof FormData) && options.body) {
@@ -801,8 +815,9 @@ async function portalUpload(url, form, key, onProgress) {
         xhr.withCredentials = true;
         xhr.setRequestHeader('Accept', 'application/json');
         xhr.setRequestHeader('X-XSRF-TOKEN', getCookie('XSRF-TOKEN'));
+        if (tabTokenGet()) xhr.setRequestHeader('Authorization', 'Bearer ' + tabTokenGet());
         if (window.__portalContact) xhr.setRequestHeader('X-Portal-Contact', String(window.__portalContact));
-        if (window.__portalExpect) xhr.setRequestHeader('X-Portal-Expect', String(window.__portalExpect));
+        if (window.__portalExpect && !tabTokenGet()) xhr.setRequestHeader('X-Portal-Expect', String(window.__portalExpect));
         if (window.__portalRole) xhr.setRequestHeader('X-Portal-Role', String(window.__portalRole));
         if (key) xhr.setRequestHeader('X-Submission-Key', key);
         if (xhr.upload && onProgress) {
@@ -842,6 +857,7 @@ function rentalsPortal() {
         roles: [],
         activeRole: null,
         demoTab: false,   // opened from the QA demo sign-in link: fixed to one side for the life of the tab
+        qaLinkSignin: @json($qaLinkSignin ?? false),   // QA1 only: an emailed link signs its tab straight in (the server decides; false everywhere else)
         login: { step: 'email', email: '', password: '', code: '', newPassword: '', newPasswordConfirm: '', error: null, mustSetPassword: false },
         tenantTab: 'home',
         landlordTab: 'home',
@@ -888,9 +904,36 @@ function rentalsPortal() {
             const linked = String(@json($linkedEmail ?? null) || new URLSearchParams(window.location.search).get('email') || '').trim();
             if (linked && linked.length <= 255 && /^[^\s@]+@[^\s@]+$/.test(linked)) { this.login.email = linked; this.linkEmail = linked; }
             window.__portalContact = this.linkContactId || null;
-            // QA DEMO TAB (never on Staging/live: only the QA-only demo sign-in link adds ?demo=1). Owner and tenant are two tabs of one browser on one
-            // login, so the side must belong to the TAB, not to anything the other tab can overwrite: it comes from this tab's own URL (?as=) and
-            // sessionStorage (per tab), never localStorage, and is sent on every portal call so the server refuses a call from the wrong side.
+            // The demo sign-in link hands this tab its login in the URL FRAGMENT (#tt=...): take it, then wipe it from the address bar.
+            try {
+                const m = /[#&]tt=([^&]+)/.exec(window.location.hash || '');
+                if (m) { tabTokenSet(decodeURIComponent(m[1])); if (window.history && window.history.replaceState) window.history.replaceState(null, '', window.location.pathname + window.location.search); }
+            } catch (e) { /* no fragment to read */ }
+            this.applyDemoTab();
+            window.__portalOnSessionChanged = () => { this.sessionChanged = true; };
+            // coming back to this tab: has the browser's login changed under it while it sat in the background?
+            if (typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') this.recheckSession(); });
+            if (typeof window.addEventListener === 'function') window.addEventListener('focus', () => this.recheckSession());
+            const me = await this.startTabSession();
+            if (me && me.ok) {
+                this.session.authenticated = true;
+                this.me = me.data;
+                window.__portalExpect = null;   // a tab acts as its OWN login (its token), never as whatever the browser's cookie says
+                // A link made for ANOTHER person must never silently show this person's portal: say whose session this is.
+                if (this.linkIsForSomeoneElse(me.data)) {
+                    this.linkIssue = { kind: 'email', masked: this.maskEmail(this.linkEmail) };
+                } else {
+                    await this.detectRoles();
+                }
+            }
+            this.loading = false;
+        },
+
+        // QA DEMO TAB (never on Staging/live: only the QA-only demo sign-in link adds ?demo=1, and a QA emailed link signs in straight away). Owner and
+        // tenant can be two tabs of one browser, so the side must belong to the TAB, not to anything the other tab can overwrite: it comes from this
+        // tab's own URL (?as=) and sessionStorage (per tab), never localStorage, and is sent on every portal call so the server refuses a call from
+        // the wrong side.
+        applyDemoTab() {
             try {
                 const dq = new URLSearchParams(window.location.search);
                 if (dq.get('demo') === '1') sessionStorage.setItem('portal.demo', '1');
@@ -901,23 +944,33 @@ function rentalsPortal() {
                     window.__portalRole = asRole;
                 }
             } catch (e) { this.demoTab = false; window.__portalRole = null; }
-            window.__portalOnSessionChanged = () => { this.sessionChanged = true; };
-            // coming back to this tab: has the browser's login changed under it while it sat in the background?
-            if (typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') this.recheckSession(); });
-            if (typeof window.addEventListener === 'function') window.addEventListener('focus', () => this.recheckSession());
-            const me = await portalFetch('/api/v1/client/me');
-            if (me.ok) {
-                this.session.authenticated = true;
-                this.me = me.data;
-                window.__portalExpect = (me.data && me.data.client && me.data.client.id) || null;
-                // A link made for ANOTHER person must never silently show this person's portal: say whose session this is.
-                if (this.linkIsForSomeoneElse(me.data)) {
-                    this.linkIssue = { kind: 'email', masked: this.maskEmail(this.linkEmail) };
-                } else {
-                    await this.detectRoles();
+        },
+
+        // §28.5 - give THIS tab a login of its own, in this order, and return /client/me for it (null = nobody: show the sign-in):
+        //   1. the token this tab already holds - unless the link in the address bar is for a different person, in which case that link signs THIS
+        //      tab in as its person (the other tabs are untouched);
+        //   2. a person who has already signed in on this browser: the server hands this tab a token for the link's person (or the latest) - no password;
+        //   3. QA1 only: the emailed link itself signs in (its signed recipient reference), no code and no password.
+        async startTabSession() {
+            if (tabTokenGet()) {
+                const mine = await portalFetch('/api/v1/client/me');
+                if (mine.ok && !this.linkIsForSomeoneElse(mine.data)) return mine;
+                tabTokenSet(null);
+            }
+            const named = {};
+            if (this.linkEmail) named.email = this.linkEmail;
+            if (this.linkContactId) named.contact_id = this.linkContactId;
+            let got = await portalFetch('/api/v1/client-auth/tab-token', { method: 'POST', body: JSON.stringify(named) });
+            if (!got.ok && this.qaLinkSignin) {
+                const ref = new URLSearchParams(window.location.search).get('r');
+                if (ref) {
+                    got = await portalFetch('/api/v1/client-auth/qa-link-signin', { method: 'POST', body: JSON.stringify({ r: ref }) });
+                    if (got.ok) { try { sessionStorage.setItem('portal.demo', '1'); } catch (e) { /* per-tab side not remembered */ } this.applyDemoTab(); }
                 }
             }
-            this.loading = false;
+            if (!got.ok || !got.data || !got.data.token) return null;
+            tabTokenSet(got.data.token);
+            return await portalFetch('/api/v1/client/me');
         },
 
         // Is the link for somebody other than the person signed in? By address, unless the server says the contact the link names is theirs
@@ -934,7 +987,7 @@ function rentalsPortal() {
         async recheckSession() {
             if (this.sessionChanged || !this.session.authenticated || !this.me || !this.me.client) return;
             const r = await portalFetch('/api/v1/client/me');
-            if (!r.ok) { if (r.status === 401) this.sessionChanged = true; return; }
+            if (!r.ok) { if (r.status === 401) { if (tabTokenGet()) this.reloadPage(); else this.sessionChanged = true; } return; }   // a tab's own login ran out: start it again
             if (r.data && r.data.client && r.data.client.id !== this.me.client.id) this.sessionChanged = true;
         },
         reloadPage() { window.location.reload(); },
@@ -968,8 +1021,45 @@ function rentalsPortal() {
             if (!d) return '';
             return (u.length <= 2 ? u[0] + '*' : u[0] + '*'.repeat(Math.min(6, u.length - 2)) + u[u.length - 1]) + '@' + d;
         },
-        rememberedRole() { try { if (this.demoTab) return window.sessionStorage.getItem('portal.demo.role') === 'owner' ? 'landlord' : (window.sessionStorage.getItem('portal.demo.role') === 'tenant' ? 'tenant' : null); return window.localStorage.getItem('portal.role.' + ((this.me && this.me.client && this.me.client.id) || '')) || null; } catch (e) { return null; } },
-        rememberRole(role) { try { if (this.demoTab) return; window.localStorage.setItem('portal.role.' + ((this.me && this.me.client && this.me.client.id) || ''), role); } catch (e) { /* private window: the choice just is not remembered */ } },
+        rememberedRole() {
+            try {
+                if (this.demoTab) return window.sessionStorage.getItem('portal.demo.role') === 'owner' ? 'landlord' : (window.sessionStorage.getItem('portal.demo.role') === 'tenant' ? 'tenant' : null);
+                // §28.5 - a tab remembers ITS side (sessionStorage), so a login that is both owner and tenant can have the two sides open in two tabs;
+                // a brand-new tab starts on the side this login last used anywhere.
+                return window.sessionStorage.getItem('portal.tab.role') || window.localStorage.getItem('portal.role.' + ((this.me && this.me.client && this.me.client.id) || '')) || null;
+            } catch (e) { return null; }
+        },
+        rememberRole(role) {
+            try {
+                if (this.demoTab) return;
+                window.sessionStorage.setItem('portal.tab.role', role);
+                window.localStorage.setItem('portal.role.' + ((this.me && this.me.client && this.me.client.id) || ''), role);
+            } catch (e) { /* private window: the choice just is not remembered */ }
+        },
+
+        // §28.5 - a private file (invoice, quote document, lease paper) is behind the portal login. A tab's login is a token, which a plain link cannot
+        // carry, so the file is fetched with it and opened/saved from the page. A public file (a photo) or an older cookie-session tab opens as a normal link.
+        async openFile(ev, url, download) {
+            let path = '';
+            try { const u = new URL(String(url || ''), window.location.origin); if (u.origin === window.location.origin) path = u.pathname; } catch (e) { return; }
+            if (!tabTokenGet() || path.indexOf('/api/') !== 0) return;
+            ev.preventDefault();
+            const win = download ? null : window.open('', '_blank');
+            try {
+                const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + tabTokenGet(), 'Accept': '*/*' }, credentials: 'same-origin' });
+                if (!res.ok) throw new Error('status ' + res.status);
+                const blob = await res.blob();
+                const href = URL.createObjectURL(blob);
+                if (win) { win.location.href = href; } else {
+                    const name = (/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(res.headers.get('Content-Disposition') || '') || [])[1] || 'document';
+                    const a = document.createElement('a'); a.href = href; a.download = decodeURIComponent(name); document.body.appendChild(a); a.click(); a.remove();
+                }
+                setTimeout(() => URL.revokeObjectURL(href), 60000);
+            } catch (e) {
+                if (win) win.close();
+                alert('We could not open that file. Please try again.');
+            }
+        },
 
         async loadBranding() {
             const r = await portalFetch('/api/v1/client/rentals/branding');
@@ -1085,9 +1175,10 @@ function rentalsPortal() {
                 const r = await portalFetch('/api/v1/client-auth/password/set', {
                     method: 'POST',
                     headers: { 'Authorization': 'Bearer ' + this.login.activationToken },
-                    body: JSON.stringify({ password: this.login.newPassword, password_confirmation: this.login.newPasswordConfirm }),
+                    body: JSON.stringify({ password: this.login.newPassword, password_confirmation: this.login.newPasswordConfirm, tab: true }),
                 });
                 if (!r.ok) { this.login.error = r.data?.message || 'Could not set password.'; return; }
+                if (r.data && r.data.token) tabTokenSet(r.data.token);   // this tab's own login (§28.5)
                 await this.afterSignIn();
             });
         },
@@ -1095,14 +1186,17 @@ function rentalsPortal() {
         async passwordLogin() {
             return this.once('login', async () => {
                 this.login.error = null;
-                const r = await portalFetch('/api/v1/client-auth/login', { method: 'POST', body: JSON.stringify({ email: this.login.email, password: this.login.password }) });
+                const r = await portalFetch('/api/v1/client-auth/login', { method: 'POST', body: JSON.stringify({ email: this.login.email, password: this.login.password, tab: true }) });
                 if (!r.ok) { this.login.error = r.data?.message || 'Invalid credentials.'; return; }
+                if (r.data && r.data.token) tabTokenSet(r.data.token);   // this tab's own login (§28.5)
                 await this.afterSignIn();
             });
         },
 
         async logout() {
-            await portalFetch('/api/v1/client-auth/logout', { method: 'POST' });
+            await portalFetch('/api/v1/client-auth/logout', { method: 'POST' });   // a tab signs out of ITS OWN login only; other tabs stay signed in (§28.5)
+            tabTokenSet(null);
+            try { sessionStorage.removeItem('portal.tab.role'); } catch (e) { /* nothing stored */ }
             window.__portalExpect = null;
             this.session.authenticated = false;
             this.roles = [];
