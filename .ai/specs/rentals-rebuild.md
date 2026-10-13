@@ -50,6 +50,11 @@ own result grids:
   **filters** (status + date range minimum, per BUILD_STANDARD.md §1b), **per-page** selector, **show
   archived** toggle, **Print list**, **Export**.
 - **A real empty state** distinguishing "nothing yet" from "no results for this filter."
+- **Tiles follow the page's context, not its ad-hoc filters (14 Oct 2026, go-live walk).** When a list is narrowed to one lease or
+  property by a hub link (`?lease_id=`), the tiles count that same lease - never "24 total" beside a list of 3. Search, status and
+  date range stay ad-hoc: they narrow the rows, not the tiles. Built on Inspections (`RentalInspectionController::index`
+  `$tileBase`, `RentalInspectionListStandardTest::test_tiles_follow_the_lease_the_list_is_narrowed_to`); Fault Reports and Work
+  Orders carry the same `lease_id` narrowing and still need it (reported, not changed).
 - **Every list, detail, export, and download action re-checks own/branch/agency scope at the query
   layer, independent of how the request arrived** (direct-URL-by-ID blocked, not just unlinked) —
   this is the one floor item the audit found genuinely missing today on four of five rental list

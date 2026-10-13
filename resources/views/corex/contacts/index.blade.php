@@ -916,6 +916,7 @@
 
         </div>
         @empty
+        @php $contactsNarrowed = request()->filled('search') || request()->filled('type') || request()->filled('agent_id') || request()->filled('channel') || request()->filled('outreach_state'); @endphp
         <div class="py-12 px-6 text-center">
             <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
                  style="background: color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color: var(--brand-icon,#0ea5e9);">
@@ -930,11 +931,20 @@
                         Tenants, prospective tenants, and landlords show up here automatically once they're typed on the Contacts screen, or once a rental application is approved.
                     @endif
                 </p>
+            @elseif($contactsNarrowed)
+                {{-- 14 Oct 2026 (go-live walk): a search / filter that matches nothing is not "no contacts yet" - the agent HAS contacts. --}}
+                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);" data-qa="contacts-no-match">No contacts match this search or filter</h3>
+                <p class="text-sm mb-4" style="color: var(--text-muted);">Check the spelling, or clear the search and filters to see everyone you can see.</p>
             @else
-                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No contacts yet</h3>
+                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);" data-qa="contacts-none-yet">No contacts yet</h3>
                 <p class="text-sm mb-4" style="color: var(--text-muted);">Add your first contact to start tracking relationships.</p>
             @endif
-            <button type="button" @click="showAdd = true" class="corex-btn-primary text-sm">Add Contact</button>
+            <div class="flex items-center justify-center gap-2">
+                @if(! $isRentalEntry && $contactsNarrowed)
+                    <a href="{{ route('corex.contacts.index') }}" class="corex-btn-outline text-sm" data-qa="contacts-clear-filters">Clear search and filters</a>
+                @endif
+                <button type="button" @click="showAdd = true" class="corex-btn-primary text-sm">Add Contact</button>
+            </div>
         </div>
         @endforelse
 
