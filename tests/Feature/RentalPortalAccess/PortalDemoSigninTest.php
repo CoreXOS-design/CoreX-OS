@@ -129,6 +129,26 @@ final class PortalDemoSigninTest extends TestCase
         $this->assertSame($this->ownerLogin->id, Auth::guard('client-web')->id());
     }
 
+    public function test_both_links_of_one_login_open_their_own_side_and_the_second_does_not_change_the_login(): void
+    {
+        $this->register('qa', true);
+        // the two demo contacts on ONE login (one session cookie, so two tabs never evict each other)
+        $this->tenant->forceFill(['client_user_id' => $this->ownerLogin->id])->saveQuietly();
+        $ownerToken = PortalDemoSignin::issue($this->owner, 'owner');
+        $tenantToken = PortalDemoSignin::issue($this->tenant, 'tenant');
+
+        $first = $this->get('/demo-signin/' . $ownerToken);
+        $this->assertStringContainsString('as=owner', $first->headers->get('Location'));
+        $this->assertStringContainsString('demo=1', $first->headers->get('Location'));
+        $loginAfterFirst = Auth::guard('client-web')->id();
+
+        $second = $this->get('/demo-signin/' . $tenantToken);   // same browser session, second tab
+        $this->assertStringContainsString('as=tenant', $second->headers->get('Location'));
+        $this->assertStringContainsString('demo=1', $second->headers->get('Location'));
+        $this->assertSame($loginAfterFirst, Auth::guard('client-web')->id(), 'the login must not change when the second tab opens');
+        $this->assertSame($this->ownerLogin->id, Auth::guard('client-web')->id());
+    }
+
     public function test_a_revoked_token_and_a_reissued_token_replace_the_old_one(): void
     {
         $this->register('qa', true);

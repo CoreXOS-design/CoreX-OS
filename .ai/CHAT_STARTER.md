@@ -29,6 +29,7 @@ This applies to the conductor too.
 
 # CoreX OS — Chat Starter
 > Auto-maintained by VS Code per CLAUDE.md rule. Paste into a new Claude chat to load context.
+> Last updated: 2026-10-13 (QA demo tabs) by **AT-452 QA demo tabs: owner and tenant as two tabs of ONE browser on ONE login, each tab fixed to its side (URL + sessionStorage, X-Portal-Role on every call, EnsurePortalRole refuses the other side's calls); QA1 only, rental-portal-access.md.**
 > Last updated: 2026-10-13 (QA demo sign-in) by **AT-452 QA demo sign-in, QA1 ONLY: one-click owner / tenant portal links (hashed, revocable, logged) that exist only when APP_ENV=qa AND PORTAL_DEMO_SIGNIN=true (route not registered anywhere else); spec rental-portal-access.md "QA demo sign-in (never on Staging/live)".**
 > Last updated: 2026-10-13 (contractor quote) by **AT-452 contractor page: once the agency has chosen the contractor's quote the link says "Your quote of R6,800.00 is with the owner" instead of offering the upload form again (QA1 only; spec §22.14).**
 > Last updated: 2026-10-13 (agency name) by **AT-452 agency display name, the whole class (QA1 only; spec §22.14): `Agency::displayNameFor()` is the one place a customer-facing agency name is built (never the half-filled `trading_name` 'Johan and Elize Properties T/A'); every rentals mail, the shared email footer, the portal header, the inspection report branding, all rentals PDFs and the secure-link / email-link pages use it, and `AgencyDisplayNameClassTest` fails if any rentals code or template builds the name by hand.**

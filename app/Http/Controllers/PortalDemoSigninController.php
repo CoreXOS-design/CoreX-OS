@@ -38,6 +38,7 @@ class PortalDemoSigninController extends Controller
 
         $view = $record->role === 'owner' ? PortalLink::VIEW_OWNER : PortalLink::VIEW_TENANT;
 
-        return redirect()->to(PortalLink::personal((string) $login->email, $view, [], (int) $contact->id));
+        // demo=1: this tab is a QA demo tab, fixed to this side for its whole life (portal shell + EnsurePortalRole)
+        return redirect()->to(PortalLink::personal((string) $login->email, $view, [], (int) $contact->id) . '&demo=1');
     }
 }
