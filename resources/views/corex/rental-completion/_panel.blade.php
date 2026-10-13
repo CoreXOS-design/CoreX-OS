@@ -33,7 +33,7 @@
 @if($cpShow)
 <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid {{ $cpDisputed ? 'var(--ds-crimson, #dc2626)' : 'var(--border)' }};" id="completion-check-panel" data-completion-panel>
     <div class="flex items-center justify-between gap-2">
-        <h2 class="text-sm font-semibold">Completion check</h2>
+        <h2 class="text-sm font-semibold wo-embedded-title">Completion check</h2>
         @if($cpDisputed)
             <span class="ds-badge ds-badge-danger">Disputed</span>
         @elseif($cpUnseen)

@@ -15,6 +15,11 @@ return [
     // a login identifier.
     'fake_email_domain' => env('CLIENT_AUTH_FAKE_DOMAIN', 'corexclient.co.za'),
 
+    // QA DEMO SIGN-IN (never on Staging/live) - .ai/specs/rental-portal-access.md "QA demo sign-in". One-click links that sign a browser
+    // into the portal as a named demo contact with no emailed code. The route exists ONLY when APP_ENV is `qa` AND this flag is on; the
+    // flag is false everywhere unless PORTAL_DEMO_SIGNIN=true is set in that environment's own .env (QA1 only).
+    'demo_signin_enabled' => (bool) env('PORTAL_DEMO_SIGNIN', false),
+
     // Sanctum token settings for client tokens
     'token' => [
         'name_default'      => 'CoreX Client App',
