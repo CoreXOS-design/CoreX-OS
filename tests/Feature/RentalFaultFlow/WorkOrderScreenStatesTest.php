@@ -121,7 +121,9 @@ final class WorkOrderScreenStatesTest extends TestCase
         ]);
         $html = $this->page($wo);
 
-        $this->assertNext($html, 'waiting_contractor', 'Waiting for Acme Plumbing to accept or quote.', 'Send the job again');
+        $this->assertNext($html, 'waiting_contractor', 'Waiting for Acme Plumbing to accept or quote.', 'Capture a quote');
+        $this->assertMatchesRegularExpression('/<button type="submit" form="wo-send-job-form" class="corex-btn-outline text-xs" data-next-secondary>Send the job again<\/button>/', $html, '"Send the job again" is the secondary button beside it');
+        $this->assertStringContainsString('data-wo-click="[data-capture-quote-toggle]; [data-quote-amount]"', $html, 'the primary button opens the form with the cursor in Amount');
         $this->assertSame('done', $this->step($html, 'contractor_sent'));
         $this->assertSame('current', $this->step($html, 'quote_in'));
     }
@@ -380,5 +382,62 @@ final class WorkOrderScreenStatesTest extends TestCase
 
         $wo->forceFill(['tenant_confirmed_fixed' => false, 'tenant_confirmation_note' => 'It still drips'])->save();
         $this->assertNext($this->page($wo), 'tenant_not_fixed', 'Tenant says it is NOT fixed - It still drips', 'Send the contractor back');
+    }
+
+    // ── polish round 3 ───────────────────────────────────────────────────────
+
+    public function test_the_quote_capture_form_is_one_grid_with_one_submit_button_and_a_pre_filled_date(): void
+    {
+        $wo = $this->externalWorkOrder();
+        $html = $this->page($wo);
+
+        $this->assertStringContainsString('class="wo-grid-3"', $html);
+        $this->assertSame(1, substr_count($html, '>Capture quote</button>'), 'ONE submit button');
+        $this->assertStringContainsString('data-quote-amount', $html);
+        $this->assertMatchesRegularExpression('/name="quote_date" required value="\d{4}-\d{2}-\d{2}"/', $html);
+        $this->assertStringContainsString('display:none;" data-capture-quote-toggle', $html, 'no second "Capture a quote" button above the form while the form is open');
+    }
+
+    public function test_the_message_after_capturing_a_quote_no_longer_says_to_send_the_work_order(): void
+    {
+        $sup = $this->supplier('Quote Plumbing');
+        $this->ownerLimits(1500.0);
+        $wo = $this->externalWorkOrder();
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.quotes.store', $wo), ['agency_service_provider_id' => $sup->id, 'amount' => 850, 'quote_date' => now()->toDateString(), 'detail_text' => 'x'])
+            ->assertSessionHas('success', 'Quote captured. Authorise its cost under "Approve the cost".');
+
+        $this->ownerLimits(500.0);
+        $wo2 = $this->externalWorkOrder();
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.quotes.store', $wo2), ['agency_service_provider_id' => $sup->id, 'amount' => 2000, 'quote_date' => now()->toDateString(), 'detail_text' => 'x']);
+        $this->assertStringStartsWith("Quote captured. It is above the owner's limit and has gone to", (string) session('success'));
+        $this->assertStringNotContainsString('send the work order', (string) session('success'));
+    }
+
+    public function test_the_top_badge_says_go_ahead_sent_once_the_go_ahead_has_gone_without_touching_the_stored_status(): void
+    {
+        $this->ownerLimits(1500.0);
+        $sup = $this->supplier('Quote Plumbing');
+        $wo = $this->quoted(850.0, $sup->id);
+        $this->authoriseCostOf($wo);
+        $wo->fresh()->assignSupplier($sup->id, null, $this->admin);
+
+        $this->assertMatchesRegularExpression('/data-stage-badge>Sent to contractor</', $this->page($wo), 'job sent, no go-ahead yet');
+
+        app(\App\Services\Rentals\RentalWorkOrderService::class)->sendContractorWorkOrder($wo->fresh(), $this->admin);
+        $this->assertMatchesRegularExpression('/data-stage-badge>Go-ahead sent</', $this->page($wo));
+        $this->assertSame(RentalWorkOrder::STATUS_ORDERED, $wo->fresh()->status, 'display only: the stored status is unchanged');
+    }
+
+    public function test_the_supplier_invoice_form_has_labels_above_and_one_row(): void
+    {
+        $this->ownerLimits(1500.0);
+        $sup = $this->supplier('Quote Plumbing');
+        $wo = $this->quoted(850.0, $sup->id);
+        $wo->forceFill(['status' => RentalWorkOrder::STATUS_ORDERED])->save();
+        $html = $this->page($wo);
+
+        $this->assertStringContainsString('data-invoice-upload-form', $html);
+        $this->assertMatchesRegularExpression('/class="wo-grid-4">\s*<div>\s*<label class="wo-lbl" for="wo-inv-number">Invoice number<\/label>.*?for="wo-inv-date".*?for="wo-inv-amount".*?for="wo-inv-supplier"/s', $html);
+        $this->assertSame(1, substr_count($html, '>File invoice</button>'));
     }
 }

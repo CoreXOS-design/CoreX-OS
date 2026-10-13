@@ -158,7 +158,7 @@ final class RentalWorkOrderScreen
             if ($declined) {
                 $next = ['key' => 'owner_declined', 'tone' => 'danger', 'text' => 'The owner declined the quote' . ($declinedQuote ? ' (' . ($declinedQuote->supplier?->name ?? 'supplier') . ', ' . self::money($declinedQuote->ownerFacingAmount()) . ')' : '')
                     . ($declinedQuote?->decline_reason ? ': ' . $declinedQuote->decline_reason : '.') . ' Capture another quote, or cancel the work order - that closes the fault as "owner declined".', 'panel' => 'quotes',
-                    'button' => $btnGo('Capture a quote', 'quotes', '[data-capture-quote-toggle]')];
+                    'button' => $btnGo('Capture a quote', 'quotes', '[data-capture-quote-toggle]; [data-quote-amount]')];
             } elseif ($authorised && $goAheadAt && $wo->status === RentalWorkOrder::STATUS_ORDERED) {
                 $next = ['key' => 'go_ahead_sent', 'tone' => 'ok', 'text' => 'Approved. Go-ahead sent to ' . $contractor . ' ' . $fmt($goAheadAt) . '.', 'panel' => 'completion',
                     'button' => ($can['complete'] ?? false) ? $btnGo('Mark the work as complete', 'completion', '[data-complete-work-order]') : null];
@@ -191,8 +191,10 @@ final class RentalWorkOrderScreen
                     'button' => ($can['create'] ?? false) ? $btnForm('Send the job to ' . $js['provider']->name, 'wo-send-job-form') : null];
             } else {
                 $answer = $js['response'] === 'accepted' ? $js['provider']->name . ' accepted the job and is preparing a quote.' : 'Waiting for ' . $js['provider']->name . ' to accept or quote.';
-                $next = ['key' => 'waiting_contractor', 'tone' => 'info', 'text' => $answer, 'panel' => 'contractor',
-                    'button' => ($can['create'] ?? false) && $js['can_send'] ? $btnForm('Send the job again', 'wo-send-job-form') : null];
+                // what the agent does next is capture the contractor's quote; sending the job again is the secondary action beside it
+                $next = ['key' => 'waiting_contractor', 'tone' => 'info', 'text' => $answer, 'panel' => 'quotes',
+                    'button' => ($can['create'] ?? false) ? $btnGo('Capture a quote', 'quotes', '[data-capture-quote-toggle]; [data-quote-amount]') : null,
+                    'secondary' => ($can['create'] ?? false) && $js['can_send'] ? $btnForm('Send the job again', 'wo-send-job-form') : null];
             }
         }
 
@@ -219,6 +221,6 @@ final class RentalWorkOrderScreen
                 : ($wo->history()->count() ? 'Logged ' . $fmt($wo->history()->first()['at']) : 'No history yet'),
         ];
 
-        return ['steps' => $out, 'next' => $next, 'panels' => $panels, 'tz' => $tz, 'cancelled' => $cancelled];
+        return ['steps' => $out, 'next' => $next, 'panels' => $panels, 'tz' => $tz, 'cancelled' => $cancelled, 'goAheadSent' => $goAheadAt !== null];
     }
 }
