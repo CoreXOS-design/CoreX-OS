@@ -25,7 +25,7 @@
                     <td>{{ $workOrder->title }}</td>
                     <td>{{ ucfirst(str_replace('_', ' ', $workOrder->status)) }}</td>
                     <td>{{ $workOrder->priority ? ucfirst($workOrder->priority) : '—' }}</td>
-                    <td>{{ $workOrder->supplier?->name ?? '—' }}</td>
+                    <td>{{ $workOrder->supplier?->displayName() ?? '—' }}</td>
                     <td>{{ $workOrder->paid_by ? ucfirst(str_replace('_', ' ', $workOrder->paid_by)) : '—' }}</td>
                     <td>{{ $workOrder->causeSummary() ?: '—' }}</td>
                     <td>{{ $workOrder->whoPaysLabel() ?: '—' }}</td>

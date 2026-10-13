@@ -29,6 +29,7 @@ This applies to the conductor too.
 
 # CoreX OS — Chat Starter
 > Auto-maintained by VS Code per CLAUDE.md rule. Paste into a new Claude chat to load context.
+> Last updated: 2026-10-13 (supplier label) by **AT-452 one supplier label (business name - contact person) and one supplier search (name, company, email, phone, trade) used by the directory, the fault contractor picker, the work order screens and the pipeline dropdown (QA1 only; spec §20).**
 > Last updated: 2026-10-13 (QA demo tabs) by **AT-452 QA demo tabs: owner and tenant as two tabs of ONE browser on ONE login, each tab fixed to its side (URL + sessionStorage, X-Portal-Role on every call, EnsurePortalRole refuses the other side's calls); QA1 only, rental-portal-access.md.**
 > Last updated: 2026-10-13 (QA demo sign-in) by **AT-452 QA demo sign-in, QA1 ONLY: one-click owner / tenant portal links (hashed, revocable, logged) that exist only when APP_ENV=qa AND PORTAL_DEMO_SIGNIN=true (route not registered anywhere else); spec rental-portal-access.md "QA demo sign-in (never on Staging/live)".**
 > Last updated: 2026-10-13 (contractor quote) by **AT-452 contractor page: once the agency has chosen the contractor's quote the link says "Your quote of R6,800.00 is with the owner" instead of offering the upload form again (QA1 only; spec §22.14).**

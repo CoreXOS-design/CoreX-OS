@@ -334,18 +334,18 @@ final class SupplierCalloutFeeTest extends TestCase
             return $m[1];
         };
 
-        $this->assertSame(['Alpha Sparks', 'Bravo Plumbing', 'Charlie Roofing', 'Delta Gutters'], $names([]), 'the other agency is not listed');
-        $this->assertSame(['Alpha Sparks'], $names(['q' => 'bright spark']), 'company');
-        $this->assertSame(['Alpha Sparks'], $names(['q' => '0831110000']), 'phone');
-        $this->assertSame(['Alpha Sparks'], $names(['q' => 'alpha@']), 'email');
+        $this->assertSame(['Bright Spark Ltd - Alpha Sparks', 'Bravo Plumbing', 'Charlie Roofing', 'Delta Gutters'], $names([]), 'the other agency is not listed');
+        $this->assertSame(['Bright Spark Ltd - Alpha Sparks'], $names(['q' => 'bright spark']), 'company');
+        $this->assertSame(['Bright Spark Ltd - Alpha Sparks'], $names(['q' => '0831110000']), 'phone');
+        $this->assertSame(['Bright Spark Ltd - Alpha Sparks'], $names(['q' => 'alpha@']), 'email');
         $this->assertSame([], $names(['q' => 'Zulu']), 'another agency is never searchable');
-        $this->assertSame(['Alpha Sparks', 'Bravo Plumbing'], $names(['callout' => 'yes']));
+        $this->assertSame(['Bright Spark Ltd - Alpha Sparks', 'Bravo Plumbing'], $names(['callout' => 'yes']));
         $this->assertSame(['Charlie Roofing'], $names(['callout' => 'no']));
         $this->assertSame(['Delta Gutters'], $names(['callout' => 'unknown']));
-        $this->assertSame(['Bravo Plumbing', 'Alpha Sparks', 'Charlie Roofing', 'Delta Gutters'], $names(['sort' => 'callout', 'dir' => 'asc']), 'charges (largest first), no fee, not known');
-        $this->assertSame(['Delta Gutters', 'Charlie Roofing', 'Alpha Sparks', 'Bravo Plumbing'], $names(['sort' => 'callout', 'dir' => 'desc']));
-        $this->assertSame(['Delta Gutters', 'Charlie Roofing', 'Bravo Plumbing', 'Alpha Sparks'], $names(['sort' => 'name', 'dir' => 'desc']));
-        $this->assertSame(['Alpha Sparks'], $names(['q' => 'alpha', 'callout' => 'yes']));
+        $this->assertSame(['Bravo Plumbing', 'Bright Spark Ltd - Alpha Sparks', 'Charlie Roofing', 'Delta Gutters'], $names(['sort' => 'callout', 'dir' => 'asc']), 'charges (largest first), no fee, not known');
+        $this->assertSame(['Delta Gutters', 'Charlie Roofing', 'Bright Spark Ltd - Alpha Sparks', 'Bravo Plumbing'], $names(['sort' => 'callout', 'dir' => 'desc']));
+        $this->assertSame(['Delta Gutters', 'Charlie Roofing', 'Bravo Plumbing', 'Bright Spark Ltd - Alpha Sparks'], $names(['sort' => 'name', 'dir' => 'desc']));
+        $this->assertSame(['Bright Spark Ltd - Alpha Sparks'], $names(['q' => 'alpha', 'callout' => 'yes']));
         $this->assertSame([], $names(['q' => 'alpha', 'callout' => 'no']));
 
         // an invalid sort / filter value is absorbed, never a 500

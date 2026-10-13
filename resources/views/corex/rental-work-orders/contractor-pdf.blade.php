@@ -26,7 +26,7 @@
     <div class="box">
         @if($quote)
             <table>
-                <tr><td class="label">Contractor</td><td>{{ $workOrder->supplier?->name ?? $quote->supplier?->name ?? '—' }}</td></tr>
+                <tr><td class="label">Contractor</td><td>{{ $workOrder->supplier?->displayName() ?? $quote->supplier?->displayName() ?? '—' }}</td></tr>
                 <tr><td class="label">Quote amount</td><td><strong>R{{ number_format((float) $quote->amount, 2) }}</strong></td></tr>
                 <tr><td class="label">Quote date</td><td>{{ $quote->quote_date?->format('Y-m-d') ?? '—' }}</td></tr>
             </table>

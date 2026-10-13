@@ -230,7 +230,7 @@
                         @else
                             <strong>{{ $money($selectedQuote->ownerFacingAmount()) }}</strong>
                         @endif
-                        - {{ $selectedQuote->supplier?->name ?? 'the contractor' }}, {{ \App\Support\AppDate::day($selectedQuote->quote_date, $woTz) }}
+                        - {{ $selectedQuote->supplier?->displayName() ?? 'the contractor' }}, {{ \App\Support\AppDate::day($selectedQuote->quote_date, $woTz) }}
                         @if($selectedQuote->document_storage_path) &middot; <a href="{{ route('corex.rental-work-orders.quotes.download', [$workOrder, $selectedQuote]) }}" class="underline">Document</a>@endif
                     </dd>
                 @elseif($isInternal && ($costMeasure['source'] ?? '') === 'crew')
@@ -464,9 +464,9 @@
                         <span>
                             {{-- BUILD 2 (§17.9.1a) - the agency's fee on an outside contractor's quote is the agency's margin: only staff who can see costs see it. --}}
                             @if((float) $quote->fee_amount > 0 && $canSeeFee)
-                                {{ $quote->supplier?->name ?? 'Unknown supplier' }} &mdash; quote {{ $money($quote->amount) }} + fee {{ $money($quote->fee_amount) }} = <strong>{{ $money($quote->ownerFacingAmount()) }}</strong> to the owner
+                                {{ $quote->supplier?->displayName() ?? 'Unknown supplier' }} &mdash; quote {{ $money($quote->amount) }} + fee {{ $money($quote->fee_amount) }} = <strong>{{ $money($quote->ownerFacingAmount()) }}</strong> to the owner
                             @else
-                                {{ $quote->supplier?->name ?? 'Unknown supplier' }} &mdash; <strong>{{ $money($quote->ownerFacingAmount()) }}</strong>
+                                {{ $quote->supplier?->displayName() ?? 'Unknown supplier' }} &mdash; <strong>{{ $money($quote->ownerFacingAmount()) }}</strong>
                             @endif
                             <span style="color: var(--text-muted);">({{ \App\Support\AppDate::day($quote->quote_date, $woTz) }})</span>
                             @if($quote->is_selected && $workOrder->owner_approval_status !== \App\Models\RentalWorkOrder::APPROVAL_DECLINED)
@@ -510,7 +510,7 @@
                                     <label class="text-xs">Supplier</label><br>
                                     <select name="agency_service_provider_id" required class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
                                         @foreach(\App\Models\DealV2\AgencyServiceProvider::active()->maintenanceContractors()->pickerOrder()->get() as $provider)
-                                            <option value="{{ $provider->id }}" @selected($quote->agency_service_provider_id === $provider->id)>{{ $provider->name }} - {{ $provider->calloutFeeSuffix() }}</option>
+                                            <option value="{{ $provider->id }}" @selected($quote->agency_service_provider_id === $provider->id)>{{ $provider->displayName() }} - {{ $provider->calloutFeeSuffix() }}</option>
                                         @endforeach
                                     </select>
                                 </div>
@@ -548,7 +548,7 @@
                 <ul id="archived-quotes" class="hidden space-y-1 text-sm pt-1">
                     @foreach($archivedQuotes as $archived)
                         <li class="flex items-center justify-between gap-2">
-                            <span style="color: var(--text-muted);">{{ $archived->supplier?->name ?? 'Unknown supplier' }} &mdash; {{ $money($archived->amount) }} ({{ \App\Support\AppDate::day($archived->quote_date, $woTz) }})</span>
+                            <span style="color: var(--text-muted);">{{ $archived->supplier?->displayName() ?? 'Unknown supplier' }} &mdash; {{ $money($archived->amount) }} ({{ \App\Support\AppDate::day($archived->quote_date, $woTz) }})</span>
                             <form method="POST" action="{{ route('corex.rental-work-orders.quotes.restore', [$workOrder, $archived->id]) }}">
                                 @csrf
                                 <button type="submit" class="corex-btn-outline text-xs">Restore</button>
@@ -573,7 +573,7 @@
                         <select id="wo-quote-supplier" name="agency_service_provider_id" required x-model="chosen" class="wo-ctl">
                             <option value="">Select…</option>
                             @foreach($quotePickList as $provider)
-                                <option value="{{ $provider->id }}" @selected((int) old('agency_service_provider_id', $workOrder->agency_service_provider_id) === (int) $provider->id)>{{ $provider->name }} - {{ $provider->calloutFeeSuffix() }}</option>
+                                <option value="{{ $provider->id }}" @selected((int) old('agency_service_provider_id', $workOrder->agency_service_provider_id) === (int) $provider->id)>{{ $provider->displayName() }} - {{ $provider->calloutFeeSuffix() }}</option>
                             @endforeach
                         </select>
                     </div>

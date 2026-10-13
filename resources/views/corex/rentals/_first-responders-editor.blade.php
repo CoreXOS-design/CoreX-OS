@@ -16,7 +16,7 @@
     $frKnown = collect($frSuppliers)->pluck('id')->all();
     foreach ($frEntries as $e) {
         if (! in_array((int) $e->agency_service_provider_id, $frKnown, true) && $e->supplier) {
-            $frSuppliers[] = ['id' => (int) $e->supplier->id, 'name' => $e->supplier->name . ($e->supplier->is_active ? '' : ' (inactive)'), 'kind' => (string) $e->supplier->kind, 'kind_label' => \App\Models\DealV2\AgencyServiceProvider::kindLabel($e->supplier->kind), 'company' => $e->supplier->company];
+            $frSuppliers[] = ['id' => (int) $e->supplier->id, 'name' => $e->supplier->displayName() . ($e->supplier->is_active ? '' : ' (inactive)'), 'kind' => (string) $e->supplier->kind, 'kind_label' => \App\Models\DealV2\AgencyServiceProvider::kindLabel($e->supplier->kind), 'company' => $e->supplier->company];
         }
     }
     $frCanAdd = auth()->user()?->hasPermission('deals_v2.manage_suppliers');

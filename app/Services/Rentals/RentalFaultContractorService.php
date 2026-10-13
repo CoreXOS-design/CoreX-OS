@@ -90,7 +90,9 @@ class RentalFaultContractorService
             $contact = $jobs->contactFor($p);
 
             return [
-                'id' => (int) $p->id, 'name' => (string) $p->name, 'phone' => $p->phone ?: null,
+                'id' => (int) $p->id, 'name' => $p->displayName(), 'phone' => $p->phone ?: null,
+                // what the picker's search box matches: business name, contact person, email, phone, trade (the ONE rule, see AgencyServiceProvider::scopeMatching)
+                'search' => mb_strtolower(trim($p->displayName() . ' ' . $p->name . ' ' . $p->company . ' ' . $p->email . ' ' . $p->phone . ' ' . $p->specialty . ' ' . (($trades[$p->id] ?? collect())->map(fn ($t) => ($labels[$t->service_type] ?? '') . ' ' . $t->service_type)->implode(' ')))),
                 'email' => $contact['email'], 'mobile' => $contact['phone'], 'has_contact' => $contact['has_contact'],
                 'trades' => ($trades[$p->id] ?? collect())->map(fn ($t) => $labels[$t->service_type] ?? $t->service_type)->unique()->implode(', '),
                 'suits' => $category === '' ? true : ($ticked->contains((int) $p->id) || (! isset($trades[$p->id]) && isset($legacyOk[(string) $p->specialty]))),
@@ -134,8 +136,8 @@ class RentalFaultContractorService
             ->maintenanceContractors()
             ->whereIn('id', $providerIds)
             ->pickerOrder()
-            ->get(['id', 'name', 'phone'])
-            ->map(fn ($p) => ['id' => (int) $p->id, 'name' => (string) $p->name, 'phone' => $p->phone ?: null])
+            ->get(['id', 'name', 'company', 'phone'])
+            ->map(fn ($p) => ['id' => (int) $p->id, 'name' => $p->displayName(), 'phone' => $p->phone ?: null])
             ->values();
     }
 
@@ -145,8 +147,8 @@ class RentalFaultContractorService
         return AgencyServiceProvider::withoutGlobalScopes()
             ->where('agency_id', $agencyId)->where('is_active', true)->whereNull('deleted_at')
             ->maintenanceContractors()->pickerOrder()
-            ->get(['id', 'name', 'phone'])
-            ->map(fn ($p) => ['id' => (int) $p->id, 'name' => (string) $p->name, 'phone' => $p->phone ?: null])
+            ->get(['id', 'name', 'company', 'phone'])
+            ->map(fn ($p) => ['id' => (int) $p->id, 'name' => $p->displayName(), 'phone' => $p->phone ?: null])
             ->values();
     }
 

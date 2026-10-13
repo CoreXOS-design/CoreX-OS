@@ -76,7 +76,7 @@
             </tr>
             @foreach($workOrder->quotes as $quote)
             <tr>
-                <td class="label">{{ $quote->supplier?->name ?? 'Unknown supplier' }}</td>
+                <td class="label">{{ $quote->supplier?->displayName() ?? 'Unknown supplier' }}</td>
                 <td>R{{ number_format((float) $quote->amount, 2) }}</td>
                 <td>{{ $quote->quote_date?->format('Y-m-d') ?? '—' }}</td>
                 <td>{{ $quote->is_selected ? 'Selected' : '—' }}</td>
