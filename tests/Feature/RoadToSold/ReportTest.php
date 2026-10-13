@@ -94,9 +94,13 @@ final class ReportTest extends TestCase
 
     private function item(User $u, string $status, string $origin = 'auto', string $day = '2026-10-12'): void
     {
+        // One agent can hold a property once per day, so every row gets its own property.
+        static $n = 0;
+        $n++;
+        $tp = TrackedProperty::create(['agency_id' => $this->agencyId, 'street_number' => (string) (100 + $n), 'street_name' => 'Fixture Road', 'suburb' => 'Uvongo']);
         DB::table('rts_list_items')->insert([
             'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'user_id' => $u->id, 'list_date' => $day, 'track' => 'sales',
-            'tracked_property_id' => $this->tp->id, 'selection' => 'price_drops', 'origin' => $origin, 'position' => random_int(1, 99999),
+            'tracked_property_id' => $tp->id, 'selection' => 'price_drops', 'origin' => $origin, 'position' => $n % 60000,
             'status' => $status, 'reason' => 'Price dropped', 'created_at' => now(), 'updated_at' => now(),
         ]);
     }
