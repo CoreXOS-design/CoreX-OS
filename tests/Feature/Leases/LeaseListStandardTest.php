@@ -71,6 +71,31 @@ final class LeaseListStandardTest extends TestCase
         $this->assertSame(3, $response->viewData('leases')->total());
     }
 
+    public function test_tiles_follow_the_property_the_list_is_narrowed_to(): void
+    {
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+        $propA = $this->property($admin, 'A');
+        $propB = $this->property($admin, 'B');
+        $this->lease($propA, $admin, ['status' => Lease::STATUS_ACTIVE]);
+        $this->lease($propA, $admin, ['status' => Lease::STATUS_EXPIRED]);
+        $this->lease($propB, $admin, ['status' => Lease::STATUS_ACTIVE]);
+        $this->lease($propB, $admin, ['status' => Lease::STATUS_ACTIVE]);
+
+        $r = $this->actingAs($admin)->get(route('corex.leases.index', ['property_id' => $propA->id]))->assertOk();
+        $this->assertSame(2, $r->viewData('leases')->total(), 'the list shows property A only');
+        $this->assertSame(2, $r->viewData('tileCounts')['total'], 'the Total tile follows the same property');
+        $this->assertSame(1, $r->viewData('tileCounts')['active'], "B's active leases are not counted");
+        $this->assertSame(1, $r->viewData('tileCounts')['expired']);
+
+        $all = $this->actingAs($admin)->get(route('corex.leases.index'))->viewData('tileCounts');
+        $this->assertSame(4, $all['total']);
+        $this->assertSame(3, $all['active']);
+
+        $adHoc = $this->actingAs($admin)->get(route('corex.leases.index', ['property_id' => $propA->id, 'status' => 'active']));
+        $this->assertSame(1, $adHoc->viewData('leases')->total());
+        $this->assertSame(2, $adHoc->viewData('tileCounts')['total'], 'status stays an ad-hoc filter: rows narrow, tiles do not');
+    }
+
     public function test_per_page_option_controls_page_size(): void
     {
         $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);

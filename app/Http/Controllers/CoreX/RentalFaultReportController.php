@@ -110,9 +110,14 @@ class RentalFaultReportController extends Controller
         // §39, 2026-09-28 — summary tiles row, same reused FICA/rental-
         // applications pattern (§39 note on RentalInspectionController).
         // Status tiles are the real enum (RentalFaultReport::STATUS_*).
-        $frTileBase = fn () => RentalFaultReport::query()
-            ->when($showArchived, fn ($q) => $q->onlyTrashed())
-            ->visibleTo($user, $request->get('scope'));
+        $frTileBase = function () use ($showArchived, $user, $request) {
+            $q = RentalFaultReport::query()
+                ->when($showArchived, fn ($q) => $q->onlyTrashed())
+                ->visibleTo($user, $request->get('scope'));
+            $this->applyListContext($q, $request);
+
+            return $q;
+        };
         $tileCounts = [
             'total' => $frTileBase()->count(),
             'reported' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_REPORTED)->count(),
@@ -196,6 +201,27 @@ class RentalFaultReportController extends Controller
         if ($request->boolean('open')) {
             $query->whereNotIn('rental_fault_reports.status', \App\Services\Rentals\RentalCommandCentreService::FAULT_OPEN_STATUSES_EXCLUDED);
         }
+        // The page's CONTEXT (command-centre properties, one property / lease / contact): shared with the tile counts.
+        $this->applyListContext($query, $request);
+
+        if ($dateFrom = $request->get('date_from')) {
+            $query->where('rental_fault_reports.reported_at', '>=', $dateFrom);
+        }
+        if ($dateTo = $request->get('date_to')) {
+            // Inclusive end date (a bare date compares as midnight).
+            $query->where('rental_fault_reports.reported_at', '<=', preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo) ? $dateTo . ' 23:59:59' : $dateTo);
+        }
+
+        return $query;
+    }
+
+    /**
+     * The page's CONTEXT - what the list was opened FOR (a command-centre tile's properties, one property, one lease, one
+     * contact) - as opposed to the ad-hoc filters (search, status, outcome, date, open). The list and its summary tiles both
+     * apply it, so a tile never counts the whole agency beside a list narrowed to one lease (go-live walk, 14 Oct 2026).
+     */
+    private function applyListContext($query, Request $request): void
+    {
         // ...and, from the command centre's Open faults tile, only the properties that tile counted (its own/branch/all choice).
         if (in_array($request->get('cc_scope'), ['own', 'branch', 'all'], true)) {
             app(\App\Services\Rentals\RentalCommandCentreService::class)
@@ -219,16 +245,6 @@ class RentalFaultReportController extends Controller
                     ->orWhereHas('property.contacts', fn ($c) => $c->where('contacts.id', $contactId));
             });
         }
-
-        if ($dateFrom = $request->get('date_from')) {
-            $query->where('rental_fault_reports.reported_at', '>=', $dateFrom);
-        }
-        if ($dateTo = $request->get('date_to')) {
-            // Inclusive end date (a bare date compares as midnight).
-            $query->where('rental_fault_reports.reported_at', '<=', preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo) ? $dateTo . ' 23:59:59' : $dateTo);
-        }
-
-        return $query;
     }
 
     private function activeFaultReportFiltersSummary(Request $request): array

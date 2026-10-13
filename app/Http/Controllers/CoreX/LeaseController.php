@@ -133,7 +133,12 @@ class LeaseController extends Controller
         // 60-day default is used instead, same "sensible fixed default,
         // no new setting" call as any other unconfigured threshold —
         // flagged here for Johan if he wants it made configurable later.
-        $leaseTileBase = fn () => Lease::query()->visibleTo($user, $request->get('scope'));
+        // 14 Oct 2026 (go-live walk): the property the list was opened for (`?property_id=`, the property page's "Leases" link) is
+        // the page's CONTEXT, so the tiles count that property - not the whole agency beside a list of 2. Search / status / date stay ad-hoc.
+        $leaseContextPropertyId = (int) $request->get('property_id');
+        $leaseTileBase = fn () => Lease::query()
+            ->visibleTo($user, $request->get('scope'))
+            ->when($leaseContextPropertyId > 0, fn ($q) => $q->where('leases.property_id', $leaseContextPropertyId));
         $tileCounts = [
             'total' => $leaseTileBase()->count(),
             'draft' => $leaseTileBase()->where('leases.status', Lease::STATUS_DRAFT)->count(),

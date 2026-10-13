@@ -72,6 +72,34 @@ final class RentalWorkOrderListStandardTest extends TestCase
         $this->assertSame(2, $response->viewData('workOrders')->total());
     }
 
+    public function test_tiles_follow_the_property_and_lease_the_list_is_narrowed_to(): void
+    {
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+        $propA = $this->property($admin, 'A');
+        $propB = $this->property($admin, 'B');
+        $leaseA = \App\Models\Lease::create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $propA->id, 'status' => \App\Models\Lease::STATUS_ACTIVE, 'rental_amount' => 5000, 'start_date' => now()->subMonth(), 'source' => 'manual', 'created_by_user_id' => $admin->id]);
+        $this->workOrder($propA, $admin, ['status' => RentalWorkOrder::STATUS_REPORTED, 'lease_id' => $leaseA->id]);
+        $this->workOrder($propA, $admin, ['status' => RentalWorkOrder::STATUS_COMPLETED, 'lease_id' => $leaseA->id]);
+        $this->workOrder($propB, $admin, ['status' => RentalWorkOrder::STATUS_COMPLETED]);
+        $this->workOrder($propB, $admin, ['status' => RentalWorkOrder::STATUS_COMPLETED]);
+
+        foreach ([['property_id' => $propA->id], ['lease_id' => $leaseA->id]] as $context) {
+            $r = $this->actingAs($admin)->get(route('corex.rental-work-orders.index', $context))->assertOk();
+            $this->assertSame(2, $r->viewData('workOrders')->total(), 'the list shows A only');
+            $this->assertSame(2, $r->viewData('tileCounts')['total'], 'the Total tile follows the same context');
+            $this->assertSame(1, $r->viewData('tileCounts')['reported']);
+            $this->assertSame(1, $r->viewData('tileCounts')['completed'], "B's completed jobs are not counted");
+        }
+
+        $all = $this->actingAs($admin)->get(route('corex.rental-work-orders.index'))->viewData('tileCounts');
+        $this->assertSame(4, $all['total']);
+        $this->assertSame(3, $all['completed']);
+
+        $adHoc = $this->actingAs($admin)->get(route('corex.rental-work-orders.index', ['property_id' => $propA->id, 'status' => 'reported']));
+        $this->assertSame(1, $adHoc->viewData('workOrders')->total());
+        $this->assertSame(2, $adHoc->viewData('tileCounts')['total'], 'status stays an ad-hoc filter: rows narrow, tiles do not');
+    }
+
     public function test_per_page_option_controls_page_size(): void
     {
         $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
