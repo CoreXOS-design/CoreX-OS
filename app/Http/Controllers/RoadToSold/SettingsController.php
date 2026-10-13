@@ -5,6 +5,7 @@ namespace App\Http\Controllers\RoadToSold;
 use App\Http\Controllers\Controller;
 use App\Models\RoadToSold\RtsSetting;
 use App\Models\RoadToSold\RtsSettingAuditEntry;
+use App\Services\RoadToSold\AreaService;
 use App\Services\RoadToSold\SettingsService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -38,13 +39,21 @@ class SettingsController extends Controller
                 ->with('error', 'Switch into an agency first - Road to Sold settings belong to one agency.');
         }
 
+        // Someone who can only manage areas / targets lands on their own tab, not a read-only General page.
+        if (! $user->hasPermission('road_to_sold.manage_settings')) {
+            $first = collect(self::tabsFor($user, 'general'))->first();
+            if ($first && ! $first['active']) {
+                return redirect($first['href']);
+            }
+        }
+
         $settings = SettingsService::forAgency($agencyId, self::TRACK);
 
         return view('road-to-sold.settings.index', [
             'settings'   => $settings,
             'defaults'   => RtsSetting::SCALAR_DEFAULTS,
             'canManage'  => $user->hasPermission('road_to_sold.manage_settings'),
-            'tabs'       => $this->tabs($user),
+            'tabs'       => self::tabsFor($user, 'general'),
             'warnings'   => $this->warnings($agencyId, $settings),
             'recent'     => RtsSettingAuditEntry::where('agency_id', $agencyId)
                 ->where('track', self::TRACK)
@@ -231,21 +240,50 @@ class SettingsController extends Controller
         );
     }
 
-    /** @return array<int,array{key:string,label:string,href:string,active:bool}> */
-    private function tabs($user): array
+    /**
+     * The tab strip shared by every Road to Sold settings screen. A tab only appears when
+     * the viewer holds its key AND its route exists (tabs are added as each screen lands).
+     *
+     * @return array<int,array{key:string,label:string,href:string,active:bool}>
+     */
+    public static function tabsFor($user, string $active): array
     {
+        $defs = [
+            ['general', 'General', 'road_to_sold.manage_settings', 'road-to-sold.settings.index'],
+            ['areas', 'Areas', 'road_to_sold.manage_areas', 'road-to-sold.settings.areas.index'],
+            ['targets', 'Targets', 'road_to_sold.manage_targets', 'road-to-sold.settings.targets.index'],
+        ];
+
         $tabs = [];
-        if ($user->hasPermission('road_to_sold.manage_settings')) {
-            $tabs[] = ['key' => 'general', 'label' => 'General', 'href' => route('road-to-sold.settings.index'), 'active' => true];
+        foreach ($defs as [$key, $label, $permission, $route]) {
+            if (\Illuminate\Support\Facades\Route::has($route) && $user->hasPermission($permission)) {
+                $tabs[] = ['key' => $key, 'label' => $label, 'href' => route($route), 'active' => $key === $active];
+            }
         }
 
         return $tabs;
     }
 
-    /** @return string[] plain-language warnings shown at the top of the General tab */
+    /** @return string[] plain-language warnings shown at the top of the General tab (HTML, names escaped) */
     private function warnings(int $agencyId, SettingsService $settings): array
     {
-        return [];
+        $warnings = [];
+
+        if ($settings->lockAgentsToAreas()) {
+            $without = app(AreaService::class)->agentsWithoutAreas($agencyId, self::TRACK);
+            if ($without->isNotEmpty()) {
+                $names = $without->take(8)->map(fn ($u) => e($u->name))->implode(', ');
+                $more  = $without->count() > 8 ? ' and ' . ($without->count() - 8) . ' more' : '';
+                $link  = \Illuminate\Support\Facades\Route::has('road-to-sold.settings.areas.index')
+                    ? ' <a class="underline" href="' . e(route('road-to-sold.settings.areas.index', ['no_areas' => 1])) . '">Give them suburbs</a>.'
+                    : '';
+                $warnings[] = '<strong>' . $without->count() . ' ' . ($without->count() === 1 ? 'agent has' : 'agents have')
+                    . ' no suburbs, and "Lock agents to their areas" is on - they will get no call list:</strong> '
+                    . $names . $more . '.' . $link;
+            }
+        }
+
+        return $warnings;
     }
 
     /** Plain-English field names used in validation messages (STANDARDS F.8). */

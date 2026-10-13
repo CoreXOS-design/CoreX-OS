@@ -126,11 +126,15 @@ Sources: `PublicHolidayService::isPublicHoliday` (global table `public_holidays`
 
 | Method | Meaning |
 |---|---|
-| `poolFor(int $agencyId): Collection` | The agency's Prospecting Setup suburbs (rows of `p24_suburbs` reached through the agency's `towns`/`ProspectingConfigurationService`; resolved and confirmed at build step 2). Each item: `p24_suburb_id`, `name`, `name_normalised`, `town`. |
+| `poolFor(int $agencyId): Collection` | The agency's Prospecting Setup suburbs (rows of `p24_suburbs` reached through the agency's `towns`/`ProspectingConfigurationService`; resolved and confirmed at build step 2). Each item: `p24_suburb_id`, `name`, `name_normalised`, `town`. **Pool as built:** every non-deleted `p24_suburbs` row (with a `p24_id`) whose `p24_city_id` matches one of the agency's non-deleted `towns.p24_city_id`, plus every suburb the agency ticked in `minion_capture_areas`. (The old `town_suburbs` tree is retired — see `AssignMunicipalities`.) Verified on QA1: agency 1 has 41 towns (33 with a P24 city) → 1,839 pool suburbs. |
 | `suburbIdsFor(User $u, string $track='sales'): int[]` | The user's assigned `p24_suburb_id`s (non-archived), `[]` if none. |
 | `suburbNamesNormalisedFor(User $u, string $track='sales'): string[]` | Same, as `suburb_normalised` strings, for matching `prospecting_listings.suburb` (free text) and `tracked_properties.suburb_normalised`. Lane 2 matches `tracked_properties` on `p24_suburb_id` where present, else on the normalised name. |
 | `hasAreas(User $u, string $track='sales'): bool` | |
 | `agentsWithoutAreas(int $agencyId, string $track='sales'): Collection` | Active selling users in the agency with zero areas (drives the settings warning when lock is ON). |
+| `lastCaptured(int $agencyId, ?array $suburbIds=null): array<int,array{p24:?Carbon,pp:?Carbon}>` | **Built.** Batch form (two small queries for the whole pool). Labelled "last captured" in the UI. |
+| `suburbNamesLowerTrimFor(User, track): string[]` | **Built.** Suburb names as `lower(trim())` — the form MIC joins against `prospecting_listings.suburb`. |
+| `needsRefresh(array $captured, int $warnDays): bool` | **Built.** True when NEITHER portal was captured within `$warnDays` (never = true). |
+| `poolQuery(int $agencyId)` / `idsInPool(int $agencyId, int[] $ids): int[]` / `towns(int $agencyId)` | **Built.** The pool as a query builder (`s.id, s.name, s.p24_city_id, town_name`); membership check; the agency's towns that map to a P24 city. |
 | `lastRefreshed(int $agencyId, int $p24SuburbId): array{p24:?Carbon,pp:?Carbon}` | Per portal. P24 = `minion_capture_areas.last_captured_at` (where a row exists); fallback and PP = `MAX(prospecting_listings.last_seen_at)` for that agency, `portal_source` 'p24'/'pp', matched on the suburb's normalised name. `null` = never. Confirmed at build step 2. |
 | `isStale(?Carbon $at, int $warnDays): bool` | `null` counts as stale. |
 
@@ -193,8 +197,8 @@ Routes (web, `auth`, `feature:road-to-sold`; names `road-to-sold.settings.*`):
 | PUT `/road-to-sold/settings/general` | `.general.update` | Save settings | manage_settings |
 | POST `/road-to-sold/settings/general/reset` | `.general.reset` | Reset to defaults (confirm) | manage_settings |
 | GET `/road-to-sold/settings/areas` | `.areas.index` | Agents × suburbs | manage_areas |
-| GET `/road-to-sold/settings/areas/by-suburb` | `.areas.by-suburb` | Suburbs × agents + last-refreshed | manage_areas |
-| POST `/road-to-sold/settings/areas/agents/{user}` | `.areas.sync` | Replace this agent's suburb set (add/remove in one save) | manage_areas |
+| (same route, `?view=suburbs`) | `.areas.index` | Suburbs × agents + "last captured" | manage_areas |
+| POST `/road-to-sold/settings/areas/agents/{user}` | `.areas.sync` | Add and/or remove suburbs for one agent in one save (`add[]`, `remove[]` ids) | manage_areas |
 | DELETE `/road-to-sold/settings/areas/{area}` | `.areas.archive` | Unassign one suburb (soft) | manage_areas |
 | POST `/road-to-sold/settings/areas/{area}/restore` | `.areas.restore` | Re-assign an archived one (`{area}` bound `withTrashed`) | manage_areas |
 | GET `/road-to-sold/settings/targets` | `.targets.index` | Agents × weekdays grid | manage_targets |
