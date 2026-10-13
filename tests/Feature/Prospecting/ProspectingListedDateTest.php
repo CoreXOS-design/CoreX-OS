@@ -259,6 +259,43 @@ final class ProspectingListedDateTest extends TestCase
         $this->assertNull($l->fresh()->listed_date);
     }
 
+    public function test_the_opportunity_page_shows_the_listed_date_and_the_correction_form(): void
+    {
+        $tp = \App\Models\Prospecting\TrackedProperty::withoutAgencyStamping(fn () => \App\Models\Prospecting\TrackedProperty::create([
+            'agency_id' => $this->agency->id, 'street_number' => '12', 'street_name' => 'Marine Drive',
+            'suburb' => 'Margate', 'source_chain' => [],
+        ]));
+        $l = $this->listing('P24-G', listed: now()->subDays(20), firstSeen: now()->subDays(2));
+        DB::table('prospecting_listings')->where('id', $l->id)->update(['tracked_property_id' => $tp->id]);
+
+        $res = $this->actingAs($this->user)->get(route('market-intelligence.opportunities.show', $tp->id));
+        $res->assertOk();
+        $res->assertSee('Correct listed date');
+        $res->assertSee(now()->subDays(20)->format('j M Y'));
+        $res->assertSee('from the portal');
+
+    }
+
+    public function test_an_agent_without_the_permission_sees_the_date_but_not_the_correction_form(): void
+    {
+        $tp = \App\Models\Prospecting\TrackedProperty::withoutAgencyStamping(fn () => \App\Models\Prospecting\TrackedProperty::create([
+            'agency_id' => $this->agency->id, 'street_number' => '12', 'street_name' => 'Marine Drive',
+            'suburb' => 'Margate', 'source_chain' => [],
+        ]));
+        $l = $this->listing('P24-H', listed: now()->subDays(20), firstSeen: now()->subDays(2));
+        DB::table('prospecting_listings')->where('id', $l->id)->update(['tracked_property_id' => $tp->id]);
+
+        DB::table('role_permissions')->insert([
+            'role' => 'agent', 'permission_key' => 'access_prospecting', 'scope' => null,
+            'agency_id' => $this->agency->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $agent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
+        $res2 = $this->actingAs($agent)->get(route('market-intelligence.opportunities.show', $tp->id));
+        $res2->assertOk();
+        $res2->assertSee('from the portal');
+        $res2->assertDontSee('Correct listed date');
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
 
     private function listing(
