@@ -119,6 +119,7 @@
                     <th class="px-4 py-2">Agent</th>
                     @foreach($weekdays as $label)<th class="px-2 py-2 text-center">{{ $label }}</th>@endforeach
                     <th class="px-3 py-2 text-center">Week</th>
+                    <th class="px-3 py-2 text-center" title="What the agent should have done by today / the whole month, after taking off public holidays and approved leave">{{ now()->format('F') }}</th>
                     <th class="px-4 py-2"></th>
                 </tr>
             </thead>
@@ -139,6 +140,7 @@
                         </td>
                     @endforeach
                     <td class="px-3 py-2 text-center font-semibold" title="What this agent owes in a normal week (own numbers over the default)">{{ array_sum($row['week']) }}</td>
+                    <td class="px-3 py-2 text-center text-xs" style="color:var(--text-muted);" title="Should be {{ $row['month_to_date'] }} by today; {{ $row['month_total'] }} for the whole month. Public holidays and approved leave are already taken off.">{{ $row['month_to_date'] }} / {{ $row['month_total'] }}</td>
                     <td class="px-4 py-2">
                         <form id="{{ $fid }}" method="POST" action="{{ route('road-to-sold.settings.targets.agent', $u->id) }}" class="flex flex-wrap gap-2">
                             @csrf @method('PUT')
@@ -165,7 +167,7 @@
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="{{ count($weekdays) + 3 }}" class="px-4 py-8 text-center" style="color:var(--text-muted);">
+                <tr><td colspan="{{ count($weekdays) + 4 }}" class="px-4 py-8 text-center" style="color:var(--text-muted);">
                     @if($emptyFiltered) No agents match those filters. <a class="underline" href="{{ route('road-to-sold.settings.targets.index') }}">Clear the filters</a>.
                     @else No agents can use Road to Sold yet. Give agents the "Access Road to Sold" permission in Role Manager and they will appear here. @endif
                 </td></tr>
