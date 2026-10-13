@@ -125,7 +125,21 @@
         @endif
 
 
-        @if ($response !== 'declined')
+        @php
+            // a quote the agency has already chosen for this job (not declined, not replaced): the contractor is told where it stands instead of being offered the form again
+            $heldQuote = $workOrder->quotes->first(fn ($q) => $q->is_selected && ! $q->declined_at && ! $q->isSuperseded() && (int) $q->agency_service_provider_id === (int) $workOrder->agency_service_provider_id);
+            $heldWhere = match ($workOrder->owner_approval_status) {
+                \App\Models\RentalWorkOrder::APPROVAL_PENDING => 'is with the owner',
+                \App\Models\RentalWorkOrder::APPROVAL_APPROVED => 'has been approved',
+                default => 'has been received',
+            };
+        @endphp
+        @if ($response !== 'declined' && $heldQuote)
+        <div class="card" data-contractor-quote-held>
+            <h2>Your quote</h2>
+            <p>Your quote of R{{ number_format((float) $heldQuote->amount, 2) }} {{ $heldWhere }}. The agency will tell you when you can go ahead.</p>
+        </div>
+        @elseif ($response !== 'declined')
         <div class="card" data-contractor-quote>
             <h2>Upload a quote</h2>
             <form method="POST" action="{{ route('rentals.secure-link.quote', $token) }}" enctype="multipart/form-data">
