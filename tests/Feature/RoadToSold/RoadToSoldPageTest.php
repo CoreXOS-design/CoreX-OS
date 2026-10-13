@@ -266,6 +266,22 @@ final class RoadToSoldPageTest extends TestCase
         $this->actingAs($bAgent)->get(route('road-to-sold.index', ['agent' => $this->agent->id]))->assertNotFound();
     }
 
+    public function test_the_three_blocks_under_the_list_show_and_do_not_count_against_the_target(): void
+    {
+        Contact::withoutGlobalScopes()->create([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'created_by_user_id' => $this->other->id,
+            'agent_id' => $this->agent->id, 'is_buyer' => true, 'buyer_state' => 'warm', 'first_name' => 'Thandi', 'last_name' => 'Dlamini',
+            'phone' => '0821230000', 'last_activity_at' => now()->subDays(45),
+        ]);
+        $this->item($this->agent, $this->tp('Marine Drive'));
+
+        $res = $this->actingAs($this->agent)->get(route('road-to-sold.index'));
+
+        $res->assertOk()->assertSee('Buyers to follow up')->assertSee('Enquiries waiting')->assertSee('Mandates ending soon');
+        $res->assertSee('Thandi Dlamini')->assertSee('No contact for 45 days');
+        $res->assertSee('0 of 1', false);   // the feed rows are not part of the day's target
+    }
+
     public function test_a_user_without_the_page_key_is_refused(): void
     {
         $viewer = User::factory()->create(['agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'role' => 'viewer', 'is_active' => true]);
