@@ -126,11 +126,15 @@ Sources: `PublicHolidayService::isPublicHoliday` (global table `public_holidays`
 
 | Method | Meaning |
 |---|---|
-| `poolFor(int $agencyId): Collection` | The agency's Prospecting Setup suburbs (rows of `p24_suburbs` reached through the agency's `towns`/`ProspectingConfigurationService`; resolved and confirmed at build step 2). Each item: `p24_suburb_id`, `name`, `name_normalised`, `town`. |
+| `poolFor(int $agencyId): Collection` | The agency's Prospecting Setup suburbs (rows of `p24_suburbs` reached through the agency's `towns`/`ProspectingConfigurationService`; resolved and confirmed at build step 2). Each item: `p24_suburb_id`, `name`, `name_normalised`, `town`. **Pool as built:** every non-deleted `p24_suburbs` row (with a `p24_id`) whose `p24_city_id` matches one of the agency's non-deleted `towns.p24_city_id`, plus every suburb the agency ticked in `minion_capture_areas`. (The old `town_suburbs` tree is retired — see `AssignMunicipalities`.) Verified on QA1: agency 1 has 41 towns (33 with a P24 city) → 1,839 pool suburbs. |
 | `suburbIdsFor(User $u, string $track='sales'): int[]` | The user's assigned `p24_suburb_id`s (non-archived), `[]` if none. |
 | `suburbNamesNormalisedFor(User $u, string $track='sales'): string[]` | Same, as `suburb_normalised` strings, for matching `prospecting_listings.suburb` (free text) and `tracked_properties.suburb_normalised`. Lane 2 matches `tracked_properties` on `p24_suburb_id` where present, else on the normalised name. |
 | `hasAreas(User $u, string $track='sales'): bool` | |
 | `agentsWithoutAreas(int $agencyId, string $track='sales'): Collection` | Active selling users in the agency with zero areas (drives the settings warning when lock is ON). |
+| `lastCaptured(int $agencyId, ?array $suburbIds=null): array<int,array{p24:?Carbon,pp:?Carbon}>` | **Built.** Batch form (two small queries for the whole pool). Labelled "last captured" in the UI. |
+| `suburbNamesLowerTrimFor(User, track): string[]` | **Built.** Suburb names as `lower(trim())` — the form MIC joins against `prospecting_listings.suburb`. |
+| `needsRefresh(array $captured, int $warnDays): bool` | **Built.** True when NEITHER portal was captured within `$warnDays` (never = true). |
+| `poolQuery(int $agencyId)` / `idsInPool(int $agencyId, int[] $ids): int[]` / `towns(int $agencyId)` | **Built.** The pool as a query builder (`s.id, s.name, s.p24_city_id, town_name`); membership check; the agency's towns that map to a P24 city. |
 | `lastRefreshed(int $agencyId, int $p24SuburbId): array{p24:?Carbon,pp:?Carbon}` | Per portal. P24 = `minion_capture_areas.last_captured_at` (where a row exists); fallback and PP = `MAX(prospecting_listings.last_seen_at)` for that agency, `portal_source` 'p24'/'pp', matched on the suburb's normalised name. `null` = never. Confirmed at build step 2. |
 | `isStale(?Carbon $at, int $warnDays): bool` | `null` counts as stale. |
 
@@ -193,17 +197,19 @@ Routes (web, `auth`, `feature:road-to-sold`; names `road-to-sold.settings.*`):
 | PUT `/road-to-sold/settings/general` | `.general.update` | Save settings | manage_settings |
 | POST `/road-to-sold/settings/general/reset` | `.general.reset` | Reset to defaults (confirm) | manage_settings |
 | GET `/road-to-sold/settings/areas` | `.areas.index` | Agents × suburbs | manage_areas |
-| GET `/road-to-sold/settings/areas/by-suburb` | `.areas.by-suburb` | Suburbs × agents + last-refreshed | manage_areas |
-| POST `/road-to-sold/settings/areas/agents/{user}` | `.areas.sync` | Replace this agent's suburb set (add/remove in one save) | manage_areas |
+| (same route, `?view=suburbs`) | `.areas.index` | Suburbs × agents + "last captured" | manage_areas |
+| POST `/road-to-sold/settings/areas/agents/{user}` | `.areas.sync` | Add and/or remove suburbs for one agent in one save (`add[]`, `remove[]` ids) | manage_areas |
 | DELETE `/road-to-sold/settings/areas/{area}` | `.areas.archive` | Unassign one suburb (soft) | manage_areas |
 | POST `/road-to-sold/settings/areas/{area}/restore` | `.areas.restore` | Re-assign an archived one (`{area}` bound `withTrashed`) | manage_areas |
-| GET `/road-to-sold/settings/targets` | `.targets.index` | Agents × weekdays grid | manage_targets |
-| PUT `/road-to-sold/settings/targets/default` | `.targets.default` | Agency default row | manage_targets |
-| PUT `/road-to-sold/settings/targets/agents/{user}` | `.targets.agent` | Save one agent's week | manage_targets |
-| POST `/road-to-sold/settings/targets/agents/{user}/copy-days` | `.targets.copy-days` | One value to all days (the form field is what is copied) | manage_targets |
-| POST `/road-to-sold/settings/targets/copy-to-agents` | `.targets.copy-agents` | Copy a chosen agent's week (or the agency default) to every agent in scope (confirm) | manage_targets |
-| DELETE `/road-to-sold/settings/targets/agents/{user}` | `.targets.clear` | Clear the agent's own numbers (archive all their rows → back to agency default) | manage_targets |
-| POST `/road-to-sold/settings/targets/agents/{user}/restore` | `.targets.restore` | Bring the cleared week back | manage_targets |
+| GET `/road-to-sold/settings/targets` | `.targets.index` | Agents × weekdays grid + agency default row | manage_targets (or manage_settings, who can edit the default) |
+| PUT `/road-to-sold/settings/targets/default` | `.targets.default` | Save the agency default week (all seven days required; audited; same saver as the settings page and the wizard) | manage_settings, or manage_targets with agency-wide (`all`) breadth — a branch-only manager is refused |
+| PUT `/road-to-sold/settings/targets/agents/{user}` | `.targets.agent` | Save one agent's week (blank = no own number) | manage_targets, breadth all/branch |
+| POST `/road-to-sold/settings/targets/agents/{user}/fill-weekdays` | `.targets.fill-weekdays` | Copy the Monday number onto Tuesday–Friday ("copy to all days" — weekend untouched) | manage_targets |
+| POST `/road-to-sold/settings/targets/copy-to-agents` | `.targets.copy-agents` | Give every agent in the viewer's breadth the posted week (a grid row, or the agency default row); blank cells clear that day (confirm) | manage_targets |
+| DELETE `/road-to-sold/settings/targets/agents/{user}` | `.targets.clear` | Clear the agent's own numbers (archive → back to agency default) | manage_targets |
+| POST `/road-to-sold/settings/targets/agents/{user}/restore` | `.targets.restore` | Bring cleared numbers back | manage_targets |
+
+An `own`-breadth viewer who holds `manage_targets` can look at their own row but every write answers 403 (agents do not set their own targets). Target rows record who set them (`set_by_user_id`); there is no separate audit table for per-agent numbers — the agency default week is audited in `rts_settings_audit`.
 
 ### 5.1 General tab (no list)
 Fields: lock toggle; refresh-warning days; missed-items mode (radio); nine selections as a reorderable on/off list; three number thresholds + owner-known quantity; stuck-stock thresholds; no-answer count; hold days; six summary steps on/off; green-from % and red-below %. Warnings shown on this tab: **"N agents have no areas and the lock is on — they will get no list"** with the agent names linking to the Areas tab; stale-areas count.

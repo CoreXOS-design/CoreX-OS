@@ -226,7 +226,7 @@
 
     @if($canManage)
         <form method="POST" action="{{ route('road-to-sold.settings.general.reset') }}"
-              onsubmit="return confirm('Put every Road to Sold setting back to the standard defaults? Areas and targets are not affected.');">
+              onsubmit="return confirm('Put every Road to Sold setting back to the standard defaults? Each agent's suburbs and own weekday numbers are not affected.');">
             @csrf
             <button type="submit" class="text-xs underline" style="color:var(--text-muted);">Put everything back to the defaults</button>
         </form>
