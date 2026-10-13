@@ -313,7 +313,12 @@
                 {{-- Johan, QA1, 2026-10-07 — choosing the property OPENS the lease screen (leases.md §15.3); nothing is
                      linked or created until the agent completes it. Cancelling there leaves this application
                      approved with no new link and no lease. --}}
-                <form method="GET" action="{{ route('corex.leases.create') }}" class="flex flex-wrap items-end gap-2">
+                <style>
+                    /* One height for every action button in this block: the filled button had no border, the outline one had 1px, so they differed by 2px. */
+                    .rr-equal-btns .corex-btn-primary, .rr-equal-btns .corex-btn-outline { box-sizing: border-box; border: 1px solid transparent; min-height: 30px; display: inline-flex; align-items: center; justify-content: center; }
+                    .rr-equal-btns .corex-btn-outline { border-color: var(--border); }
+                </style>
+                <form method="GET" action="{{ route('corex.leases.create') }}" class="flex flex-wrap items-end gap-2 rr-equal-btns">
                     <input type="hidden" name="rental_application_id" value="{{ $rentalApplication->id }}">
                     <input type="hidden" name="property_id" :value="propertyId">
                     <template x-if="!searching">

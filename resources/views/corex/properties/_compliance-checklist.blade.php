@@ -56,7 +56,7 @@
                             {{ $row['doc']['name'] }}
                         </div>
                     @elseif(!empty($row['is_contact_fica']))
-                        <div class="text-[11px]" style="color:var(--text-muted);">{{ $row['detail'] }}{{ $row['present'] ? '' : ' · seller-level compliance' }}</div>
+                        <div class="text-[11px]" style="color:var(--text-muted);">{{ $row['detail'] }}{{ $row['present'] ? '' : ' · ' . ($property->isRental() ? 'landlord' : 'seller') . '-level compliance' }}</div>
                     @elseif($row['present'] && !empty($row['satisfied_by_snapshot']))
                         <div class="text-[11px]" style="color:var(--text-muted);">Verified at go-live</div>
                     @elseif($row['present'])

@@ -5736,6 +5736,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // 2026-09-21 — retrofit a room type onto a legacy typeless space item
         // (e.g. one created before this fix). See RentalInspectionRecordingController::assignType().
         Route::post('/{property}/rental-inspection-items/{item}/assign-type', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'assignType'])->middleware('permission:rental_inspections.create')->name('rental-inspection-items.assign-type');
+        // 13 Oct 2026 - the property page's own map-strip call. routes/api.php keeps the bearer-only mobile route (its group has the
+        // browser-session support stripped on purpose, bootstrap/app.php), so a signed-in page used to get a silent 401 on every load.
+        Route::post('/{property}/geocode', [\App\Http\Controllers\CoreX\PropertyController::class, 'geocode'])->middleware('permission:access_properties')->name('geocode');
         Route::post('/{property}/rental-inspection-items/seed-from-advertising', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'seedFromAdvertising'])->middleware('permission:rental_inspections.create')->name('rental-inspection-items.seed-from-advertising');
         // 2026-09-21, Johan on property 5792 — room walking order. apply-default-order
         // is the explicit, agent-triggered one-click fix for a property's EXISTING

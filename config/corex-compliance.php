@@ -35,6 +35,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Required types that do NOT apply to a RENTAL mandate
+    |--------------------------------------------------------------------------
+    |
+    | The Mandatory Disclosure Form (slug 'disclosure') is the SELLER's disclosure of the condition of a property being SOLD. A
+    | landlord letting a property gives no such disclosure, so a rental is never blocked on it (Sherry walk, 13 Oct 2026). Kept for a
+    | rental: the mandate (the letting mandate), FICA on the landlord (compliance.md: FICA applies to the landlord and the tenant),
+    | the photos and the property details. Matched against document_types.slug.
+    |
+    */
+    'rental_not_required_slugs' => ['disclosure'],
+
+    /*
+    |--------------------------------------------------------------------------
     | FICA document-type slug
     |--------------------------------------------------------------------------
     |
