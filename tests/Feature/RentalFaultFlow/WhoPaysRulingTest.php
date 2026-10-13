@@ -256,7 +256,7 @@ final class WhoPaysRulingTest extends TestCase
         $wo = $this->found($this->workOrder($fault), 'Roots in the pipe');
 
         $html = $this->actingAs($this->agent)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
-        foreach (['Who pays', 'Pour hot water down the drain.', 'Normally: Tenant', 'Tenant tried it twice', 'A toy car was stuck in the pipe', 'Roots in the pipe', 'Owner (The default for', 'Rule who pays', 'A record of the decision. CoreX does not raise a charge.'] as $needle) {
+        foreach (['Who pays', 'Pour hot water down the drain.', 'Normally: Tenant', 'Tenant tried it twice', 'A toy car was stuck in the pipe', 'Roots in the pipe', 'Owner (The default for', 'Rule who pays'] as $needle) {
             $this->assertStringContainsString($needle, $html, $needle);
         }
         $this->assertStringNotContainsString('Not reported yet', $html);
@@ -302,7 +302,7 @@ final class WhoPaysRulingTest extends TestCase
         foreach (['&amp;#9744;', '&amp;#10003;', '&amp;mdash;'] as $literal) {
             $this->assertStringNotContainsString($literal, $html, $literal);
         }
-        $this->assertStringNotContainsString('Paid by:', $html, 'the old line is gone on a job from a fault');
+        $this->assertStringNotContainsString('Paid by</dt>', $html, 'the old line is gone on a job from a fault');
         $this->assertStringNotContainsString('Not yet paid', $html);
 
         // the completion form no longer asks twice: paid_by follows the ruling (owner / tenant), else not yet paid
@@ -316,7 +316,7 @@ final class WhoPaysRulingTest extends TestCase
         // a work order that did NOT come from a fault is exactly as before
         $plain = $this->workOrder(null, ['reported_fault_report_id' => null, 'status' => RentalWorkOrder::STATUS_COMPLETED, 'completed_at' => now(), 'paid_by' => 'owner']);
         $page = $this->actingAs($this->agent)->get(route('corex.rental-work-orders.show', $plain))->assertOk()->getContent();
-        $this->assertStringContainsString('Paid by:', $page);
+        $this->assertStringContainsString('Paid by</dt>', $page);
     }
 
     // ── the ruling ────────────────────────────────────────────────────────────

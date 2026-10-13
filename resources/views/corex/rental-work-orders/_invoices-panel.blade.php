@@ -15,7 +15,7 @@
     $invoiceSuppliers = \App\Models\DealV2\AgencyServiceProvider::query()->where('agency_id', $workOrder->agency_id)->where('is_active', true)->maintenanceContractors()->orderBy('name')->get();
 @endphp
 <div id="invoices" class="space-y-3 p-5" style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px;" data-invoices-panel>
-    <h2 class="text-sm font-bold" style="color: var(--text-primary);">Supplier invoices</h2>
+    <h2 class="text-sm font-bold wo-embedded-title" style="color: var(--text-primary);">Supplier invoices</h2>
 
     @if($errors->has('invoice') || $errors->has('document'))
         <p class="text-xs" style="color:#b3261e;" data-invoice-error>{{ $errors->first('invoice') ?: $errors->first('document') }}</p>
@@ -93,6 +93,8 @@
         </p>
     @endif
 
+    <details data-file-invoice @if($errors->has('invoice') || $errors->has('document') || $liveInvoices->isEmpty()) open @endif>
+        <summary class="corex-btn-outline text-xs cursor-pointer" style="display:inline-flex; align-items:center; min-height:34px; list-style:none;">File an invoice</summary>
     <form method="POST" action="{{ route('corex.rental-work-orders.invoices.store', $workOrder) }}" enctype="multipart/form-data" class="space-y-2 pt-2" data-invoice-upload-form>
         @csrf
         <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
@@ -135,6 +137,7 @@
         </label>
         <button type="submit" class="corex-btn-outline text-xs">File invoice</button>
     </form>
+    </details>
 
     @if($archivedInvoices->isNotEmpty())
         <div>
