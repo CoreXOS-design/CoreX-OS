@@ -65,9 +65,12 @@ final class WorkOrderPhotoUploadTest extends TestCase
         $followed->assertOk()->assertSee('In progress photo uploaded.');
         $html = $followed->getContent();
         $this->assertStringContainsString('id="wo-photos"', $html);
-        foreach (RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->get() as $p) {
-            $this->assertStringContainsString($p->storage_path, $html);
-        }
+        // AT-452 photo viewer: the screen shows a server-made thumbnail copy of each stored photo (not the stored path itself) and opens it in the shared viewer,
+        // so the check is one viewer button and one entry in the viewer's data per saved photo.
+        $count = RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->count();
+        $this->assertSame($count, substr_count($html, 'data-open-wo-photo="'));
+        $this->assertStringContainsString('id="wo-photo-data"', $html);
+        $this->assertSame($count, preg_match_all('/"thumb_url"\s*:/', html_entity_decode(strstr($html, 'id="wo-photo-data"') ?: '')) ?: 0);
         $this->assertSame(2, $this->photoCount($wo->id));
     }
 
