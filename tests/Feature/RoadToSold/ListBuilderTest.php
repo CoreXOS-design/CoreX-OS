@@ -234,7 +234,7 @@ final class ListBuilderTest extends TestCase
         $ok = $this->tp(); $dnc = $this->tp();
         $guard = new class([$dnc->id]) implements SuggestionGuard {
             public function __construct(private array $b) {}
-            public function blockedFor(User $u, array $ids, string $t): array { return array_values(array_intersect($ids, $this->b)); }
+            public function blockedFor(User $u, array $ids, string $t, ?\Carbon\CarbonInterface $on = null): array { return array_values(array_intersect($ids, $this->b)); }
             public function ownHeld(User $u, array $ids, string $t): array { return []; }
         };
 
@@ -332,7 +332,7 @@ final class ListBuilderTest extends TestCase
         $holds = [$tp1->id => $agentId];
         $guard = new class($holds) implements SuggestionGuard {
             public function __construct(private array $holds) {}
-            public function blockedFor(User $u, array $ids, string $t): array { return array_values(array_filter($ids, fn ($i) => isset($this->holds[$i]) && $this->holds[$i] !== $u->id)); }
+            public function blockedFor(User $u, array $ids, string $t, ?\Carbon\CarbonInterface $on = null): array { return array_values(array_filter($ids, fn ($i) => isset($this->holds[$i]) && $this->holds[$i] !== $u->id)); }
             public function ownHeld(User $u, array $ids, string $t): array { return array_values(array_filter($ids, fn ($i) => ($this->holds[$i] ?? null) === $u->id)); }
         };
         $opts = ['target' => 5, 'guard' => $guard, 'areaNames' => ['margate'], 'settings' => ['enabledSelectionKeys' => ['long_on_market']]];

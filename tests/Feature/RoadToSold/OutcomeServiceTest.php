@@ -389,7 +389,9 @@ final class OutcomeServiceTest extends TestCase
         $this->assertTrue($holds->isHeldByOther($tp->id, $this->other));
         $this->assertFalse($holds->isHeldByOther($tp->id, $this->agent));
         $this->assertSame([$tp->id], $holds->excludedIdsFor($this->other, [$tp->id, 999999]));
-        $this->assertSame([], $holds->excludedIdsFor($this->agent, [$tp->id]));
+        // the agent's own "No answer" parks it until it is due again (+7 days): it comes back as a follow-up, not as a new property
+        $this->assertSame([$tp->id], $holds->excludedIdsFor($this->agent, [$tp->id]));
+        $this->assertSame([], $holds->excludedIdsFor($this->agent, [$tp->id], 'sales', Carbon::parse('2026-10-21')), 'on the day it is due it is a follow-up, no longer parked');
         $this->assertSame([$tp->id], $holds->ownHeldIds([$tp->id], $this->agent));
 
         try {

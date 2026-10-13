@@ -61,7 +61,7 @@ abstract class MicPoolSelection implements Selection
             }
 
             $trackedIds = $rows->pluck('tracked_property_id')->filter()->map(fn ($v) => (int) $v)->unique()->values()->all();
-            $blocked = array_flip($ctx->guard->blockedFor($ctx->user, $trackedIds, $ctx->track));
+            $blocked = array_flip($ctx->guard->blockedFor($ctx->user, $trackedIds, $ctx->track, $ctx->date));
             $held = $this->skipOwnHeld() ? array_flip($ctx->guard->ownHeld($ctx->user, $trackedIds, $ctx->track)) : [];
 
             foreach ($rows as $row) {

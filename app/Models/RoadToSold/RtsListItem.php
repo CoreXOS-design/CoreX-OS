@@ -93,7 +93,8 @@ class RtsListItem extends Model
     /** One agent's list for one day. */
     public function scopeForDay($query, int|User $user, $date, string $track = self::TRACK_SALES)
     {
-        $userId = $user instanceof User ? $user->id : $user;
+        // a User passed in is turned into the LIST OWNER: an assistant works the list of the agent they act for (spec: road-to-sold.md "Assistants")
+        $userId = $user instanceof User ? (int) ($user->is_assistant ? $user->ownershipUserId() : $user->id) : $user;
 
         return $query->where('rts_list_items.user_id', $userId)
             ->where('rts_list_items.track', $track)

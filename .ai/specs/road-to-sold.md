@@ -472,3 +472,32 @@ Step key `road_to_sold` (`config/agency-onboarding-copy.php`; `AgencyOnboardingS
 * Selection capacity (200 asked): my buyers 200 / agency buyers 200 / hot pockets 200 / long on market 200 (all with an address) / price drops 4 (none with an address) / owner known 3 (the agency quantity) / new on market — measured before the first-seen fallback (13 Oct ruling) when it was 0 / stuck stock 0 (QA1's portal statistics stop at 7 Sep, outside the 30-day window — "no numbers, no claim").
 * Timings after the fix: 0.01–0.6 s per selection, hot pockets 1.8 s (141 pockets). **Before the fix two selections ran past 60 s**: `px.id IN (pl.matched_property_id, tp.promoted_to_property_id)` in a correlated NOT EXISTS defeats the primary key on 34k live listings; replaced by two plain equality checks (0.26 s). Test data cannot show this class of fault — profile on real data.
 * Strict agency-order fill (Q8) means an agent who has buyers gets a day that is 100 % "My buyers" until those run out. That is the rule as written; a per-selection share would be a setting.
+
+---
+
+## 11. Assistants, and properties the agent has parked (13 Oct 2026, conductor rulings after the lane audit)
+
+### 11.1 Assistants - ONE rule
+
+**An assistant works the list of the agent they act for.** The *list owner* is `User::ownershipUserId()` - the assigned agent, or the Sub-Agent a multi-agent assistant has chosen with "Acting for". A normal user is their own list owner. Every Road to Sold service that takes a `User` first turns an assistant into the list owner, so one user id is used everywhere:
+
+- **page build and page read** - `ListBuilderService::buildFor()` / `listFor()` / `RtsListItem::forDay($user)` resolve the list owner; the page reads by that same id, so what the assistant sees is the agent's list;
+- **the nightly build** (`rts:build-lists`) builds for the AGENT (assistants are skipped as users in their own right: they have no list of their own) - the assistant opens that list;
+- **add to my day, roll-over, "worked"** (`addToDay`, `closePastDays`, `markWorked`) all act on the agent's rows (`rts_list_items.user_id` is always the agent);
+- **areas and targets** are the agent's: because the builder hands the list owner to `AreaService` / `WorkdayService`, an assistant never has "no areas" of their own (lane 1 also fixes `AreaService::suburbIdsFor` for a direct assistant call - both must match this rule);
+- **outcomes**: the outcome, the hold, the follow-up, the target and the report figure belong to the AGENT (`rts_contact_outcomes.user_id`). WHO ACTUALLY MADE THE CALL is kept in `rts_contact_outcomes.recorded_by_user_id` (the assistant; `NULL` = the agent recorded it). The note written on the owner's contact says "(call made by <assistant>)", and `OutcomeService::historyForPage()` returns `made_by` beside `by`.
+
+Migration `2026_10_29_500000_add_recorded_by_to_rts_contact_outcomes.php` adds the column (nullable, indexed, no foreign key - project convention).
+Tests: `tests/Feature/RoadToSold/ParkedAndAssistantTest.php`.
+
+### 11.2 Properties the agent parked with their own outcome are not offered back as new
+
+Audit gap 1. A hold lasts a fixed 30 days (agency setting) and then the property is free again (section 1: "lapses -> free"). But an agent's OWN latest outcome can say more than that, and it must not be contradicted by the property reappearing as a new suggestion. `HoldService::ownParkedIds()` (part of `excludedIdsFor()`, so it applies to every selection and to follow-ups through `SuggestionGuard::blockedFor()`) excludes, for THIS agent only, a property whose current outcome is:
+
+- a return date still in the future (return after N days, a picked date, a mandate expiry date) - until that date, when it comes back as a **follow-up** through `OutcomeService::followUpsDue()`;
+- "move to the list" (wrong number) - it lives on the find-the-right-contact list, not the new-property list;
+- a booked valuation (the appointment is the follow-up);
+- dropped after N no-answers in a row (on the manager's report, off this agent's list).
+
+`blockedFor()` takes the day the list is built for (`$on`, default today), so a follow-up that is due on that day is never mistaken for a parked property (building tomorrow's list tomorrow's follow-ups are due). Another agent is NOT affected: when the hold lapses the property is free for them, as section 1 says.
+Open question for Johan (not built): after a hold lapses should a property that the first agent parked with a date far in the future also stay off OTHER agents' new lists until that date?
