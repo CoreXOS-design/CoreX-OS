@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Rentals;
 
-use App\Mail\Rentals\RentalContractorWorkOrderMail;
 use App\Mail\Rentals\RentalOwnerQuoteMail;
 use App\Models\RentalWorkOrder;
 use App\Models\RentalWorkOrderQuote;
@@ -39,15 +38,21 @@ final class RentalLifecycleAgencyContractorTest extends TestCase
         $this->ownerDecides(['decision' => 'approve', 'handled_by' => 'list', 'agency_service_provider_id' => $supplier->id], '8.1', 'the owner approves and picks the agency\'s contractor from the list');
 
         /** @var RentalWorkOrder|null $wo */
-        $wo = $this->step('9.0', 'agent raises the work order for the contractor - waiting for a quote and the owner, not yet sent', 'cc6', function () use ($supplier) {
+        $wo = $this->step('9.0', 'agent raises the work order for the contractor - the job goes out at once (the contractor is told the moment they are appointed); no cost is approved', 'cc6', function () use ($supplier) {
             $this->asStaff();
             $this->post(route('corex.rental-fault-reports.raise-work-order', $this->fault), [
                 'assignment_type' => 'outside_supplier', 'title' => 'Fix the kitchen tap', 'description' => 'Drips all night', 'agency_service_provider_id' => $supplier->id,
             ])->assertSessionHasNoErrors();
             $wo = $this->fault->fresh()->workOrder;
             $this->assertSame(RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER, $wo->assignment_type);
-            $this->assertSame(RentalWorkOrder::STATUS_REPORTED, $wo->status);
-            $this->assertSame('owner_decided', $this->progress('tenant')['current'], 'not "sent to contractor" until it really is');
+            // AT-452 round 2 / section 22: the owner's approval was the authority to send the contractor to look and quote, so the job goes out the
+            // moment they are appointed - once - and the tenant's line says so. What is NOT approved is any cost (that is Decision 2, below).
+            $this->assertSame(RentalWorkOrder::STATUS_ORDERED, $wo->status);
+            $this->assertSame('sent_to_contractor', $this->progress('tenant')['current']);
+            $sent = \App\Models\RentalJobDispatch::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->where('channel', \App\Models\RentalJobDispatch::CHANNEL_EMAIL)->get();
+            $this->assertCount(1, $sent, 'one job email (the contractor also has a mobile: WhatsApp is only prepared, never sent for them)');
+            $this->assertSame($supplier->email, $sent->first()->destination);
+            $this->assertNull($wo->approved_amount, 'nothing is approved before an amount exists');
 
             return $wo;
         }, ['8.1']);
@@ -75,10 +80,10 @@ final class RentalLifecycleAgencyContractorTest extends TestCase
             }
         }, ['9.1']);
 
-        $this->step('9.3', 'the work order cannot be sent to the contractor before the owner authorises it', 'cc6', function () use ($wo, $supplier) {
+        $this->step('9.3', 'the work cannot start before the owner authorises the cost', 'cc6', function () use ($wo) {
             $this->asStaff();
-            $this->post(route('corex.rental-work-orders.assign-supplier', $wo), ['agency_service_provider_id' => $supplier->id])->assertSessionHasErrors('rental_work_order');
-            $this->assertSame(RentalWorkOrder::STATUS_REPORTED, $wo->fresh()->status);
+            $this->post(route('corex.rental-work-orders.start-progress', $wo))->assertSessionHasErrors();
+            $this->assertSame(RentalWorkOrder::STATUS_ORDERED, $wo->fresh()->status, 'still only sent to look and quote');
         }, ['9.1']);
 
         $this->step('9.4', 'the owner authorises the quote on the portal', 'cc6', function () use ($wo) {
@@ -87,15 +92,14 @@ final class RentalLifecycleAgencyContractorTest extends TestCase
             $this->assertSame(RentalWorkOrder::APPROVAL_APPROVED, $wo->fresh()->owner_approval_status);
         }, ['9.1']);
 
-        $this->step('9.5', 'the agent sends the work order to the contractor - ordered, contractor mailed, line moves', 'cc6', function () use ($wo, $supplier) {
+        $this->step('9.5', 'with the cost authorised the job is cleared to go ahead - the contractor was told once and is not mailed a second time', 'cc6', function () use ($wo, $supplier) {
             $this->asStaff();
-            $this->post(route('corex.rental-work-orders.assign-supplier', $wo), ['agency_service_provider_id' => $supplier->id])->assertSessionHasNoErrors();
             $this->assertSame(RentalWorkOrder::STATUS_ORDERED, $wo->fresh()->status);
             $this->assertSame('sent_to_contractor', $this->progress('tenant')['current']);
             $this->assertSame('sent_to_contractor', $this->progress('owner')['current']);
-            $mail = $this->mailer->sentOf(RentalContractorWorkOrderMail::class);
-            $this->assertCount(1, $mail);
-            $this->assertSame($supplier->email, $mail[0][0]);
+            $sent = \App\Models\RentalJobDispatch::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->where('channel', \App\Models\RentalJobDispatch::CHANNEL_EMAIL)->get();
+            $this->assertCount(1, $sent, 'still the one job email');
+            $this->assertSame($supplier->email, $sent->first()->destination);
         }, ['9.4']);
 
         $this->appointmentAndStart($wo, 'Ramsgate Plumbing', '9', '9.5');

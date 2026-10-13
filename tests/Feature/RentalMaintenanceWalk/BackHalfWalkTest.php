@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Tests\Feature\RentalMaintenanceWalk;
 
-use App\Mail\Rentals\RentalContractorWorkOrderMail;
 use App\Models\DealV2\AgencyServiceProvider;
 use App\Models\RentalFaultReport;
 use App\Models\RentalWorkCompletionRound;
@@ -128,8 +127,14 @@ final class BackHalfWalkTest extends TestCase
         $wo = $fault->fresh()->workOrder;
         $this->assertNotNull($wo, 'a work order exists');
         $this->assertSame(RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER, $wo->assignment_type);
-        // Not "sent to the contractor" yet: the work order still needs a quote and the owner's authorisation.
-        $this->assertSame('owner_decided', $this->tenantLine($fault)['current']);
+        // Section 22 / AT-452 round 2: the owner's approval authorised sending someone to look and quote, so the job goes out the moment the
+        // contractor is appointed (once), and the tenant's line says so. No COST is approved: that needs a quote and the owner's authority (below).
+        $this->assertSame(RentalWorkOrder::STATUS_ORDERED, $wo->status);
+        $this->assertSame('sent_to_contractor', $this->tenantLine($fault)['current']);
+        $jobMessages = fn () => \App\Models\RentalJobDispatch::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->get();
+        $this->assertCount(1, $jobMessages());
+        $this->assertSame($supplier->email, $jobMessages()->first()->destination);
+        $this->assertNull($wo->approved_amount, 'nothing is approved before an amount exists');
 
         // 2 - quote captured and selected: R1,500 is over the R500 limit -> the owner is asked.
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.quotes.store', $wo), [
@@ -148,10 +153,9 @@ final class BackHalfWalkTest extends TestCase
         $this->assertStringNotContainsString('1500', $tenantBody);
         $this->assertStringNotContainsString('1,500', $tenantBody);
 
-        // 3 - work cannot be sent to the contractor until the owner authorises it.
-        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.assign-supplier', $wo), ['agency_service_provider_id' => $supplier->id])
-            ->assertSessionHasErrors('rental_work_order');
-        $this->assertSame(RentalWorkOrder::STATUS_REPORTED, $wo->fresh()->status);
+        // 3 - the work cannot start until the owner authorises the cost.
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.start-progress', $wo))->assertSessionHasErrors();
+        $this->assertSame(RentalWorkOrder::STATUS_ORDERED, $wo->fresh()->status);
 
         $this->screensDraw($fault, 'agency route: quote waiting on the owner');
 
@@ -160,14 +164,11 @@ final class BackHalfWalkTest extends TestCase
         $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'approve'])->assertOk();
         $this->assertSame(RentalWorkOrder::APPROVAL_APPROVED, $wo->fresh()->owner_approval_status);
 
-        // 5 - the agent sends the work order to the contractor (PDF mail, status ordered).
-        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.assign-supplier', $wo), ['agency_service_provider_id' => $supplier->id])
-            ->assertSessionHasNoErrors();
+        // 5 - the cost is authorised, so the job is cleared to go ahead. The contractor was told once, when appointed, and is not mailed again.
         $this->assertSame(RentalWorkOrder::STATUS_ORDERED, $wo->fresh()->status);
         $this->assertSame('Sent to contractor for scheduling', $this->tenantLine($fault)['current_label']);
         $this->assertSame('sent_to_contractor', $this->ownerLine($fault)['current']);
-        $this->assertCount(1, $this->mailer->sentOf(RentalContractorWorkOrderMail::class));
-        $this->assertSame($supplier->email, $this->mailer->sentOf(RentalContractorWorkOrderMail::class)[0][0]);
+        $this->assertCount(1, $jobMessages(), 'still the one job message');
 
         // 6 - the appointment is set (agent), then changed.
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.appointment.store', $wo), [
@@ -326,8 +327,8 @@ final class BackHalfWalkTest extends TestCase
         $this->assertSame(RentalWorkOrder::STATUS_IN_PROGRESS, $wo->fresh()->status);
         $this->assertSame('in_progress', $this->tenantLine($fault)['current']);
 
-        // The crew signs it complete from the link -> the tenant is asked to check.
-        $this->post("{$base}/complete", ['full_name' => 'Sipho Dlamini', 'confirm' => '1'])->assertSessionHasNoErrors();
+        // The crew signs it complete from the link -> the tenant is asked to check. (Stage 4: report-back also says what was found and the cause.)
+        $this->post("{$base}/complete", ['full_name' => 'Sipho Dlamini', 'confirm' => '1', 'found_text' => 'Element had burnt out', 'cause_note' => 'Worn out with age'])->assertSessionHasNoErrors();
         $round = RentalWorkCompletionRound::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->first();
         $this->assertNotNull($round, 'crew completion records the (optional) tenant check round');
         $this->assertSame('Work reported finished', $this->tenantLine($fault)['current_label'], 'T1: no tenant hold');
@@ -345,7 +346,7 @@ final class BackHalfWalkTest extends TestCase
         $this->get($base)->assertOk()->assertSee('Still no hot water');
 
         // The crew puts it right and signs again; round 2; the tenant confirms.
-        $this->post("{$base}/complete", ['full_name' => 'Sipho Dlamini', 'confirm' => '1'])->assertSessionHasNoErrors();
+        $this->post("{$base}/complete", ['full_name' => 'Sipho Dlamini', 'confirm' => '1', 'found_text' => 'Element had burnt out', 'cause_note' => 'Worn out with age'])->assertSessionHasNoErrors();
         $this->assertSame(2, RentalWorkCompletionRound::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->count());
         $this->asTenant();
         $this->postJson("/api/v1/client/rentals/work-orders/{$wo->id}/completion-response", ['fixed' => true])->assertOk();

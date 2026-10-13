@@ -53,6 +53,24 @@ final class NightFlowFixesTest extends TestCase
         return $fault->fresh();
     }
 
+    /**
+     * A work order made from the owner-approved fault (the owner's approval is the Decision 1 authority, section 22). AT-452 round 2 (section 19): the
+     * contractor is told THE MOMENT they are appointed. A contractor with no email or mobile on file cannot be told, so the job is NOT sent and the work
+     * order stays "reported" - that is the state the "before it has gone out" rules below describe. A contractor with an email is sent the job at once and
+     * the work order moves to "ordered" - the state the "once it has gone out" tests describe.
+     *
+     * @return array{0: RentalFaultReport, 1: RentalWorkOrder, 2: \App\Models\DealV2\AgencyServiceProvider}
+     */
+    private function workOrderFromFault(bool $jobGoesOut, string $name = 'Ramsgate Electrical'): array
+    {
+        $fault = $this->approvedFault();
+        $supplier = $this->supplier($name, $jobGoesOut ? 'job.' . uniqid() . '@example.invalid' : null);
+        $wo = app(\App\Services\Rentals\RentalWorkOrderService::class)->createFromFaultDecision($fault, $this->admin, ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $supplier->id])['work_order'];
+        $this->assertSame($jobGoesOut ? RentalWorkOrder::STATUS_ORDERED : RentalWorkOrder::STATUS_REPORTED, $wo->fresh()->status, $jobGoesOut ? 'the job went out when the contractor was appointed' : 'nobody to tell, so nothing went out');
+
+        return [$fault, $wo->fresh(), $supplier];
+    }
+
     private function postQuote(RentalWorkOrder $wo, float $amount, array $extra = [])
     {
         $supplier = $this->supplier('Quote Giver ' . uniqid());
@@ -261,9 +279,7 @@ final class NightFlowFixesTest extends TestCase
     public function test_q2_a_declined_quote_is_marked_declined_and_unselected_and_every_party_reads_the_right_state(): void
     {
         $this->property->forceFill(['rental_no_approval_spend_threshold' => 500])->save();
-        $fault = $this->approvedFault();
-        $supplier = $this->supplier('Ramsgate Electrical');
-        $wo = app(\App\Services\Rentals\RentalWorkOrderService::class)->createFromFaultDecision($fault, $this->admin, ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $supplier->id])['work_order'];
+        [$fault, $wo] = $this->workOrderFromFault(false);   // the job has not gone out: the "two ways forward" guidance belongs to this state
         $this->postQuote($wo, 900);                                   // A
         $this->postQuote($wo, 1200);                                  // B
         $b = $wo->quotes()->orderByDesc('id')->first();
@@ -363,10 +379,8 @@ final class NightFlowFixesTest extends TestCase
 
     public function test_q3_the_contractor_is_the_selected_quotes_supplier_and_the_history_says_when_it_changed(): void
     {
-        $fault = $this->approvedFault();
-        $zz = $this->supplier('ZZ Sunday Contractor');
+        [$fault, $wo, $zz] = $this->workOrderFromFault(false, 'ZZ Sunday Contractor');   // only while the job has NOT gone out does the contractor follow the quote
         $sweep = $this->supplier('CC2 SWEEP');
-        $wo = app(\App\Services\Rentals\RentalWorkOrderService::class)->createFromFaultDecision($fault, $this->admin, ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $zz->id])['work_order'];
         $this->assertSame('ZZ Sunday Contractor', $wo->fresh()->contractorLabel());
 
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.quotes.store', $wo), [
@@ -416,9 +430,7 @@ final class NightFlowFixesTest extends TestCase
 
     public function test_an_appointment_cannot_be_set_before_the_job_is_approved_by_anyone_and_nobody_is_emailed(): void
     {
-        $fault = $this->approvedFault();
-        $supplier = $this->supplier('Ramsgate Electrical');
-        $wo = app(\App\Services\Rentals\RentalWorkOrderService::class)->createFromFaultDecision($fault, $this->admin, ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $supplier->id])['work_order'];
+        [$fault, $wo] = $this->workOrderFromFault(false);   // the job has not gone out (nobody to tell): the appointment rule still holds
         $at = now()->addDays(2)->setTime(9, 0)->format('Y-m-d\TH:i');
 
         // office: nothing is priced yet -> refused with the plain reason, and the screen does not even offer the box
@@ -460,9 +472,7 @@ final class NightFlowFixesTest extends TestCase
 
     public function test_the_tenant_sees_neither_the_contractor_nor_an_old_early_appointment_until_the_job_is_approved(): void
     {
-        $fault = $this->approvedFault();
-        $supplier = $this->supplier('Ramsgate Electrical');
-        $wo = app(\App\Services\Rentals\RentalWorkOrderService::class)->createFromFaultDecision($fault, $this->admin, ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $supplier->id])['work_order'];
+        [$fault, $wo] = $this->workOrderFromFault(false);   // the job has not gone out
         // an appointment booked BEFORE the rule existed (WO 65): stored, but not shown to anyone but the office
         $wo->forceFill(['appointment_at' => now()->addDays(2), 'appointment_note' => 'hoot at the gate', 'appointment_set_at' => now()])->save();
         $svc = app(RentalWorkOrderClientViewService::class);
@@ -493,9 +503,7 @@ final class NightFlowFixesTest extends TestCase
 
     public function test_the_progress_line_never_ticks_sent_or_appointment_before_approval_and_says_what_it_waits_for(): void
     {
-        $fault = $this->approvedFault();
-        $supplier = $this->supplier('Ramsgate Electrical');
-        $wo = app(\App\Services\Rentals\RentalWorkOrderService::class)->createFromFaultDecision($fault, $this->admin, ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $supplier->id])['work_order'];
+        [$fault, $wo] = $this->workOrderFromFault(false);   // the job has not gone out
         $wo->forceFill(['appointment_at' => now()->addDays(2), 'appointment_set_at' => now()])->save();   // the early appointment of WO 65
         $progress = app(\App\Services\Rentals\RentalFaultProgressService::class);
         $line = fn (string $aud) => collect($progress->forFault($fault->fresh(), $aud)['steps'])->keyBy('key');
@@ -517,6 +525,64 @@ final class NightFlowFixesTest extends TestCase
         $this->assertSame('Being arranged with the contractor', $t['sent_to_contractor']['detail']);
         $this->assertSame('todo', $t['sent_to_contractor']['state'], 'approved is not sent');
         $this->assertSame('done', $t['appointment_set']['state'], 'now the appointment is real');
+    }
+
+    // ── D. section 22: once the job has gone out (the contractor was told the moment they were appointed) ──
+
+    public function test_once_the_job_has_gone_out_the_tenant_line_the_appointment_and_the_contractor_follow_that_but_no_cost_is_approved(): void
+    {
+        $this->ownerLimits(500.0);
+        [$fault, $wo, $supplier] = $this->workOrderFromFault(true);
+        $svc = app(RentalWorkOrderClientViewService::class);
+        $progress = app(\App\Services\Rentals\RentalFaultProgressService::class);
+        $line = fn (string $aud) => collect($progress->forFault($fault->fresh(), $aud)['steps'])->keyBy('key');
+
+        // the job went out, once, to the contractor
+        $this->assertSame(1, \App\Models\RentalJobDispatch::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->count(), 'one job message, sent when the contractor was appointed');
+        $this->assertNotNull($wo->ordered_at);
+
+        // the tenant's line is real: sent is ticked, and the contractor is named (the tenant is told who is coming once it is out)
+        $this->assertSame('done', $line('tenant')['sent_to_contractor']['state']);
+        $this->assertSame('sent_to_contractor', $progress->forFault($fault->fresh(), 'tenant')['current']);
+        $this->assertSame('todo', $line('tenant')['appointment_set']['state'], 'but no appointment exists yet');
+        $this->assertSame('Ramsgate Electrical', $svc->payload($wo->fresh(), RentalWorkOrderClientViewService::AUDIENCE_TENANT)['contractor_name']);
+
+        // the appointment box is offered (the job is out) and an appointment can be set
+        $html = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
+        $this->assertStringContainsString('name="appointment_at"', $html);
+        $this->assertStringNotContainsString('data-appointment-locked', $html);
+        $at = now()->addDays(2)->setTime(9, 0)->format('Y-m-d\TH:i');
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.appointment.store', $wo), ['appointment_at' => $at])->assertSessionHasNoErrors();
+        $this->assertNotNull($wo->fresh()->appointment_at);
+
+        // a quote from someone else does NOT move the job: it is with the contractor it was sent to
+        $this->postQuote($wo, 300)->assertSessionHasNoErrors();
+        $this->assertSame($supplier->id, (int) $wo->fresh()->agency_service_provider_id);
+        $this->assertFalse($wo->fresh()->updates()->where('update_type', 'supplier_changed')->exists());
+
+        // section 22.6: a quote inside the owner's limit is still NOT approved by itself - the agent authorises it
+        $this->assertNull($wo->fresh()->approved_amount);
+        $this->authoriseCostOf($wo->fresh());
+        $this->assertNotNull($wo->fresh()->approved_amount);
+    }
+
+    public function test_a_quote_the_owner_declines_after_the_job_went_out_is_marked_and_the_cost_reads_owner_declined(): void
+    {
+        [$fault, $wo] = $this->workOrderFromFault(true);
+        $this->postQuote($wo, 4120)->assertSessionHasNoErrors();
+        $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $wo->fresh()->owner_approval_status);
+
+        Sanctum::actingAs($this->clientFor($this->landlord), ['client']);
+        $this->postJson(self::L . "/work-orders/{$wo->id}/decision", ['decision' => 'decline', 'note' => 'Far too expensive'])->assertOk();
+
+        $q = $wo->quotes()->first()->fresh();
+        $this->assertFalse((bool) $q->is_selected);
+        $this->assertNotNull($q->declined_at);
+        $html = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
+        $this->assertStringContainsString('data-quote-declined-badge', $html);
+        $this->assertStringContainsString('Far too expensive', $html);
+        $this->assertStringContainsString('data-cost-status="declined"', $html, 'the Approve the cost block reads Owner declined');
+        $this->assertSame('You declined the quote', app(RentalWorkOrderClientViewService::class)->payload($wo->fresh(), RentalWorkOrderClientViewService::AUDIENCE_LANDLORD)['stage_label']);
     }
 
     public function test_the_tenants_session_pressing_an_owner_button_is_a_plain_refusal_never_an_action(): void
