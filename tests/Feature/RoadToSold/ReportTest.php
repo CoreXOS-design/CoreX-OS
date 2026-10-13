@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 namespace Tests\Feature\RoadToSold;
 
+use App\Models\AssistantAssignment;
 use App\Models\Prospecting\TrackedProperty;
 use App\Models\RoadToSold\RtsOutcomeDefinition as Def;
 use App\Models\RolePermission;
 use App\Models\User;
 use App\Services\PermissionService;
 use App\Services\Performance\Period;
+use App\Services\RoadToSold\CallListService;
 use App\Services\RoadToSold\DrilldownService;
+use App\Services\RoadToSold\OutcomeService;
 use App\Services\RoadToSold\OutcomeDefinitionService;
 use App\Services\RoadToSold\ReportService;
 use App\Services\RoadToSold\SettingsService;
@@ -295,6 +298,45 @@ final class ReportTest extends TestCase
         $drill = $this->actingAs($this->anna)->getJson(route('road-to-sold.drilldown', $q))->assertOk();
         $this->assertSame($cell['value'], $drill->json('total'), 'report and drill agree');
         $this->assertSame(2, collect($drill->json('rows'))->filter(fn ($r) => str_contains($r['property'], 'property archived'))->count());
+    }
+
+    public function test_an_assistant_is_never_a_row_and_their_calls_count_under_the_agent_with_call_made_by(): void
+    {
+        $this->agencyRow()->forceFill(['assistants_enabled' => true])->save();
+        $zed = User::factory()->create(['agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'role' => 'assistant', 'is_active' => true, 'is_assistant' => true, 'name' => 'Zed Assistant']);
+        AssistantAssignment::create(['agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'assistant_user_id' => $zed->id, 'agent_user_id' => $this->anna->id, 'status' => AssistantAssignment::STATUS_ACTIVE]);
+        $zed = $zed->fresh();
+
+        $def = Def::withoutGlobalScopes()->where('agency_id', $this->agencyId)->where('key', 'no_answer')->firstOrFail();
+        $this->actingAs($zed);
+        app(OutcomeService::class)->record($zed, $this->tp->id, $def->id);
+        $this->log($this->anna, 'no_answer', 1);
+
+        // the cohort a manager may report on never holds the assistant, and the report drops one if it is handed one
+        $this->assertNotContains($zed->id, app(CallListService::class)->viewableAgents($this->manager)->pluck('id')->all());
+        $everyone = User::query()->where('agency_id', $this->agencyId)->whereIn('id', [$this->anna->id, $this->bheki->id, $zed->id])->get();
+        $built = app(ReportService::class)->build($this->agencyId, $everyone, $this->october(), null);
+        $this->assertNull(collect($built['rows'])->firstWhere('agent_id', $zed->id));
+        $rowTargets = collect($built['rows'])->sum(fn ($r) => $r['cells']['target']['value']);
+        $this->assertSame($rowTargets, $built['totals']['cells']['target']['value'], 'the Total target is the agents\' targets, nothing doubled');
+
+        // the assistant's call is Anna's attempt, and the drill says who made it
+        $this->assertSame(2, collect($built['rows'])->firstWhere('agent_id', $this->anna->id)['cells']['attempts']['value']);
+        $q = ['agent_id' => $this->anna->id, 'period' => 'custom', 'start' => '2026-10-01', 'end' => '2026-10-31', 'metric' => 'attempts'];
+        $drill = $this->actingAs($this->manager)->getJson(route('road-to-sold.drilldown', $q))->assertOk();
+        $this->assertSame(2, $drill->json('total'));
+        $this->assertContains('made_by', array_column($drill->json('columns'), 'key'));
+        $madeBy = collect($drill->json('rows'))->pluck('made_by')->sort()->values()->all();
+        $this->assertSame(['-', 'Zed Assistant'], $madeBy);
+        $this->actingAs($this->manager)->getJson(route('road-to-sold.drilldown', ['agent_id' => $zed->id] + $q))->assertNotFound();
+
+        $this->actingAs($this->manager)->get(route('road-to-sold.report', ['period' => 'custom', 'start' => '2026-10-01', 'end' => '2026-10-31']))
+            ->assertOk()->assertSee('Anna Agent')->assertDontSee('Zed Assistant');
+    }
+
+    private function agencyRow(): \App\Models\Agency
+    {
+        return \App\Models\Agency::query()->withoutGlobalScopes()->findOrFail($this->agencyId);
     }
 
     public function test_the_compare_drill_needs_a_comparison_and_other_agents_are_a_404(): void

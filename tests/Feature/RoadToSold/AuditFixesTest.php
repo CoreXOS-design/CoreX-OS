@@ -72,7 +72,7 @@ final class AuditFixesTest extends TestCase
         };
         $followUps = new class($o['followUps'] ?? []) implements FollowUpSource {
             public function __construct(private array $f) {}
-            public function dueOn(User $u, CarbonInterface $d, string $t): array { return $this->f[$u->id] ?? []; }
+            public function dueOn(User $u, CarbonInterface $d, string $t): array { return $t === 'sales' ? ($this->f[$u->id] ?? []) : []; }
         };
 
         return new ListBuilderService(
@@ -378,6 +378,77 @@ final class AuditFixesTest extends TestCase
 
         $this->assertSame([$sale], $this->listingIds($sales));
         $this->assertSame([$rental], $this->listingIds($rentals));
+    }
+
+    // ── the track, end to end ────────────────────────────────────────────
+
+    public function test_a_rentals_list_never_contains_a_sales_row_and_the_two_lists_do_not_disturb_each_other(): void
+    {
+        $saleListing = $this->listing(self::OLD);
+        $rentalListing = $this->listing(self::OLD + ['listing_type' => 'rental']);
+        $saleOwn = $this->property($this->agent->id, ['status' => 'expired', 'expiry_date' => '2026-09-01', 'listing_type' => 'sale']);
+        $rentalOwn = $this->property($this->agent->id, ['status' => 'expired', 'expiry_date' => '2026-09-01', 'listing_type' => 'rental']);
+        $followTp = $this->tp();
+        $b = $this->builder(['target' => 10, 'followUps' => [$this->agent->id => [new FollowUp($followTp->id, null, null, 'Follow-up: call back')]]]);
+
+        $sales = $b->buildFor($this->agent, self::WED, 'sales');
+        $rentals = $b->buildFor($this->agent, self::WED, 'rentals');
+
+        $this->assertContains($saleListing, $sales->pluck('prospecting_listing_id')->all());
+        $this->assertContains($saleOwn, $sales->pluck('property_id')->all());
+        $this->assertContains($followTp->id, $sales->pluck('tracked_property_id')->all());
+        $this->assertSame(['rentals'], $rentals->pluck('track')->unique()->values()->all());
+        $this->assertContains($rentalListing, $rentals->pluck('prospecting_listing_id')->all());
+        $this->assertContains($rentalOwn, $rentals->pluck('property_id')->all());
+        foreach ([$saleListing] as $id) {
+            $this->assertNotContains($id, $rentals->pluck('prospecting_listing_id')->all(), 'a sales advert on a rentals list');
+        }
+        $this->assertNotContains($saleOwn, $rentals->pluck('property_id')->all(), 'a sales listing of the agent on a rentals list');
+        $this->assertNotContains($followTp->id, $rentals->pluck('tracked_property_id')->all(), 'a sales follow-up on a rentals list');
+        $this->assertNotContains($rentalListing, $sales->pluck('prospecting_listing_id')->all());
+        $this->assertNotContains($rentalOwn, $sales->pluck('property_id')->all());
+
+        // reading, adding and closing are per track too
+        $this->assertSame($rentals->pluck('id')->all(), $b->listFor($this->agent, self::WED, 'rentals')->pluck('id')->all());
+        $this->assertSame(0, RtsListItem::query()->forDay($this->agent, self::WED, 'rentals')->where('prospecting_listing_id', $saleListing)->count());
+        $b->addToDay($this->agent, 'new_on_market', 5, self::WED, 'rentals');
+        $this->assertSame(0, RtsListItem::query()->where('track', 'rentals')->whereIn('prospecting_listing_id', [$saleListing])->count());
+    }
+
+    public function test_an_unknown_track_is_refused_loudly_by_the_builder_and_the_nightly_command(): void
+    {
+        $b = $this->builder();
+        foreach ([fn () => $b->buildFor($this->agent, self::WED, 'lettings'), fn () => $b->addToDay($this->agent, 'new_on_market', 1, self::WED, 'x'), fn () => $b->closePastDays($this->agent, self::WED, 'x')] as $call) {
+            try {
+                $call();
+                $this->fail('an unknown track must throw');
+            } catch (\InvalidArgumentException $e) {
+                $this->assertStringContainsString('Unknown Road to Sold track', $e->getMessage());
+            }
+        }
+
+        $this->artisan('rts:build-lists', ['--track' => 'lettings'])->assertFailed();
+    }
+
+    public function test_the_page_builds_the_list_for_the_track_it_was_opened_on(): void
+    {
+        $seen = new \ArrayObject();
+        $this->app->bind(ListBuilderService::class, fn () => new class($seen) extends ListBuilderService {
+            public function __construct(public \ArrayObject $seen) { parent::__construct(); }
+            public function buildFor(User $user, CarbonInterface|string $date, string $track = 'sales'): \Illuminate\Support\Collection
+            {
+                $this->seen->append($track);
+
+                return collect();
+            }
+        });
+        Carbon::setTestNow('2026-10-14 09:00:00');
+
+        $this->actingAs($this->agent)->get(route('road-to-sold.index'));
+        $this->actingAs($this->agent)->get(route('road-to-sold.index', ['track' => 'rentals']));
+
+        $this->assertSame(['sales', 'rentals'], $seen->getArrayCopy());
+        Carbon::setTestNow();
     }
 
     // ── G: every row has a tracked property, and the database refuses duplicates ──

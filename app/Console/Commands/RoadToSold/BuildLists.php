@@ -39,6 +39,11 @@ class BuildLists extends Command
     {
         $day = Carbon::parse($this->option('date') ?: now())->startOfDay();
         $track = (string) $this->option('track');
+        if (! in_array($track, \App\Models\RoadToSold\RtsSetting::TRACKS, true)) {
+            $this->error("Unknown track '{$track}'. Use: " . implode(', ', \App\Models\RoadToSold\RtsSetting::TRACKS) . '.');
+
+            return self::FAILURE;
+        }
         $failed = 0;
         $built = 0;
 

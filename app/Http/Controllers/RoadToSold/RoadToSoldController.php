@@ -46,7 +46,7 @@ class RoadToSoldController extends Controller
         $viewingOwn = $agentId === (int) $viewer->ownershipUserId();
 
         $date = $this->list->resolveDate($request->query('date'));
-        $this->buildIfMissing($viewer, $agentId, $date, $viewingOwn);
+        $this->buildIfMissing($viewer, $agentId, $date, $viewingOwn, $track);
 
         $data = $this->list->page($viewer, $agentId, [
             'view'      => $request->query('view'),
@@ -111,15 +111,15 @@ class RoadToSoldController extends Controller
     }
 
     /** The overnight build normally has today's list ready; if it is missing, build it when the page opens. */
-    private function buildIfMissing($viewer, int $agentId, $date, bool $viewingOwn): void
+    private function buildIfMissing($viewer, int $agentId, $date, bool $viewingOwn, string $track): void
     {
         if (! $viewingOwn || ! $date->isToday()) {
             return;
         }
         try {
-            $has = RtsListItem::query()->visibleTo($viewer)->forDay($agentId, $date)->exists();
+            $has = RtsListItem::query()->visibleTo($viewer)->forDay($agentId, $date, $track)->exists();
             if (! $has) {
-                app(ListBuilderService::class)->buildFor($viewer, $date);
+                app(ListBuilderService::class)->buildFor($viewer, $date, $track);
             }
         } catch (Throwable $e) {
             // Never a silently empty page: log it, and tell the agent their list could not be built.

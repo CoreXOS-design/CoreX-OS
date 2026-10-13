@@ -48,7 +48,9 @@ class CallListService
             return User::query()->whereIn('id', [$self])->get(['id', 'name', 'branch_id']);
         }
 
-        $q = User::query()->agencyMembers()->where('agency_id', $agencyId)->where('is_active', true);
+        // An assistant is never a row of their own (spec 11.1): their calls are the agent's, so they would double the target.
+        $q = User::query()->agencyMembers()->where('agency_id', $agencyId)->where('is_active', true)
+            ->where(fn ($w) => $w->whereNull('is_assistant')->orWhere('is_assistant', false));
         if ($level === 'branch') {
             $branchId = $viewer->effectiveBranchId();
             $branchId ? $q->where('branch_id', $branchId) : $q->whereIn('id', [$self]);

@@ -2,6 +2,7 @@
 
 namespace App\Services\RoadToSold\Support;
 
+use App\Models\RoadToSold\RtsSetting;
 use App\Models\User;
 use App\Services\RoadToSold\SettingsService;
 
@@ -10,8 +11,8 @@ use App\Services\RoadToSold\SettingsService;
  *
  * Lane 1 owns the real settings (RoadToSold\SettingsService, table rts_settings) and this class reads
  * them straight from it - there is no fallback: a settings failure is an error the caller sees, never a
- * quiet drop to different numbers. The constructor defaults exist for tests and one-off overrides only
- * and equal the settings' standard values.
+ * quiet drop to different numbers. The constructor defaults exist for tests and one-off overrides only and
+ * are read FROM the settings' own default tables (RtsSetting::SCALAR_DEFAULTS / LIST_DEFAULTS), not repeated here.
  */
 final class BuilderSettings
 {
@@ -25,26 +26,26 @@ final class BuilderSettings
         public readonly bool $lockAgentsToAreas = false,
         public readonly bool $rollsOver = false,
         public readonly array $enabledSelectionKeys = self::DEFAULT_SELECTION_ORDER,
-        public readonly int $newOnMarketDays = 14,
-        public readonly int $longOnMarketDays = 90,
-        public readonly int $ownerKnownQuantity = 3,
-        public readonly int $stuckStockMinDaysOnMarket = 60,
-        public readonly int $stuckStockMaxViews = 30,
-        public readonly int $stuckStockMaxLeads = 2,
-        public readonly int $hotPocketLookbackDays = 180,
-        public readonly int $priceDropLookbackDays = 30,
-        public readonly int $stuckStockLookbackDays = 30,
-        public readonly int $addToDayMax = 100,
-        public readonly int $scanPageSize = 200,
-        public readonly int $hotPocketWeightBuyers = 1,
-        public readonly int $hotPocketWeightLeads = 1,
-        public readonly int $hotPocketWeightSales = 1,
+        public readonly int $newOnMarketDays = RtsSetting::SCALAR_DEFAULTS['new_on_market_days'],
+        public readonly int $longOnMarketDays = RtsSetting::SCALAR_DEFAULTS['long_on_market_days'],
+        public readonly int $ownerKnownQuantity = RtsSetting::SCALAR_DEFAULTS['owner_known_quantity'],
+        public readonly int $stuckStockMinDaysOnMarket = RtsSetting::SCALAR_DEFAULTS['stuck_stock_min_days'],
+        public readonly int $stuckStockMaxViews = RtsSetting::SCALAR_DEFAULTS['stuck_stock_max_views'],
+        public readonly int $stuckStockMaxLeads = RtsSetting::SCALAR_DEFAULTS['stuck_stock_max_leads'],
+        public readonly int $hotPocketLookbackDays = RtsSetting::SCALAR_DEFAULTS['hot_pocket_lookback_days'],
+        public readonly int $priceDropLookbackDays = RtsSetting::SCALAR_DEFAULTS['price_drop_lookback_days'],
+        public readonly int $stuckStockLookbackDays = RtsSetting::SCALAR_DEFAULTS['stuck_stock_lookback_days'],
+        public readonly int $addToDayMax = RtsSetting::SCALAR_DEFAULTS['add_to_day_max'],
+        public readonly int $scanPageSize = RtsSetting::SCALAR_DEFAULTS['scan_page_size'],
+        public readonly int $hotPocketWeightBuyers = RtsSetting::SCALAR_DEFAULTS['hot_pocket_weight_buyers'],
+        public readonly int $hotPocketWeightLeads = RtsSetting::SCALAR_DEFAULTS['hot_pocket_weight_leads'],
+        public readonly int $hotPocketWeightSales = RtsSetting::SCALAR_DEFAULTS['hot_pocket_weight_sales'],
         /** @var string[] */
-        public readonly array $buyerMatchTiers = ['perfect', 'strong'],
+        public readonly array $buyerMatchTiers = RtsSetting::LIST_DEFAULTS['buyer_match_tiers'],
         /** @var string[] */
-        public readonly array $buyerActiveStates = ['new', 'warm'],
+        public readonly array $buyerActiveStates = RtsSetting::LIST_DEFAULTS['active_buyer_states'],
         /** @var string[] */
-        public readonly array $onMarketStatuses = ['active', 'for_sale', 'on_show'],
+        public readonly array $onMarketStatuses = RtsSetting::LIST_DEFAULTS['on_market_statuses'],
     ) {
     }
 

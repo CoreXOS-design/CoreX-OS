@@ -23,7 +23,7 @@ use Illuminate\Support\Facades\DB;
  */
 final class OtherAgentStock
 {
-    private const CHUNK = 1000;
+    private const CHUNK = 3000;
 
     /** @var array{ids:array<int,true>,refs:array<string,true>,addrs:array<string,true>,tracked:array<int,true>}|null */
     private ?array $sets = null;
@@ -110,13 +110,7 @@ final class OtherAgentStock
             return $this->sets;
         }
 
-        $rows = DB::table('properties')
-            ->where('agency_id', $this->agencyId)
-            ->whereNull('deleted_at')
-            ->whereNotNull('agent_id')
-            ->when($this->identityIds !== [], fn ($q) => $q->whereNotIn('agent_id', $this->identityIds))
-            ->where(fn ($w) => $w->whereNull('status')->orWhere('status', '<>', Property::STATUS_OTHER_AGENCY_STOCK))
-            ->get(['id', 'p24_ref', 'pp_ref', 'address', 'suburb']);
+        $rows = $this->others('p')->get(['p.id', 'p.p24_ref', 'p.pp_ref', 'p.address', 'p.suburb']);
 
         $ids = [];
         $refs = [];
@@ -135,7 +129,8 @@ final class OtherAgentStock
             }
         }
 
-        // Every tracked property that is, or has a listing that is, one of those properties.
+        // Every tracked property that is, or has an advert that is, one of those properties - found with joins
+        // (one indexed query each), not with thousands of ids pasted into IN lists.
         $tracked = [];
         $collect = function ($query) use (&$tracked) {
             foreach ($query->pluck('tracked_property_id') as $tid) {
@@ -144,19 +139,41 @@ final class OtherAgentStock
                 }
             }
         };
-        foreach (array_chunk(array_keys($ids), self::CHUNK) as $chunk) {
-            $collect(DB::table('tracked_properties')->select(DB::raw('id as tracked_property_id'))
-                ->where('agency_id', $this->agencyId)->whereNull('deleted_at')->whereIn('promoted_to_property_id', $chunk));
-            $collect($this->listings()->whereIn('matched_property_id', $chunk));
+        $collect($this->others('p')
+            ->join('tracked_properties as tp', 'tp.promoted_to_property_id', '=', 'p.id')
+            ->where('tp.agency_id', $this->agencyId)->whereNull('tp.deleted_at')
+            ->select(DB::raw('tp.id as tracked_property_id')));
+        $collect($this->others('p')
+            ->join('prospecting_listings as pl', 'pl.matched_property_id', '=', 'p.id')
+            ->where('pl.agency_id', $this->agencyId)->whereNull('pl.deleted_at')->whereNotNull('pl.tracked_property_id')
+            ->select('pl.tracked_property_id'));
+        foreach (['p24' => ['P24-', 'p24_ref'], 'pp' => ['PP-', 'pp_ref']] as $source => [$prefix, $column]) {
+            $collect($this->others('p')
+                ->whereNotNull("p.{$column}")->where("p.{$column}", '<>', '')
+                ->join('prospecting_listings as pl', function ($j) use ($source, $prefix, $column) {
+                    $j->on('pl.agency_id', '=', 'p.agency_id')->where('pl.portal_source', '=', $source)
+                      ->whereRaw("pl.portal_ref = CONCAT('{$prefix}', p.{$column})");
+                })
+                ->whereNull('pl.deleted_at')->whereNotNull('pl.tracked_property_id')
+                ->select('pl.tracked_property_id'));
         }
-        foreach (array_chunk(array_keys($refs), self::CHUNK) as $chunk) {
-            $collect($this->listings()->whereIn('portal_ref', $chunk));
-        }
+        // addresses are normalised in PHP (no stored column on properties), so they go in as a few large IN lists
         foreach (array_chunk(array_keys($addrs), self::CHUNK) as $chunk) {
             $collect($this->listings()->whereIn('normalized_address', $chunk));
         }
 
         return $this->sets = ['ids' => $ids, 'refs' => $refs, 'addrs' => $addrs, 'tracked' => $tracked];
+    }
+
+    /** The agency's properties that belong to another agent (not its own, not another agency's imported listing). */
+    private function others(string $alias)
+    {
+        return DB::table("properties as {$alias}")
+            ->where("{$alias}.agency_id", $this->agencyId)
+            ->whereNull("{$alias}.deleted_at")
+            ->whereNotNull("{$alias}.agent_id")
+            ->when($this->identityIds !== [], fn ($q) => $q->whereNotIn("{$alias}.agent_id", $this->identityIds))
+            ->where(fn ($w) => $w->whereNull("{$alias}.status")->orWhere("{$alias}.status", '<>', Property::STATUS_OTHER_AGENCY_STOCK));
     }
 
     private function listings()
