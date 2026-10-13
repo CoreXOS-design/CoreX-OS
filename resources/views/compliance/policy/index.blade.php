@@ -76,7 +76,7 @@
                                     <a href="{{ route('compliance.policy.approve.form', $v) }}" class="text-xs font-semibold" style="color: var(--ds-amber);">Approve</a>
                                     @endpermission
                                 @endif
-                                <a href="{{ route('compliance.policy.pdf', $v) }}" class="text-xs font-semibold" style="color: var(--text-muted);" target="_blank">PDF</a>
+                                <a href="{{ route('compliance.policy.pdf', $v) }}" class="text-xs font-semibold" style="color: var(--text-muted);">PDF</a>
                             </div>
                         </td>
                     </tr>

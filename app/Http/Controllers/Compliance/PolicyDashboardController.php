@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Compliance;
 use App\Http\Controllers\Controller;
 use App\Mail\PolicyAcknowledgementReminder;
 use App\Models\Agency;
+use App\Services\Compliance\CompliancePdf;
 use App\Models\Compliance\AgencyPolicy;
 use App\Models\Compliance\PolicyAcknowledgement;
 use App\Models\Compliance\PolicyVersion;
@@ -218,6 +219,13 @@ class PolicyDashboardController extends Controller
             ];
         }
 
-        return view('compliance.policy-dashboard.report', compact('agency', 'selectedPolicy', 'activeVersion', 'staffData'));
+        $pdf   = app(CompliancePdf::class);
+        $html  = view('compliance.policy-dashboard.report', compact('agency', 'selectedPolicy', 'activeVersion', 'staffData'))->render();
+        $label = ($selectedPolicy?->name ?? 'Policy') . ' acknowledgement register — ' . $agency->name;
+        $bytes = $pdf->render($html, $label, 'policy-register-' . $agencyId);
+
+        return $pdf->download($bytes, CompliancePdf::registerFileName(($selectedPolicy?->policy_key ?? 'policy') . '-acknowledgement-register', $agency->name, now()->format('Y-m-d')))
+            ?? redirect()->route('compliance.policy.dashboard.index', array_filter(['policy' => $selectedPolicy?->policy_key]))
+                ->with('error', 'The report PDF could not be created just now. Please try again; if it keeps failing, tell your administrator.');
     }
 }
