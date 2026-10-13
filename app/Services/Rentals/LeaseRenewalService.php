@@ -346,6 +346,31 @@ class LeaseRenewalService
         };
     }
 
+    /**
+     * rental-renewals.md §22 (Johan, 14 Oct 2026) - the lease being renewed stays active until its own end date; a renewal signed ahead of its
+     * start date waits for that date (LeaseTermAdvanceService / `leases:advance-terms` activates it then).
+     */
+    public function startsLater(Lease $term): bool
+    {
+        return $term->previous_lease_id !== null
+            && $term->start_date !== null
+            && $term->start_date->toDateString() > now()->toDateString();
+    }
+
+    /**
+     * Records that a signed renewal is waiting for its start date and says so in one plain sentence. The lease keeps its draft status (shown as
+     * "Signed - starts <date>"); nothing about the running lease changes.
+     */
+    public function holdUntilStart(Lease $term, ?User $user): string
+    {
+        $when = $term->start_date->format('j M Y');
+        $this->logEvent($term, LeaseEvent::TYPE_RENEWAL_SIGNED_AWAITING_START, "Renewal signed - it starts on {$when}; the current lease stays active until then", $user, [
+            'start_date' => $term->start_date->toDateString(), 'previous_lease_id' => $term->previous_lease_id,
+        ]);
+
+        return "Signed - this renewal starts on {$when}. The current lease stays active until then.";
+    }
+
     private function logEvent(Lease $lease, string $type, string $description, ?User $user, ?array $metadata = null): void
     {
         LeaseEvent::create([

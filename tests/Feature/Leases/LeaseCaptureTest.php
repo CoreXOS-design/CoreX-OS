@@ -858,7 +858,7 @@ final class LeaseCaptureTest extends TestCase
         $current = $this->activeLease(['rental_amount' => 8500]);
 
         $this->actingAs($this->admin)->post(route('corex.leases.renewal.store', $current), [
-            'intent' => 'paper_copy', 'start_date' => '2026-11-01', 'rental_amount' => '9200',
+            'intent' => 'paper_copy', 'start_date' => now()->toDateString(), 'rental_amount' => '9200',
             'signed_document' => UploadedFile::fake()->create('renewal.pdf', 100, 'application/pdf'),
         ])->assertSessionHasNoErrors();
 
@@ -876,7 +876,7 @@ final class LeaseCaptureTest extends TestCase
         $current = $this->activeLease(['rental_amount' => 8500, 'deposit_amount' => 17000]);
 
         $this->actingAs($this->admin)->post(route('corex.leases.renewal.upload', $current), [
-            'start_date' => '2026-11-01', 'rental_amount' => 9200, 'signed_document' => UploadedFile::fake()->create('renewal.pdf', 100, 'application/pdf'),
+            'start_date' => now()->toDateString(), 'rental_amount' => 9200, 'signed_document' => UploadedFile::fake()->create('renewal.pdf', 100, 'application/pdf'),
         ])->assertRedirect();
 
         $new = Lease::where('previous_lease_id', $current->id)->firstOrFail();

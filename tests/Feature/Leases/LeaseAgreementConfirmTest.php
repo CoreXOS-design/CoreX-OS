@@ -96,12 +96,14 @@ final class LeaseAgreementConfirmTest extends TestCase
         $this->assertSame($before, [$lease->fresh()->toArray(), $lease->agreementTerms()->first()->toArray(), LeaseEvent::count()], 'leaving or opening the screen writes nothing');
     }
 
-    public function test_an_agreement_that_agrees_with_its_lease_says_so_and_offers_no_button(): void
+    public function test_an_agreement_that_agrees_with_its_lease_says_so_and_is_the_approval_itself(): void
     {
         [$lease] = $this->agreementOut();
 
+        // 14 Oct 2026 (cc5's walk): "nothing to confirm" with only "Back to the agreement" was a dead end - the screen now carries the one approve button.
         $this->actingAs($this->agent)->get(route('corex.leases.agreement.confirm', $lease))
-            ->assertOk()->assertSee('there is nothing to confirm')->assertDontSee('Confirm lease details and approve');
+            ->assertOk()->assertSee('The agreement and the lease agree.')->assertDontSee('nothing to confirm')
+            ->assertSee('Approve and finalise')->assertDontSee('Confirm lease details and approve');
     }
 
     public function test_while_the_agreement_is_still_out_the_agent_can_look_but_not_confirm(): void

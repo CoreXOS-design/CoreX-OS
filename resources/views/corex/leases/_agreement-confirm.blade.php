@@ -13,7 +13,10 @@
     $rows = collect($verdict['rows']);
     $needs = $verdict['needs_confirmation'];
     $blocked = $verdict['blocked'];
-    $buttonLabel = $stage === 'activate' ? 'Confirm and activate' : 'Confirm lease details and approve';
+    // Nothing differs and the agreement is waiting for the agent: this screen IS the approval - one button, here (no second page,
+    // no browser pop-up). With differences the same button first confirms them.
+    $cleanApprove = ! $needs && $stage === 'approve';
+    $buttonLabel = $stage === 'activate' ? 'Confirm and activate' : ($cleanApprove ? 'Approve and finalise' : 'Confirm lease details and approve');
     $addressLine = $lease->property?->buildDisplayAddress() ?? 'Unknown property';
     $groupLabels = ['lease' => 'Lease', 'parties' => 'Who signs', 'term' => 'Term', 'agreement' => 'Agreement details', 'schedule' => 'Schedule', 'calculated' => 'Worked out from the figures'];
 @endphp
@@ -30,12 +33,15 @@
     @if($needs)
         <p class="text-sm font-medium" data-qa="confirm-heading">The agreement was changed in e-sign. Check each highlighted value, then confirm.</p>
     @else
-        <p class="text-sm" data-qa="confirm-clean">The agreement and the lease agree — there is nothing to confirm.</p>
+        <p class="text-sm" data-qa="confirm-clean">The agreement and the lease agree.@if($cleanApprove) Check the details below, then approve.@endif</p>
     @endif
 
     <form method="POST" action="{{ $postUrl ?? '#' }}" class="space-y-4 rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         @csrf
-        <input type="hidden" name="lease_confirm[fingerprint]" value="{{ $verdict['fingerprint'] }}">
+        @unless($cleanApprove)
+            {{-- A clean approval carries no confirmation: if the agreement changes before the click, the approval route sends the agent back here with the differences. --}}
+            <input type="hidden" name="lease_confirm[fingerprint]" value="{{ $verdict['fingerprint'] }}">
+        @endunless
 
         @foreach($rows->groupBy('group') as $group => $groupRows)
             <div class="space-y-2">
@@ -115,7 +121,7 @@
 
         <div class="flex flex-wrap items-center justify-end gap-3 pt-2">
             <a href="{{ $agreementUrl }}" class="corex-btn-outline text-xs" data-qa="confirm-back">Back to the agreement</a>
-            @if($postUrl && $needs)
+            @if($postUrl && ($needs || $cleanApprove || $stage === 'activate'))
                 <button type="submit" class="corex-btn-primary text-xs" @disabled($blocked) @if($blocked) aria-disabled="true" style="opacity: 0.5; cursor: not-allowed;" @endif data-qa="confirm-submit">{{ $buttonLabel }}</button>
             @endif
         </div>

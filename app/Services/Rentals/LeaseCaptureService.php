@@ -342,12 +342,18 @@ class LeaseCaptureService
 
                 if ($intent === self::INTENT_PAPER_COPY) {
                     $this->attachSignedCopy($lease, $file, $user, $previous !== null, $storedPath);
-                    $lease = $this->activate($lease, $previous !== null, $user);
+                    // rental-renewals.md §22 - a signed renewal that starts later waits for its start date; the running lease stays active.
+                    $waits = $previous !== null && app(LeaseRenewalService::class)->startsLater($lease);
+                    if (! $waits) {
+                        $lease = $this->activate($lease, $previous !== null, $user);
+                    }
                     $lease->update([
                         'signing_status' => Lease::SIGNING_SIGNED_ON_PAPER,
                         'source' => Lease::SOURCE_UPLOADED_SIGNED_COPY,
                     ]);
-                    $this->logEvent($lease, LeaseEvent::TYPE_LEASE_SIGNED_ON_PAPER, 'Signed paper copy attached — lease active', $user);
+                    $this->logEvent($lease, LeaseEvent::TYPE_LEASE_SIGNED_ON_PAPER, $waits
+                        ? 'Signed paper copy attached — the renewal starts on ' . $lease->start_date->format('j M Y') . '; the current lease stays active until then'
+                        : 'Signed paper copy attached — lease active', $user);
                 } elseif ($intent === self::INTENT_LEASE_ONLY && ! empty($input['activate_immediately'])) {
                     $lease = $this->activate($lease, $previous !== null, $user);
                 }

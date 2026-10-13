@@ -144,7 +144,11 @@ trait HandlesLeaseCapture
             return redirect(app(LeaseSigningLauncher::class)->landingUrl($flow))->with('success', $this->leaseCaptureMessage($intent, $previous !== null));
         }
 
-        return redirect()->route('corex.leases.show', $lease)->with('success', $this->leaseCaptureMessage($intent, $previous !== null));
+        $waits = $lease->isSignedRenewalAwaitingStart();
+
+        return redirect()->route('corex.leases.show', $lease)->with('success', $waits
+            ? 'Renewal recorded - it starts on ' . $lease->start_date->format('j M Y') . '. The current lease stays active until then.'
+            : $this->leaseCaptureMessage($intent, $previous !== null));
     }
 
     private function leaseCaptureMessage(string $intent, bool $isRenewal): string
