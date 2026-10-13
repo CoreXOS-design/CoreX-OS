@@ -201,13 +201,15 @@ Routes (web, `auth`, `feature:road-to-sold`; names `road-to-sold.settings.*`):
 | POST `/road-to-sold/settings/areas/agents/{user}` | `.areas.sync` | Add and/or remove suburbs for one agent in one save (`add[]`, `remove[]` ids) | manage_areas |
 | DELETE `/road-to-sold/settings/areas/{area}` | `.areas.archive` | Unassign one suburb (soft) | manage_areas |
 | POST `/road-to-sold/settings/areas/{area}/restore` | `.areas.restore` | Re-assign an archived one (`{area}` bound `withTrashed`) | manage_areas |
-| GET `/road-to-sold/settings/targets` | `.targets.index` | Agents × weekdays grid | manage_targets |
-| PUT `/road-to-sold/settings/targets/default` | `.targets.default` | Agency default row | manage_targets |
-| PUT `/road-to-sold/settings/targets/agents/{user}` | `.targets.agent` | Save one agent's week | manage_targets |
-| POST `/road-to-sold/settings/targets/agents/{user}/copy-days` | `.targets.copy-days` | One value to all days (the form field is what is copied) | manage_targets |
-| POST `/road-to-sold/settings/targets/copy-to-agents` | `.targets.copy-agents` | Copy a chosen agent's week (or the agency default) to every agent in scope (confirm) | manage_targets |
-| DELETE `/road-to-sold/settings/targets/agents/{user}` | `.targets.clear` | Clear the agent's own numbers (archive all their rows → back to agency default) | manage_targets |
-| POST `/road-to-sold/settings/targets/agents/{user}/restore` | `.targets.restore` | Bring the cleared week back | manage_targets |
+| GET `/road-to-sold/settings/targets` | `.targets.index` | Agents × weekdays grid + agency default row | manage_targets (or manage_settings, who can edit the default) |
+| PUT `/road-to-sold/settings/targets/default` | `.targets.default` | Save the agency default week (all seven days required; audited; same saver as the settings page and the wizard) | manage_settings, or manage_targets with agency-wide (`all`) breadth — a branch-only manager is refused |
+| PUT `/road-to-sold/settings/targets/agents/{user}` | `.targets.agent` | Save one agent's week (blank = no own number) | manage_targets, breadth all/branch |
+| POST `/road-to-sold/settings/targets/agents/{user}/fill-weekdays` | `.targets.fill-weekdays` | Copy the Monday number onto Tuesday–Friday ("copy to all days" — weekend untouched) | manage_targets |
+| POST `/road-to-sold/settings/targets/copy-to-agents` | `.targets.copy-agents` | Give every agent in the viewer's breadth the posted week (a grid row, or the agency default row); blank cells clear that day (confirm) | manage_targets |
+| DELETE `/road-to-sold/settings/targets/agents/{user}` | `.targets.clear` | Clear the agent's own numbers (archive → back to agency default) | manage_targets |
+| POST `/road-to-sold/settings/targets/agents/{user}/restore` | `.targets.restore` | Bring cleared numbers back | manage_targets |
+
+An `own`-breadth viewer who holds `manage_targets` can look at their own row but every write answers 403 (agents do not set their own targets). Target rows record who set them (`set_by_user_id`); there is no separate audit table for per-agent numbers — the agency default week is audited in `rts_settings_audit`.
 
 ### 5.1 General tab (no list)
 Fields: lock toggle; refresh-warning days; missed-items mode (radio); nine selections as a reorderable on/off list; three number thresholds + owner-known quantity; stuck-stock thresholds; no-answer count; hold days; six summary steps on/off; green-from % and red-below %. Warnings shown on this tab: **"N agents have no areas and the lock is on — they will get no list"** with the agent names linking to the Areas tab; stale-areas count.

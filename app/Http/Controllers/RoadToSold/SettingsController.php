@@ -88,6 +88,7 @@ class SettingsController extends Controller
         $reset = RtsSetting::SCALAR_DEFAULTS + [
             'selections'    => RtsSetting::normaliseOrderedToggles(null, RtsSetting::selectionCatalogue(self::TRACK)),
             'summary_steps' => RtsSetting::normaliseOrderedToggles(null, RtsSetting::summaryStepCatalogue(self::TRACK)),
+            'default_weekday_targets' => RtsSetting::DEFAULT_WEEKDAY_TARGETS,
         ];
         $this->persist($agencyId, (int) $user->id, $reset);
 
@@ -124,9 +125,20 @@ class SettingsController extends Controller
             'summary_red_below_pct'        => ['sometimes', 'integer', 'min:1', 'max:100'],
             'selections'                   => ['sometimes', 'array'],
             'summary_steps'                => ['sometimes', 'array'],
+            // The agency's default week: when sent, all seven days are required (0 is fine).
+            'default_targets'              => ['sometimes', 'array'],
         ];
+        foreach (array_keys(RtsSetting::DEFAULT_WEEKDAY_TARGETS) as $day) {
+            $rules["default_targets.{$day}"] = ['required_with:default_targets', 'integer', 'min:0', 'max:' . \App\Models\RoadToSold\RtsWeekdayTarget::MAX_TARGET];
+        }
 
         $messages = [];
+        foreach (\App\Models\RoadToSold\RtsWeekdayTarget::WEEKDAYS as $day => $dayLabel) {
+            $messages["default_targets.{$day}.required_with"] = "Agency default: enter a number for {$dayLabel} (0 if nobody works it).";
+            $messages["default_targets.{$day}.integer"]       = "Agency default {$dayLabel}: enter a whole number from 0 to " . \App\Models\RoadToSold\RtsWeekdayTarget::MAX_TARGET . '.';
+            $messages["default_targets.{$day}.min"]           = "Agency default {$dayLabel}: enter a whole number from 0 to " . \App\Models\RoadToSold\RtsWeekdayTarget::MAX_TARGET . '.';
+            $messages["default_targets.{$day}.max"]           = "Agency default {$dayLabel}: enter a whole number from 0 to " . \App\Models\RoadToSold\RtsWeekdayTarget::MAX_TARGET . '.';
+        }
         foreach (self::FIELD_LABELS as $field => $label) {
             $messages["{$field}.integer"] = "{$label}: enter a whole number.";
             $messages["{$field}.min"]     = "{$label}: that number is too small.";
@@ -155,6 +167,13 @@ class SettingsController extends Controller
         }
         if (array_key_exists('selections', $data)) {
             $changes['selections'] = RtsSetting::normaliseOrderedToggles($data['selections'], RtsSetting::selectionCatalogue(self::TRACK));
+        }
+        if (array_key_exists('default_targets', $data)) {
+            $week = [];
+            foreach (array_keys(RtsSetting::DEFAULT_WEEKDAY_TARGETS) as $day) {
+                $week[$day] = (int) $data['default_targets'][$day];
+            }
+            $changes['default_weekday_targets'] = $week;
         }
         if (array_key_exists('summary_steps', $data)) {
             $changes['summary_steps'] = RtsSetting::normaliseOrderedToggles($data['summary_steps'], RtsSetting::summaryStepCatalogue(self::TRACK));
@@ -227,6 +246,7 @@ class SettingsController extends Controller
         return match ($field) {
             'selections'    => RtsSetting::normaliseOrderedToggles(null, RtsSetting::selectionCatalogue(self::TRACK)),
             'summary_steps' => RtsSetting::normaliseOrderedToggles(null, RtsSetting::summaryStepCatalogue(self::TRACK)),
+            'default_weekday_targets' => RtsSetting::DEFAULT_WEEKDAY_TARGETS,
             default         => RtsSetting::SCALAR_DEFAULTS[$field] ?? null,
         };
     }
