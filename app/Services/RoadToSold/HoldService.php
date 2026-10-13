@@ -2,7 +2,9 @@
 
 namespace App\Services\RoadToSold;
 
+use App\Models\RoadToSold\RtsContactOutcome;
 use App\Models\RoadToSold\RtsHold;
+use App\Models\RoadToSold\RtsOutcomeDefinition as Def;
 use App\Models\RoadToSold\RtsPropertyFlag;
 use App\Models\User;
 use Carbon\CarbonInterface;
@@ -14,7 +16,8 @@ use Carbon\CarbonInterface;
  *   isHeldByOther(int $trackedPropertyId, User $user, string $track='sales'): bool
  *   heldByOtherIds(array $trackedPropertyIds, User $user, string $track='sales'): int[]
  *   excludedIdsFor(User $user, array $trackedPropertyIds, string $track='sales'): int[]
- *       = held by another agent  ∪  marked "never suggest" (do-not-contact, for every agent)
+ *       = held by another agent  ∪  marked "never suggest" (do-not-contact, for every agent)  ∪  parked by THIS agent's own outcome
+ *   ownParkedIds(array $trackedPropertyIds, User $user, string $track='sales', ?CarbonInterface $on=null): int[]
  *
  * Every query filters agency_id explicitly: the overnight list build runs with no signed-in user,
  * where AgencyScope is skipped. agency_id <= 0 answers "nothing excluded", never throws.
@@ -76,14 +79,50 @@ class HoldService
     }
 
     /** @return int[] */
-    public function excludedIdsFor(User $user, array $trackedPropertyIds, string $track = 'sales'): array
+    public function excludedIdsFor(User $user, array $trackedPropertyIds, string $track = 'sales', ?CarbonInterface $on = null): array
     {
         $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
 
         return array_values(array_unique(array_merge(
             $this->heldByOtherIds($trackedPropertyIds, $user, $track),
             $this->neverSuggestIds($agencyId, $trackedPropertyIds, $track),
+            $this->ownParkedIds($trackedPropertyIds, $user, $track, $on),
         )));
+    }
+
+    /**
+     * Properties THIS agent has parked with their own latest outcome, so they must not come back as a brand-new suggestion before the agent
+     * said they should - whatever the 30-day hold says (a hold lapses; the agent's own date does not):
+     *   - a return date still in the future (return after N days, a picked date, a mandate expiry date);
+     *   - "move to the list" (wrong number: it is on the find-the-right-contact list, not the new-property list);
+     *   - a booked valuation (the appointment is the follow-up);
+     *   - dropped after N no-answers in a row (it is on the manager's report, off this agent's list).
+     * A return date that has ARRIVED is a follow-up, not parked: it comes back through the follow-ups (OutcomeService::followUpsDue).
+     * Another agent is not affected: for them the property is free again when the hold lapses (spec section 1: "lapses -> free").
+     *
+     * @return int[] ids (from the given list)
+     */
+    public function ownParkedIds(array $trackedPropertyIds, User $user, string $track = 'sales', ?CarbonInterface $on = null): array
+    {
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
+        $ids = array_values(array_unique(array_filter(array_map('intval', $trackedPropertyIds))));
+        if ($agencyId <= 0 || $ids === []) {
+            return [];
+        }
+        $day = ($on ?? now())->toDateString();
+
+        return RtsContactOutcome::query()
+            ->where('agency_id', $agencyId)->where('track', $track)
+            ->whereIn('tracked_property_id', $ids)
+            ->where('is_current', true)
+            ->whereIn('user_id', $user->dataIdentityIds())
+            ->where(function ($w) use ($day) {
+                $w->where('dropped', true)
+                    ->orWhereIn('next_action', [Def::ACTION_MOVE_TO_LIST, Def::ACTION_APPOINTMENT])
+                    ->orWhere(fn ($f) => $f->whereIn('next_action', [Def::ACTION_AFTER_DAYS, Def::ACTION_PICKED_DATE, Def::ACTION_EXPIRY_ELSE])
+                        ->whereNotNull('next_action_at')->whereDate('next_action_at', '>', $day));
+            })
+            ->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->unique()->values()->all();
     }
 
     /** The hold in force on this property now, if any. */

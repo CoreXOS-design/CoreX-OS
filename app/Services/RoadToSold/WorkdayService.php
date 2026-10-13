@@ -31,6 +31,9 @@ class WorkdayService
     /** @var array<string,array<string,bool>> "YYYY-MM|CC" => [Y-m-d => true] */
     private array $holidayMemo = [];
 
+    /** @var array<int,User> list-owner id => user (assistants only) */
+    private array $ownerMemo = [];
+
     /** @var array<string,array<string,string>> "userId|YYYY-MM" => [Y-m-d => 'full'|'half'] */
     private array $leaveMemo = [];
 
@@ -52,7 +55,8 @@ class WorkdayService
 
     public function targetFor(User $user, CarbonInterface|string $date, string $track = RtsSetting::TRACK_SALES): int
     {
-        $day = $this->day($date);
+        $user = $this->listOwner($user);
+        $day  = $this->day($date);
 
         if ($this->isPublicHoliday($day, SettingsService::forUser($user, $track)->holidayCountry())) {
             return 0;
@@ -115,6 +119,23 @@ class WorkdayService
         }
 
         return $total;
+    }
+
+    /**
+     * Spec 11.1: a target, a holiday and leave belong to the LIST OWNER - the agent an assistant acts for.
+     * The page and the builder already hand over the owner; this makes a direct call with an assistant agree.
+     */
+    private function listOwner(User $user): User
+    {
+        if (! $user->is_assistant) {
+            return $user;
+        }
+        $ownerId = (int) $user->ownershipUserId();
+        if ($ownerId === (int) $user->id) {
+            return $user;
+        }
+
+        return $this->ownerMemo[$ownerId] ??= (User::query()->withoutGlobalScopes()->find($ownerId) ?? $user);
     }
 
     private function day(CarbonInterface|string $date): Carbon

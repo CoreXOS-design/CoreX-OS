@@ -20,9 +20,9 @@ use Illuminate\Support\Facades\DB;
  * P24 auto-import (minion_capture_areas). Keyed on p24_suburbs.id — the same id that
  * tracked_properties.p24_suburb_id holds.
  *
- * WHOSE AREAS (spec 5.6, the assistant rule): areas are read for every identity in
- * User::dataIdentityIds() - an assistant works the areas of the agent(s) they act for (plus anything
- * assigned to the assistant directly); a plain user is just themselves.
+ * WHOSE AREAS (spec 11.1, the one assistant rule): areas belong to the LIST OWNER - User::ownershipUserId(),
+ * the agent an assistant acts for (honouring a multi-agent assistant's "Acting for" choice); a plain user is
+ * their own list owner. A direct call with an assistant therefore answers with the agent's areas.
  *
  * MATCHING (spec 5.7): a property belongs to an area by the suburb ID where it has one. Only a row with
  * no suburb id is matched by NAME, and then the name must agree with the area's town (city id, else town
@@ -88,7 +88,7 @@ class AreaService
         }
 
         $ids = RtsAgentArea::query()
-            ->where('agency_id', $agencyId)->where('track', $track)->whereIn('user_id', $user->dataIdentityIds())
+            ->where('agency_id', $agencyId)->where('track', $track)->where('user_id', (int) $user->ownershipUserId())
             ->pluck('p24_suburb_id')->map(fn ($i) => (int) $i)->unique()->values()->all();
 
         // Ignore assignments whose suburb has since left the agency's Prospecting Setup (spec §6).

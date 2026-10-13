@@ -195,7 +195,7 @@ final class MicPoolRulesTest extends TestCase
 
         $guard = new class([$tpHeld->id, $tpDnc->id], [$tpMine->id]) implements SuggestionGuard {
             public function __construct(private array $blocked, private array $own) {}
-            public function blockedFor(User $user, array $ids, string $track): array { return array_values(array_intersect($ids, $this->blocked)); }
+            public function blockedFor(User $user, array $ids, string $track, ?\Carbon\CarbonInterface $on = null): array { return array_values(array_intersect($ids, $this->blocked)); }
             public function ownHeld(User $user, array $ids, string $track): array { return array_values(array_intersect($ids, $this->own)); }
         };
 

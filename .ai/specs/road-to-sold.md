@@ -251,11 +251,8 @@ Pillars: Agent (User) ↔ Property (suburb pool). No cross-pillar reactivity is 
 
 ---
 
-### 5.6 Assistants (audit H) — the one rule, agreed with cc4
-An assistant works the agent they act for. Everything Road to Sold reads "for a user" resolves through **`User::dataIdentityIds()`** (the assistant's own id, the assigned agent's id, and any linked sub-agents' ids — the same list every `scopeVisibleTo` 'own' branch already uses):
-* **Areas:** `AreaService::suburbIdsFor/hasAreas/suburbMatchesFor/…` are the union of the areas of every id in `dataIdentityIds()`, de-duplicated. A plain user is just themselves; an assistant with no active assignment is just themselves.
-* **Who is edited:** the Areas and Targets screens list and edit real agents only (assistants are excluded from the grids, `agentsWithoutAreas` skips them). An assistant is never given areas to "fix" an empty list — they inherit.
-* **cc4's side (page and nightly build):** the list, holds, outcomes, feeds and summary already read `dataIdentityIds()`; the nightly build builds a list for the agent and the assistant sees that list. Lane 1 does not change targets: a target belongs to the agent, and an assistant has none of their own.
+### 5.6 Assistants (audit H) — §11.1 is the rule; lane 1's part
+Areas, targets and leave belong to the **list owner**, `User::ownershipUserId()` (the agent an assistant acts for, honouring a multi-agent assistant's "Acting for" choice); a plain user is their own owner. `AreaService::suburbIdsFor/hasAreas/suburbMatchesFor/suburbNames…` and `WorkdayService::targetFor/isWorkday/monthTarget…` resolve an assistant to that owner themselves, so a **direct call with an assistant** gives the same answer as the builder (which already hands over the owner). Rows assigned to an assistant directly are not used; the Areas and Targets screens list and edit real agents only (assistants are excluded from the grids, `agentsWithoutAreas` skips them). Tests: `AuditGapsTest` + `ParkedAndAssistantTest`.
 
 ### 5.7 Matching a property to an area (audit B)
 A property (a tracked property, joined to its listing) is in an area:
@@ -446,6 +443,9 @@ Sidebar link "Road to Sold" (Real Estate group, `@feature('road-to-sold')`). Ser
 * **Contacted client popup:** outcome list (active only, agency order); date picker only for outcomes that need one; "Valuation booked" tick (conversations) → date-and-time; note; Save. Errors re-open the popup with the message.
 * **History popup:** the property's last 10 outcomes the viewer may see (own = own calls, branch = branch, agency = all): outcome, attempt or conversation, valuation booked, date, who, back-on date, note. Read through `OutcomeService::historyForPage()` (one query for the whole page, `RtsContactOutcome::scopeVisibleTo`). The same outcome is also a note on the owner contact (Notes tab) - history on the property and on the contact.
 * **Layout rule (Johan):** screen space is for data and controls only - no explanatory paragraphs under headings or empty states; every field, dropdown and button on the page, the report and the outcome settings is the same height (`road-to-sold/_controls.blade.php`, class `rts-page`).
+* **Track:** every Road to Sold request carries a track (`RoadToSold\Track::fromRequest()` - route default or `track` field; anything unknown = sales). The page, outcome list, capture, add-to-day, summary bar, report, print/PDF/XLSX and drill-down all use it; links and forms keep it (`Track::params()` - nothing is added for sales). The three feed blocks are sales work and are not shown on another track. Open: the on-demand list build in `RoadToSoldController::buildIfMissing()` and `RtsListItem::forDay` do not take a track yet - that block is cc4's current fix and was left alone.
+* **Dates in the past:** an agent-picked return date and a valuation date-and-time are refused with a plain message when they are before today / before now (`OutcomeService`).
+* **Report vs drill:** the call-log drill left-joins `tracked_properties`, so a call on an archived property is in the drill exactly as it is in the report; the row reads "(property archived)".
 * **Add to my day:** selection + count → `ListBuilderService::addToDay()` (lane 2).
 * **Blocks under the list (not counted against the target), each own-scoped and correct (not the Today-page queries):** buyer follow-ups (`contacts.agent_id` in the agent's identity — **not** `created_by_user_id` — stale beyond the agency's buyer-warm/cold days, newest risk score only, no hard-coded 14 days); lead follow-ups (`LeadResponseService::results()` waiting/overdue for the agent); expiring mandates (`MandateExpiryPolicy` window for the agent's own listings).
 
@@ -489,6 +489,13 @@ Sidebar link "Road to Sold" (Real Estate group, `@feature('road-to-sold')`). Ser
 * **Q11 (process):** lane 3 lands on `origin/QA1` itself (conductor, 13 Oct) although Standard −1l says only cc1 does; acted on the conductor's word.
 
 
+### 10.9 Call history on the property and the tracked-property page (BUILT, 14 Oct)
+- Rule (section 1): every outcome is history on the property and on the owner contact. The contact side is the contact note written by `OutcomeService`; this is the property side.
+- `<x-road-to-sold.history-panel :property-id>` on the property page (Overview tab, under the owner/showdays grid) and `:tracked-property-id` on the tracked-property (MIC) detail page. Heading "Road to Sold calls". Columns: When, Who, Outcome, Note, Next action. Newest first, 10 a page (`?rts_page=`, Previous/Next). Empty state is one line: "No Road to Sold calls on this property yet." No helper text.
+- Reads `PropertyHistoryService` (viewer-scoped and paged; `OutcomeService::historyForProperty` stays the unscoped read behind the call page). Scoping is in the query through `RtsContactOutcome::visibleTo()`: agent = own calls, branch manager = the branch, admin = the agency; agency is always pinned.
+- The property page shows calls logged on the property (`property_id`) and on the tracked property it was promoted from (`promoted_to_property_id`). Works with no owner contact.
+- Renders nothing without the `road-to-sold` feature or `access_road_to_sold`. Tests: `tests/Feature/RoadToSold/PropertyHistoryTest.php`.
+
 ## 10. Wizard step as built (lane 1, step 5)
 
 Step key `road_to_sold` (`config/agency-onboarding-copy.php`; `AgencyOnboardingSetup::STEPS` position 8b; gate `road_to_sold => road-to-sold`). Controls (all with `explain` + "What this changes:"): `default_target_1..7` (Monday..Sunday, 0-200), `half_day_leave_halves_target`, `lock_agents_to_areas`, `area_refresh_warn_days`, `missed_items_mode`, `no_answer_drop_after`, `hold_days`. Saver: `RoadToSold\SettingsController@saveFromWizard` - requires `road_to_sold.manage_settings` (403 before any write, absorbed by the wizard), maps `default_target_N` to the settings page's `default_targets[]` only when all seven are posted, then calls the same `saveFor` (partial-update safe: anything the step did not post is left as it was). Values shown come from `SettingsService` through an explicit per-key arm in `AgencySetupWizardController::currentValues`. **Deliberately NOT in the wizard (Johan, 13 Oct):** the call-list sources (order, on/off) and their limits and look-backs, the colour lines, the on-track bar steps; and each agent's own suburbs and weekday numbers (per-person records). Also recorded in `agency-onboarding-setup.md` §5 / §5.1.
@@ -514,3 +521,32 @@ These were hard-coded in lane 2; they are now agency settings (columns on `rts_s
 | `hotPocketWeightBuyers()` / `…Leads()` / `…Sales()` | the equal weights in `HotPocketService::rank` | 1 / 1 / 1 | 0–100 (0 ignores that source) |
 
 Not settings on purpose: the lead-type `'Test'` and the deal statuses counted as a sale (`active/granted/completed`) are data-integrity rules, not agency preferences. Hot pockets are still keyed by suburb *name* in `HotPocketService` (portal_leads → properties.suburb); two same-named suburbs in two towns are merged there — lane 2's file, reported to the conductor (§5.7 is the rule to follow).
+
+---
+
+## 11. Assistants, and properties the agent has parked (13 Oct 2026, conductor rulings after the lane audit)
+
+### 11.1 Assistants - ONE rule
+
+**An assistant works the list of the agent they act for.** The *list owner* is `User::ownershipUserId()` - the assigned agent, or the Sub-Agent a multi-agent assistant has chosen with "Acting for". A normal user is their own list owner. Every Road to Sold service that takes a `User` first turns an assistant into the list owner, so one user id is used everywhere:
+
+- **page build and page read** - `ListBuilderService::buildFor()` / `listFor()` / `RtsListItem::forDay($user)` resolve the list owner; the page reads by that same id, so what the assistant sees is the agent's list;
+- **the nightly build** (`rts:build-lists`) builds for the AGENT (assistants are skipped as users in their own right: they have no list of their own) - the assistant opens that list;
+- **add to my day, roll-over, "worked"** (`addToDay`, `closePastDays`, `markWorked`) all act on the agent's rows (`rts_list_items.user_id` is always the agent);
+- **areas and targets** are the agent's: because the builder hands the list owner to `AreaService` / `WorkdayService`, an assistant never has "no areas" of their own (lane 1 also fixes `AreaService::suburbIdsFor` for a direct assistant call - both must match this rule);
+- **outcomes**: the outcome, the hold, the follow-up, the target and the report figure belong to the AGENT (`rts_contact_outcomes.user_id`). WHO ACTUALLY MADE THE CALL is kept in `rts_contact_outcomes.recorded_by_user_id` (the assistant; `NULL` = the agent recorded it). The note written on the owner's contact says "(call made by <assistant>)", and `OutcomeService::historyForPage()` returns `made_by` beside `by`.
+
+Migration `2026_10_29_500000_add_recorded_by_to_rts_contact_outcomes.php` adds the column (nullable, indexed, no foreign key - project convention).
+Tests: `tests/Feature/RoadToSold/ParkedAndAssistantTest.php`.
+
+### 11.2 Properties the agent parked with their own outcome are not offered back as new
+
+Audit gap 1. A hold lasts a fixed 30 days (agency setting) and then the property is free again (section 1: "lapses -> free"). But an agent's OWN latest outcome can say more than that, and it must not be contradicted by the property reappearing as a new suggestion. `HoldService::ownParkedIds()` (part of `excludedIdsFor()`, so it applies to every selection and to follow-ups through `SuggestionGuard::blockedFor()`) excludes, for THIS agent only, a property whose current outcome is:
+
+- a return date still in the future (return after N days, a picked date, a mandate expiry date) - until that date, when it comes back as a **follow-up** through `OutcomeService::followUpsDue()`;
+- "move to the list" (wrong number) - it lives on the find-the-right-contact list, not the new-property list;
+- a booked valuation (the appointment is the follow-up);
+- dropped after N no-answers in a row (on the manager's report, off this agent's list).
+
+`blockedFor()` takes the day the list is built for (`$on`, default today), so a follow-up that is due on that day is never mistaken for a parked property (building tomorrow's list tomorrow's follow-ups are due). Another agent is NOT affected: when the hold lapses the property is free for them, as section 1 says.
+Open question for Johan (not built): after a hold lapses should a property that the first agent parked with a date far in the future also stay off OTHER agents' new lists until that date?

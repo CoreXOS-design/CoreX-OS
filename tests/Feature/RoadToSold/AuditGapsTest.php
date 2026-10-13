@@ -441,15 +441,29 @@ final class AuditGapsTest extends TestCase
         $this->assertSame(['manaba'], $svc->suburbNamesLowerTrimFor($assistant->fresh()));
         $this->assertCount(1, $svc->suburbMatchesFor($assistant->fresh()));
 
-        // Anything assigned to the assistant directly is theirs too; nothing is counted twice.
+        // One rule (spec 11.1): the list owner's areas, nothing else - rows assigned to the assistant directly
+        // are not used, and the agent does not inherit anything from the assistant.
         $this->assign($assistant, $this->sub['uvongo_margate']);
-        $this->assign($assistant, $this->sub['manaba']);
-        $ids = $svc->suburbIdsFor($assistant->fresh());
-        sort($ids);
-        $this->assertSame([$this->sub['uvongo_margate'], $this->sub['manaba']], $ids);
-
-        // The agent does not inherit the assistant's own rows.
+        $this->assertSame([$this->sub['manaba']], $svc->suburbIdsFor($assistant->fresh()));
         $this->assertSame([$this->sub['manaba']], $svc->suburbIdsFor($this->agent));
+    }
+
+    public function test_a_direct_call_with_an_assistant_uses_the_agents_target_and_leave(): void
+    {
+        $assistant = $this->makeUser('Thandi Mokoena', 'assistant', true);
+        AssistantAssignment::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'assistant_user_id' => $assistant->id, 'agent_user_id' => $this->agent->id,
+            'status' => AssistantAssignment::STATUS_ACTIVE,
+        ]);
+        $monday = Carbon::parse('2027-03-01');
+        \App\Models\RoadToSold\RtsWeekdayTarget::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->agent->branch_id, 'track' => 'sales',
+            'user_id' => $this->agent->id, 'weekday' => 1, 'target' => 9, 'set_by_user_id' => $this->admin->id,
+        ]);
+
+        $this->assertSame(9, app()->make(WorkdayService::class)->targetFor($assistant->fresh(), $monday), 'the agent\'s own Monday number');
+        $this->assertSame(9, app()->make(WorkdayService::class)->targetFor($this->agent, $monday));
     }
 
     public function test_an_assistant_without_an_active_assignment_has_only_their_own_areas(): void

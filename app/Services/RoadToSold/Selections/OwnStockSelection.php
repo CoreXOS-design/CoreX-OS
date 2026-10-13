@@ -74,7 +74,7 @@ abstract class OwnStockSelection implements Selection
         $rows = collect($rows)->values();
         $tracked = $this->trackedIdsFor($rows->pluck('id')->map(fn ($v) => (int) $v)->all(), $ctx->agencyId);
         $trackedIds = array_values($tracked);
-        $blocked = array_flip($ctx->guard->blockedFor($ctx->user, $trackedIds, $ctx->track));
+        $blocked = array_flip($ctx->guard->blockedFor($ctx->user, $trackedIds, $ctx->track, $ctx->date));
         $held = array_flip($ctx->guard->ownHeld($ctx->user, $trackedIds, $ctx->track));
         $excluded = array_flip($ctx->excludeTrackedIds);
 

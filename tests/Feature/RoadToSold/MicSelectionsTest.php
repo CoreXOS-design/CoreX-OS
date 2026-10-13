@@ -281,7 +281,7 @@ final class MicSelectionsTest extends TestCase
 
         $guard = new class([$tpBlocked->id], [$tpHeldByMe->id]) implements \App\Services\RoadToSold\Contracts\SuggestionGuard {
             public function __construct(private array $blocked, private array $own) {}
-            public function blockedFor(\App\Models\User $u, array $ids, string $t): array { return array_values(array_intersect($ids, $this->blocked)); }
+            public function blockedFor(\App\Models\User $u, array $ids, string $t, ?\Carbon\CarbonInterface $on = null): array { return array_values(array_intersect($ids, $this->blocked)); }
             public function ownHeld(\App\Models\User $u, array $ids, string $t): array { return array_values(array_intersect($ids, $this->own)); }
         };
 
