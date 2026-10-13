@@ -211,9 +211,11 @@ final class NightFlowFixesTest extends TestCase
         $p = $payload($wo);
         $this->assertFalse($p['owner_can_start']);
         $this->assertFalse($p['owner_can_finish']);
-        $this->assertStringContainsString('sent this to the contractor', $p['owner_progress_note']);
+        $this->assertStringContainsString('authorised the cost', $p['owner_progress_note'], 'AT-452 22.18: nothing to report before the cost is authorised');
 
-        $wo->forceFill(['status' => RentalWorkOrder::STATUS_ORDERED])->save();
+        // authorised by the owner, and the go-ahead has gone to the contractor (the agent's send on the history)
+        $wo->forceFill(['status' => RentalWorkOrder::STATUS_ORDERED, 'owner_approval_status' => RentalWorkOrder::APPROVAL_APPROVED, 'approved_amount' => 1000])->save();
+        $wo->updates()->create(['agency_id' => $wo->agency_id, 'update_type' => 'work_order_sent', 'note' => 'Go-ahead emailed to Acme (with the job link)']);
         $p = $payload($wo);
         $this->assertTrue($p['owner_can_start']);
         $this->assertTrue($p['owner_can_finish']);

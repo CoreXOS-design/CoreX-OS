@@ -5601,7 +5601,7 @@
                                  this page (share-actions.blade.php). --}}
                             <div x-show="chainTail && chainTail.status === 'completed'" x-cloak
                                  class="flex items-center gap-2 flex-none flex-wrap lg:flex-nowrap pr-3">
-                                <a :href="inspectionUrls.inspectionsBase + '/' + chainTail.id + '/report'"
+                                <a :href="chainTail ? inspectionUrls.inspectionsBase + '/' + chainTail.id + '/report' : '#'"
                                    target="_blank" rel="noopener"
                                    class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
                                     Download report
@@ -5627,7 +5627,7 @@
                                             <div class="space-y-2">
                                                 <p class="text-xs font-semibold" style="color:var(--text-primary);">Send the signed report to:</p>
                                                 <ul class="text-xs space-y-0.5" style="color:var(--text-secondary);">
-                                                    <template x-for="r in reportRecipients()" :key="r.email">
+                                                    <template x-for="(r, i) in reportRecipients()" :key="i + '|' + r.email">
                                                         <li x-text="r.name + ' (' + r.role + ') — ' + r.email"></li>
                                                     </template>
                                                 </ul>
@@ -5644,7 +5644,7 @@
                                         </template>
                                         <template x-if="resendResult">
                                             <div class="space-y-1">
-                                                <template x-for="r in resendResult" :key="r.email">
+                                                <template x-for="(r, i) in resendResult" :key="i + '|' + r.email">
                                                     <p class="text-xs" :style="r.status === 'sent' ? 'color:var(--ds-green,#059669);' : 'color:var(--ds-crimson);'" x-text="(r.status === 'sent' ? '✓ ' : '✗ ') + r.email"></p>
                                                 </template>
                                                 <div class="flex justify-end pt-1">

@@ -74,6 +74,36 @@ class ClientRentalWorkOrdersController extends Controller
         return $this->answer($order, $round, (bool) $data['fixed'], $data['note'] ?? null, $request->file('photos', []), $contact, $request);
     }
 
+    /**
+     * POST /api/v1/client/rentals/work-orders/{workOrder}/progress - the TENANT's own work order only (anyone else, the owner included, gets the same 404):
+     * action = started | finished | not_fixed, optional note, optional photos. The rule is RentalWorkOrderService::progressBlock() (spec 22.18).
+     */
+    public function tenantProgress(Request $request, int $workOrder): JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+        $order = $this->scope->tenantWorkOrder($contact, $workOrder);
+        if (! $order) {
+            return response()->json(['message' => 'Work order not found.'], 404);
+        }
+        $data = $request->validate([
+            'action' => ['required', 'in:started,finished,not_fixed'],
+            'note' => ['nullable', 'string', 'max:2000'],
+            'photos' => ['nullable', 'array', 'max:' . RentalCompletionService::MAX_DISPUTE_PHOTOS],
+            'photos.*' => ['file', 'image', 'max:15360'],
+        ]);
+
+        try {
+            app(\App\Services\Rentals\RentalWorkOrderService::class)->recordTenantProgress($order, $contact, $data['action'], $data['note'] ?? null, $request->file('photos', []));
+        } catch (\InvalidArgumentException|\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['work_order' => $this->view->payload($order->fresh(), RentalWorkOrderClientViewService::AUDIENCE_TENANT)]);
+    }
+
     /** GET /api/v1/client/rentals/landlord/work-orders/{workOrder} — one work order on the landlord's own property. */
     public function landlordShow(Request $request, int $workOrder): JsonResponse
     {

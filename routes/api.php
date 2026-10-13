@@ -239,6 +239,8 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             // §17.3.5 — the portal's Jobs are work orders: the tenant's list, and their answer to "is this finished?".
             Route::get('/work-orders', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'tenantIndex'])->name('work-orders.index');
             Route::post('/work-orders/{workOrder}/completion-response', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'completionResponse'])->middleware('portal.photos')->name('work-orders.completion-response');
+            // spec 22.18 (Johan, 14 Oct 2026): with a tenant in the property THEY tell us the work has started / is finished / is not fixed (the owner only watches)
+            Route::post('/work-orders/{workOrder}/progress', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'tenantProgress'])->whereNumber('workOrder')->middleware('portal.photos')->name('work-orders.progress');
             // BUILD 3 END
         });
 

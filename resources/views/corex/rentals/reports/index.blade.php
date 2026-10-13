@@ -59,7 +59,7 @@
 
         {{-- Chosen report --}}
         <div class="flex-1 min-w-0 space-y-3">
-            <form method="GET" action="{{ route('corex.rentals.reports.index') }}" class="flex flex-wrap items-end gap-3">
+            <form method="GET" action="{{ route('corex.rentals.reports.index') }}" class="flex flex-wrap items-end gap-3 cx-equal-btns">
                 <input type="hidden" name="report" value="{{ $reportKey }}">
 
                 @if(count($scopeOptions) > 1)

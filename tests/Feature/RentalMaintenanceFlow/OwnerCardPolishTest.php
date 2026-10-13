@@ -109,6 +109,8 @@ final class OwnerCardPolishTest extends TestCase
     public function test_p4_progress_buttons_and_the_appointment_box_fit_the_stage(): void
     {
         $wo = $this->externalWorkOrder(['status' => RentalWorkOrder::STATUS_ORDERED, 'owner_approval_status' => RentalWorkOrder::APPROVAL_APPROVED, 'approved_amount' => 4120]);
+        // AT-452 22.18: the owner may report progress only once the go-ahead has gone to the contractor (here: the agent's own send is on the history)
+        $wo->updates()->create(['agency_id' => $wo->agency_id, 'update_type' => 'work_order_sent', 'note' => 'Go-ahead emailed to Acme (with the job link)']);
         $p = $this->ownerPayload($wo);
         $this->assertTrue($p['owner_can_start']);
         $this->assertTrue($p['owner_can_appoint'], 'before the work starts the owner may set the appointment');

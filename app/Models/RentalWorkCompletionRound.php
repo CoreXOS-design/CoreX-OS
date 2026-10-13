@@ -24,6 +24,8 @@ class RentalWorkCompletionRound extends Model
     public const VIA_CONTRACTOR_CAPTURED = 'contractor_captured';
     /** W6 (8 Oct 2026) - the owner reported the work done from the portal. */
     public const VIA_OWNER_PORTAL = 'owner_portal';
+    /** Spec 22.18 (Johan, 14 Oct 2026) - the TENANT reported the work finished from their portal (and confirmed it in the same breath). */
+    public const VIA_TENANT_PORTAL = 'tenant_portal';
 
     public const NOTIFY_SENT = 'sent';
     public const NOTIFY_NO_TENANT = 'no_tenant';

@@ -346,6 +346,32 @@
                                             </template>
                                         </div>
 
+                                        {{-- spec 22.18 (Johan, 14 Oct 2026): with a tenant in the property THEY tell us the work has started / is finished / is not fixed (the owner only watches). The server decides (tenant_can_start / tenant_can_finish). --}}
+                                        <template x-if="w.tenant_can_start || w.tenant_can_finish">
+                                            <div data-tenant-progress style="margin-top:12px; padding-top:12px; border-top:1px solid #e3e8ef;">
+                                                <h2>The repair</h2>
+                                                <button class="btn btn-ok" x-show="w.tenant_can_start" :disabled="!!(progressBusy)" @click="sendProgress(w, 'started')" data-tenant-started>The contractor has arrived - work has started</button>
+                                                <template x-if="w.tenant_can_finish && (!progressForm || progressForm.workOrderId !== w.id)">
+                                                    <div>
+                                                        <button class="btn" :class="w.tenant_can_start ? 'btn-outline' : 'btn-ok'" @click="openProgress(w, 'finished')" data-tenant-finished>The work is finished</button>
+                                                        <button class="btn btn-outline" @click="openProgress(w, 'not_fixed')" data-tenant-not-fixed>It is not fixed</button>
+                                                    </div>
+                                                </template>
+                                                <template x-if="w.tenant_can_finish && progressForm && progressForm.workOrderId === w.id">
+                                                    <div data-tenant-progress-form>
+                                                        <label x-text="progressForm.kind === 'not_fixed' ? 'What is still wrong?' : 'Anything to add? (optional)'"></label>
+                                                        <textarea rows="3" x-model="progressForm.note" :placeholder="progressForm.kind === 'not_fixed' ? 'For example: the tap is fixed but it still drips.' : 'For example: all done, thank you.'"></textarea>
+                                                        <label>Photos (optional)</label>
+                                                        @include('rentals.portal._photo-picker', ['bind' => 'progressForm'])
+                                                        <button class="btn" :class="progressForm.kind === 'not_fixed' ? 'btn-danger' : 'btn-ok'" :disabled="!!(progressBusy || progressForm.photoBusy)" @click="sendProgress(w, progressForm.kind)" x-text="progressBusy ? 'Sending…' : (progressForm.kind === 'not_fixed' ? 'Send - it is not fixed' : 'Send - the work is finished')"></button>
+                                                        <button class="btn btn-outline" @click="progressForm = null">Cancel</button>
+                                                    </div>
+                                                </template>
+                                                <p class="error" x-show="progressError" x-text="progressError"></p>
+                                            </div>
+                                        </template>
+                                        <p class="muted" x-show="w.tenant_progress_note && !w.tenant_can_start && !w.tenant_can_finish" x-text="w.tenant_progress_note" data-tenant-progress-note></p>
+
                                         {{-- §17.10.4 — "Is this finished?" — only while a completion round waits on this tenant. --}}
                                         <template x-if="w.awaiting_answer">
                                             <div data-finished-block style="margin-top:12px; padding-top:12px; border-top:1px solid #e3e8ef;">
@@ -831,7 +857,7 @@ function rentalsPortal() {
         faultForm: { decision: '', handled_by: '', contractor_name: '', contractor_phone: '', agency_service_provider_id: '', note: '', error: null, busy: false, other: false },
         apptDraft: {},
         // BUILD 3 — the portal's Jobs are work orders (§17.3.5); the "is this finished?" answer form (§17.10.4).
-        workOrders: [], declineOpen: {}, declineNote: {}, declineError: {}, answerForm: null, answerBusy: false, answerError: null, answerKeys: {},
+        workOrders: [], declineOpen: {}, declineNote: {}, declineError: {}, answerForm: null, answerBusy: false, answerError: null, progressForm: null, progressBusy: false, progressError: null, progressKeys: {}, answerKeys: {},
         landlordFaultWizard: { open: false, step: 'form', property: null, faultTypeId: '', ftype: null, showAid: false, title: '', description: '', photos: [], photoError: null, photoBusy: false, photoPending: 0, sending: false, progress: 0, error: null, key: null },
         landlordFaultTypesByProperty: {},
 
@@ -1104,6 +1130,30 @@ function rentalsPortal() {
                 const r = await portalFetch('/api/v1/client/rentals/work-orders');
                 if (r.ok) this.workOrders = r.data.work_orders;
             }
+        },
+        // spec 22.18 - the tenant's "work has started" / "the work is finished" / "it is not fixed" (optional note and photos on the last two)
+        openProgress(w, kind) { this.progressError = null; this.progressForm = { workOrderId: w.id, kind, note: '', photos: [], photoError: null, photoBusy: false, photoPending: 0 }; },
+        async sendProgress(w, action) {
+            if (this.progressBusy) return;
+            this.progressError = null;
+            const f = (this.progressForm && this.progressForm.workOrderId === w.id) ? this.progressForm : null;
+            const note = f ? (f.note || '').trim() : '';
+            if (action === 'not_fixed' && note.length < 5) { this.progressError = 'Please tell us what is still wrong (at least 5 characters).'; return; }
+            const form = new FormData();
+            form.append('action', action);
+            if (note) form.append('note', note);
+            const photos = (f && action !== 'started') ? f.photos : [];
+            photos.forEach(p => form.append('photos[]', p.file, p.file.name));
+            const slot = w.id + action;
+            if (!this.progressKeys[slot]) this.progressKeys[slot] = 'progress-' + this.uuid();
+            this.progressBusy = true;
+            const r = await portalFetch('/api/v1/client/rentals/work-orders/' + w.id + '/progress', { method: 'POST', body: form, key: this.progressKeys[slot] });
+            this.progressBusy = false;
+            if (!r.ok) { this.progressError = r.data?.message || 'Could not send that.'; return; }
+            delete this.progressKeys[slot];
+            photos.forEach(p => URL.revokeObjectURL(p.url));
+            this.progressForm = null;
+            await this.loadWorkOrders();
         },
         openNotComplete(w) { this.answerError = null; this.answerForm = { workOrderId: w.id, note: '', photos: [], photoError: null, photoBusy: false, photoPending: 0 }; },
         // §17.10.4 — confirm ("All done") or say it is NOT complete (a note of at least 5 characters, up to the agency's photo limit).
