@@ -10,6 +10,7 @@ use App\Services\PermissionService;
 use App\Services\RoadToSold\SettingsService;
 use App\Services\RoadToSold\TargetService;
 use App\Services\RoadToSold\VisibleAgents;
+use App\Services\RoadToSold\WorkdayService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -86,6 +87,16 @@ class TargetsController extends Controller
         };
 
         $page = $this->paginate($rows->values(), $request);
+
+        // This month, as the work-day calculator sees it (public holidays and approved leave already taken off).
+        $workdays = app(WorkdayService::class);
+        $today    = now();
+        $page->through(function (array $row) use ($workdays, $today) {
+            $row['month_to_date'] = $workdays->monthTargetToDate($row['user'], $today, self::TRACK);
+            $row['month_total']   = $workdays->monthTarget($row['user'], $today, self::TRACK);
+
+            return $row;
+        });
 
         return view('road-to-sold.settings.targets', [
             'tabs'     => SettingsController::tabsFor($viewer, 'targets'),
