@@ -378,7 +378,7 @@ final class FirstResponderTest extends TestCase
         $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $fault))->assertOk()->getContent();
         $this->assertStringContainsString('data-contractor-group="set"', $html);
         $this->assertStringContainsString('Set for this property', $html);
-        $this->assertLessThan(strpos($html, 'Other contractors'), strpos($html, 'Set for this property'));
+        $this->assertLessThan(strpos($html, 'Suits '), strpos($html, 'Set for this property'), 'the set-up first responders sit above the contractors that suit the work (a plumber suits a plumbing fault - nobody is left for "Other contractors")');
         $this->assertStringContainsString('data-contractor-kind="caretaker"', $html);
     }
 

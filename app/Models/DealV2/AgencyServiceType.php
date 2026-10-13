@@ -29,6 +29,10 @@ class AgencyServiceType extends Model
         'label',
         'sort_order',
         'is_active',
+        'group_id',
+        // set on the five property-sales ROLE rows only (transfer_attorney, bond_attorney, conveyancer, bond_originator, external_agency): the stored supplier `specialty`
+        // value that row stands for. A role row is never ticked on a supplier and never offered in the work-order / pipeline dropdowns.
+        'legacy_specialty',
     ];
 
     protected $casts = [
@@ -50,10 +54,39 @@ class AgencyServiceType extends Model
         ['code' => 'Other',         'label' => 'Other'],
     ];
 
+    /** Active WORK types - what the pipeline step config, work orders, supplier ticks and the fault match use. The property-sales role rows are not work types. */
     public function scopeActive($query)
+    {
+        return $query->where('is_active', true)->whereNull('legacy_specialty');
+    }
+
+    /** Every work type, active or not (role rows excluded). */
+    public function scopeWork($query)
+    {
+        return $query->whereNull('legacy_specialty');
+    }
+
+    /** What the supplier Trade dropdown offers: active work types AND the active property-sales role rows. */
+    public function scopeOffered($query)
     {
         return $query->where('is_active', true);
     }
+
+    public function isRole(): bool
+    {
+        return $this->legacy_specialty !== null;
+    }
+
+    public function group()
+    {
+        return $this->belongsTo(AgencyServiceTypeGroup::class, 'group_id')->withTrashed();
+    }
+
+    /** The five property-sales roles, as stored on a supplier (`specialty`). */
+    public const ROLES = [
+        'transfer_attorney' => 'Transfer Attorney', 'bond_attorney' => 'Bond Attorney', 'conveyancer' => 'Conveyancer',
+        'bond_originator' => 'Bond Originator', 'external_agency' => 'External Agency',
+    ];
 
     /**
      * Seed the default list for one agency, idempotently. Called from the
@@ -62,10 +95,21 @@ class AgencyServiceType extends Model
      */
     public static function seedDefaultsFor(int $agencyId): void
     {
+        AgencyServiceTypeGroup::seedDefaultsFor($agencyId);
+        $trades = AgencyServiceTypeGroup::tradesIdFor($agencyId);
+        $sales = (int) AgencyServiceTypeGroup::withoutGlobalScopes()->where('agency_id', $agencyId)->where('code', AgencyServiceTypeGroup::CODE_PROPERTY_SALES)->value('id');
+
         foreach (self::DEFAULTS as $i => $row) {
             static::withoutGlobalScopes()->firstOrCreate(
                 ['agency_id' => $agencyId, 'code' => $row['code']],
-                ['label' => $row['label'], 'sort_order' => $i + 1, 'is_active' => true],
+                ['label' => $row['label'], 'sort_order' => $i + 1, 'is_active' => true, 'group_id' => $trades],
+            );
+        }
+        $sort = count(self::DEFAULTS);
+        foreach (self::ROLES as $code => $label) {
+            static::withoutGlobalScopes()->firstOrCreate(
+                ['agency_id' => $agencyId, 'code' => $code],
+                ['label' => $label, 'sort_order' => ++$sort, 'is_active' => true, 'group_id' => $sales, 'legacy_specialty' => $code],
             );
         }
     }
@@ -116,6 +160,10 @@ class AgencyServiceType extends Model
         static::creating(function (AgencyServiceType $t) {
             if (empty($t->code)) {
                 $t->code = Str::limit(Str::slug($t->label, '_'), 40, '');
+            }
+            // every service type belongs to a group: when none is given it falls into the agency's "Your trades"
+            if (empty($t->group_id) && $t->agency_id) {
+                $t->group_id = AgencyServiceTypeGroup::tradesIdFor((int) $t->agency_id);
             }
         });
     }

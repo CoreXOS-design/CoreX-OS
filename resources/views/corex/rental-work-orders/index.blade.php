@@ -133,7 +133,7 @@
             <label class="text-xs" style="color: var(--text-muted);">Trade type</label><br>
             <select name="trade_type" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
                 <option value="">All</option>
-                @foreach(\App\Models\DealV2\AgencyServiceType::orderBy('label')->get() as $type)
+                @foreach(\App\Models\DealV2\AgencyServiceType::work()->orderBy('label')->get() as $type)
                     <option value="{{ $type->code }}" @selected(($filters['trade_type'] ?? '') === $type->code)>{{ $type->label }}</option>
                 @endforeach
             </select>

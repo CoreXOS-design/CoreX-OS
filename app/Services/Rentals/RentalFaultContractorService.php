@@ -210,6 +210,7 @@ class RentalFaultContractorService
             ->where('agency_id', $agencyId)
             ->where('is_active', true)
             ->whereNull('deleted_at')
+            ->whereNull('legacy_specialty')   // the property-sales roles are not trades a fault can need
             ->get(['code', 'label'])
             ->filter(function ($t) use ($needle) {
                 foreach ([$this->normalise((string) $t->code), $this->normalise((string) $t->label)] as $hay) {

@@ -1191,6 +1191,12 @@ Route::prefix('deals-v2/settings/service-types')->middleware(['auth', 'permissio
     Route::put('/{service_type}', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'update'])->name('deals-v2.settings.service-types.update');
     Route::delete('/{service_type}', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'destroy'])->name('deals-v2.settings.service-types.destroy');
     Route::post('/{id}/restore', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'restore'])->name('deals-v2.settings.service-types.restore');
+    // Johan, 13 Oct 2026 - the agency's own groups for its service types (Your trades / Property sales / its own)
+    Route::post('/groups', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'storeGroup'])->name('deals-v2.settings.service-types.groups.store');
+    Route::put('/groups/{group}', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'updateGroup'])->name('deals-v2.settings.service-types.groups.update');
+    Route::post('/groups/{group}/move', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'moveGroup'])->name('deals-v2.settings.service-types.groups.move');
+    Route::delete('/groups/{group}', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'destroyGroup'])->name('deals-v2.settings.service-types.groups.destroy');
+    Route::post('/groups/{id}/restore', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'restoreGroup'])->name('deals-v2.settings.service-types.groups.restore');
 });
 
 // ===== DEAL REGISTER V2 — SUPPLIER DIRECTORY (WS2 / D2) =====
