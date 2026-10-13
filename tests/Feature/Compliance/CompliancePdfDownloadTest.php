@@ -8,7 +8,6 @@ use App\Models\Compliance\RmcpSection;
 use App\Models\Compliance\RmcpVersion;
 use App\Services\Compliance\CompliancePdf;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Tests\Concerns\RequiresChromiumPdf;
 use Tests\Feature\Compliance\Policy\PolicyTestHelpers;
 use Tests\TestCase;
 
@@ -19,7 +18,19 @@ use Tests\TestCase;
  */
 final class CompliancePdfDownloadTest extends TestCase
 {
-    use RefreshDatabase, PolicyTestHelpers, RequiresChromiumPdf;
+    use RefreshDatabase, PolicyTestHelpers;
+
+    /** Self-contained on purpose (Staging has no RequiresChromiumPdf helper): skip unless Chromium + puppeteer are here. */
+    private function requireChromiumPdf(): void
+    {
+        if (! is_file('/usr/bin/chromium')) {
+            $this->markTestSkipped('No Chromium on this box to render the PDF.');
+        }
+        if (! is_dir(base_path('node_modules/puppeteer'))) {
+            $this->markTestSkipped('The puppeteer node module is not installed in this checkout (no node_modules).');
+        }
+        config(['services.pdf.puppeteer_browser_path' => '/usr/bin/chromium']);
+    }
 
     private int $agencyA;
     private int $agencyB;
