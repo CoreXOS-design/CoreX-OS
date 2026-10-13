@@ -52,6 +52,9 @@ class RentalFaultReportUpdate extends Model
     public const TYPE_AUTHORISATION_SUPERSEDED = 'authorisation_superseded';
     public const TYPE_SENT_TO_OWNER_TO_AUTHORISE = 'sent_to_owner_to_authorise';
     public const TYPE_TENANT_CONFIRMED = 'tenant_confirmed';
+    // section 22.13 - what was found / the cause was recorded, and the agent's "Who pays" ruling
+    public const TYPE_FINDINGS_RECORDED = 'findings_recorded';
+    public const TYPE_PAYER_RULED = 'payer_ruled';
 
     protected $fillable = [
         'agency_id',

@@ -200,6 +200,9 @@
             <h2>{{ $disputed ? 'Report fixed' : 'Mark work completed' }}</h2>
             <form method="POST" action="{{ $actions['complete'] }}" class="cj-complete-form">
                 @csrf
+                @if(! $disputed && ! empty($job['work_order_id']))
+                    @include('rentals._report-back-fields', ['workOrder' => \App\Models\RentalWorkOrder::withoutGlobalScopes()->find($job['work_order_id'])])
+                @endif
                 <label class="cj-label" for="cj-full-name">Your full name</label>
                 <input id="cj-full-name" type="text" name="full_name" required maxlength="191" autocomplete="name" value="{{ old('full_name') }}">
                 <label class="cj-confirm">

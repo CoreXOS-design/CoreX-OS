@@ -157,6 +157,20 @@
             </select>
         </div>
         <div>
+            <label class="text-xs" style="color: var(--text-muted);">Who pays (ruling)</label><br>
+            <select name="who_pays" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                <option value="">All</option>
+                @foreach(\App\Models\RentalPayerRuling::PAYERS as $p => $pl)
+                    <option value="{{ $p }}" @selected(($filters['who_pays'] ?? '') === $p)>{{ $pl }}</option>
+                @endforeach
+                <option value="none" @selected(($filters['who_pays'] ?? '') === 'none')>Not ruled yet</option>
+            </select>
+        </div>
+        <div>
+            <label class="text-xs" style="color: var(--text-muted);">Cause contains</label><br>
+            <input type="text" name="cause" value="{{ $filters['cause'] ?? '' }}" maxlength="100" placeholder="e.g. roots" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+        </div>
+        <div>
             <label class="text-xs" style="color: var(--text-muted);">Reported from</label><br>
             <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
         </div>
@@ -182,7 +196,7 @@
             Variation pending
         </label>
         <button type="submit" class="corex-btn-outline text-xs">Filter</button>
-        @if(request()->hasAny(['q', 'status', 'trade_type', 'priority', 'property_id', 'paid_by', 'date_from', 'date_to', 'overdue', 'awaiting_owner', 'variation_pending', 'open']))
+        @if(request()->hasAny(['q', 'status', 'trade_type', 'priority', 'property_id', 'paid_by', 'who_pays', 'cause', 'date_from', 'date_to', 'overdue', 'awaiting_owner', 'variation_pending', 'open']))
             <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-btn-outline text-xs">Clear</a>
         @endif
     </form>
@@ -234,6 +248,8 @@
                     <th class="text-left px-4 py-2"><a href="{{ $sortLink('priority') }}" style="color: var(--text-muted);">Priority{{ $sortIndicator('priority') }}</a></th>
                     <th class="text-left px-4 py-2">Supplier</th>
                     <th class="text-left px-4 py-2">Paid by</th>
+                    <th class="text-left px-4 py-2">Cause</th>
+                    <th class="text-left px-4 py-2">Who pays (ruling)</th>
                     <th class="text-left px-4 py-2"><a href="{{ $sortLink('reported_at') }}" style="color: var(--text-muted);">Reported{{ $sortIndicator('reported_at') }}</a></th>
                     <th></th>
                 </tr>
@@ -253,6 +269,8 @@
                     <td class="px-4 py-2">{{ $workOrder->priority ? ucfirst($workOrder->priority) : '—' }}</td>
                     <td class="px-4 py-2">{{ $workOrder->supplier?->name ?? '—' }}</td>
                     <td class="px-4 py-2">{{ $workOrder->paid_by ? ucfirst(str_replace('_', ' ', $workOrder->paid_by)) : '—' }}</td>
+                    <td class="px-4 py-2">{{ $workOrder->causeSummary() ?: '—' }}</td>
+                    <td class="px-4 py-2">{{ $workOrder->whoPaysLabel() ?: '—' }}</td>
                     <td class="px-4 py-2">{{ $workOrder->reported_at?->format('Y-m-d') }}</td>
                     <td class="px-4 py-2 text-right">
                         @if($showArchived)
@@ -268,7 +286,7 @@
                     </td>
                 </tr>
                 @empty
-                <tr><td colspan="8" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
+                <tr><td colspan="10" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
                     @if($showArchived)
                         No archived work orders on this agency.
                     @elseif(!$hasAnyWorkOrders)

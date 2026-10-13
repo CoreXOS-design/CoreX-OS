@@ -443,6 +443,7 @@
 
     @include('corex.rental-work-orders._approval-panel')
     @include('corex.rental-work-orders._completion-panel')
+    @include('corex.rental-work-orders._who-pays-panel')
 
     {{-- §3.4a — only for a work order raised directly (no upstream fault
          report already satisfied this). Applies to both assignment paths —

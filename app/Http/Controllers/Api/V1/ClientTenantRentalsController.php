@@ -444,6 +444,8 @@ class ClientTenantRentalsController extends Controller
             'reported_photos' => app(\App\Services\Rentals\RentalFaultPhotoAnnotationService::class)->payload($fault, app(\App\Services\Rentals\RentalFaultPhotoAnnotationService::class)->tenantPhotos($fault), \App\Services\Rentals\RentalFaultPhotoAnnotationService::AUDIENCE_TENANT),
             // BUILD 3 — §17.3.5: the linked work order's plain stage ("Being arranged", "In progress", …), never a price.
             'work_order_stage' => $this->workOrderStageFor($fault),
+            // section 22.13.4 - the "Who pays" ruling in the tenant's words: factual, never the agent's notes or evidence
+            'payer_ruling' => app(\App\Services\Rentals\RentalWhoPaysService::class)->portalPayload($fault, 'tenant'),
             // Johan, 8 Oct 2026: where this fault is, step by step, fault AND work order in one line (derived from the real records;
             // the words are data: config/rental-fault-progress.php). Never the owner's reason or the agent's notes.
             'progress' => $fault->isTenantSelfResolved() ? null : app(\App\Services\Rentals\RentalFaultProgressService::class)->forFault($fault, \App\Services\Rentals\RentalFaultProgressService::AUDIENCE_TENANT),

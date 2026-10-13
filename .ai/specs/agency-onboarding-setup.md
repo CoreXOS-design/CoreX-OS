@@ -257,6 +257,8 @@ agency, so the visible count is ≤ 13.
 These were built and then removed on Johan's call. They are out of scope by decision, not
 by oversight — do not reinstate them without asking:
 
+- **"Who normally pays" defaults on a fault type (`rental_fault_type_causes`)** (2026-10-13, qa1 AT-452 stage 4; **recorded for Johan**). It is fault-catalogue DATA (a short list of self-checks and causes per fault type, like the first-aid steps, which are not wizard controls either), seeded neutral for every agency and edited on the fault type's own screen - not an agency switch. Spec `rentals-faults-work-orders.md` §22.13.7.
+
 - **"Who looks at faults first" (per-property / per-owner first responders, `rental_first_responders`)** (2026-10-12, qa1 AT-452 family; **recorded for Johan**). It is per-property and per-owner DATA with a change log - like the owner's work terms, which are not wizard controls either - not an agency setting, so there is nothing to switch on in onboarding. Spec `rentals-faults-work-orders.md` §21.4.
 
 - **`lease_settings.default_pre_let_status` — "the status that means back on the market"** (2026-10-08, qa1-cc2, **pending

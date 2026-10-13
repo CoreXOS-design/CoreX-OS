@@ -528,6 +528,8 @@ class ClientLandlordRentalsController extends Controller
             'arranged' => $this->arrangedFor($fault),
             // section 22 - what an AGENT did on the owner's behalf (recorded their instruction): the sentence, the agent's note, "Query this"
             'authorisation' => $this->authorisationFor($fault),
+            // section 22.13.4 - the "Who pays" ruling in the owner's words (null until the agent has ruled)
+            'payer_ruling' => app(\App\Services\Rentals\RentalWhoPaysService::class)->portalPayload($fault, 'owner'),
             // section 22.4 - the contractor the agent proposes (and the call-out fee) while the owner is asked to authorise
             'proposed' => $awaiting ? app(\App\Services\Rentals\FaultInspectionService::class)->proposedFor($fault) : null,
             // AT-452 round 2 (F-OWNER) - "Reported before on <date> ..." when the same kind of fault was on this property earlier.

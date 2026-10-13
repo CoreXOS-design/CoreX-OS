@@ -168,9 +168,11 @@ class CrewPageController extends Controller
 
         $ctx = CrewViewContext::forCrewPage($record, $jobCard, $request);
         try {
-            $this->jobs->markCompleted($jobCard, $data['full_name'], true, $ctx);
+            $this->jobs->markCompleted($jobCard, $data['full_name'], true, $ctx, $request->only(['found_text', 'cause_id', 'cause_note']));
         } catch (\LogicException|\InvalidArgumentException $e) {
-            return $this->failed($request, $token, $jobCard, $e->getMessage());
+            $failed = $this->failed($request, $token, $jobCard, $e->getMessage());
+
+            return $failed instanceof RedirectResponse ? $failed->withInput($request->only(['found_text', 'cause_id', 'cause_note', 'full_name'])) : $failed;
         }
         $this->logAction($record, $jobCard, 'Marked work completed — signed by ' . trim($data['full_name']), $request);
 

@@ -17,10 +17,7 @@
 <div id="first-responders-panel" x-data class="rounded-md p-4 text-sm space-y-3 mt-4" style="background: var(--surface-2); border: 1px solid var(--border);">
     <div>
         <strong>Who looks at faults first</strong>
-        <p class="text-xs mt-1" style="color: var(--text-muted);">
-            When a fault comes in for this property, these are the people or companies the agent sees at the top of the fault, in this order - for example the caretaker, then the owner's own man.
-            Nothing is sent by itself: the agent decides on each fault.
-        </p>
+        <p class="text-xs mt-1" style="color: var(--text-muted);">Who the agent sees first on a fault for this property. Nothing is sent automatically.</p>
     </div>
 
     <div class="text-xs rounded-md px-3 py-2" style="background: var(--surface); border: 1px solid var(--border);" data-first-responders-in-effect="{{ $frEffect['source'] }}">

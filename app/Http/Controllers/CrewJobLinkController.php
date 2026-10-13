@@ -161,7 +161,7 @@ class CrewJobLinkController extends Controller
         ]);
 
         try {
-            app(CrewJobService::class)->markCompleted($card, $data['full_name'], true, CrewViewContext::forJobLink($record, $card, $request));
+            app(CrewJobService::class)->markCompleted($card, $data['full_name'], true, CrewViewContext::forJobLink($record, $card, $request), $request->only(['found_text', 'cause_id', 'cause_note']));
         } catch (\InvalidArgumentException|\LogicException $e) {
             return redirect()->route('rentals.crew-job.show', $token)->withErrors(['full_name' => $e->getMessage()])->withInput();
         }
