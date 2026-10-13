@@ -278,3 +278,83 @@ Deploys: after each numbered piece, via cc1 (`git push origin HEAD:QA1` then `sc
 - **Q3 (rule 10a):** Which settings stay out of the wizard step? *Default built:* the wizard shows lock, refresh days, missed-items mode, agency default targets, no-answer count and hold days; selections order, thresholds and colour limits are on the settings page only. This is Johan's call; recorded here as the proposed "Deliberately NOT in the wizard" list until he says otherwise.
 - **Q4 (data):** PP last-refreshed has no dedicated table (only P24 has `minion_capture_areas.last_captured_at`). *Default built:* PP (and P24 where no minion row exists) is derived from the newest captured listing for that suburb (`prospecting_listings.last_seen_at`). If Johan wants a recorded PP refresh date, that needs a separate piece of work.
 - **Q5 (process, for the conductor):** STANDARDS −1l says only cc1 writes to `origin/QA1`, but the brief tells lanes 2 and 3 to "merge to QA1". This spec assumes lanes 2 and 3 push their own branches and cc1 lands them; confirm.
+
+---
+
+## 9. Lane 2 (cc2) — the daily list, the nine selections, the real listed date, the one address rule
+
+Governing ticket AT-454. Section 1 is the rulebook; this section is how lane 2 builds to it. Conductor ruling 13 Oct: **the canonical property key is `tracked_properties.id`** (via `TrackedPropertyMatchOrCreateService`). `rts_list_items.tracked_property_id` is always filled when one can be resolved — including the agent's own CoreX stock in selections 8 and 9 — with `prospecting_listing_id` / `property_id` kept beside it for display and links. cc3's holds, call log and "never suggest" marker key on `tracked_property_id`.
+
+### 9.1 What lane 2 delivers (and its pieces)
+
+| # | Piece | Where |
+|---|---|---|
+| 1 | One "has an address" rule | `ProspectingListing::scopeWithAddress / scopeWithoutAddress / hasAddress` |
+| 2 | A real listed date | `prospecting_listings.listed_date`, `listed_date_source`, `prospecting_listing_date_corrections`; capture API; `mic.listed_date.correct`; extension 3.12.0 |
+| 3 | `rts_list_items` + model + scoping | `App\Models\RoadToSold\RtsListItem` |
+| 4 | The nine selections | `App\Services\RoadToSold\Selections\*` behind one `Selection` interface |
+| 5 | `ListBuilderService::buildFor / addToDay`, nightly command, missed/rollover | `App\Services\RoadToSold\ListBuilderService`, `rts:build-lists` |
+| 6 | Hot pockets leads + sales join | `App\Services\RoadToSold\HotPocketService` |
+
+### 9.2 Piece 1 — the one address rule (BUILT)
+A listing **has an address** when its own captured `address` text is real (not null, `''` or the legacy "Address not available") **or** its tracked property has a `street_name`. The second half is what makes an address corrected through `TrackedPropertyController::editAddress` count: that edit writes the tracked property (history row + cached `street_name` via `TrackedPropertyAddressObserver`) but never touched `prospecting_listings.address`. `tracked_properties.street_name` (the cache) is the test, not `tracked_property_addresses`, because the history table has a primary row for only ~105 of ~40,000 properties on QA1. Used by the Work tab "with address" tick and by the list builder. The Opportunities tab's own "With address" chip (`primaryAddress.street_name`) is **not** changed (outside this task) — it undercounts for the same reason; reported.
+
+### 9.3 Piece 2 — the real listed date (BUILT)
+* `prospecting_listings.listed_date` (date, nullable) + `listed_date_source` (`portal` | `agent`). `first_seen_at` is untouched (it is the capture moment; 31k rows share an August bulk-capture clock).
+* The capture API (`POST /api/v1/prospecting/import`) accepts `listings.*.listed_date` as loose text and **absorbs** anything unusable to null — blank, "0", words, impossible dates ("31 Feb"), future dates, before 2000 — so one bad tile never 422s a batch. A later capture updates a `portal` date but **never** overwrites an `agent` correction; a capture with no date keeps the stored one.
+* `ProspectingListing::listedOn()` = listed date, else first-seen day. `daysOnMarket()` uses it. `scopeListedWithinDays` / `scopeListedBeforeDays`: by the real date when present (calendar-day compare), else by `first_seen_at` **exactly as the old `new_today` preset compared it** (a timestamp against now − N), so rows without a real date behave as before. The `new_today` preset and the Work row's date now use these.
+* **Selection 5 ("New on market") needs a REAL date, per the business rule** — a first-capture date cannot prove an advert is new (a newly added suburb would flood it). **Selection 6 ("Long on market") may use the first-sighting fallback** — "first seen N days ago" proves "listed at least N days ago", so it can only under-state, never wrongly include.
+* Correction: `PUT /corex/market-intelligence/listing/{listing}/listed-date`, permission `mic.listed_date.correct` (admin + branch manager by default; run `corex:sync-permissions` on QA1), date + required reason (min 5), looked up through the viewer's own MIC data scope (outside it = 404). History in `prospecting_listing_date_corrections` (old → new, who, reason; soft delete). Form on the opportunity detail page.
+* Extension **3.12.0** (new release needed): `listed-date.js` reads text introduced by "Listed" / "Listing date" / "Date listed" (also "Listed today / yesterday / N days ago") off P24 and PP search tiles; null when the tile states none. **Unverified:** whether either portal's search tile actually shows a listed date — no saved tile HTML was available. Where it does not, the server-side column and the correction screen still work; dates then arrive only by correction.
+
+### 9.4 Piece 3 — `rts_list_items`
+Columns: `id`; `agency_id` NOT NULL; `branch_id` nullable (copied from the agent); `user_id` (whose list); `list_date` date; `track` varchar(20) default `'sales'`; `tracked_property_id`, `prospecting_listing_id`, `property_id` (all nullable, no FK — project convention); `selection` varchar(40) (a selection key, or `follow_up`); `origin` `auto|follow_up|added|rollover`; `position` smallint; `status` `open|worked|missed|rolled`; plus lane-2 additions `reason` (plain-English "why suggested", shown on the row), `rolled_from_item_id`, `status_changed_at`; `timestamps`, `softDeletes`.
+Unique `(agency_id, track, user_id, list_date, tracked_property_id)` — a property is on a day's list once (NULL tracked ids are de-duplicated in code by listing id). Because a unique index ignores soft-deletes (BUILD_STANDARD §5a) the builder inserts through `withTrashed()->firstOrNew` + `restore()`. The builder never soft-deletes; statuses carry the lifecycle.
+Scoping: `RtsListItem::scopeVisibleTo($user, ?$scope)` — `all` agency, `branch` = `effectiveBranchId()`, `own` = `dataIdentityIds()`, otherwise nothing; scope read from `PermissionService::getDataScope($user,'road_to_sold')`. Agency isolation by `BelongsToAgency`. Lane 3's page reads **only** through this scope.
+
+### 9.5 Piece 4 — selections
+One interface `Selection`: `key()`, `label()`, `candidates(SelectionContext $ctx, int $limit): Collection<Candidate>`. A `Candidate` carries `trackedPropertyId`, `prospectingListingId`, `propertyId`, `reason`, `hasAddress`, `inArea`. Order inside every selection: **area tier first** (agent's own suburbs, then the rest — or only own when "Lock agents to their areas" is on), **then with-address before without**, then the selection's own rank. (Open question Q6: if an addressed property outside the agent's area should instead beat an address-less one inside it, it is one comparator to flip.)
+Shared exclusions (every MIC-listing selection, 1–7): inactive/off-market; the agency's own on-market stock (`whereNotCompanyStock`); a property whose tracked/matched CoreX property belongs to **another** agent; an active MIC claim or pitch lock held by another user; plus the **suggestion guard** (cc3: held by another agent, do-not-contact) and the agent's own still-held properties. Twin adverts (P24 + PP of one property) collapse to one candidate on `tracked_property_id`.
+
+| Key | Source | Rank |
+|---|---|---|
+| `my_buyers_sourcing` | `prospecting_buyer_matches` (not dismissed, tier perfect/strong) for buyers whose `contacts.agent_id` / `second_agent_id` is the agent and `buyer_state` new/warm | most matching buyers, best score |
+| `agency_buyers_sourcing` | same, any agent's buyers | same |
+| `hot_pockets` | `HotPocketService` (below) | pocket score |
+| `price_drops` | `prospecting_price_history` (new < old) inside the lookback | biggest % drop, most recent |
+| `new_on_market` | real `listed_date` within `newOnMarketDays` | newest first |
+| `long_on_market` | listed (else first-seen) more than `longOnMarketDays` ago | longest first |
+| `owner_known` | owner known by any of the four paths (tracked property `owner_contact_id`; a `tracked_property_owners` row with a contact; a `contact_property` seller on `matched_property_id`; an owner on the deed-linked tracked property) | shown again, capped at `ownerKnownQuantity` per day |
+| `my_expired_stock` | the agent's own `properties` (`agent_id` in `dataIdentityIds()`), `status='expired'`, sale | latest `expiry_date` first; listing agent only |
+| `my_stock_not_selling` | the agent's own on-market properties with `DaysOnMarket` ≥ `stuckStockMinDaysOnMarket`, portal views (last 30 days, `property_portal_metrics`) ≤ `stuckStockMaxViews`, leads ≤ `stuckStockMaxLeads` | longest on market first; listing agent only |
+
+Selections 8 and 9 read **only** the user's own properties — there is no code path that reads another agent's stock (tested). Tracked-property id for own stock = `tracked_properties.promoted_to_property_id` lookup, else a read-only match; null if none, with `property_id` carried.
+**Hot pockets (piece 6):** a pocket is a suburb. Score = distinct active buyers with a perfect/strong match on listings in that suburb **+** the agency's own portal leads (`portal_leads` → `properties.suburb`) **+** the agency's own completed sales (`deals_v2` → `properties.suburb`) inside the lookback, equal weights, explained on the row ("14 buyers, 6 leads, 3 sales in Uvongo"). The join is the one the investigation found: `portal_leads.listing_id` and `deals_v2.property_id` both resolve to `properties`.
+
+### 9.6 Piece 5 — the builder
+`ListBuilderService::buildFor(User $u, CarbonInterface|string $date, string $track='sales'): Collection` — idempotent (if a list already exists for user+date+track it is returned untouched). Order: (1) **follow-ups due on or before the date** (origin `follow_up`, from cc3's `rts_contact_outcomes.next_action_at`; overdue ones carry forward), (2) rolled-over items (origin `rollover`) when the agency rolls over, (3) new properties from the enabled selections **in the agency's order** until `WorkdayService::targetFor` is reached — follow-ups and rollovers **count toward** the target. Every property counts whether or not an owner is on file. Not a working day (`isWorkday` false) → no list. `addToDay(User, string $selection, int $count, $date=today)` adds extra items with origin `added` (not counted toward the target, reported separately); count 1–100; the selection must be enabled.
+Nightly: `rts:build-lists [--date=] [--agency=] [--user=]`, scheduled 03:30. For each eligible agent (holds `access_road_to_sold`, active) it first **closes** open items of earlier days (`missed`, or `rolled` + a new `rollover` item on the next working day when the agency rolls over), then builds today's list if today is a working day. Run by hand on QA1 (no scheduler there).
+Decoupling: lane 2 depends on four small contracts — `BuilderSettings`-style reads from `SettingsService`, `WorkCalendar` (`WorkdayService`), `AreaProvider` (`AreaService`), `SuggestionGuard` + `FollowUpSource` (cc3). Each has a default adapter that wraps the lane's real class when it exists and a neutral fallback when it does not; tests inject fakes. Nothing in lane 2 edits another lane's files.
+
+### 9.7 Settings lane 2 would like from lane 1 (the brief lists none for these)
+`hotPocketLookbackDays` (default 180), `priceDropLookbackDays` (default 30), `stuckStockLookbackDays` (default 30). Read with `method_exists` fallbacks so nothing blocks; per the "no hardcoding" rule they should become real settings.
+
+### 9.8 Input space
+| Input | Rule |
+|---|---|
+| Agent with no areas, lock off | Absorb: everything is "outside area"; list built from the agency pool |
+| Agent with no areas, lock on | Prevent: no list; the page shows the lane-1 warning |
+| Target 0 / not a working day | No list, no error |
+| Fewer candidates than target | Partial list; never padded with ineligible properties |
+| Property resolved to no tracked property | Keep on `prospecting_listing_id` / `property_id`; de-dupe by those |
+| Same property from two selections | First selection (agency order) wins; counted once |
+| Build run twice / nightly + on demand at once | Idempotent: unique index + `firstOrNew`; second run adds nothing |
+| Add to day with 0, negative, huge or unknown selection | 422-style refusal, nothing written |
+| Selection 8/9 for an agent with no own stock | Empty; the day fills from other selections |
+| Tracked property deleted after listing | Row dropped from candidates |
+| Second agency | Own settings, own pool, own lists; nothing from agency 1 |
+
+### 9.9 Open questions (lane 2 → conductor; each has a default so building is not blocked)
+* **Q6 (business):** Inside a selection, does the agent's **area** or the **address** come first? *Built:* area first, then with-address. Flip is one comparator.
+* **Q7 (business):** Two agents who share a suburb, on a day when neither has worked a property yet, can be handed the same property (the hold only starts after an outcome is captured). *Built:* only rule (4) of the brief; no cross-agent de-duplication of the same day's lists. Do you want one?
+* **Q8 (process):** Strict agency-order fill means selection 1 can use the whole day's target on its own. *Built as written.* A per-selection share would be a setting; not built.
