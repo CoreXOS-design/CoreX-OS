@@ -354,6 +354,10 @@ final class OwnerCommentTest extends TestCase
 
     public function test_quote_limits_still_apply_to_an_owner_work_request(): void
     {
+        // section 22.6: the owner's repair limit (read only through the owner-settings resolver) decides WHO may authorise the quote
+        \App\Models\RentalPropertyFaultSetting::withoutGlobalScopes()->updateOrCreate(['property_id' => $this->property->id], [
+            'agency_id' => $this->agency->id, 'status' => 'confirmed_by_owner', 'repair_limit' => 1000, 'emergency_limit' => null, 'callout_mode' => 'no', 'version' => 1,
+        ]);
         Sanctum::actingAs($this->login($this->landlord), ['client']);
         $id = $this->post("/api/v1/client/rentals/landlord/properties/{$this->property->id}/fault-reports", ['rental_fault_type_id' => $this->type->id, 'description' => 'New lock'], ['Accept' => 'application/json'])->json('fault_report.id');
         $f = RentalFaultReport::withoutGlobalScopes()->findOrFail($id);
@@ -363,7 +367,8 @@ final class OwnerCommentTest extends TestCase
 
         $q = $wo->recordQuote(['agency_service_provider_id' => $supplier->id, 'amount' => 1000, 'quote_date' => now()->toDateString(), 'detail_text' => 'x'], $this->ownerAgent);
         $wo->fresh()->selectQuote($q, $this->ownerAgent);
-        $this->assertSame(\App\Models\RentalWorkOrder::APPROVAL_NOT_REQUIRED, $wo->fresh()->owner_approval_status, 'at the limit (R1000): the agent may approve it');
+        $this->assertSame(\App\Models\RentalWorkOrder::APPROVAL_NOT_REQUIRED, $wo->fresh()->owner_approval_status, 'at the limit (R1000): the owner is not asked - the agent may authorise it');
+        $this->assertNull($wo->fresh()->approved_amount, 'but nothing is approved until the agent presses Authorise');
 
         $wo2 = \App\Models\RentalWorkOrder::withoutGlobalScopes()->findOrFail(
             (function () use ($supplier) {

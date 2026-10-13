@@ -85,7 +85,7 @@ class RentalWorkOrderQuoteController extends Controller
                 $where = match ($workOrder->owner_approval_status) {
                     RentalWorkOrder::APPROVAL_PENDING => 'is with the owner',
                     RentalWorkOrder::APPROVAL_APPROVED => 'is approved by the owner',
-                    default => 'is approved (within the owner\'s no-approval limit)',
+                    default => 'is waiting for its cost to be authorised',
                 };
 
                 return "Quote captured. {$name} is still the chosen quote and {$where}. Use Select on the new quote to put that one to the owner instead.";
@@ -98,13 +98,14 @@ class RentalWorkOrderQuoteController extends Controller
 
             $who = $names !== '' ? $names : 'the owner';
             if (! \App\Models\RentalPortalSetting::notifyLandlordOnDecisionNeededFor($workOrder->agency_id)) {
-                return "Quote captured. It is above the property's no-approval limit, so {$who} must approve it on the portal (the approval email is switched off for this agency, so tell them).";
+                return "Quote captured. It is above what you may authorise (or the owner has not set a repair limit), so {$who} must approve it on the portal (the approval email is switched off for this agency, so tell them).";
             }
 
             return "Quote captured and sent to {$who} for approval. The work order can be sent to the contractor once they approve.";
         }
-        if ($workOrder->approval_basis === RentalWorkOrder::BASIS_NO_APPROVAL_LIMIT) {
-            return 'Quote captured and approved automatically - it is within the property\'s no-approval limit. The work order can be sent to the contractor.';
+        // section 22.6: nothing is approved by itself - say what is left to do
+        if (! app(\App\Services\Rentals\RentalAuthorisationService::class)->hasCostAuthority($workOrder)) {
+            return 'Quote captured and selected. Nothing is approved yet - authorise its cost under "Approve the cost" (it is inside the owner\'s repair limit), then send the work order to the contractor.';
         }
 
         return 'Quote captured and selected.';

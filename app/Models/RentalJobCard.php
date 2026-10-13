@@ -818,8 +818,12 @@ class RentalJobCard extends Model
             return;
         }
 
-        $approval = $this->workOrder?->owner_approval_status;
-        if (in_array($approval, [RentalWorkOrder::APPROVAL_APPROVED, RentalWorkOrder::APPROVAL_NOT_REQUIRED], true)) {
+        // section 22.6: "not required" no longer means approved - nothing is approved until the cost has an authorisation record (the agent under the owner's
+        // repair limit, the owner on their link, or the agent recording the owner's decision)
+        $workOrder = $this->workOrder;
+        $approval = $workOrder?->owner_approval_status;
+        if ($workOrder && in_array($approval, [RentalWorkOrder::APPROVAL_APPROVED, RentalWorkOrder::APPROVAL_NOT_REQUIRED], true)
+            && app(\App\Services\Rentals\RentalAuthorisationService::class)->hasCostAuthority($workOrder)) {
             $fromStatus = $this->status;
             $this->update(['status' => self::STATUS_APPROVED]);
             $this->logUpdate('status_change', null, 'Owner approval resolved on the linked work order', $fromStatus, self::STATUS_APPROVED);

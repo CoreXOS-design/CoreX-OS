@@ -10,10 +10,10 @@
     $roCan = auth()->user()->hasPermission('rental_fault_reports.record_approval');
 @endphp
 @if($roCan)
-    @error('owner_decision')<div class="text-xs w-full" style="color: var(--ds-crimson);" data-owner-decision-error>{{ $message }}</div>@enderror
+    @error('owner_decision')<div class="text-xs w-full sm:col-span-3" style="color: var(--ds-crimson);" data-owner-decision-error>{{ $message }}</div>@enderror
     @if($recordBlock === null)
         <div x-data="{ open: {{ $errors->has('owner_decision') ? 'true' : 'false' }}, decision: '{{ old('decision', 'authorise') }}' }" x-on:keydown.escape.window="open = false" class="contents">
-            <button type="button" class="corex-btn-outline text-xs" data-owner-decision-open @click="open = true">Record the owner's decision</button>
+            <button type="button" class="corex-btn-outline text-xs w-full" data-owner-decision-open @click="open = true">Record the owner's decision</button>
             <div x-show="open" x-cloak class="cxod-overlay" role="dialog" aria-modal="true" aria-labelledby="cxod-title" data-owner-decision-modal>
                 <div class="cxod-box" x-on:click.outside="open = false">
                     <h3 id="cxod-title" class="cxod-title">Record the owner's decision</h3>
@@ -70,7 +70,7 @@
             </div>
         </div>
     @else
-        <p class="text-xs" style="color: var(--text-muted);" data-owner-decision-blocked>{{ $recordBlock }}</p>
+        <p class="text-xs sm:col-span-3" style="color: var(--text-muted);" data-owner-decision-blocked>{{ $recordBlock }}</p>
     @endif
     @once
     <style>

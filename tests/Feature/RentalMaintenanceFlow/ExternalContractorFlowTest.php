@@ -174,6 +174,7 @@ final class ExternalContractorFlowTest extends TestCase
 
     public function test_the_owner_is_not_mailed_when_the_quote_is_inside_the_limit_or_the_agency_switched_the_prompt_off(): void
     {
+        $this->ownerLimits(500.0);
         $wo = $this->externalWorkOrder();
         $wo->selectQuote($this->quote($wo, 300), $this->admin);
         $this->assertSame([], $this->sent());
@@ -230,7 +231,9 @@ final class ExternalContractorFlowTest extends TestCase
         $this->setting(['external_quote_markup_type' => 'percent', 'external_quote_markup_value' => 10]);
         $supplier = $this->supplier();
         $wo = $this->externalWorkOrder();
-        $wo->selectQuote($this->quote($wo, 300, ['supplier' => $supplier]), $this->admin);   // inside the limit: auto-approved
+        $this->ownerLimits(500.0);
+        $wo->selectQuote($this->quote($wo, 300, ['supplier' => $supplier]), $this->admin);   // inside the owner's limit ...
+        $this->authoriseCostOf($wo->fresh());   // ... and authorised by the agent (section 22.6)
         $wo = $wo->fresh();
 
         $this->assertStringStartsWith('%PDF', app(\App\Services\Rentals\RentalDocumentPdfService::class)->workOrderContractorPdf($wo)->output());
@@ -239,7 +242,7 @@ final class ExternalContractorFlowTest extends TestCase
         ])->render());
 
         $this->assertStringContainsString('Owner approval: approved on', $html);
-        $this->assertStringContainsString("within the owner's no-approval limit", $html);
+        $this->assertStringContainsString("the agent authorised it under the owner's repair limit", $html);
         $this->assertStringContainsString('R300.00', $html);
         $this->assertStringNotContainsString('R330.00', $html, 'never the agency\'s fee-inclusive figure');
         $this->assertStringContainsString('Please contact External Agency to arrange access', $html);
@@ -248,8 +251,10 @@ final class ExternalContractorFlowTest extends TestCase
     public function test_a_contractor_with_no_email_is_assigned_and_the_agent_is_told_to_send_the_printout(): void
     {
         $supplier = $this->supplier('Cash Plumber', null);
+        $this->ownerLimits(500.0);
         $wo = $this->externalWorkOrder();
         $wo->selectQuote($this->quote($wo, 200, ['supplier' => $supplier]), $this->admin);
+        $this->authoriseCostOf($wo->fresh());   // section 22.6: inside the limit, but the agent presses Authorise
 
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.assign-supplier', $wo), ['agency_service_provider_id' => $supplier->id])
             ->assertRedirect()->assertSessionHas('warning');
@@ -305,8 +310,9 @@ final class ExternalContractorFlowTest extends TestCase
             ->assertSessionHasErrors('rental_work_order');
 
         $this->assertSame(RentalWorkOrder::STATUS_REPORTED, $wo->fresh()->status);
-        $this->assertStringContainsString('above what the owner approved (R1,000.00)', session('errors')->first('rental_work_order'));
-        $this->assertStringContainsString('capture the contractor\'s revised quote', session('errors')->first('rental_work_order'));
+        $this->assertStringContainsString('R200.00 above what was authorised (R1,000.00)', session('errors')->first('rental_work_order'));
+        $this->assertStringContainsString('The difference has been sent to the owner', session('errors')->first('rental_work_order'));
+        $this->assertSame('final_invoice', $wo->variations()->sole()->origin, 'section 22.6: the difference is put to the owner as a request for the extra');
     }
 
     public function test_a_final_cost_within_the_tolerance_is_auto_approved_logged_and_closes_the_job(): void

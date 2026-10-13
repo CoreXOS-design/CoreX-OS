@@ -1,6 +1,6 @@
 {{--
     .ai/specs/rental-work-orders.md §17.14 — BUILD 2's settings section: approvals. The agency's DEFAULT variation tolerance (each property can
-    override it on its Rental tab), whether the owner is emailed when extra work is approved automatically, and the agency's fee on an outside
+    override it on its Rental tab), whether the owner is emailed when extra work passes within the agreed tolerance, and the agency's fee on an outside
     contractor's quote (0 = off; a single work order can override it). One narrow saver (RentalWorkOrderSettingsController::updateApprovals);
     the same four controls are in the Setup Wizard. Values are read here (not passed in) so the page's controller stays untouched by this build.
 --}}
@@ -25,14 +25,14 @@
                        class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
                 <p class="text-xs mt-2" style="color: var(--text-muted);">
                     Default 0 %: every increase after the owner has approved goes back to the owner. A property can carry its own figure, agreed with its owner, on its Rental tab.
-                    The owner's no-approval spend limit above is separate, and emergency work always needs the owner to agree.
+                    This is the owner's own agreement. The owner's repair and emergency limits are separate: they are set per property by the owner, and an agent can authorise up to them, never above.
                 </p>
             </div>
             <div>
                 <input type="hidden" name="notify_landlord_on_auto_variation" value="0">
                 <label class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-primary);">
                     <input type="checkbox" name="notify_landlord_on_auto_variation" value="1" @checked(old('notify_landlord_on_auto_variation', $apNotifyAuto))>
-                    Email the owner when extra work is approved automatically
+                    Email the owner when extra work passes within the agreed tolerance
                 </label>
                 <p class="text-xs mt-2" style="color: var(--text-muted);">On by default. An information email saying what was added and the new total.</p>
             </div>

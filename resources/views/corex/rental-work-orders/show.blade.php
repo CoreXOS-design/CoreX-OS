@@ -47,8 +47,8 @@
     <x-rental-context-bar :property="$workOrder->property" :lease="$workOrder->lease" current="work_orders" />
 
     {{-- Johan, 8 Oct 2026: after the contractor is picked, say plainly what happens next. This describes the rule AS IT WORKS (RentalApprovalGateService::
-         evaluateQuote): the selected quote - the amount the owner would see - is tested against the PROPERTY's no-approval limit (its own override,
-         else the agency default). At or under: approved on the spot. Over: the owner is asked, and the work order cannot be sent until they approve. --}}
+         evaluateQuote): the selected quote - the amount the owner would see - is tested against the OWNER's repair limit (their own settings, read only through
+         RentalOwnerFaultSettings). Inside it the agent may authorise it - nothing is approved until they press Authorise. Above it, or with no limit set, the owner is asked. --}}
     @if($isOpen && $workOrder->assignment_type === \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER && $workOrder->status === \App\Models\RentalWorkOrder::STATUS_REPORTED)
         @php $nextContractor = $workOrder->contractorLabel() ?? 'the contractor'; @endphp
         <div class="rounded-md p-3 text-sm space-y-1" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, transparent); border: 1px solid var(--border);" data-next-step>
@@ -56,16 +56,18 @@
             @if($workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_DECLINED)
                 @php $declinedQuote = $workOrder->quotes->whereNotNull('declined_at')->sortByDesc('declined_at')->first() ?? $selectedQuote; @endphp
                 <div class="font-medium" style="color: var(--ds-crimson, #b3261e);" data-quote-declined>The owner declined the quote{{ $declinedQuote ? ' (' . ($declinedQuote->supplier?->name ?? 'supplier') . ', R' . number_format($declinedQuote->ownerFacingAmount(), 2) . ')' : '' }}{{ $declinedQuote?->decline_reason ? ': ' . $declinedQuote->decline_reason : '.' }}</div>
-                <div>Two ways forward: <strong>capture another quote</strong> (or choose one you already have) &mdash; within the property's no-approval limit of R{{ number_format($noApprovalThreshold, 2) }} it is approved automatically, above it it goes to the owner &mdash; <strong>or cancel the work order</strong>, which closes the fault as &ldquo;owner declined&rdquo;.</div>
+                <div>Two ways forward: <strong>capture another quote</strong> (or choose one you already have) and approve its cost under &ldquo;Approve the cost&rdquo; &mdash; <strong>or cancel the work order</strong>, which closes the fault as &ldquo;owner declined&rdquo;.</div>
             @elseif(! $selectedQuote && $workOrder->quotes->isNotEmpty())
                 <div class="font-medium" style="color: var(--ds-crimson, #b3261e);" data-quote-not-selected>No quote chosen yet &mdash; the owner has not been asked, and the work order cannot be sent. Choose the quote below with its Select button.</div>
             @elseif(! $selectedQuote)
-                <div>Capture {{ $nextContractor }}'s quote below and select it. If the quote is <strong>R{{ number_format($noApprovalThreshold, 2) }} or less</strong> (this property's no-approval limit) it is approved automatically and you can send the work order. If it is <strong>more</strong>, it goes to the owner for approval first, and the work order cannot be sent until they approve.</div>
+                <div>Capture {{ $nextContractor }}'s quote below and select it. Nothing is approved by itself: under &ldquo;Approve the cost&rdquo; you authorise it if it is inside the owner's repair limit, or the owner approves it first (their link, or you record what they told you). Then you can send the work order.</div>
             @elseif($workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_PENDING)
                 <div class="font-medium" data-quote-sent-to-owner>Quote sent to {{ app(\App\Services\Rentals\RentalWorkOrderService::class)->ownerNames($workOrder) ?: 'the owner' }} for approval.</div>
-                <div>The quote of <strong>R{{ number_format($selectedQuote->ownerFacingAmount(), 2) }}</strong> is over this property's no-approval limit of R{{ number_format($noApprovalThreshold, 2) }}. You can send the work order to {{ $nextContractor }} once they approve.</div>
+                <div>The quote of <strong>R{{ number_format($selectedQuote->ownerFacingAmount(), 2) }}</strong> needs the owner's approval first ({{ $costRepair['line'] }}). You can send the work order to {{ $nextContractor }} once they approve.</div>
             @elseif($proceed->authorised)
-                <div>The quote of <strong>R{{ number_format($selectedQuote->ownerFacingAmount(), 2) }}</strong> is approved{{ $workOrder->approvalBasisLabel() ? ' (' . strtolower($workOrder->approvalBasisLabel()) . ')' : '' }}. Next: send the work order to {{ $nextContractor }}.</div>
+                <div>The cost is authorised{{ $workOrder->approvalBasisLabel() ? ' (' . strtolower($workOrder->approvalBasisLabel()) . ')' : '' }}. Next: send the work order to {{ $nextContractor }}.</div>
+            @elseif($costRepair['agent_can'])
+                <div data-cost-needed>The quote of <strong>R{{ number_format($selectedQuote->ownerFacingAmount(), 2) }}</strong> is inside the owner's repair limit &mdash; press &ldquo;Authorise&rdquo; under &ldquo;Approve the cost&rdquo; to approve it, then send the work order to {{ $nextContractor }}.</div>
             @else
                 <div>{{ $proceed->note }}</div>
             @endif
@@ -97,7 +99,7 @@
     <div class="rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);" id="appointment-card">
         <h2 class="text-sm font-semibold">Appointment <span class="font-normal text-xs" style="color: var(--text-muted);">&mdash; {{ $workOrder->stageLabel('agent') }}</span></h2>
         {{-- Johan, 9 Oct 2026: an appointment (and the email to the tenant, which names the contractor) only once the job is approved - within the
-             owner's no-approval limit, approved by the owner, or an emergency. Before that the box is not shown. --}}
+             authorised under the owner's repair / emergency limit, or approved by the owner. Before that the box is not shown. --}}
         @if($proceed->authorised || in_array($workOrder->status, [\App\Models\RentalWorkOrder::STATUS_ORDERED, \App\Models\RentalWorkOrder::STATUS_IN_PROGRESS, \App\Models\RentalWorkOrder::STATUS_DISPUTED], true))
         <form method="POST" action="{{ route('corex.rental-work-orders.appointment.store', $workOrder) }}" class="grid grid-cols-3 gap-3 items-end">
             @csrf
@@ -259,7 +261,7 @@
          internal job card's own quote-to-owner lives on its own screen. --}}
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Quotes</h2>
-        <p class="text-xs" style="color: var(--text-muted);">No-approval spend limit for this property: R{{ number_format($noApprovalThreshold, 2) }}. Select a quote at or under this and it's approved automatically; over it, owner approval is required below.</p>
+        <p class="text-xs" style="color: var(--text-muted);">Selecting a quote approves nothing. The cost is approved under &ldquo;Approve the cost&rdquo; below: by you, inside the owner's repair limit, or by the owner.</p>
         @if($workOrder->quotes->isEmpty())
             <p class="text-xs" style="color: var(--text-muted);">No quotes captured yet.</p>
         @else
@@ -403,7 +405,7 @@
                 @elseif($workOrder->quotes->whereNull('declined_at')->isNotEmpty())
                     <p class="text-xs col-span-2" style="color: var(--text-muted);">No quote is chosen yet. Capture this one, then choose it with its Select button to put it to the owner.</p>
                 @else
-                    <p class="text-xs col-span-2" style="color: var(--text-muted);" data-quote-autoselect>This is the first quote, so it is selected automatically: within the property's no-approval limit (R{{ number_format($noApprovalThreshold, 2) }}) it is approved on the spot, above it the owner is asked.</p>
+                    <p class="text-xs col-span-2" style="color: var(--text-muted);" data-quote-autoselect>This is the first quote, so it is selected automatically. Nothing is approved by that &mdash; authorise the cost under &ldquo;Approve the cost&rdquo;; above the owner's repair limit the owner is asked.</p>
                 @endif
             </div>
             <button type="submit" class="corex-btn-outline text-xs">Capture quote</button>
@@ -475,34 +477,9 @@
                 @endforeach
             </ul>
         @endif
-        @permission('rental_work_orders.record_approval')
         @if($workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_PENDING)
-        <button type="button" onclick="document.getElementById('wo-approval-form').classList.toggle('hidden')" class="corex-btn-outline text-xs">Record decision on the owner's behalf</button>
-        <form id="wo-approval-form" method="POST" action="{{ route('corex.rental-work-orders.approval.store', $workOrder) }}" class="hidden space-y-3 pt-2" x-data="{ decision: 'approved' }">
-            @csrf
-            <div>
-                <label class="text-xs font-medium">Decision</label>
-                <select name="decision" required x-model="decision" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-                    <option value="approved">Approved</option>
-                    <option value="declined">Declined</option>
-                </select>
-            </div>
-            <div>
-                <label class="text-xs font-medium">Evidence</label>
-                <select name="evidence_type" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-                    <option value="whatsapp">WhatsApp reply</option>
-                    <option value="email">Email</option>
-                    <option value="verbal_note">Verbal (undocumented)</option>
-                </select>
-            </div>
-            <div>
-                <label class="text-xs font-medium"><span x-show="decision === 'declined'" x-cloak data-decline-reason-label>Reason for declining (required)</span><span x-show="decision !== 'declined'">What the owner said</span></label>
-                <textarea name="evidence_text" required rows="2" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);"></textarea>
-            </div>
-            <x-confirm-submit title="Record the owner's decision" message="Record this decision on the owner's behalf? It goes on the record with the evidence you give." confirm-label="Record decision">Save decision</x-confirm-submit>
-        </form>
+            <p class="text-xs" style="color: var(--text-muted);" data-record-in-cost-panel>If the owner tells you their answer, use &ldquo;Record the owner's decision&rdquo; under &ldquo;Approve the cost&rdquo;.</p>
         @endif
-        @endpermission
     </div>
     @endif
 

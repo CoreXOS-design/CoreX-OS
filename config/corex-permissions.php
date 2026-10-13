@@ -258,7 +258,7 @@ return [
         ['key' => 'rental_work_orders.manage_quotes', 'label' => 'Capture & Select Work Order Quotes', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 7],
         // §17.15 (maintenance flow, 6 Oct 2026) — three heavier decisions, each its own key.
         // The owner's emergency agreement is captured by the office, never overridden (§17.8).
-        ['key' => 'rental_work_orders.record_emergency_approval', 'label' => 'Record Owner Emergency Approval', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 8],
+        ['key' => 'rental_work_orders.record_emergency_approval', 'label' => 'Authorise an Emergency Cost (owner emergency limit)', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 8],
         // The owner's agreed work terms per property (no-approval limit, variation tolerance) are standing
         // spending authority — a tighter grant than logging a work order (§17.6.2).
         ['key' => 'rental_work_orders.manage_work_terms', 'label' => 'Manage Owner Work Terms (per property)', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 9],

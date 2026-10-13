@@ -209,10 +209,12 @@ final class JobCardPhotoUploadAndWrongStateTest extends TestCase
         $this->assertStringNotContainsString('This job has not been approved yet', $html);
     }
 
-    public function test_a_job_inside_the_no_approval_limit_is_offered_mark_completed(): void
+    public function test_a_job_the_agent_authorised_inside_the_owners_limit_is_offered_mark_completed(): void
     {
         $this->approvalWorld('Crew Inside Limit');
-        [$card] = $this->internalJob(100.0);
+        $this->ownerLimits(500.0);
+        [$card, $wo] = $this->internalJob(100.0);
+        $this->authoriseCostOf($wo);   // section 22.6: a limit alone approves nothing
         $card->forceFill(['status' => RentalJobCard::STATUS_SCHEDULED, 'scheduled_at' => now()->addDay()])->save();
 
         [$html, $completeUrl] = $this->crewLinkPage($card->fresh());

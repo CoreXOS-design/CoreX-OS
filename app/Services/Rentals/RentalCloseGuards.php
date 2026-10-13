@@ -52,8 +52,10 @@ class RentalCloseGuards
 
         $decision = $gate->evaluateVariation($workOrder, $finalAmount, $by);
         if (! $decision->authorised) {
-            throw new \LogicException('The final cost of R' . number_format($finalAmount, 2) . ' is above what the owner approved (R' . number_format($baseline, 2)
-                . ') — capture the contractor\'s revised quote and select it so the owner can approve the extra, then complete the work order.');
+            // section 22.6: the difference goes to the owner (they are emailed); the job closes once they have decided
+            $variation = $gate->raiseFinalInvoiceVariation($workOrder, $finalAmount, $by);
+            throw new \LogicException('The final cost of R' . number_format($finalAmount, 2) . ' is R' . number_format((float) $variation->extra_amount, 2)
+                . ' above what was authorised (R' . number_format($baseline, 2) . '). The difference has been sent to the owner - close this job once the owner has decided.');
         }
     }
 }

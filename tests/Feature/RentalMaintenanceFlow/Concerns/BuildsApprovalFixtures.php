@@ -74,6 +74,24 @@ trait BuildsApprovalFixtures
         ]);
     }
 
+    /**
+     * Section 22.6: the OWNER's repair / emergency limits for the fixture property, as the owner-settings build stores them (confirmed by the owner = standing
+     * authority). The fault flow reads them ONLY through RentalOwnerFaultSettings; a legacy `rental_no_approval_spend_threshold` no longer authorises anything.
+     */
+    protected function ownerLimits(?float $repair, ?float $emergency = null, string $status = \App\Models\RentalPropertyFaultSetting::STATUS_CONFIRMED): void
+    {
+        \App\Models\RentalPropertyFaultSetting::withoutGlobalScopes()->updateOrCreate(['property_id' => $this->property->id], [
+            'agency_id' => $this->agency->id, 'status' => $status, 'repair_limit' => $repair, 'emergency_limit' => $emergency,
+            'callout_mode' => 'no', 'callout_limit' => null, 'version' => 1,
+        ]);
+    }
+
+    /** The cost of a work order authorised the way an agent does it (under the owner's limit) - for tests about what happens AFTER the cost is approved. */
+    protected function authoriseCostOf(RentalWorkOrder $wo, ?float $typed = null): \App\Models\RentalAuthorisation
+    {
+        return app(\App\Services\Rentals\RentalAuthorisationService::class)->authoriseCost($wo, $this->admin, $typed !== null ? ['typed_amount' => $typed] : []);
+    }
+
     protected function setting(array $attrs): void
     {
         RentalWorkOrderSetting::withoutGlobalScopes()->updateOrCreate(['agency_id' => $this->agency->id], $attrs);

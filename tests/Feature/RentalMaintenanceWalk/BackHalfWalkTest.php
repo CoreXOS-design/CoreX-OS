@@ -402,7 +402,7 @@ final class BackHalfWalkTest extends TestCase
         return $quote;
     }
 
-    public function test_owner_declines_the_quote_then_a_cheaper_quote_within_the_limit_goes_ahead(): void
+    public function test_owner_declines_the_quote_then_a_cheaper_quote_within_the_limit_goes_ahead_once_the_agent_authorises_it(): void
     {
         $supplier = $this->supplier();
         $fault = $this->approvedFault('agency');
@@ -422,9 +422,14 @@ final class BackHalfWalkTest extends TestCase
         $this->asTenant();
         $this->assertStringNotContainsString('decline', strtolower($this->getJson('/api/v1/client/rentals/work-orders')->assertOk()->getContent()));
 
-        // A new, cheaper quote inside the no-approval limit is selected: the work order can go ahead again.
+        // A new, cheaper quote inside the owner's repair limit is selected: the owner is not asked again, and once the agent authorises it the work order can go ahead.
+        \App\Models\RentalPropertyFaultSetting::withoutGlobalScopes()->updateOrCreate(['property_id' => $wo->property_id], [
+            'agency_id' => $wo->agency_id, 'status' => 'confirmed_by_owner', 'repair_limit' => 500, 'emergency_limit' => null, 'callout_mode' => 'no', 'version' => 1,
+        ]);
         $this->quoteAndSelect($wo, $supplier, 450);
         $this->assertNotSame(RentalWorkOrder::APPROVAL_DECLINED, $wo->fresh()->owner_approval_status);
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.assign-supplier', $wo), ['agency_service_provider_id' => $supplier->id])->assertSessionHasErrors('rental_work_order');   // inside the limit is not approved yet
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.cost.authorise', $wo), [])->assertSessionHasNoErrors();
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.assign-supplier', $wo), ['agency_service_provider_id' => $supplier->id])->assertSessionHasNoErrors();
         $this->assertSame(RentalWorkOrder::STATUS_ORDERED, $wo->fresh()->status);
     }
@@ -478,7 +483,7 @@ final class BackHalfWalkTest extends TestCase
         $this->assertSame(RentalWorkOrder::STATUS_COMPLETED, $wo->fresh()->status);
     }
 
-    public function test_emergency_work_the_owner_agreed_by_phone_can_start_without_a_quote(): void
+    public function test_emergency_work_the_agent_authorises_under_the_owners_emergency_limit_can_start_without_a_quote(): void
     {
         $fault = $this->approvedFault('agency');
         $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.raise-work-order', $fault), ['assignment_type' => 'internal', 'title' => 'Burst geyser', 'description' => 'Flooding'])->assertSessionHasNoErrors();
@@ -489,9 +494,12 @@ final class BackHalfWalkTest extends TestCase
         // Nothing priced, nothing authorised: the job cannot start.
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.start', $card))->assertSessionHasErrors('rental_job_card');
 
-        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.emergency-approval.store', $wo), [
-            'approved_by_name' => 'Pieter', 'approved_via' => 'phone', 'approved_at' => now()->subHour()->format('Y-m-d\TH:i'), 'reason' => 'Water everywhere',
-        ])->assertSessionHasNoErrors();
+        // section 22.6: an emergency is authorised in "Approve the cost" - the tick, a required reason, an amount, and the owner's emergency limit
+        \App\Models\RentalPropertyFaultSetting::withoutGlobalScopes()->updateOrCreate(['property_id' => $wo->property_id], [
+            'agency_id' => $wo->agency_id, 'status' => 'confirmed_by_owner', 'repair_limit' => 500, 'emergency_limit' => 3000, 'callout_mode' => 'no', 'version' => 1,
+        ]);
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.cost.authorise', $wo), ['emergency' => 1, 'emergency_reason' => 'Water everywhere', 'typed_amount' => 800])->assertSessionHasNoErrors();
+        $this->assertSame('agent_emergency_limit', \App\Models\RentalAuthorisation::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->where('point', 'cost')->value('basis'));
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.start', $card))->assertSessionHasNoErrors();
         $this->assertSame(RentalWorkOrder::STATUS_IN_PROGRESS, $wo->fresh()->status);
         $this->assertSame('in_progress', $this->tenantLine($fault)['current']);

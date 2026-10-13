@@ -69,7 +69,9 @@ final class ApprovalRoutesScopeTest extends TestCase
         foreach ($routes as [$method, $url, $data]) {
             $this->actingAs($this->ownScoped)->{$method}($url, $data)->assertForbidden();
         }
-        $this->actingAs($this->ownScoped)->post(route('corex.rental-work-orders.emergency-approval.store', $this->wo), ['approved_by_name' => 'x', 'approved_via' => 'phone', 'approved_at' => now()->subMinute()->format('Y-m-d\TH:i'), 'reason' => 'y'])->assertForbidden();
+        // section 22.6: the cost routes replace the old emergency record route - same scope rule
+        $this->actingAs($this->ownScoped)->post(route('corex.rental-work-orders.cost.authorise', $this->wo), ['emergency' => 1, 'emergency_reason' => 'y', 'typed_amount' => 100])->assertForbidden();
+        $this->actingAs($this->ownScoped)->post(route('corex.rental-work-orders.cost.owner-decision', $this->wo), ['decision' => 'approved', 'approved_up_to' => 100, 'told_via' => 'phone_call', 'note' => 'x', 'owner_contact_id' => 1])->assertForbidden();
 
         $this->assertSame($before, [$this->wo->fresh()->owner_approval_status, $this->wo->fresh()->approval_basis, $this->wo->openVariation()?->status, $this->wo->fresh()->external_markup_value]);
     }

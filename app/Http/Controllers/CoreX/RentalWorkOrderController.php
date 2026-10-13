@@ -600,16 +600,24 @@ class RentalWorkOrderController extends Controller
         ]);
 
         $gate = app(RentalApprovalGateService::class);
+        $costSvc = app(\App\Services\Rentals\RentalAuthorisationService::class);
 
         return view('corex.rental-work-orders.show', [
             'workOrder' => $rentalWorkOrder,
             'completionRequiresPhoto' => RentalWorkOrderSetting::completionRequiresPhotoFor($rentalWorkOrder->agency_id),
-            'noApprovalThreshold' => $rentalWorkOrder->spendThreshold(),
             // BUILD 2 — a pure read of "may work start?" for the screen (it writes nothing), the owner's contacts for the emergency
             // form, and the agency's external-quote fee settings. The fee is the agency's margin: shown only to staff who can see costs.
             'proceed' => $gate->authoriseToProceed($rentalWorkOrder, false),
             'selectedQuote' => $rentalWorkOrder->quotes->firstWhere('is_selected', true),
             'ownerContacts' => $gate->ownerContacts($rentalWorkOrder),
+            // section 22.6 (stage 2) - Decision 2, "Approve the cost": the amount, who may authorise it (limits come ONLY from the owner-settings resolver), the records
+            'costRows' => $costSvc->rowsFor($rentalWorkOrder)->where('point', \App\Models\RentalAuthorisation::POINT_COST)->values(),
+            'costActive' => $costSvc->activeFor($rentalWorkOrder, \App\Models\RentalAuthorisation::POINT_COST),
+            'costMeasure' => $costSvc->costMeasure($rentalWorkOrder),
+            'costRepair' => $costSvc->costEvaluation($rentalWorkOrder, null, false),
+            'costEmergency' => $costSvc->costEvaluation($rentalWorkOrder, null, true),
+            'costBlock' => $costSvc->costBlockReason($rentalWorkOrder),
+            'costOwners' => $costSvc->ownersFor($rentalWorkOrder),
             'externalFeeType' => $rentalWorkOrder->external_markup_type ?? RentalWorkOrderSetting::externalQuoteMarkupTypeFor($rentalWorkOrder->agency_id),
             'externalFeeValue' => $rentalWorkOrder->external_markup_value !== null
                 ? (float) $rentalWorkOrder->external_markup_value

@@ -384,6 +384,272 @@ class RentalAuthorisationService
         return $row;
     }
 
+    // ───────────────────────── Decision 2 - the cost (section 22.6) ─────────────────────────
+
+    /**
+     * The amount a cost decision is about, and where it comes from. Owner-facing figures ONLY (what the owner pays, VAT included): a selected quote, else - for
+     * our own crew - the work-order selling price (the job card's owner-facing total; its cost and margin are never read), else nothing (the agent may type one).
+     *
+     * @return array{amount:?float, source:string, label:string}   source: quote | crew | none
+     */
+    public function costMeasure(RentalWorkOrder $wo): array
+    {
+        $quote = $wo->quotes()->where('is_selected', true)->first();
+        if ($quote) {
+            $who = $quote->supplier?->name ?? ($quote->rental_job_card_id ? 'our maintenance team' : 'the contractor');
+
+            return ['amount' => round($quote->ownerFacingAmount(), 2), 'source' => 'quote', 'label' => 'The quote from ' . $who];
+        }
+        $card = $wo->jobCard;
+        if ($card && \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($wo->agency_id)) {
+            $amount = round(app(RentalJobCardVatService::class)->inclusiveTotal($card->fresh() ?? $card), 2);
+            if ($amount > 0) {
+                return ['amount' => $amount, 'source' => 'crew', 'label' => "Our crew's work order price"];
+            }
+        }
+
+        return ['amount' => null, 'source' => 'none', 'label' => ''];
+    }
+
+    /**
+     * Can an AGENT authorise this amount, or must the owner? The limit is read ONLY through the owner-settings resolver (null = must ask).
+     *
+     * @return array{amount:?float, source:string, label:string, kind:string, limit:?float, agent_can:bool, basis:?string, line:string}
+     */
+    public function costEvaluation(RentalWorkOrder $wo, ?float $typed = null, bool $emergency = false): array
+    {
+        $m = $this->costMeasure($wo);
+        $amount = $m['amount'];
+        $source = $m['source'];
+        $label = $m['label'];
+        if ($amount === null && $typed !== null && $typed > 0) {
+            $amount = round($typed, 2);
+            $source = 'typed';
+            $label = 'The amount you typed';
+        }
+        $settings = $wo->property ? RentalOwnerFaultSettings::for($wo->property) : null;
+        $limit = $settings ? ($emergency ? $settings->emergencyLimit() : $settings->repairLimit()) : null;
+        $kind = $emergency ? 'emergency' : 'repair';
+        $limitWord = $emergency ? 'emergency limit' : 'repair limit';
+        $base = ['amount' => $amount, 'source' => $source, 'label' => $label, 'kind' => $kind, 'limit' => $limit, 'agent_can' => false, 'basis' => null];
+
+        if ($amount === null) {
+            return $base + ['line' => 'Nothing is priced yet. Select a quote, price the job card, or type the amount if it is a small job you already know the price of.'];
+        }
+        if ($limit === null) {
+            $disputed = $settings && $settings->status() === 'disputed';
+
+            return $base + ['line' => $disputed
+                ? "The owner does not agree with the fault-handling settings on this property, so the owner must authorise this first."
+                : "The owner has not told us what you may authorise without asking (the {$limitWord}), so the owner must authorise this first."];
+        }
+        if ($amount <= $limit + 0.001) {
+            return array_merge($base, ['agent_can' => true,
+                'basis' => $emergency ? RentalAuthorisation::BASIS_AGENT_EMERGENCY_LIMIT : RentalAuthorisation::BASIS_AGENT_REPAIR_LIMIT,
+                'line' => $this->rand($amount) . " is inside the owner's {$limitWord} of " . $this->rand($limit) . '. You can authorise it. The owner will be told.']);
+        }
+
+        return $base + ['line' => $this->rand($amount) . " is above the owner's {$limitWord} of " . $this->rand($limit) . '. The owner must authorise this first.'];
+    }
+
+    /** The plain reason no cost decision can be made on this work order right now (null = it can). */
+    public function costBlockReason(RentalWorkOrder $wo): ?string
+    {
+        if (in_array($wo->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true)) {
+            return 'This work order is closed.';
+        }
+        if ($wo->isOwnerContractor()) {
+            return "The owner arranges and pays their own contractor - there is no cost for the agency to authorise.";
+        }
+        // section 22.7: while the owner has paused the job nothing can be approved - the way forward is the resume (a fresh authority) first
+        if ($held = app(RentalOwnerHoldService::class)->holdReason($wo)) {
+            return $held;
+        }
+
+        return null;
+    }
+
+    /** Has this work order's cost been authorised? A stage 2 record, or an approval made before records existed (the owner approved it, the old limit rule, an emergency agreement). */
+    public function hasCostAuthority(RentalWorkOrder $wo): bool
+    {
+        $row = $this->activeFor($wo, RentalAuthorisation::POINT_COST);
+        if ($row) {
+            return $row->isAuthorised();
+        }
+
+        return in_array($wo->approval_basis, [
+            RentalWorkOrder::BASIS_LEGACY_GRANDFATHERED, RentalWorkOrder::BASIS_NO_APPROVAL_LIMIT, RentalWorkOrder::BASIS_VARIATION_TOLERANCE,
+        ], true) || $wo->owner_approval_status === RentalWorkOrder::APPROVAL_APPROVED;
+    }
+
+    /**
+     * "Authorise R___ within the repair limit" / "...emergency limit": the AGENT authorises, under a limit the owner set. Never above it, never without an amount.
+     *
+     * @param array<string,mixed> $in typed_amount?, emergency?, emergency_reason? (required when emergency)
+     */
+    public function authoriseCost(RentalWorkOrder $wo, User $by, array $in): RentalAuthorisation
+    {
+        if ($reason = $this->costBlockReason($wo)) {
+            throw new \LogicException($reason);
+        }
+        $emergency = ! empty($in['emergency']);
+        $reason = trim((string) ($in['emergency_reason'] ?? ''));
+        if ($emergency && $reason === '') {
+            throw new \InvalidArgumentException('Say why this is an emergency - it is required.');
+        }
+        $typed = isset($in['typed_amount']) && $in['typed_amount'] !== '' ? (float) $in['typed_amount'] : null;
+
+        $row = DB::transaction(function () use ($wo, $by, $emergency, $reason, $typed) {
+            $locked = RentalWorkOrder::withoutGlobalScopes()->lockForUpdate()->findOrFail($wo->id);
+            if ($locked->jobCard) {
+                $locked->jobCard->recalcTotal();   // the crew's price is read fresh at the moment of authorising
+            }
+            $previous = $this->activeFor($locked, RentalAuthorisation::POINT_COST);
+            if ($previous && $previous->isAuthorised()) {
+                throw new \LogicException('The cost is already authorised' . ($previous->amount_up_to !== null ? ' (up to ' . $this->rand((float) $previous->amount_up_to) . ')' : '') . ' - extra money goes to the owner as a request for the extra.');
+            }
+            $eval = $this->costEvaluation($locked, $typed, $emergency);
+            if (! $eval['agent_can']) {
+                throw new \LogicException($eval['line']);
+            }
+
+            $row = RentalAuthorisation::withoutGlobalScopes()->create([
+                'agency_id' => $locked->agency_id, 'rental_fault_report_id' => $locked->reported_fault_report_id, 'rental_work_order_id' => $locked->id,
+                'point' => RentalAuthorisation::POINT_COST, 'outcome' => RentalAuthorisation::OUTCOME_AUTHORISED, 'basis' => $eval['basis'], 'stage' => $locked->status,
+                'amount_up_to' => $eval['amount'], 'limit_amount' => $eval['limit'], 'is_emergency' => $emergency, 'emergency_reason' => $emergency ? $reason : null,
+                'by_user_id' => $by->id, 'told_at' => now(),
+                'note' => $eval['source'] === 'typed' ? 'Amount typed by the agent (no quote).' : null,
+            ]);
+            $this->supersede($previous, $row, $locked, $by);
+
+            $locked->forceFill([
+                'owner_approval_status' => RentalWorkOrder::APPROVAL_NOT_REQUIRED,
+                'approved_amount' => $eval['amount'],
+                'approval_basis' => $emergency ? RentalWorkOrder::BASIS_AGENT_EMERGENCY_LIMIT : RentalWorkOrder::BASIS_AGENT_REPAIR_LIMIT,
+            ])->save();
+
+            $text = $this->recordTextFor($row->load(['byUser', 'ownerContact']));
+            \App\Models\RentalApprovalDecision::create([
+                'agency_id' => $locked->agency_id, 'rental_work_order_id' => $locked->id,
+                'decided_by' => $emergency ? \App\Models\RentalApprovalDecision::BY_EMERGENCY : \App\Models\RentalApprovalDecision::BY_USER, 'decided_by_user_id' => $by->id,
+                'decision' => \App\Models\RentalApprovalDecision::DECISION_APPROVED, 'basis' => $eval['basis'],
+                'term_key' => $emergency ? \App\Models\RentalApprovalDecision::TERM_EMERGENCY : \App\Models\RentalApprovalDecision::TERM_NO_APPROVAL_LIMIT,
+                'term_value' => $eval['limit'], 'term_source' => \App\Models\RentalApprovalDecision::SOURCE_OWNER,
+                'amount_tested' => $eval['amount'], 'limit_amount' => $eval['limit'], 'note' => $text,
+            ]);
+            $locked->updates()->create(['agency_id' => $locked->agency_id, 'update_type' => 'cost_authorised', 'note' => $text, 'created_by_user_id' => $by->id]);
+            app(RentalApprovalGateService::class)->withdrawOpenVariations($locked, 'The cost was authorised.', $by);
+
+            return $row;
+        });
+        $wo->refresh();
+        $wo->jobCard?->fresh()?->syncStatusFromWorkOrder();   // an own-crew card that was waiting on this moves to "Approved - ready to book"
+        $this->tellOwner($row);
+
+        return $row->fresh();
+    }
+
+    /**
+     * "Record the owner's decision" for the cost: the owner told the agent (phone, WhatsApp, email) that they approve up to an amount, or decline.
+     *
+     * @param array<string,mixed> $d owner_contact_id, decision (approved|declined), approved_up_to (when approved), told_via, told_at?, note
+     */
+    public function recordOwnerCostDecision(User $by, RentalWorkOrder $wo, array $d, ?UploadedFile $proof = null): RentalAuthorisation
+    {
+        if ($reason = $this->costBlockReason($wo)) {
+            throw new \LogicException($reason);
+        }
+        $active = $this->activeFor($wo, RentalAuthorisation::POINT_COST);
+        if ($active && $active->basis === RentalAuthorisation::BASIS_OWNER_LINK) {
+            throw new \LogicException('The owner has already decided on their own link.');
+        }
+        if (in_array($wo->status, [RentalWorkOrder::STATUS_IN_PROGRESS, RentalWorkOrder::STATUS_DISPUTED], true) && $active && $active->isAuthorised()) {
+            throw new \LogicException('The work has started on the authorised cost - extra money goes to the owner as a request for the extra.');
+        }
+        $owner = $this->ownersFor($wo)->firstWhere('id', (int) ($d['owner_contact_id'] ?? 0));
+        if (! $owner) {
+            throw new \InvalidArgumentException('Pick which owner told you - choose one of the property\'s owners.');
+        }
+        $decision = (string) ($d['decision'] ?? '');
+        if (! in_array($decision, ['approved', 'declined'], true)) {
+            throw new \InvalidArgumentException('Choose what the owner decided.');
+        }
+        $via = (string) ($d['told_via'] ?? '');
+        if (! in_array($via, RentalAuthorisation::VIAS, true)) {
+            throw new \InvalidArgumentException('Say how the owner told you: phone call, WhatsApp or email.');
+        }
+        $toldAt = $this->parseToldAt($wo, $d['told_at'] ?? null);
+        $note = trim((string) ($d['note'] ?? ''));
+        if ($note === '') {
+            throw new \InvalidArgumentException($decision === 'declined' ? 'Say why the owner declined - what the owner said is required.' : 'Write down what the owner said - it is required.');
+        }
+        $upTo = null;
+        if ($decision === 'approved') {
+            $upTo = isset($d['approved_up_to']) && $d['approved_up_to'] !== '' ? round((float) $d['approved_up_to'], 2) : null;
+            if ($upTo === null || $upTo <= 0) {
+                throw new \InvalidArgumentException('Say the amount the owner approved up to.');
+            }
+            $measure = $this->costMeasure($wo)['amount'];
+            if ($measure !== null && $upTo + 0.001 < $measure) {
+                throw new \InvalidArgumentException('The owner approved up to ' . $this->rand($upTo) . ', which is less than the ' . $this->rand($measure) . ' being asked. Get a lower quote, or record that the owner declined.');
+            }
+        }
+        $evidence = match ($via) {
+            RentalAuthorisation::VIA_WHATSAPP => RentalApproval::EVIDENCE_WHATSAPP,
+            RentalAuthorisation::VIA_EMAIL => RentalApproval::EVIDENCE_EMAIL,
+            default => RentalApproval::EVIDENCE_VERBAL_NOTE,
+        };
+        $proofPath = $proof ? app(RentalFaultReportService::class)->storeApprovalScreenshot($proof, (int) $wo->property_id) : null;
+
+        // recordApproval() is the one writer of the owner's decision on a work order; it calls mirrorOwnerQuoteDecision(), which writes the record
+        $wo->recordApproval($by, [
+            'decision' => $decision === 'approved' ? RentalApproval::DECISION_APPROVED : RentalApproval::DECISION_DECLINED,
+            'evidence_type' => $evidence, 'evidence_text' => $note, 'evidence_file_path' => $proofPath, 'decided_at' => $toldAt,
+            'owner_contact_id' => $owner->id, 'approved_up_to' => $upTo,
+        ]);
+
+        $row = RentalAuthorisation::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->where('point', RentalAuthorisation::POINT_COST)->orderByDesc('id')->firstOrFail();
+        $wo->refresh();
+        $wo->jobCard?->fresh()?->syncStatusFromWorkOrder();
+        $this->tellOwner($row);
+
+        return $row->fresh();
+    }
+
+    /**
+     * Called by RentalApprovalGateService::recordOwnerDecision() for EVERY owner decision on a work order's cost - the owner's press on their link or an agent
+     * capturing what the owner said - so the ledger is complete whichever door it came through. A newer record supersedes the older.
+     *
+     * @param array<string,mixed> $extra owner_contact_id?, approved_up_to?, evidence_text?, evidence_file_path?
+     */
+    public function mirrorOwnerQuoteDecision(RentalWorkOrder $wo, bool $approved, User|Contact $by, string $evidenceType, ?float $quoteAmount, Carbon $decidedAt, array $extra = []): RentalAuthorisation
+    {
+        $previous = $this->activeFor($wo, RentalAuthorisation::POINT_COST);
+        $viaLink = $by instanceof Contact;
+        $upTo = $approved ? (isset($extra['approved_up_to']) ? (float) $extra['approved_up_to'] : $quoteAmount) : null;
+        $row = RentalAuthorisation::withoutGlobalScopes()->create([
+            'agency_id' => $wo->agency_id, 'rental_fault_report_id' => $wo->reported_fault_report_id, 'rental_work_order_id' => $wo->id,
+            'point' => RentalAuthorisation::POINT_COST, 'outcome' => $approved ? RentalAuthorisation::OUTCOME_AUTHORISED : RentalAuthorisation::OUTCOME_DECLINED,
+            'basis' => $viaLink ? RentalAuthorisation::BASIS_OWNER_LINK : RentalAuthorisation::BASIS_OWNER_INSTRUCTION, 'stage' => $wo->status,
+            'amount_up_to' => $upTo, 'owner_contact_id' => $viaLink ? $by->id : ($extra['owner_contact_id'] ?? null),
+            'by_contact_id' => $viaLink ? $by->id : null, 'by_user_id' => $viaLink ? null : $by->id,
+            'told_via' => $viaLink ? RentalAuthorisation::VIA_LINK : match ($evidenceType) {
+                RentalApproval::EVIDENCE_WHATSAPP => RentalAuthorisation::VIA_WHATSAPP,
+                RentalApproval::EVIDENCE_EMAIL => RentalAuthorisation::VIA_EMAIL,
+                default => RentalAuthorisation::VIA_PHONE,
+            },
+            'told_at' => $decidedAt, 'note' => ! empty($extra['evidence_text']) ? trim((string) $extra['evidence_text']) : null,
+            'proof_path' => $extra['evidence_file_path'] ?? null, 'owner_told_at' => $viaLink ? now() : null,
+        ]);
+        $this->supersede($previous, $row, $wo, $by instanceof User ? $by : null);
+        if ($approved && $upTo !== null) {
+            // the amount the owner approved up to is the baseline later extras are measured against
+            $wo->forceFill(['approved_amount' => $upTo, 'approval_basis' => RentalWorkOrder::BASIS_OWNER_DECISION])->save();
+        }
+
+        return $row;
+    }
+
     // ───────────────────────── telling the owner ─────────────────────────
 
     /**

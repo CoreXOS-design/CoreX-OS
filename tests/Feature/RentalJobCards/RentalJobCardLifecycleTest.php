@@ -275,8 +275,11 @@ final class RentalJobCardLifecycleTest extends TestCase
 
     // ── Quote to owner — reuses the EXISTING threshold gate ──────────────
 
-    public function test_sending_a_quote_at_or_under_threshold_auto_approves(): void
+    public function test_sending_a_quote_inside_the_owners_repair_limit_asks_nobody_and_approves_nothing_until_the_agent_authorises(): void
     {
+        \App\Models\RentalPropertyFaultSetting::withoutGlobalScopes()->updateOrCreate(['property_id' => $this->property->id], [
+            'agency_id' => $this->agency->id, 'status' => 'confirmed_by_owner', 'repair_limit' => 500, 'emergency_limit' => null, 'callout_mode' => 'no', 'version' => 1,
+        ]);
         RentalWorkOrderSetting::create(['agency_id' => $this->agency->id, 'no_approval_spend_threshold' => 500, 'capture_prices_on_job_cards' => true]);
         $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);
         app(RentalJobCardService::class)->addLine($jobCard, ['rental_catalogue_item_id' => $this->catalogueItem()->id, 'quantity' => 1], $this->admin);
@@ -284,13 +287,17 @@ final class RentalJobCardLifecycleTest extends TestCase
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $jobCard))->assertRedirect();
 
         $jobCard->refresh();
-        $this->assertSame(RentalWorkOrder::APPROVAL_NOT_REQUIRED, $jobCard->workOrder->owner_approval_status);
-        $this->assertSame(RentalJobCard::STATUS_APPROVED, $jobCard->status);
+        $this->assertSame(RentalWorkOrder::APPROVAL_NOT_REQUIRED, $jobCard->workOrder->owner_approval_status, 'the owner is not asked');
+        $this->assertNull($jobCard->workOrder->approved_amount, 'but nothing is approved');
+        $this->assertSame(RentalJobCard::STATUS_QUOTED, $jobCard->status);
         $quote = $jobCard->quotes()->first();
         $this->assertTrue($quote->is_selected);
         $this->assertNull($quote->agency_service_provider_id);
         $this->assertSame($jobCard->id, $quote->rental_job_card_id);
         Storage::disk('local')->assertExists($quote->document_storage_path);
+
+        app(\App\Services\Rentals\RentalAuthorisationService::class)->authoriseCost($jobCard->workOrder, $this->admin, []);
+        $this->assertSame(RentalJobCard::STATUS_APPROVED, $jobCard->fresh()->status, 'authorised by the agent under the owner\'s limit');
     }
 
     public function test_sending_a_quote_over_threshold_requires_owner_approval(): void

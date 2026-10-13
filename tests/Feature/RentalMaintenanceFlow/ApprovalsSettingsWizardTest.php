@@ -50,7 +50,7 @@ final class ApprovalsSettingsWizardTest extends TestCase
 
         $this->actingAs($this->admin($agency))->get(route('corex.agency-setup.step', ['step' => 'leases']))->assertOk()
             ->assertSee('Extra work the owner is not asked about')
-            ->assertSee('Email the owner when extra work is approved automatically')
+            ->assertSee('Email the owner when extra work passes within the agreed tolerance')
             ->assertSee('how it is worked out')
             ->assertSee('0 = no fee')
             ->assertSee('What this changes:');

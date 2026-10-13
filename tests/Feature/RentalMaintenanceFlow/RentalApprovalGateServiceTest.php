@@ -50,34 +50,35 @@ final class RentalApprovalGateServiceTest extends TestCase
 
     // ── first quote ──────────────────────────────────────────────────
 
-    public function test_a_first_quote_within_the_property_limit_is_auto_approved_and_cites_the_term(): void
+    public function test_a_first_quote_within_the_owners_repair_limit_approves_nothing_and_cites_the_limit(): void
     {
-        $this->property->forceFill(['rental_no_approval_spend_threshold' => 800])->save();
+        $this->ownerLimits(800.0);
         $wo = $this->externalWorkOrder();
 
         $decision = $this->gate->evaluateQuote($wo, 620.0, $this->admin);
 
-        $this->assertTrue($decision->authorised);
-        $this->assertSame('auto_approved', $decision->decision);
+        // section 22.6: inside the limit an agent MAY authorise it - but nothing is approved until someone presses Authorise
+        $this->assertFalse($decision->authorised);
+        $this->assertSame('needs_agent', $decision->decision);
         $fresh = $wo->fresh();
-        $this->assertSame(RentalWorkOrder::APPROVAL_NOT_REQUIRED, $fresh->owner_approval_status);
-        $this->assertSame('620.00', $fresh->approved_amount);
-        $this->assertSame(RentalWorkOrder::BASIS_NO_APPROVAL_LIMIT, $fresh->approval_basis);
+        $this->assertSame(RentalWorkOrder::APPROVAL_NOT_REQUIRED, $fresh->owner_approval_status, 'the owner is not asked');
+        $this->assertNull($fresh->approved_amount);
+        $this->assertNull($fresh->approval_basis);
 
         $row = $this->rows($wo)->sole();
         $this->assertSame('system', $row->decided_by);
-        $this->assertSame('auto_approved', $row->decision);
+        $this->assertSame('needs_agent', $row->decision);
         $this->assertSame('no_approval_limit', $row->term_key);
         $this->assertSame('800.00', $row->term_value);
-        $this->assertSame('property', $row->term_source);
+        $this->assertSame('owner', $row->term_source);
         $this->assertSame('620.00', $row->amount_tested);
         $this->assertSame('800.00', $row->limit_amount);
-        $this->assertStringContainsString("R620.00 is within the owner's no-approval limit of R800.00 (set on this property)", $row->note);
-        $this->assertStringStartsWith('Auto-approved on ', $row->note);
+        $this->assertStringContainsString("R620.00 is inside the owner's repair limit of R800.00 - an agent can authorise it. Nothing is approved until someone presses Authorise.", $row->note);
     }
 
-    public function test_a_first_quote_over_the_limit_needs_the_owner_and_nothing_is_approved(): void
+    public function test_a_first_quote_over_the_limit_or_with_no_limit_needs_the_owner_and_nothing_is_approved(): void
     {
+        $this->ownerLimits(500.0);
         $wo = $this->externalWorkOrder();
 
         $decision = $this->gate->evaluateQuote($wo, 500.01, $this->admin);
@@ -91,26 +92,34 @@ final class RentalApprovalGateServiceTest extends TestCase
         $row = $this->rows($wo)->sole();
         $this->assertSame('needs_owner', $row->decision);
         $this->assertSame('500.00', $row->limit_amount);
-        $this->assertStringContainsString('is above the owner\'s no-approval limit of R500.00 (built-in default)', $row->note);
+        $this->assertStringContainsString("is above the owner's repair limit of R500.00 - the owner is asked to approve it.", $row->note);
+
+        // no limit set: the owner is asked, whatever the amount
+        $this->ownerLimits(null);
+        $none = $this->externalWorkOrder();
+        $this->assertSame('needs_owner', $this->gate->evaluateQuote($none, 1.0, $this->admin)->decision);
+        $this->assertStringContainsString('the owner has not set a repair limit', $this->rows($none)->sole()->note);
     }
 
     public function test_exactly_the_limit_is_within_it(): void
     {
+        $this->ownerLimits(500.0);
         $wo = $this->externalWorkOrder();
 
-        $this->assertSame('auto_approved', $this->gate->evaluateQuote($wo, 500.00, $this->admin)->decision);
+        $this->assertSame('needs_agent', $this->gate->evaluateQuote($wo, 500.00, $this->admin)->decision);
     }
 
-    public function test_the_row_says_where_the_limit_came_from(): void
+    public function test_the_limit_comes_only_from_the_owners_settings_never_from_the_agency_default_or_the_old_property_figure(): void
     {
         $this->setting(['no_approval_spend_threshold' => 700]);
+        $this->property->forceFill(['rental_no_approval_spend_threshold' => 900])->save();
         $wo = $this->externalWorkOrder();
 
         $this->gate->evaluateQuote($wo, 650.0, $this->admin);
 
         $row = $this->rows($wo)->sole();
-        $this->assertSame('agency_default', $row->term_source);
-        $this->assertStringContainsString('(agency default)', $row->note);
+        $this->assertSame('needs_owner', $row->decision, 'neither the agency default nor the old property figure counts as the owner\'s say-so');
+        $this->assertSame('owner', $row->term_source);
     }
 
     // ── variations: the five steps ───────────────────────────────────
@@ -128,20 +137,18 @@ final class RentalApprovalGateServiceTest extends TestCase
         $this->assertSame(0, RentalApprovalDecision::withoutGlobalScopes()->count());
     }
 
-    public function test_an_increase_that_stays_within_the_no_approval_limit_is_auto_approved_under_term_one(): void
+    public function test_an_increase_is_never_approved_just_because_it_is_inside_the_repair_limit(): void
     {
-        $this->property->forceFill(['rental_no_approval_spend_threshold' => 500])->save();
-        $wo = $this->approved(400, ['approval_basis' => RentalWorkOrder::BASIS_NO_APPROVAL_LIMIT]);
+        $this->ownerLimits(5000.0);
+        $wo = $this->approved(400, ['approval_basis' => RentalWorkOrder::BASIS_AGENT_REPAIR_LIMIT]);
 
         $decision = $this->gate->evaluateVariation($wo, 480.0, $this->admin);
 
-        $this->assertTrue($decision->authorised);
-        $this->assertSame('no_approval_limit', $decision->basis);
+        $this->assertFalse($decision->authorised, 'extra money goes to the owner (section 22.6) - R480 is inside R5,000, and still not approved');
+        $this->assertSame('needs_owner', $decision->decision);
         $row = $this->rows($wo)->sole();
-        $this->assertSame('auto_approved', $row->decision);
-        $this->assertSame('no_approval_limit', $row->term_key);
+        $this->assertSame('needs_owner', $row->decision);
         $this->assertSame('400.00', $row->baseline_amount);
-        $this->assertSame('500.00', $row->limit_amount);
     }
 
     public function test_the_tolerance_is_measured_above_the_approved_amount_and_the_boundary_is_inclusive(): void
@@ -232,7 +239,9 @@ final class RentalApprovalGateServiceTest extends TestCase
         ]);
         $ourWo = $this->externalWorkOrder();
 
-        $this->assertSame('auto_approved', $this->gate->evaluateQuote($otherWo, 2000.0, $agent)->decision, 'R2,000 is inside the Cape agency\'s own R2,500 limit');
+        \App\Models\RentalPropertyFaultSetting::withoutGlobalScopes()->create(['agency_id' => $other->id, 'property_id' => $property->id, 'status' => 'confirmed_by_owner', 'repair_limit' => 2500, 'emergency_limit' => null, 'callout_mode' => 'no', 'version' => 1]);
+        $this->ownerLimits(100.0);
+        $this->assertSame('needs_agent', $this->gate->evaluateQuote($otherWo, 2000.0, $agent)->decision, 'R2,000 is inside the Cape owner\'s own R2,500 limit');
         $this->assertSame('needs_owner', $this->gate->evaluateQuote($ourWo, 2000.0, $this->admin)->decision, 'and outside ours (R100)');
         $this->assertSame(1, RentalApprovalDecision::withoutGlobalScopes()->where('agency_id', $other->id)->count());
         $this->assertSame(1, RentalApprovalDecision::withoutGlobalScopes()->where('agency_id', $this->agency->id)->count());

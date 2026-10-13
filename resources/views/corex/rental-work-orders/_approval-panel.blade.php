@@ -1,6 +1,6 @@
 {{--
-    .ai/specs/rental-work-orders.md §17.6–§17.8 — BUILD 2's work-order slot: "Why was this approved?", the approval chips, the
-    emergency approval panel and the variation panel. Receives $workOrder, $isOpen, $proceed (a pure read of authoriseToProceed()),
+    .ai/specs/rental-work-orders.md §17.6–§17.8 + rentals-faults-work-orders.md §22.6 — the work-order slot: "Why was this approved?", the approval chips, "Approve the cost",
+    the variation panel and (history only) earlier emergency agreements. Receives $workOrder, $isOpen, $proceed (a pure read of authoriseToProceed()),
     $ownerContacts and everything show.blade.php has in scope. Owner-facing amounts only (selling); no cost, markup or margin.
 --}}
 @php
@@ -22,10 +22,10 @@
         @elseif($workOrder->approvalBasisLabel())
             <span class="ds-badge ds-badge-success">{{ $workOrder->approvalBasisLabel() }}</span>
         @else
-            <span class="ds-badge ds-badge-muted">No approval needed yet</span>
+            <span class="ds-badge ds-badge-muted">Not authorised yet</span>
         @endif
         @if($apOpenVariation)<span class="ds-badge ds-badge-warning">Variation awaiting owner</span>@endif
-        @if($apAutoCount > 0)<span class="ds-badge ds-badge-info">{{ $apAutoCount }} extra{{ $apAutoCount > 1 ? 's' : '' }} auto-approved</span>@endif
+        @if($apAutoCount > 0)<span class="ds-badge ds-badge-info">{{ $apAutoCount }} extra{{ $apAutoCount > 1 ? 's' : '' }} passed within the owner's agreed tolerance</span>@endif
     </div>
 
     @if($workOrder->approved_amount !== null)
@@ -39,7 +39,7 @@
         @elseif($workOrder->approval_basis === \App\Models\RentalWorkOrder::BASIS_LEGACY_GRANDFATHERED)
             Already under way before approvals were recorded.
         @else
-            No approval decision recorded yet.
+            Nothing has been authorised yet - see "Approve the cost" below.
         @endif
     </div>
 
@@ -52,5 +52,6 @@
     </p>
 </div>
 
+@include('corex.rental-work-orders._cost-decision')
 @include('corex.rental-work-orders._variation-panel')
 @include('corex.rental-work-orders._emergency-panel')

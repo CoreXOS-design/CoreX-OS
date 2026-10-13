@@ -224,10 +224,14 @@ final class RentalWorkOrderLifecycleTest extends TestCase
     {
         $workOrder = $this->workOrder();
         $supplier = $this->supplier();
-        // BUILD 2 (§17.6.5) — a work order only goes to a contractor once something authorises it: here a selected quote within the
-        // owner's no-approval limit (the default R500).
+        // BUILD 2 (§17.6.5) + section 22.6 — a work order only goes to a contractor once something authorises it: here a selected quote inside the
+        // owner's repair limit (R500) that the agent has authorised (a limit alone approves nothing).
+        \App\Models\RentalPropertyFaultSetting::withoutGlobalScopes()->updateOrCreate(['property_id' => $workOrder->property_id], [
+            'agency_id' => $workOrder->agency_id, 'status' => 'confirmed_by_owner', 'repair_limit' => 500, 'emergency_limit' => null, 'callout_mode' => 'no', 'version' => 1,
+        ]);
         $quote = $workOrder->recordQuote(['agency_service_provider_id' => $supplier->id, 'amount' => 300, 'quote_date' => now()], $this->admin);
         $workOrder->selectQuote($quote, $this->admin);
+        app(\App\Services\Rentals\RentalAuthorisationService::class)->authoriseCost($workOrder->fresh(), $this->admin, []);
 
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.assign-supplier', $workOrder), [
             'agency_service_provider_id' => $supplier->id,

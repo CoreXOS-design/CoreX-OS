@@ -59,18 +59,28 @@ final class AuthoriseToProceedTest extends TestCase
         $this->assertSame(RentalJobCard::STATUS_DRAFT, $card->fresh()->status);
     }
 
-    public function test_a_priced_job_inside_the_limit_is_authorised_and_the_decision_is_recorded_once(): void
+    public function test_a_priced_job_inside_the_limit_is_not_approved_until_the_agent_authorises_it_and_that_is_recorded_once(): void
     {
+        $this->ownerLimits(500.0);
         [$card, $wo] = $this->internalJob(300.0);
 
-        $card->schedule(now()->addDay(), null, $this->admin);
+        try {
+            $card->schedule(now()->addDay(), null, $this->admin);
+            $this->fail('inside the limit is not the same as approved (section 22.6)');
+        } catch (\LogicException $e) {
+            $this->assertStringContainsString('has not been authorised yet', $e->getMessage());
+        }
+        $this->assertSame(0, $this->decisionCount($wo), 'nothing was decided by being asked');
+
+        $this->authoriseCostOf($wo);
+        $card->fresh()->schedule(now()->addDay(), null, $this->admin);
 
         $this->assertSame(RentalJobCard::STATUS_SCHEDULED, $card->fresh()->status);
         $this->assertSame('300.00', $wo->fresh()->approved_amount, 'the job amount is now the approved baseline');
-        $this->assertSame(RentalWorkOrder::BASIS_NO_APPROVAL_LIMIT, $wo->fresh()->approval_basis);
+        $this->assertSame(RentalWorkOrder::BASIS_AGENT_REPAIR_LIMIT, $wo->fresh()->approval_basis);
         $row = RentalApprovalDecision::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->sole();
-        $this->assertSame('auto_approved', $row->decision);
-        $this->assertSame('no_approval_limit', $row->term_key);
+        $this->assertSame('approved', $row->decision);
+        $this->assertSame('agent_repair_limit', $row->basis);
 
         $card->fresh()->start($this->admin);   // a second guarded transition: authorised, and no second decision row
         $this->assertSame(1, $this->decisionCount($wo));
@@ -78,14 +88,15 @@ final class AuthoriseToProceedTest extends TestCase
 
     public function test_a_priced_job_above_the_limit_that_was_never_quoted_is_refused_with_what_to_do_next(): void
     {
+        $this->ownerLimits(500.0);
         [$card] = $this->internalJob(1500.0);
 
         try {
             $card->schedule(now()->addDay(), null, $this->admin);
             $this->fail('R1,500 is above the R500 limit');
         } catch (\LogicException $e) {
-            $this->assertStringContainsString('above the owner\'s no-approval limit of R500.00', $e->getMessage());
-            $this->assertStringContainsString('send the quote to the owner', $e->getMessage());
+            $this->assertStringContainsString('The cost (R1,500.00) has not been authorised yet', $e->getMessage());
+            $this->assertStringContainsString('authorise it under "Approve the cost" on the work order, or get the owner to', $e->getMessage());
         }
     }
 
@@ -146,7 +157,9 @@ final class AuthoriseToProceedTest extends TestCase
 
     public function test_the_crew_can_complete_once_the_work_is_covered(): void
     {
+        $this->ownerLimits(500.0);
         [$card, $wo] = $this->internalJob(300.0);
+        $this->authoriseCostOf($wo);
 
         $card->recordCrewCompletion('Sipho Dlamini', 'crew_link', '203.0.113.9', 'TestPhone', null);
 
@@ -173,9 +186,17 @@ final class AuthoriseToProceedTest extends TestCase
             $this->addToAssertionCount(1);
         }
 
+        $this->ownerLimits(500.0);
         $quote = $wo->recordQuote(['agency_service_provider_id' => $supplier->id, 'amount' => 320, 'quote_date' => now(), 'detail_text' => 'phone quote'], $this->admin);
         $wo->selectQuote($quote, $this->admin);
-        $wo->assignSupplier($supplier->id, 'plumbing', $this->admin);
+        try {
+            $wo->fresh()->assignSupplier($supplier->id, 'plumbing', $this->admin);
+            $this->fail('a selected quote inside the limit is still not approved');
+        } catch (\LogicException $e) {
+            $this->assertStringContainsString('has not been authorised yet', $e->getMessage());
+        }
+        $this->authoriseCostOf($wo->fresh());
+        $wo->fresh()->assignSupplier($supplier->id, 'plumbing', $this->admin);
 
         $this->assertSame(RentalWorkOrder::STATUS_ORDERED, $wo->fresh()->status);
     }
@@ -212,7 +233,7 @@ final class AuthoriseToProceedTest extends TestCase
         $this->assertSame(RentalJobCard::STATUS_SCHEDULED, $card->fresh()->status);
     }
 
-    public function test_a_card_with_no_work_order_is_judged_on_its_own_amount_against_the_property_limit(): void
+    public function test_a_card_with_no_work_order_cannot_be_cleared_because_there_is_nothing_to_authorise_against(): void
     {
         // Build 3 (§17.3.1) gives every NEW card its work order up front, so a card with none is a legacy row: build those directly.
         $legacy = function (string $title, ?array $line = null) {
@@ -231,13 +252,10 @@ final class AuthoriseToProceedTest extends TestCase
         $empty = $legacy('Standalone empty');
         $this->assertNull($small->rental_work_order_id);
 
-        $small->schedule(now()->addDay(), null, $this->admin);
-        $this->assertSame(RentalJobCard::STATUS_SCHEDULED, $small->fresh()->status);
-
-        foreach ([$big, $empty] as $card) {
+        foreach ([$small, $big, $empty] as $card) {
             try {
                 $card->schedule(now()->addDay(), null, $this->admin);
-                $this->fail('over the limit / nothing priced');
+                $this->fail('no work order: nothing to authorise the cost against');
             } catch (\LogicException) {
                 $this->assertSame(RentalJobCard::STATUS_DRAFT, $card->fresh()->status);
             }
@@ -247,12 +265,17 @@ final class AuthoriseToProceedTest extends TestCase
 
     public function test_asking_without_recording_writes_nothing(): void
     {
+        $this->ownerLimits(500.0);
         [$card, $wo] = $this->internalJob(300.0);
 
         $decision = app(RentalApprovalGateService::class)->authoriseToProceed($wo, false);
 
-        $this->assertTrue($decision->authorised);
+        $this->assertFalse($decision->authorised, 'inside the limit, but nobody has authorised it');
         $this->assertSame(0, $this->decisionCount($wo));
         $this->assertNull($wo->fresh()->approved_amount);
+        $this->authoriseCostOf($wo);
+        $before = $this->decisionCount($wo);
+        $this->assertTrue(app(RentalApprovalGateService::class)->authoriseToProceed($wo->fresh(), false)->authorised);
+        $this->assertSame($before, $this->decisionCount($wo), 'asking writes nothing');
     }
 }

@@ -271,13 +271,17 @@ final class RentalJobCardPrintFollowUpsTest extends TestCase
 
     /**
      * §17.6.5 / §17.12 — a card can only be scheduled once it is authorised, and a card with nothing priced is not ("price the job
-     * or send the quote first"). So a card these tests schedule carries one priced line inside the owner's no-approval limit
-     * (setUp sets it to R100 000), which authorises it by the limit — the dates then save as they always did.
+     * or send the quote first"). Since section 22.6 NOTHING is approved by a limit alone, so a card these tests schedule carries one priced line inside
+     * the owner's repair limit (R100 000) AND the agent has authorised that cost - the dates then save as they always did.
      */
     private function schedulableCard(): RentalJobCard
     {
         $card = $this->card();
         $this->service->addLine($card, ['description' => 'Part', 'quantity' => 1, 'unit_price' => 50, 'rental_vat_type_id' => $this->vatType()->id], $this->admin);
+        \App\Models\RentalPropertyFaultSetting::withoutGlobalScopes()->updateOrCreate(['property_id' => $card->property_id], [
+            'agency_id' => $card->agency_id, 'status' => 'confirmed_by_owner', 'repair_limit' => 100000, 'emergency_limit' => null, 'callout_mode' => 'no', 'version' => 1,
+        ]);
+        app(\App\Services\Rentals\RentalAuthorisationService::class)->authoriseCost($card->fresh()->workOrder, $this->admin, []);
 
         return $card->fresh();
     }

@@ -77,7 +77,9 @@ final class JobCardNightFixesTest extends TestCase
 
     public function test_the_job_card_uses_the_apps_dialog_for_print_with_link_archive_line_and_send_quote(): void
     {
-        [$card] = $this->internalJob(345);
+        $this->ownerLimits(500.0);
+        [$card, $wo] = $this->internalJob(345);
+        $this->authoriseCostOf($wo);   // section 22.6: the crew link only exists once the cost is authorised
         $card->forceFill(['status' => RentalJobCard::STATUS_APPROVED])->save();
         $html = $this->page($card);
 
@@ -94,28 +96,32 @@ final class JobCardNightFixesTest extends TestCase
 
     // ── J2 ───────────────────────────────────────────────────────────────────
 
-    public function test_within_the_limit_the_action_reads_as_confirm_price_and_nothing_goes_to_the_owner(): void
+    public function test_within_the_limit_the_action_reads_as_confirm_price_and_nothing_goes_to_the_owner_and_nothing_is_approved(): void
     {
-        $this->property->forceFill(['rental_no_approval_spend_threshold' => 500])->save();
+        $this->ownerLimits(500.0);
         [$card, $wo] = $this->internalJob(345);
 
         $html = $this->page($card);
-        $this->assertStringContainsString(e("Confirm price - within the owner's limit, approved automatically"), $html);
+        $this->assertStringContainsString('Confirm the price', $html);
         $this->assertStringContainsString('Nothing goes to the owner', $html);
         $this->assertStringNotContainsString('Send to owner as quote', $html);
-        $this->assertStringContainsString('data-auto-approval', $html, 'the approval panel does not say "Not approved yet"');
-        $this->assertStringNotContainsString('Not approved yet', $html);
+        $this->assertStringNotContainsString('approved automatically', strtolower($html), 'section 22.6: nothing is approved by itself');
+        $this->assertStringContainsString('data-cost-decision', $html, 'the cost is approved in "Approve the cost", on this page too');
 
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $card))->assertSessionHasNoErrors()
-            ->assertSessionHas('success', fn ($m) => str_contains($m, 'approved automatically') && str_contains($m, 'Nothing was sent to the owner'));
+            ->assertSessionHas('success', fn ($m) => str_contains($m, 'Nothing is approved yet') && str_contains($m, 'nothing was sent to the owner'));
         $this->assertSame([], $this->sent(RentalOwnerQuoteMail::class), 'no mail to the owner');
         $this->assertSame(RentalWorkOrder::APPROVAL_NOT_REQUIRED, $wo->fresh()->owner_approval_status);
-        $this->assertNotNull($wo->fresh()->approved_amount);
-        $this->assertSame(RentalJobCard::STATUS_APPROVED, $card->fresh()->status);
+        $this->assertNull($wo->fresh()->approved_amount, 'confirming the price approves nothing');
+        $this->assertSame(RentalJobCard::STATUS_QUOTED, $card->fresh()->status);
 
         $after = $this->page($card);
-        $this->assertStringNotContainsString('Confirm price - within', $after, 'nothing left to confirm');
-        $this->assertStringContainsString('approved automatically', strtolower($after));
+        $this->assertStringContainsString('Price confirmed - cost to authorise', $after);
+
+        // the agent authorises it - now the card is approved and can be booked
+        $this->authoriseCostOf($wo->fresh());
+        $this->assertSame(RentalJobCard::STATUS_APPROVED, $card->fresh()->status);
+        $this->assertStringContainsString('Approved - ready to book', $this->page($card));
     }
 
     public function test_above_the_limit_the_action_reads_send_quote_to_owner_for_approval_and_the_owner_is_mailed(): void
@@ -177,15 +183,17 @@ final class JobCardNightFixesTest extends TestCase
 
     public function test_the_card_screen_follows_the_stage_through_the_whole_job(): void
     {
-        $this->property->forceFill(['rental_no_approval_spend_threshold' => 1000000])->save();
+        $this->ownerLimits(1000000.0);
         [$card, $wo] = $this->internalJob(345);
         $u = fn (string $name, array $params = []) => 'action="' . route($name, array_merge([$card], $params)) . '"';
 
         // draft
         $this->assertSame('draft', $this->stage($card)['key']);
 
-        // approved (price confirmed)
+        // price confirmed: inside the limit, but NOT approved until the agent authorises the cost (section 22.6)
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $card))->assertSessionHasNoErrors();
+        $this->assertSame('quoted', $this->stage($card)['key']);
+        $this->authoriseCostOf($wo->fresh());
         $this->assertSame('approved', $this->stage($card)['key']);
         $html = $this->page($card);
         $this->assertStringContainsString($u('corex.rental-job-cards.schedule'), $html);
@@ -234,8 +242,8 @@ final class JobCardNightFixesTest extends TestCase
     /** The layout regression Johan hit on QA1 (a stray closing tag threw the side panels out of their column, so they became extra flex items). */
     public function test_in_every_stage_the_page_is_exactly_one_main_column_and_one_side_column_with_balanced_markup(): void
     {
-        $this->property->forceFill(['rental_no_approval_spend_threshold' => 1000000])->save();
-        [$card] = $this->internalJob(345);
+        $this->ownerLimits(1000000.0);
+        [$card, $wo] = $this->internalJob(345);
         $check = function (string $label) use ($card): void {
             $html = $this->page($card->fresh());
             $dom = new \DOMDocument();
@@ -253,6 +261,7 @@ final class JobCardNightFixesTest extends TestCase
 
         $check('draft');
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $card))->assertSessionHasNoErrors();
+        $this->authoriseCostOf($wo->fresh());
         $check('approved');
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.schedule', $card), ['scheduled_at' => now()->addDay()->format('Y-m-d\TH:i')]);
         $check('scheduled');

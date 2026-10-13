@@ -27,6 +27,8 @@ class RentalAuthorisationToOwnerMail extends Mailable implements ShouldQueue
     public ?string $note;
     public string $portalUrl;
     public bool $capturedForOwner;
+    /** The one-line headline (also the subject): a recorded decision, a cost an agent authorised under the owner's limit, or someone sent to look. */
+    public string $headline;
     /** section 22.7 - the two equal buttons: signed links to the pages that ASK (a GET records nothing); null when the mail has no named owner to sign them for. */
     public ?string $stopUrl = null;
     public ?string $queryUrl = null;
@@ -38,6 +40,8 @@ class RentalAuthorisationToOwnerMail extends Mailable implements ShouldQueue
         $this->propertyAddress = $authorityFor->property?->buildDisplayAddress() ?: ('Property #' . $authorityFor->property_id);
         $this->title = $authorityFor instanceof RentalFaultReport ? $authorityFor->ownerVersion()['title'] : (string) $authorityFor->title;
         $this->capturedForOwner = $row->basis === RentalAuthorisation::BASIS_OWNER_INSTRUCTION;
+        $this->headline = $this->capturedForOwner ? 'A decision was recorded for you'
+            : ($row->point === RentalAuthorisation::POINT_COST ? 'Your agent authorised a cost' : 'Your agent sent someone to look');
         $this->note = $this->capturedForOwner ? $row->note : null;
         $target = $authorityFor instanceof RentalFaultReport ? ['fault' => $authorityFor->id] : ['wo' => $authorityFor->id];
         $this->portalUrl = $recipientEmail
@@ -52,7 +56,7 @@ class RentalAuthorisationToOwnerMail extends Mailable implements ShouldQueue
 
     public function envelope(): Envelope
     {
-        return new Envelope(subject: ($this->capturedForOwner ? 'A decision was recorded for you' : 'Your agent sent someone to look at your property') . " - {$this->propertyAddress}");
+        return new Envelope(subject: ($this->headline === 'Your agent sent someone to look' ? 'Your agent sent someone to look at your property' : $this->headline) . " - {$this->propertyAddress}");
     }
 
     public function content(): Content

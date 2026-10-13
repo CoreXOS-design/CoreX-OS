@@ -117,9 +117,10 @@ final class RentalWorkOrderSettingTest extends TestCase
         $this->assertSame(650.0, RentalWorkOrderSetting::thresholdFor($property->fresh()));
     }
 
-    public function test_lease_show_screen_reads_through_to_the_property_value(): void
+    public function test_lease_show_screen_reads_the_owners_own_limit(): void
     {
-        $property = $this->property(['rental_no_approval_spend_threshold' => 1750]);
+        $property = $this->property();
+        app(\App\Services\Rentals\RentalOwnerFaultSettingsService::class)->capture($property, $this->admin, ['repair_limit' => 1750, 'emergency_limit' => 0, 'callout_mode' => 'no'], 'email', now(), 'Owner emailed.');
         $lease = \App\Models\Lease::create([
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $property->id,
             'status' => \App\Models\Lease::STATUS_ACTIVE, 'rental_amount' => 9500, 'start_date' => now(),
@@ -128,7 +129,7 @@ final class RentalWorkOrderSettingTest extends TestCase
 
         $this->actingAs($this->admin)->get(route('corex.leases.show', $lease))
             ->assertOk()
-            ->assertSee('No-approval spend limit')
+            ->assertSee("Owner's repair limit", false)
             ->assertSee('1,750.00');
     }
 }

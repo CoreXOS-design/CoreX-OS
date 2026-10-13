@@ -19,7 +19,7 @@
         @php
             $vpBadge = match ($vp->status) {
                 'awaiting_owner' => ['ds-badge-warning', 'Awaiting owner'],
-                'auto_approved' => ['ds-badge-info', 'Auto-approved'],
+                'auto_approved' => ['ds-badge-info', 'Within the agreed tolerance'],
                 'approved' => ['ds-badge-success', 'Approved by the owner'],
                 'declined' => ['ds-badge-danger', 'Declined by the owner'],
                 default => ['ds-badge-muted', 'Withdrawn'],

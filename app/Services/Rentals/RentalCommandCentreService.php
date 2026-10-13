@@ -1121,6 +1121,10 @@ class RentalCommandCentreService
                 } elseif ($wo->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING) {
                     $push($base + ['type' => 'wo_with_owner', 'urgency' => 5, 'informational' => true, 'age_days' => $age($selected->updated_at), 'item_date' => $selected->updated_at,
                         'label' => 'With owner', 'detail' => $wo->title . ' - quote R' . number_format($selected->ownerFacingAmount(), 2) . ' (with owner ' . $age($selected->updated_at) . 'd)']);
+                } elseif ($wo->owner_approval_status === RentalWorkOrder::APPROVAL_NOT_REQUIRED && ! app(RentalAuthorisationService::class)->hasCostAuthority($wo)) {
+                    // section 22.6: inside the owner's repair limit the owner is not asked - but nothing is approved until the agent authorises the cost
+                    $push($base + ['type' => 'wo_authorise_cost', 'urgency' => 1, 'age_days' => $age($selected->updated_at), 'item_date' => $selected->updated_at,
+                        'label' => 'Authorise the cost', 'detail' => $wo->title . ' - quote R' . number_format($selected->ownerFacingAmount(), 2) . ' is waiting for its cost to be authorised: authorise it, or the owner decides']);
                 } elseif ($wo->owner_approval_status === RentalWorkOrder::APPROVAL_APPROVED || ($wo->owner_approval_status === RentalWorkOrder::APPROVAL_NOT_REQUIRED && $wo->approved_amount !== null)) {
                     $push($base + ['type' => 'wo_send', 'urgency' => 1, 'age_days' => $age($wo->updated_at), 'item_date' => $wo->updated_at,
                         'label' => 'Send to contractor', 'detail' => $wo->title . ' - approved: send the work order to the contractor']);
@@ -1159,6 +1163,11 @@ class RentalCommandCentreService
                 if ($withOwner) {
                     $push($base + ['type' => 'jc_with_owner', 'urgency' => 5, 'informational' => true, 'age_days' => $age($card->updated_at), 'item_date' => $card->updated_at,
                         'label' => 'With owner', 'detail' => $title . ' - quote with the owner (with owner ' . $age($card->updated_at) . 'd)']);
+                } elseif (! $approved && $wo && $card->status === \App\Models\RentalJobCard::STATUS_QUOTED && $wo->owner_approval_status === RentalWorkOrder::APPROVAL_NOT_REQUIRED
+                    && ! app(RentalAuthorisationService::class)->hasCostAuthority($wo)) {
+                    // section 22.6: the price is confirmed and inside the owner's repair limit, but nothing is approved until the agent authorises the cost
+                    $push($base + ['type' => 'jc_authorise_cost', 'urgency' => 1, 'age_days' => $age($card->updated_at), 'item_date' => $card->updated_at,
+                        'label' => 'Authorise the cost', 'detail' => $title . ' - price confirmed: authorise the cost (or the owner decides) before it can be booked']);
                 } elseif ($approved) {
                     $push($base + ['type' => 'jc_book', 'urgency' => 2, 'age_days' => $age($card->updated_at), 'item_date' => $card->updated_at,
                         'label' => 'Book a date', 'detail' => $title . ' - approved, no date set']);

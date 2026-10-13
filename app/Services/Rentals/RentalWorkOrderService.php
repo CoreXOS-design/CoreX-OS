@@ -639,7 +639,7 @@ class RentalWorkOrderService
         ])->all();
         $within = $variation->term_basis === \App\Models\RentalApprovalDecision::TERM_VARIATION_TOLERANCE
             ? 'within the ' . rtrim(rtrim(number_format((float) $variation->term_value, 2, '.', ''), '0'), '.') . ' % tolerance you agreed'
-            : 'within your no-approval limit of R' . number_format((float) $variation->term_value, 2);
+            : 'within what you agreed';
         $agent = $this->senderFor($workOrder, $by);
 
         $sent = 0;
@@ -720,7 +720,7 @@ class RentalWorkOrderService
         if (! $workOrder) {
             return;
         }
-        $what = $variation->isAwaitingOwner() ? 'needs the owner' : 'auto-approved within the owner\'s terms';
+        $what = $variation->isAwaitingOwner() ? 'needs the owner' : 'passed within the owner\'s agreed tolerance';
         $this->fireInternal(
             $workOrder,
             'rental_work_order.variation_raised',

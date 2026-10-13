@@ -40,7 +40,9 @@ class RentalJobCardStageService
         $pricesOn = RentalWorkOrderSetting::capturePricesOnJobCardsFor($card->agency_id);
         $vat = app(RentalJobCardVatService::class);
         $amount = round($vat->inclusiveTotal($card), 2);
-        $limit = $card->property ? RentalWorkOrderSetting::thresholdFor($card->property) : RentalWorkOrderSetting::spendThresholdFor($card->agency_id);
+        // section 22.6: the owner's repair limit, read ONLY through the owner-settings resolver (null = nothing an agent may authorise: the owner is asked)
+        $ownerLimit = $card->property ? RentalOwnerFaultSettings::for($card->property)->repairLimit() : null;
+        $limit = (float) ($ownerLimit ?? 0);
         $hasLines = $card->acceptedLines()->exists();
         $unpriced = $pricesOn ? $card->acceptedLines()->whereNull('line_total')->count() : 0;
         $authorised = $open ? app(RentalApprovalGateService::class)->authoriseCard($card, false)->authorised : false;
@@ -64,23 +66,25 @@ class RentalJobCardStageService
         };
 
         // ── the price action: what pressing it REALLY does ───────────────────────────────────────────────────────────────────────────────
-        $within = $amount <= $limit;
+        $within = $ownerLimit !== null && $amount <= $limit + 0.001;
         $currentRevision = (int) $card->quoteRevisions()->whereNull('superseded_at')->max('revision');
         $quote = [
             'intent' => $within ? 'confirm' : 'send',
             'amount' => $amount, 'limit' => $limit, 'within' => $within,
             'title' => $within ? 'Confirm the price' : ($currentRevision ? 'Quote to owner' : 'Send quote to owner'),
             'button' => $within
-                ? "Confirm price - within the owner's limit, approved automatically"
+                ? "Confirm the price"
                 : ($currentRevision ? 'Re-send revised quote (Rev ' . ($currentRevision + 1) . ') to owner for approval' : 'Send quote to owner for approval'),
             'confirm' => $within
-                ? 'Confirm the price of ' . $money($amount) . '? It is within the owner\'s no-approval limit of ' . $money($limit) . ', so it is approved automatically. Nothing is sent to the owner.'
+                ? 'Confirm the price of ' . $money($amount) . '? It is inside the owner\'s repair limit of ' . $money($limit) . '. Nothing is approved by this and nothing is sent to the owner - you then authorise the cost under "Approve the cost" on the work order.'
                 : ($currentRevision
                     ? 'Re-send this job card to the owner as Rev ' . ($currentRevision + 1) . '? It replaces Rev ' . $currentRevision . ', and any approval of Rev ' . $currentRevision . ' no longer applies.'
-                    : 'Send this job card (' . $money($amount) . ') to the owner for approval? It is above their no-approval limit of ' . $money($limit) . '.'),
+                    : 'Send this job card (' . $money($amount) . ') to the owner for approval? ' . ($ownerLimit === null ? 'The owner has not set a repair limit, so the owner must approve it.' : 'It is above their repair limit of ' . $money($limit) . '.')),
             'note' => $within
-                ? $money($amount) . ' is within the owner\'s no-approval limit of ' . $money($limit) . ' - confirming the price approves it automatically. Nothing goes to the owner.'
-                : $money($amount) . ' is above the owner\'s no-approval limit of ' . $money($limit) . ' - the owner is sent the quote and must approve it before the work is booked.',
+                ? $money($amount) . ' is inside the owner\'s repair limit of ' . $money($limit) . ' - confirm the price, then authorise the cost under "Approve the cost" on the work order. Nothing goes to the owner.'
+                : ($ownerLimit === null
+                    ? $money($amount) . ' - the owner has not set a repair limit, so the owner is sent the quote and must approve it before the work is booked.'
+                    : $money($amount) . ' is above the owner\'s repair limit of ' . $money($limit) . ' - the owner is sent the quote and must approve it before the work is booked.'),
         ];
 
         // ── what can be pressed at this stage ────────────────────────────────────────────────────────────────────────────────────────────
@@ -136,7 +140,9 @@ class RentalJobCardStageService
                 ! $pricesOn => 'Assign the crew and book a date.',
                 default => $quote['note'] . ' Then assign the crew and book a date.',
             },
-            'quoted' => 'Waiting for the owner to approve ' . $money($amount) . '. Booking and the crew link stay locked until they decide. Changed the card since? Re-send it.',
+            'quoted' => ($within && $approval !== RentalWorkOrder::APPROVAL_PENDING)
+                ? 'The price (' . $money($amount) . ') is confirmed and inside the owner\'s repair limit. Authorise the cost under "Approve the cost" on the work order - booking and the crew link stay locked until you do.'
+                : 'Waiting for the owner to approve ' . $money($amount) . '. Booking and the crew link stay locked until they decide. Changed the card since? Re-send it.',
             'owner_declined' => 'The owner declined the quote. Change the job and re-send it, or cancel the job card.',
             'approved' => 'Approved. Assign the crew if you have not, book a date, then share the crew link or print the job card.',
             'scheduled' => 'Booked' . ($date ? ' for ' . $date : '') . '; the tenant has been told. When the crew starts, press Mark in progress.',
@@ -154,6 +160,10 @@ class RentalJobCardStageService
             'scheduled' => 'Booked', 'in_progress' => 'In progress', 'signed_off' => 'Crew done - office to check', 'disputed' => 'Not complete - reopened',
             'completed' => 'Completed', 'cancelled' => 'Cancelled',
         ];
+
+        if ($key === 'quoted' && $within && $approval !== RentalWorkOrder::APPROVAL_PENDING) {
+            $labels['quoted'] = 'Price confirmed - cost to authorise';
+        }
 
         return ['key' => $key, 'label' => $labels[$key], 'next' => $next, 'open' => $open, 'authorised' => $authorised, 'quote' => $quote, 'can' => $can, 'later' => $later];
     }
