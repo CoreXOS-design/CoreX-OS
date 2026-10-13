@@ -90,13 +90,13 @@ final class RentalWorkOrderScreen
         $next = ['key' => 'none', 'tone' => 'info', 'text' => '', 'button' => null, 'panel' => 'history'];
 
         if ($cancelled) {
-            $next = ['key' => 'cancelled', 'tone' => 'muted', 'text' => 'Cancelled ' . $fmt($wo->cancelled_at) . ($wo->cancelledByUser ? ' by ' . $wo->cancelledByUser->name : '') . ($wo->cancel_reason ? ': ' . $wo->cancel_reason : '.'), 'button' => null, 'panel' => 'history'];
+            $next = ['key' => 'cancelled', 'tone' => 'muted', 'text' => 'Cancelled ' . $fmt($wo->cancelled_at) . ($wo->cancelledByUser ? ' by ' . $wo->cancelledByUser->name : '') . ($wo->cancel_reason ? ': ' . $wo->cancel_reason : '.'), 'button' => null, 'panel' => ''];
         } elseif ($completed) {
             if ($fault && ! $ruling) {
                 $next = ['key' => 'rule_who_pays', 'tone' => 'warn', 'text' => 'Completed ' . $fmt($wo->completed_at) . '. Rule who pays.', 'panel' => 'whopays',
                     'button' => ($can['manage_completion'] ?? false) ? $btnGo('Rule who pays', 'whopays', '[data-wp-rule-open]') : null];
             } else {
-                $next = ['key' => 'done', 'tone' => 'ok', 'text' => 'Completed ' . $fmt($wo->completed_at) . '.' . ($ruling ? ' Who pays: ' . $ruling->summary() . '.' : ''), 'button' => null, 'panel' => 'history'];
+                $next = ['key' => 'done', 'tone' => 'ok', 'text' => 'Completed ' . $fmt($wo->completed_at) . '.' . ($ruling ? ' Who pays: ' . $ruling->summary() . '.' : ''), 'button' => null, 'panel' => ''];
             }
         } elseif ($hold) {
             $pauseFault = app(RentalOwnerHoldService::class)->jobOf($wo)[0] ?? null;
