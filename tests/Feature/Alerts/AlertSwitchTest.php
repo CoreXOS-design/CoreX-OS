@@ -301,6 +301,74 @@ final class AlertSwitchTest extends TestCase
         $this->assertSame(30, app(AlertSwitchService::class)->pollSecondsFor($this->agency->id));
     }
 
+    public function test_catch_up_minutes_are_validated_and_saved_through_the_dashboard_saver(): void
+    {
+        $admin = $this->user('admin');
+        $save = fn (array $body) => $this->actingAs($admin)->put(route('corex.settings.dashboard.agency'), $body);
+        $stored = fn () => AgencyDashboardSetting::withoutGlobalScopes()->where('agency_id', $this->agency->id)->value('alert_catchup_minutes');
+
+        $save(['alert_catchup_minutes' => '25'])->assertRedirect();
+        $this->assertSame(25, $stored());
+        $this->assertSame(25, app(AlertSwitchService::class)->catchupMinutesFor($this->agency->id));
+
+        $save(['alert_catchup_minutes' => '0'])->assertSessionHasErrors('alert_catchup_minutes');
+        $save(['alert_catchup_minutes' => '500'])->assertSessionHasErrors('alert_catchup_minutes');
+        $save(['alert_catchup_minutes' => 'soon'])->assertSessionHasErrors('alert_catchup_minutes');
+        $this->assertSame(25, $stored(), 'a rejected value changes nothing');
+
+        $save(['digest_time' => '09:00'])->assertRedirect();
+        $this->assertSame(25, $stored(), 'a form that never showed the field leaves it alone');
+
+        $save(['alert_catchup_minutes' => ''])->assertRedirect();
+        $this->assertNull($stored());
+        $this->assertSame(10, app(AlertSwitchService::class)->catchupMinutesFor($this->agency->id));
+    }
+
+    public function test_the_setting_is_on_the_settings_page_and_the_setup_wizard_step(): void
+    {
+        $admin = $this->user('admin');
+        $this->actingAs($admin)->get(route('corex.settings'))->assertOk()->assertSee('name="alert_catchup_minutes"', false);
+        $this->assertStringContainsString('name="alert_catchup_minutes"', file_get_contents(resource_path('views/agency-setup/steps/notifications.blade.php')));
+    }
+
+    // ── The popup is on EVERY staff layout, once ─────────────────────────────────────────────
+
+    public function test_every_staff_layout_carries_the_popup_through_the_one_shared_include_and_no_layout_duplicates_it(): void
+    {
+        foreach (['corex', 'corex-app'] as $layout) {
+            $src = file_get_contents(resource_path("views/layouts/{$layout}.blade.php"));
+            $this->assertSame(1, substr_count($src, "layouts.partials._staff-alerts"), "{$layout} includes the shared popup partial once");
+            $this->assertStringNotContainsString("components.alert-popups", $src, "{$layout} must not include the popup component directly");
+        }
+        // corex brings its own toast (with flash); corex-app has none, so the shared include brings one without flash
+        $this->assertStringContainsString("'withToast' => false", file_get_contents(resource_path('views/layouts/corex.blade.php')));
+        $this->assertStringContainsString("'withToast' => true", file_get_contents(resource_path('views/layouts/corex-app.blade.php')));
+    }
+
+    public function test_a_page_on_each_staff_layout_has_the_popup_script_and_one_toast_container(): void
+    {
+        $admin = $this->user('admin');
+        // layouts.corex
+        $corex = $this->actingAs($admin)->get(route('corex.alerts-off.index'))->assertOk()->getContent();
+        // layouts.corex-app
+        $app = $this->actingAs($admin)->get(route('deposit-interest-calculator.index'))->assertOk()->getContent();
+
+        foreach (['corex' => $corex, 'corex-app' => $app] as $name => $html) {
+            $this->assertSame(1, substr_count($html, 'window.__corexAlertPopups = true'), "{$name}: the popup script appears once");
+            $this->assertSame(1, substr_count($html, 'id="toast-container"'), "{$name}: exactly one toast container");
+            $this->assertSame(1, substr_count($html, 'window.showToast = function'), "{$name}: showToast defined once");
+        }
+    }
+
+    public function test_the_corex_app_toast_does_not_turn_session_flash_into_a_toast(): void
+    {
+        $user = $this->user('admin');
+        $html = $this->actingAs($user)->withSession(['success' => 'Saved the thing'])->get(route('deposit-interest-calculator.index'))->getContent();
+
+        $this->assertStringContainsString('id="toast-container"', $html);
+        $this->assertStringNotContainsString('window.showToast("Saved the thing"', $html, 'a corex-app page keeps showing its flash its own way');
+    }
+
     // ── B2: the agency list — scoping, decisions, history ──────────────────────────────────
 
     public function test_the_list_counts_and_shows_only_this_agencys_all_off_users(): void

@@ -1435,7 +1435,7 @@ class SettingsController extends Controller
             'task_due_reminders', 'overdue_daily_digest', 'digest_time',
             'default_calendar_view', 'weekend_visible', 'notify_in_app', 'notify_email',
             'notify_push', 'open_hours_enabled', 'open_hours_start', 'open_hours_end',
-            'min_minutes_between_same', 'alert_poll_seconds',
+            'min_minutes_between_same', 'alert_poll_seconds', 'alert_catchup_minutes',
         ]);
 
         // AT-451 — how often staff browsers check for a new alert to pop up. Absent = this form never showed the field
@@ -1448,6 +1448,18 @@ class SettingsController extends Controller
             $data['alert_poll_seconds'] = ($request->input('alert_poll_seconds') === null || $request->input('alert_poll_seconds') === '')
                 ? null
                 : (int) $request->input('alert_poll_seconds');
+        }
+
+        // AT-451 follow-up - how far back a freshly opened tab looks for alerts still unread. Absent = this form never showed the
+        // field (leave it alone); blank = back to the default (10). Whole minutes, 1 to 240.
+        if ($request->has('alert_catchup_minutes')) {
+            $request->validate(
+                ['alert_catchup_minutes' => ['nullable', 'integer', 'min:' . \App\Services\CommandCenter\AlertSwitchService::MIN_CATCHUP_MINUTES, 'max:' . \App\Services\CommandCenter\AlertSwitchService::MAX_CATCHUP_MINUTES]],
+                ['alert_catchup_minutes.*' => 'Show alerts still unread from the last: enter a whole number of minutes between ' . \App\Services\CommandCenter\AlertSwitchService::MIN_CATCHUP_MINUTES . ' and ' . \App\Services\CommandCenter\AlertSwitchService::MAX_CATCHUP_MINUTES . ', or leave it blank for the default.']
+            );
+            $data['alert_catchup_minutes'] = ($request->input('alert_catchup_minutes') === null || $request->input('alert_catchup_minutes') === '')
+                ? null
+                : (int) $request->input('alert_catchup_minutes');
         }
 
         foreach (['open_hours_start', 'open_hours_end'] as $t) {

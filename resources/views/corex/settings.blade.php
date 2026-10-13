@@ -3955,6 +3955,13 @@
                                                class="w-full px-3 py-2 rounded-md text-sm border" style="background:var(--surface); border-color:var(--border-default); color:var(--text-primary);">
                                         <p class="text-xs mt-1" style="color:var(--text-muted);">How quickly a new fault, lead or approval pops up on a screen that is already open. 30 suits most agencies; the lowest allowed is 15.</p>
                                     </div>
+                                    <div>
+                                        <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary);">Show alerts still unread from the last (minutes)</label>
+                                        <input type="number" name="alert_catchup_minutes" min="1" max="240" step="1"
+                                               value="{{ old('alert_catchup_minutes', $agencyDashboardSettings->alert_catchup_minutes ?? 10) }}"
+                                               class="w-full px-3 py-2 rounded-md text-sm border" style="background:var(--surface); border-color:var(--border-default); color:var(--text-primary);">
+                                        <p class="text-xs mt-1" style="color:var(--text-muted);">When someone opens CoreX in a new tab or signs in, alerts that arrived in this many minutes and are still unread pop up, so a fault reported a moment before is not missed. 10 suits most agencies.</p>
+                                    </div>
                                 </div>
                             </div>
 
