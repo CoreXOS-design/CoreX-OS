@@ -88,6 +88,8 @@ Route::prefix('secure/completion/{token}')->middleware('throttle:30,1')->group(f
 // BUILD 3 END
 
 // ── Tenant/Landlord Portal web shell (public page, session auth via Alpine+fetch) — AT-445 ──
+// QA DEMO SIGN-IN (never on Staging/live): registers nothing unless APP_ENV=qa AND clientauth.demo_signin_enabled - .ai/specs/rental-portal-access.md
+\App\Support\PortalDemoSigninGate::registerRoutes();
 Route::get('/portal/{any?}', [\App\Http\Controllers\RentalPortalShellController::class, 'show'])
     ->where('any', '.*')
     ->name('rentals.portal.shell');
