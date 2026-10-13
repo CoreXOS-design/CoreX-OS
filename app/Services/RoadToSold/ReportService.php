@@ -48,6 +48,8 @@ class ReportService
      */
     public function build(int $agencyId, $agents, Period $period, ?Period $compare, string $track = 'sales'): array
     {
+        // Spec 11.1: an assistant is not a target-carrying row - their calls are already the agent's (rts_contact_outcomes.user_id).
+        $agents = $agents->reject(fn ($u) => (bool) ($u->is_assistant ?? false))->values();
         $ids = $agents->pluck('id')->map(fn ($v) => (int) $v)->all();
         $current = $this->figures($agencyId, $agents, $period, $track);
         $previous = $compare ? $this->figures($agencyId, $agents, $compare, $track) : null;
