@@ -263,7 +263,7 @@
                         @if($showArchived)
                             <span class="ds-badge ds-badge-muted">Archived {{ $workOrder->deleted_at?->format('Y-m-d') }}</span>
                         @else
-                            <span class="ds-badge {{ $statusBadgeClass($workOrder->status) }}">{{ $workOrder->statusLabel() }}</span>
+                            <span class="ds-badge {{ $statusBadgeClass($workOrder->status) }}">{{ app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->reportedFinished($workOrder) ? 'Reported finished' : $workOrder->statusLabel() }}</span>
                         @endif
                     </td>
                     <td class="px-4 py-2">{{ $workOrder->priority ? ucfirst($workOrder->priority) : '—' }}</td>

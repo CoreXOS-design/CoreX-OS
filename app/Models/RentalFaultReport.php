@@ -517,6 +517,14 @@ class RentalFaultReport extends Model
             return 'Arranged by your agent';   // item I - informed, never asked
         }
 
+        // the work is reported finished but the agent has not closed the work order: say so - never "Work order raised" next to a detail that reads finished
+        if ($this->status === self::STATUS_WORK_ORDER_RAISED && $this->rental_work_order_id) {
+            $wo = RentalWorkOrder::withoutGlobalScopes()->where('agency_id', $this->agency_id)->whereNull('deleted_at')->find($this->rental_work_order_id);
+            if ($wo && app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->reportedFinished($wo)) {
+                return (string) config('rental-fault-progress.reported_finished.owner');
+            }
+        }
+
         return match ($this->status) {
             self::STATUS_REPORTED, self::STATUS_UNDER_REVIEW => 'With your agent',
             self::STATUS_AWAITING_APPROVAL => 'Waiting for your decision',

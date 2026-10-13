@@ -197,7 +197,7 @@ final class BackHalfWalkTest extends TestCase
         $this->assertSame(RentalWorkCompletionRound::OUTCOME_AWAITING_TENANT, $round->outcome);
         $line = $this->tenantLine($fault);
         // T1 (9 Oct 2026): reporting done is NOT a tenant hold - the line stays "in progress" until the agent closes it.
-        $this->assertSame('Work reported finished', $line['current_label']);
+        $this->assertSame('Work reported finished - your agent is closing it off', $line['current_label']);
 
         // 9 - the tenant says NOT complete: stored, nothing reopens by itself; the agent sends it back, and only then does the line say "being put right".
         $this->asTenant();
@@ -275,7 +275,7 @@ final class BackHalfWalkTest extends TestCase
         $this->assertSame(RentalWorkCompletionRound::VIA_TENANT_PORTAL, $round->reported_via);
         $this->assertSame(RentalWorkCompletionRound::OUTCOME_CONFIRMED, $round->outcome);
         $this->assertSame(RentalWorkOrder::STATUS_IN_PROGRESS, $wo->fresh()->status, 'reported finished closes nothing - the agent completes it');
-        $this->assertSame('Work reported finished', $this->tenantLine($fault)['current_label'], 'and starts no tenant hold');
+        $this->assertSame('Work reported finished - your agent is closing it off', $this->tenantLine($fault)['current_label'], 'and starts no tenant hold');
 
         // The agent closes and records the cost against the TENANT's deposit.
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.complete', $wo), ['paid_by' => 'deposit_deduction', 'cost_amount' => 850])
@@ -337,7 +337,7 @@ final class BackHalfWalkTest extends TestCase
         $this->post("{$base}/complete", ['full_name' => 'Sipho Dlamini', 'confirm' => '1', 'found_text' => 'Element had burnt out', 'cause_note' => 'Worn out with age'])->assertSessionHasNoErrors();
         $round = RentalWorkCompletionRound::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->first();
         $this->assertNotNull($round, 'crew completion records the (optional) tenant check round');
-        $this->assertSame('Work reported finished', $this->tenantLine($fault)['current_label'], 'T1: no tenant hold');
+        $this->assertSame('Work reported finished - your agent is closing it off', $this->tenantLine($fault)['current_label'], 'T1: no tenant hold');
 
         // The tenant says it is NOT complete: stored, nothing reopens. The AGENT sends it back: work order AND card reopen, the crew gets a fresh link, the tenant sees "being put right".
         $this->asTenant();

@@ -42,7 +42,9 @@ return [
     'on_hold' => ['tenant' => 'On hold', 'owner' => 'On hold - you stopped this', 'agent' => 'PAUSED BY OWNER'],
     'in_progress' => ['tenant' => 'Work in progress', 'owner' => 'Work in progress', 'agent' => 'Work in progress'],
     // T1: the work is reported finished (crew / contractor / owner) and the agent has not closed it yet - the same words as the work order card.
-    'reported_finished' => ['tenant' => 'Work reported finished', 'owner' => 'Reported finished', 'agent' => 'Reported finished - check and close'],
+    'reported_finished' => ['tenant' => 'Work reported finished - your agent is closing it off', 'owner' => 'Work reported finished - your agent is closing it off', 'agent' => 'Reported finished - check and close'],
+    // the step after it, while it is still to come: never the word "completed" until the work order really is
+    'closing_off' => ['tenant' => 'Your agent closes it off', 'owner' => 'Your agent closes it off', 'agent' => 'Work completed'],
     'completed' => ['tenant' => 'Work completed', 'owner' => 'Work completed', 'agent' => 'Work completed'],
     'reopened' => ['tenant' => 'Not complete — being put right', 'owner' => 'Not complete — being put right', 'agent' => 'Not complete — reopened'],
     'cancelled' => ['tenant' => 'Cancelled', 'owner' => 'Cancelled', 'agent' => 'Cancelled'],

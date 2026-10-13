@@ -184,6 +184,9 @@ class RentalFaultProgressService
             // T1/D1: reported finished, not yet closed -> the line says so (the same words as the work order card), never a tenant hold.
             if ($wo && $steps[$last]['key'] === 'in_progress' && app(RentalWorkOrderClientViewService::class)->reportedFinished($wo)) {
                 $steps[$last]['label'] = $this->label('reported_finished', $aud);
+                if (isset($steps[$last + 1]) && ($steps[$last + 1]['key'] ?? null) === 'completed' && ($steps[$last + 1]['state'] ?? null) !== 'done') {
+                    $steps[$last + 1]['label'] = $this->label('closing_off', $aud);
+                }
             }
         }
         // section 22.7 - the owner pressed "Stop this": the CURRENT step reads "On hold" for everyone (the tenant is never told the owner's reason)

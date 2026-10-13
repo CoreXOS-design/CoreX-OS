@@ -138,7 +138,7 @@ final class OwnerCardPolishTest extends TestCase
         $this->assertSame(RentalWorkOrder::STATUS_IN_PROGRESS, $wo->status, 'nothing is closed');
         $p = $this->ownerPayload($wo);
         $this->assertSame('reported_finished', $p['stage']);
-        $this->assertSame('Reported finished', $p['stage_label']);
+        $this->assertSame('Work reported finished - your agent is closing it off', $p['stage_label']);
         $this->assertStringStartsWith('Reported finished by you on ', $p['reported_finished']['text']);
         $this->assertFalse($p['owner_can_start'] || $p['owner_can_finish']);
         $this->assertFalse($p['owner_can_appoint']);
