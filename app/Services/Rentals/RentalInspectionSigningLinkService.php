@@ -172,9 +172,19 @@ class RentalInspectionSigningLinkService
             'enabled' => $enabled,
             'signable' => $enabled,
             'ready_to_sign' => $inspection->status === RentalInspection::STATUS_AWAITING_SIGNATURE,
+            'readiness' => $this->panelReadiness($inspection),
             'expiry_days' => RentalInspectionSetting::signingLinkExpiryDaysFor($inspection->agency_id),
             'rows' => $rows,
         ];
+    }
+
+    /** @return array{state:string, unrecorded:int, rooms:array<int, mixed>, message:?string, summary:?string} */
+    private function panelReadiness(RentalInspection $inspection): array
+    {
+        $r = $inspection->signingReadiness();
+        $r['summary'] = $r['state'] === 'blocked' ? $this->blockedMessage($r) : null;
+
+        return $r;
     }
 
     /**
@@ -325,6 +335,7 @@ class RentalInspectionSigningLinkService
         $this->assertCanIssue($inspection);
         $party = $this->findParty($inspection, $role, $contactId)
             ?? throw new LinkException(LinkException::INVALID, 'That person is not a party to this inspection.');
+        $this->ensureReadyToSign($inspection, $role);
 
         if ($role !== RentalInspectionSigningLink::ROLE_AGENT && $this->liveSignatureFor($inspection, $party)) {
             throw new LinkException(LinkException::ALREADY_RECORDED, $party['name'] . ' already has a signing outcome recorded on this inspection.');
@@ -388,6 +399,7 @@ class RentalInspectionSigningLinkService
         }
         $inspection = $this->inspectionOf($link);
         $this->assertCanIssue($inspection);
+        $this->ensureReadyToSign($inspection, $link->party_role);
         $party = $this->findParty($inspection, $link->party_role, $link->party_contact_id)
             ?? throw new LinkException(LinkException::INVALID, 'That person is not a party to this inspection.');
 
@@ -434,6 +446,51 @@ class RentalInspectionSigningLinkService
                 $by,
             );
         }
+    }
+
+    /**
+     * Johan's rule (13 Oct 2026, pending his confirmation - spec rental-inspections.md §50): handing a tenant or the owner
+     * their link - by email, WhatsApp, copy, QR or "Sign on this device" - IS the moment the report is ready to sign. When every
+     * item is recorded the inspection moves to awaiting_signature right then; the agent never has to know a hidden step.
+     * Otherwise nothing is sent and the refusal says how many items are still to record and in which rooms.
+     * The agent's own link only lets the agent read, so it never opens signing.
+     *
+     * @throws LinkException not_ready, with `details` = signingReadiness()
+     */
+    public function ensureReadyToSign(RentalInspection $inspection, string $role): bool
+    {
+        if ($role === RentalInspectionSigningLink::ROLE_AGENT) {
+            return false;
+        }
+        if (! in_array($inspection->status, [RentalInspection::STATUS_DRAFT, RentalInspection::STATUS_IN_PROGRESS, null], true)) {
+            return false;
+        }
+
+        $readiness = $inspection->signingReadiness();
+        if ($readiness['state'] === 'blocked') {
+            throw new LinkException(LinkException::NOT_READY, $this->blockedMessage($readiness), $readiness);
+        }
+
+        try {
+            $inspection->startAwaitingSignature();
+        } catch (\LogicException $e) {
+            throw new LinkException(LinkException::NOT_READY, $e->getMessage(), $inspection->signingReadiness());
+        }
+
+        return true;
+    }
+
+    /** One plain sentence for the agent: "3 items still to record: Kitchen (2), Bedroom 1 (1). Record them, then send the link." */
+    public function blockedMessage(array $readiness): string
+    {
+        if (($readiness['unrecorded'] ?? 0) > 0) {
+            $rooms = collect($readiness['rooms'])->map(fn ($r) => $r['room'] . ' (' . $r['count'] . ')')->implode(', ');
+            $n = (int) $readiness['unrecorded'];
+
+            return $n . ($n === 1 ? ' item is' : ' items are') . ' still to record: ' . $rooms . '. Record ' . ($n === 1 ? 'it' : 'them') . ' (Not applicable counts), then send the link.';
+        }
+
+        return (string) ($readiness['message'] ?? 'This inspection is not ready to sign yet.');
     }
 
     /** @throws LinkException */
@@ -507,7 +564,7 @@ class RentalInspectionSigningLinkService
             return ['can_sign' => false, 'reason' => LinkException::UNAVAILABLE, 'message' => 'This inspection is complete — the report below is the signed record.'];
         }
         if ($inspection->status !== RentalInspection::STATUS_AWAITING_SIGNATURE) {
-            return ['can_sign' => false, 'reason' => LinkException::NOT_READY, 'message' => 'You can read the report now. Signing opens when the agent finishes the inspection and marks it ready to sign — open this link again then.'];
+            return ['can_sign' => false, 'reason' => LinkException::NOT_READY, 'message' => 'The agent is still recording this inspection — signing opens here by itself.'];
         }
         $party = $this->findParty($inspection, $link->party_role, $link->party_contact_id);
         if (! $party) {

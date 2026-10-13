@@ -18,7 +18,8 @@ class RentalInspectionSigningLinkException extends RuntimeException
     public const AGENT_LINK = 'agent_link';
     public const INVALID = 'invalid';
 
-    public function __construct(public readonly string $reason, string $message)
+    /** @param array<string, mixed> $details extra structured facts for the screen (e.g. the rooms with items still to record) */
+    public function __construct(public readonly string $reason, string $message, public readonly array $details = [])
     {
         parent::__construct($message);
     }

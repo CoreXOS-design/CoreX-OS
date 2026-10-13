@@ -30,7 +30,7 @@ window.inspectionSigningLinks = function (cfg) {
             if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
             const res = await fetch(url, opts);
             const data = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(data.message || ('That did not work (error ' + res.status + ').'));
+            if (!res.ok) { const err = new Error(data.message || ('That did not work (error ' + res.status + ').')); err.readiness = data.readiness || null; throw err; }
             return data;
         },
 
@@ -48,17 +48,32 @@ window.inspectionSigningLinks = function (cfg) {
             const seen = (panel.rows || []).map(r => r.key + ':' + (r.recorded ? r.recorded.disposition : '') + ':' + (r.link ? r.link.status : '')).join('|');
             const recordedNow = (panel.rows || []).filter(r => r.recorded).length;
             const changedRecorded = this.panel && recordedNow !== (this.panel.rows || []).filter(r => r.recorded).length;
+            // Signing just opened (a link was handed out, or "Ready to sign" was pressed here): the host screen must show it.
+            const justOpened = this.panel && !this.panel.ready_to_sign && panel.ready_to_sign;
             this.panel = panel;
             this.lastSeen = seen;
-            if (changedRecorded) {
+            if (changedRecorded || justOpened) {
                 if (cfg.reloadOnChange) { window.location.reload(); } else { this.$dispatch('signing-links-changed'); }
             }
         },
 
         async act(row, fn) {
             this.error = ''; this.notice = ''; this.busy = row ? row.key : 'all';
-            try { await fn(); } catch (e) { this.error = e.message; }
+            try { await fn(); } catch (e) {
+                this.error = e.message;
+                // refused because items are still to record: keep the panel's own line in step with the server
+                if (e.readiness && this.panel) this.panel.readiness = Object.assign({}, e.readiness, { summary: e.message });
+            }
             finally { this.busy = ''; }
+        },
+
+        // "Ready to sign" right here in the panel: the same server action as the recording screen's button.
+        markReady() {
+            return this.act(null, async () => {
+                await this.request('POST', `${cfg.base}/${cfg.inspectionId}/start-awaiting-signature`);
+                await this.load();
+                this.notice = 'Open for signing.';
+            });
         },
 
         // Make sure the party has a live link (and say how it is being shared); returns the server's answer.
@@ -131,6 +146,8 @@ window.inspectionSigningLinks = function (cfg) {
         },
 
         // Display helpers
+        get readinessLine() { return this.panel && this.panel.readiness && this.panel.readiness.state === 'blocked' ? (this.panel.readiness.summary || this.panel.readiness.message || '') : ''; },
+        get canMarkReady() { return !!this.panel && !this.panel.ready_to_sign && !!this.panel.readiness && ['ready', 'blocked'].includes(this.panel.readiness.state); },
         chipStyle(row) {
             const s = row.recorded ? 'recorded' : (row.link ? row.link.status : 'not_sent');
             const map = {
