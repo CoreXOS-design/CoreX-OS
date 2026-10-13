@@ -323,9 +323,15 @@ class RentalInspectionController extends Controller
         // what "All" on this exact same scope would show. Johan's own named
         // list, verbatim: Draft, In progress, Awaiting signature, Completed,
         // Unresolved discrepancies, Scheduled (upcoming).
+        //
+        // 14 Oct 2026 (go-live walk): the Lease Hub's "inspections for this lease" link (`?lease_id=`) narrows the list to
+        // one lease, so the tiles must narrow with it - otherwise "24 total" sits beside a list of 3. The lease is a CONTEXT
+        // of the page, like the own/branch/agency scope, not an ad-hoc filter like search/status/date.
+        $leaseContextId = (int) $request->get('lease_id');
         $tileBase = fn () => RentalInspection::query()
             ->when($archived, fn ($q) => $q->onlyTrashed())
-            ->visibleTo($user, $request->get('scope'));
+            ->visibleTo($user, $request->get('scope'))
+            ->when($leaseContextId > 0, fn ($q) => $q->where('rental_inspections.lease_id', $leaseContextId));
         $tileCounts = [
             'total' => $tileBase()->count(),
             'draft' => $tileBase()->where('rental_inspections.status', RentalInspection::STATUS_DRAFT)->count(),

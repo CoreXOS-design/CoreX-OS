@@ -77,6 +77,33 @@ final class RentalInspectionListStandardTest extends TestCase
         $this->assertSame(2, $response->viewData('inspections')->total());
     }
 
+    public function test_tiles_follow_the_lease_the_list_is_narrowed_to(): void
+    {
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+        $leaseA = $this->activeLease($this->property($admin, 'A'), $admin);
+        $leaseB = $this->activeLease($this->property($admin, 'B'), $admin);
+        $this->inspection($leaseA, $admin, ['status' => RentalInspection::STATUS_DRAFT]);
+        $this->inspection($leaseA, $admin, ['status' => RentalInspection::STATUS_COMPLETED]);
+        $this->inspection($leaseB, $admin, ['status' => RentalInspection::STATUS_COMPLETED]);
+        $this->inspection($leaseB, $admin, ['status' => RentalInspection::STATUS_COMPLETED]);
+
+        $narrowed = $this->actingAs($admin)->get(route('corex.rental-inspections.index', ['lease_id' => $leaseA->id]))->assertOk();
+        $tiles = $narrowed->viewData('tileCounts');
+        $this->assertSame(2, $narrowed->viewData('inspections')->total(), 'the list shows lease A only');
+        $this->assertSame(2, $tiles['total'], 'the Total tile follows the same lease');
+        $this->assertSame(1, $tiles['draft']);
+        $this->assertSame(1, $tiles['completed'], 'lease B\'s completed inspections are not counted');
+
+        $all = $this->actingAs($admin)->get(route('corex.rental-inspections.index'))->assertOk()->viewData('tileCounts');
+        $this->assertSame(4, $all['total'], 'without the lease the tiles are the whole scope, as before');
+        $this->assertSame(3, $all['completed']);
+
+        // search / status stay ad-hoc filters: they narrow the list, not the tiles (unchanged rule)
+        $filtered = $this->actingAs($admin)->get(route('corex.rental-inspections.index', ['lease_id' => $leaseA->id, 'status' => 'draft']))->assertOk();
+        $this->assertSame(1, $filtered->viewData('inspections')->total());
+        $this->assertSame(2, $filtered->viewData('tileCounts')['total']);
+    }
+
     public function test_per_page_option_controls_page_size(): void
     {
         $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);

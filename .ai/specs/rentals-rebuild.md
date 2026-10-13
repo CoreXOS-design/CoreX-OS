@@ -50,6 +50,14 @@ own result grids:
   **filters** (status + date range minimum, per BUILD_STANDARD.md §1b), **per-page** selector, **show
   archived** toggle, **Print list**, **Export**.
 - **A real empty state** distinguishing "nothing yet" from "no results for this filter."
+- **Tiles follow the page's context, not its ad-hoc filters (14 Oct 2026, go-live walk).** When a list is narrowed to one lease,
+  property or contact by a hub link (`?lease_id=`, `?property_id=`, `?contact_id=`, the command centre's `cc_scope`), the tiles
+  count that same context - never "24 total" beside a list of 3. Search, status, outcome and date range stay ad-hoc: they narrow
+  the rows, not the tiles. Built on Inspections (`$tileBase`), Fault Reports and Work Orders (one shared `applyListContext()` used
+  by both the list query and the tile base, so they cannot drift) and Leases (`?property_id=`). Checked and already consistent:
+  Job Cards (`RentalJobCardListQuery::filtered()` feeds the tiles with every filter but status), Rental Notices, Inventories and
+  Rental Applications (none takes a lease/property context on the list), Reports (an explicit report filter with its own totals).
+  Tests: `test_tiles_follow_the_*_the_list_is_narrowed_to` in each list's `*ListStandardTest`.
 - **Every list, detail, export, and download action re-checks own/branch/agency scope at the query
   layer, independent of how the request arrived** (direct-URL-by-ID blocked, not just unlinked) —
   this is the one floor item the audit found genuinely missing today on four of five rental list

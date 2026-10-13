@@ -3,6 +3,8 @@
 namespace Tests\Feature\RentalFaultFlow;
 
 use App\Mail\Rentals\RentalAuthorisationToOwnerMail;
+use App\Mail\Rentals\RentalTenantStatusChangeMail;
+use App\Services\Rentals\RentalFaultProgressService;
 use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\ClientUser;
@@ -662,5 +664,49 @@ final class AuthorityFlowTest extends TestCase
         $row = RentalAuthorisation::withoutGlobalScopes()->where('rental_fault_report_id', $g->id)->where('point', 'inspect')->latest('id')->first();
         $this->assertSame('06:20', $row->fresh()->told_at->format('H:i'));
         $this->assertStringContainsString('13 Oct 2026 06:20', app(RentalAuthorisationService::class)->sentenceFor($row->fresh()->load('byUser')));
+    }
+
+    // ── 14 Oct 2026 (cc5's walk of QA1, lease 106): the tenant must never be told "Owner approved" when the owner was never asked ──
+
+    public function test_the_tenant_is_never_told_owner_approved_when_the_agent_sends_someone_to_look(): void
+    {
+        $f = $this->fault();
+        $this->inspect($f, $this->supplier('Free Visit Plumbing', 'no'))->assertRedirect();
+        $f = $f->fresh();
+
+        $this->assertNotNull($f->arranged_by_agent_at);
+        $this->assertNull($f->decision(), 'the owner was neither asked nor recorded');
+        $labels = array_column(app(RentalFaultProgressService::class)->forFault($f, 'tenant')['steps'], 'label');
+        $this->assertNotContains('Owner approved', $labels);
+        $this->assertContains('Someone is coming to look', $labels);
+        // the mail the tenant got at the moment the work order was raised says the true thing (it was written BEFORE the fault was marked as arranged)
+        Mail::assertNotQueued(RentalTenantStatusChangeMail::class, fn ($m) => str_contains($m->stepLabel, 'Owner approved'));
+        Mail::assertQueued(RentalTenantStatusChangeMail::class, fn ($m) => $m->stepLabel === 'Someone is coming to look');
+    }
+
+    public function test_a_work_order_with_no_owner_step_at_all_is_approved_by_the_agent_never_the_owner(): void
+    {
+        $f = $this->fault();
+        $this->inspect($f, $this->supplier('Free Visit Plumbing', 'no'))->assertRedirect();
+        // the state between "work order raised" and "fault marked as arranged" (what the old order of writes left for an instant)
+        $f = $f->fresh();
+        $f->forceFill(['arranged_by_agent_at' => null, 'arranged_basis' => null])->save();
+
+        $t = app(RentalFaultProgressService::class)->forFault($f->fresh(), 'tenant');
+        $byKey = array_column($t['steps'], 'label', 'key');
+        $this->assertSame('Your agent is arranging the repair', $byKey['sent_to_owner']);
+        $this->assertSame('Repair approved by your agent', $byKey['owner_decided'], 'approved - but not claimed to be the owner\'s doing');
+        foreach (['tenant', 'owner', 'agent'] as $aud) {
+            $this->assertNotContains('Owner approved', array_column(app(RentalFaultProgressService::class)->forFault($f->fresh(), $aud)['steps'], 'label'), $aud);
+        }
+        $this->assertNotContains('You approved', array_column(app(RentalFaultProgressService::class)->forFault($f->fresh(), 'owner')['steps'], 'label'));
+    }
+
+    public function test_a_real_owner_decision_still_reads_owner_approved_for_the_tenant(): void
+    {
+        $f = $this->fault();
+        $f->fresh()->requestApproval($this->agent);
+        $f->fresh()->recordApproval($this->landlord, ['decision' => 'approved', 'approval_route' => 'agency_appoints', 'evidence_type' => 'portal']);
+        $this->assertSame('Owner approved', app(RentalFaultProgressService::class)->forFault($f->fresh(), 'tenant')['current_label']);
     }
 }
