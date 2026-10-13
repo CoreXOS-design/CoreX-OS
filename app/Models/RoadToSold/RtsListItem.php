@@ -32,6 +32,7 @@ class RtsListItem extends Model
 
     public const TRACK_SALES   = 'sales';
     public const TRACK_RENTALS = 'rentals';
+    public const TRACKS        = [self::TRACK_SALES, self::TRACK_RENTALS];
 
     public const ORIGIN_AUTO      = 'auto';
     public const ORIGIN_FOLLOW_UP = 'follow_up';
@@ -93,11 +94,16 @@ class RtsListItem extends Model
     /** One agent's list for one day. */
     public function scopeForDay($query, int|User $user, $date, string $track = self::TRACK_SALES)
     {
-        $userId = $user instanceof User ? $user->id : $user;
+        // a User passed in is turned into the LIST OWNER: an assistant works the list of the agent they act for (spec: road-to-sold.md "Assistants")
+        $userId = $user instanceof User ? (int) ($user->is_assistant ? $user->ownershipUserId() : $user->id) : $user;
+
+        // A range on the date column (not whereDate()): a function on the column would not use the day index.
+        $day = Carbon::parse($date)->startOfDay();
 
         return $query->where('rts_list_items.user_id', $userId)
             ->where('rts_list_items.track', $track)
-            ->whereDate('rts_list_items.list_date', Carbon::parse($date)->toDateString());
+            ->where('rts_list_items.list_date', '>=', $day->toDateString())
+            ->where('rts_list_items.list_date', '<', $day->copy()->addDay()->toDateString());
     }
 
     public function scopeOpen($query)

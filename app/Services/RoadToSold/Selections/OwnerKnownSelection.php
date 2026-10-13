@@ -10,7 +10,8 @@ use Illuminate\Database\Query\Builder;
  *   2. a tracked_property_owners row with a contact (CMA Info / deeds capture)
  *   3. a seller linked to the CoreX property a pitch created (contact_property role = seller)
  *   4. an owner on the deed the agent linked to the listing
- * Shown again up to the agency's daily quantity (default 3) — the point is a warm number to call.
+ * Shown again up to the agency's quantity PER AGENT PER DAY (default 3) - counted across the overnight build,
+ * a top-up and every "add to my day", so it cannot be exceeded by asking again. The point is a warm number to call.
  * Does NOT skip the agent's own held properties: re-showing known owners is the purpose.
  */
 final class OwnerKnownSelection extends MicPoolSelection
@@ -32,7 +33,7 @@ final class OwnerKnownSelection extends MicPoolSelection
 
     protected function cap(SelectionContext $ctx, int $limit): int
     {
-        return min($limit, max(0, $ctx->settings->ownerKnownQuantity));
+        return min($limit, max(0, $ctx->settings->ownerKnownQuantity - $ctx->countOnDay($this->key())));
     }
 
     protected function filter(Builder $q, SelectionContext $ctx): void

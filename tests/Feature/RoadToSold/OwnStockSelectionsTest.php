@@ -65,8 +65,9 @@ final class OwnStockSelectionsTest extends TestCase
 
         $this->assertSame($tp->id, $c[0]->trackedPropertyId);
         $this->assertSame($p, $c[0]->propertyId);
-        $this->assertNull($c[1]->trackedPropertyId, 'never tracked: null, but the property still links');
+        $this->assertNotNull($c[1]->trackedPropertyId, 'never tracked: it is given a tracked property on the way in, so holds can see it');
         $this->assertSame($q, $c[1]->propertyId);
+        $this->assertNotSame($tp->id, $c[1]->trackedPropertyId);
         $this->assertNull($c[0]->prospectingListingId);
     }
 
@@ -80,7 +81,7 @@ final class OwnStockSelectionsTest extends TestCase
 
         $guard = new class([$tpB->id]) implements SuggestionGuard {
             public function __construct(private array $blocked) {}
-            public function blockedFor(\App\Models\User $u, array $ids, string $t): array { return array_values(array_intersect($ids, $this->blocked)); }
+            public function blockedFor(\App\Models\User $u, array $ids, string $t, ?\Carbon\CarbonInterface $on = null): array { return array_values(array_intersect($ids, $this->blocked)); }
             public function ownHeld(\App\Models\User $u, array $ids, string $t): array { return []; }
         };
 
@@ -149,7 +150,7 @@ final class OwnStockSelectionsTest extends TestCase
         ]), 50)));
     }
 
-    public function test_views_outside_the_lookback_window_are_not_counted_and_no_numbers_means_no_claim(): void
+    public function test_views_outside_the_lookback_window_are_not_counted_and_no_numbers_means_zero_views(): void
     {
         $quietNow = $this->stock($this->agent->id, 100);
         $this->metrics($quietNow, 5, 0, '2026-10-05');
@@ -158,8 +159,8 @@ final class OwnStockSelectionsTest extends TestCase
 
         $c = (new MyStockNotSellingSelection())->candidates($this->ctx(), 50);
 
-        $this->assertSame([$quietNow], $this->propertyIds($c));
-        $this->assertNotContains($noStats, $this->propertyIds($c));
+        // no portal statistics at all = zero views and zero leads, so it qualifies too (longest on the market first: both 100 days)
+        $this->assertEqualsCanonicalizing([$quietNow, $noStats], $this->propertyIds($c));
     }
 
     public function test_enquiries_received_in_corex_count_even_when_the_portal_stat_is_lower(): void

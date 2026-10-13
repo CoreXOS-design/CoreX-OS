@@ -16,6 +16,7 @@
         'oldValuation' => (bool) old('valuation_booked'),
         'oldAppointment' => old('appointment_at'),
         'addresses' => $addresses,
+        'history'   => $history,
     ];
     $money = fn ($v) => $v ? 'R ' . number_format((int) $v, 0, '.', ',') : '';
     $viewLabels = ['today' => 'Today\'s list', 'no_answer' => 'No answer', 'wrong_number' => 'Wrong number', 'no_owner' => 'No owner'];
@@ -25,7 +26,8 @@
     $listView = in_array($filters['view'], ['today', 'no_owner'], true);
 @endphp
 
-<div class="w-full space-y-4" x-data="rtsPage(@js($pageConfig))">
+<div class="w-full space-y-4 rts-page" x-data="rtsPage(@js($pageConfig))">
+    @include('road-to-sold._controls')
 
     <div class="rounded-md px-6 py-4 corex-page-banner">
         <div class="flex items-center justify-between flex-wrap gap-3">
@@ -42,10 +44,10 @@
                     </form>
                 @endif
                 @if(\Illuminate\Support\Facades\Route::has('road-to-sold.report'))
-                    <a href="{{ route('road-to-sold.report') }}" class="corex-btn-outline corex-btn-xs">Report</a>
+                    <a href="{{ route('road-to-sold.report', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Report</a>
                 @endif
                 @if($canManageOutcomes)
-                    <a href="{{ route('road-to-sold.settings.outcomes.index') }}" class="corex-btn-outline corex-btn-xs">Outcomes</a>
+                    <a href="{{ route('road-to-sold.settings.outcomes.index', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Outcomes</a>
                 @endif
             </div>
         </div>
@@ -67,6 +69,7 @@
 
     {{-- Filters --}}
     <form method="GET" class="flex items-end gap-3 flex-wrap">
+        @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
         @if(! $viewingOwn)<input type="hidden" name="agent" value="{{ $agentId }}">@endif
         <div>
             <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-view">Show</label>
@@ -111,7 +114,7 @@
         </div>
         <button type="submit" class="corex-btn-outline corex-btn-xs">Search</button>
         @if($filters['q'] !== '' || $filters['selection'] !== '' || $filters['status'] !== 'open' || $filters['view'] !== 'today')
-            <a href="{{ route('road-to-sold.index', $viewingOwn ? [] : ['agent' => $agentId]) }}" class="corex-btn-outline corex-btn-xs">Clear</a>
+            <a href="{{ route('road-to-sold.index', ($viewingOwn ? [] : ['agent' => $agentId]) + \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Clear</a>
         @endif
     </form>
 
@@ -124,10 +127,11 @@
             @if($canAddToDay && $date->isToday() && count($addChoices))
                 <form method="POST" action="{{ route('road-to-sold.add-to-day') }}" class="flex items-center gap-2">
                     @csrf
+                    @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
                     <select name="selection" aria-label="Selection to add from" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}">
                         @foreach($addChoices as $k => $l)<option value="{{ $k }}">{{ $l }}</option>@endforeach
                     </select>
-                    <input type="number" name="count" min="1" max="100" value="5" aria-label="How many to add" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }} width: 5rem;">
+                    <input type="number" name="count" min="1" max="{{ $addMax ?? 100 }}" value="5" aria-label="How many to add" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }} width: 5rem;">
                     <button type="submit" class="corex-btn-outline corex-btn-xs">Add to my day</button>
                 </form>
             @endif
@@ -180,13 +184,19 @@
                         @endif
                     </td>
                     <td class="px-3 py-2 text-right">
-                        @if($viewingOwn && ($r['status'] === 'open' || in_array($filters['view'], ['no_answer', 'wrong_number'], true)))
-                            <button type="button" class="corex-btn-primary corex-btn-xs whitespace-nowrap"
-                                    data-tp="{{ $r['tracked_property_id'] }}" data-item="{{ $r['list_item_id'] }}" data-address="{{ $r['address'] }}"
-                                    @click="openContact($el.dataset)">Contacted client</button>
-                        @elseif($r['status'] !== 'open')
-                            <span style="color: var(--text-muted);">{{ ucfirst($r['status']) }}</span>
-                        @endif
+                        <div class="flex items-center justify-end gap-2">
+                            @if(! empty($history[$r['tracked_property_id']]))
+                                <button type="button" class="corex-btn-outline corex-btn-xs" data-tp="{{ $r['tracked_property_id'] }}" data-address="{{ $r['address'] }}"
+                                        @click="openHistory($el.dataset)">History</button>
+                            @endif
+                            @if($viewingOwn && ($r['status'] === 'open' || in_array($filters['view'], ['no_answer', 'wrong_number'], true)))
+                                <button type="button" class="corex-btn-primary corex-btn-xs"
+                                        data-tp="{{ $r['tracked_property_id'] }}" data-item="{{ $r['list_item_id'] }}" data-address="{{ $r['address'] }}"
+                                        @click="openContact($el.dataset)">Contacted client</button>
+                            @elseif($r['status'] !== 'open')
+                                <span style="color: var(--text-muted);">{{ ucfirst($r['status']) }}</span>
+                            @endif
+                        </div>
                     </td>
                 </tr>
             @empty
@@ -210,11 +220,6 @@
                                 No list for {{ $date->isToday() ? 'today' : $date->format('j M') }}.
                             @endif
                         </div>
-                        <p class="text-xs mt-1" style="color: var(--text-muted);">
-                            @if($filtered) Clear the search to see the whole list.
-                            @elseif($counts['any'] === 0 && $listView) Lists are built each night for working days. Check that this agent has a target and areas set.
-                            @endif
-                        </p>
                     </td>
                 </tr>
             @endforelse
@@ -261,10 +266,32 @@
     </div>
     @endif
 
+    {{-- History popup --}}
+    <div x-show="historyOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @keydown.escape.window="historyOpen = false">
+        <div class="w-full max-w-lg rounded-md p-5 space-y-3 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border); max-height: 90vh;">
+            <div>
+                <h2 class="text-sm font-bold" style="color: var(--text-primary);">History</h2>
+                <div class="text-xs mt-1" style="color: var(--text-muted);" x-text="address"></div>
+            </div>
+            <template x-for="(h, i) in historyRows" :key="i">
+                <div class="text-xs py-2" style="border-top: 1px solid var(--border); color: var(--text-primary);">
+                    <div><span class="font-semibold" x-text="h.label"></span>
+                        <span style="color: var(--text-muted);" x-text="' · ' + (h.kind === 'conversation' ? 'conversation' : 'attempt') + (h.valuation ? ' · valuation booked' : '')"></span></div>
+                    <div style="color: var(--text-muted);" x-text="h.when + (h.by ? ' · ' + h.by : '') + (h.next ? ' · back on ' + h.next : '')"></div>
+                    <div x-show="h.note" x-text="h.note"></div>
+                </div>
+            </template>
+            <div class="flex items-center justify-end">
+                <button type="button" class="corex-btn-outline corex-btn-xs" @click="historyOpen = false">Close</button>
+            </div>
+        </div>
+    </div>
+
     {{-- Contacted client popup --}}
     <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @keydown.escape.window="open = false">
         <form method="POST" action="{{ route('road-to-sold.outcomes.record') }}" class="w-full max-w-lg rounded-md p-5 space-y-4 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border); max-height: 90vh;">
             @csrf
+            @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
             <input type="hidden" name="tracked_property_id" :value="tp">
             <input type="hidden" name="list_item_id" :value="item">
 
@@ -319,6 +346,8 @@
 function rtsPage(cfg) {
     return {
         open: false,
+        historyOpen: false,
+        historyRows: [],
         tp: '',
         item: '',
         address: '',
@@ -347,6 +376,11 @@ function rtsPage(cfg) {
                 this.note = cfg.oldNote || '';
                 this.open = true;
             }
+        },
+        openHistory(ds) {
+            this.address = ds.address || '';
+            this.historyRows = (cfg.history && cfg.history[ds.tp]) || [];
+            this.historyOpen = true;
         },
         openContact(ds) {
             this.tp = ds.tp;

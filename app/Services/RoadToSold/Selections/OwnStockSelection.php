@@ -3,6 +3,7 @@
 namespace App\Services\RoadToSold\Selections;
 
 use Illuminate\Database\Query\Builder;
+use App\Services\RoadToSold\Support\TrackedPropertyResolver;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -14,8 +15,8 @@ use Illuminate\Support\Facades\DB;
  * "scoping": an agent who owns no stock simply gets nothing from it.
  *
  * The canonical property key is the tracked property (conductor ruling): looked up through
- * tracked_properties.promoted_to_property_id; null when the property was never tracked, with the
- * property id carried so the row still links.
+ * tracked_properties.promoted_to_property_id, and created through match-or-create when the property was
+ * never tracked, so holds and do-not-contact always see the row; the property id rides along for links.
  */
 abstract class OwnStockSelection implements Selection
 {
@@ -49,7 +50,7 @@ abstract class OwnStockSelection implements Selection
             return [];
         }
 
-        return DB::table('tracked_properties')
+        $map = DB::table('tracked_properties')
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
             ->whereNotIn('status', ['archived', 'duplicate'])
@@ -59,6 +60,23 @@ abstract class OwnStockSelection implements Selection
             ->pluck('tracked_id', 'promoted_to_property_id')
             ->map(fn ($v) => (int) $v)
             ->all();
+
+        // A property never promoted but already given a tracked property by an earlier build (match-or-create's
+        // external reference): found again here, so it is not matched afresh on every build.
+        $missing = array_values(array_diff($propertyIds, array_keys($map)));
+        if ($missing !== []) {
+            $refs = DB::table('tracked_property_external_refs as r')
+                ->join('tracked_properties as t', 't.id', '=', 'r.tracked_property_id')
+                ->where('r.agency_id', $agencyId)->where('r.source_type', TrackedPropertyResolver::PROPERTY_SOURCE)->whereNull('r.deleted_at')
+                ->whereNull('t.deleted_at')->whereNotIn('t.status', ['archived', 'duplicate'])
+                ->whereIn('r.source_ref', array_map(fn ($id) => TrackedPropertyResolver::PROPERTY_REF_PREFIX . $id, $missing))
+                ->get(['r.source_ref', 'r.tracked_property_id']);
+            foreach ($refs as $r) {
+                $map[(int) substr($r->source_ref, strlen(TrackedPropertyResolver::PROPERTY_REF_PREFIX))] = (int) $r->tracked_property_id;
+            }
+        }
+
+        return $map;
     }
 
     /**
@@ -73,15 +91,25 @@ abstract class OwnStockSelection implements Selection
     {
         $rows = collect($rows)->values();
         $tracked = $this->trackedIdsFor($rows->pluck('id')->map(fn ($v) => (int) $v)->all(), $ctx->agencyId);
-        $trackedIds = array_values($tracked);
-        $blocked = array_flip($ctx->guard->blockedFor($ctx->user, $trackedIds, $ctx->track));
-        $held = array_flip($ctx->guard->ownHeld($ctx->user, $trackedIds, $ctx->track));
         $excluded = array_flip($ctx->excludeTrackedIds);
 
-        $out = [];
+        // Holds and do-not-contact are keyed on the tracked property, so every row needs one: an own property
+        // never tracked yet gets one here (match-or-create); if that fails the property is not suggested.
+        $keyed = [];
         foreach ($rows as $row) {
-            $tid = $tracked[(int) $row->id] ?? null;
-            if ($tid !== null && (isset($blocked[$tid]) || isset($held[$tid]) || isset($excluded[$tid]))) {
+            $tid = $tracked[(int) $row->id] ?? $ctx->resolver()->forProperty((int) $row->id, $ctx->agencyId, $ctx->user->id);
+            if ($tid === null) {
+                continue;
+            }
+            $keyed[] = [$row, (int) $tid];
+        }
+        $trackedIds = array_values(array_unique(array_column($keyed, 1)));
+        $blocked = array_flip($ctx->guard->blockedFor($ctx->user, $trackedIds, $ctx->track, $ctx->date));
+        $held = array_flip($ctx->guard->ownHeld($ctx->user, $trackedIds, $ctx->track));
+
+        $out = [];
+        foreach ($keyed as [$row, $tid]) {
+            if (isset($blocked[$tid]) || isset($held[$tid]) || isset($excluded[$tid])) {
                 continue;
             }
             $out[] = new Candidate(

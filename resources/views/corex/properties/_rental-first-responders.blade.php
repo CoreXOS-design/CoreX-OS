@@ -11,7 +11,7 @@
     $frChanges = \App\Models\RentalFirstResponderChange::query()->where('property_id', $property->id)->with('changedByUser')->orderByDesc('changed_at')->orderByDesc('id')->limit(30)->get();
     $frOwnerName = $frEffect['owner'] ? trim(($frEffect['owner']->first_name ?? '') . ' ' . ($frEffect['owner']->last_name ?? '')) : '';
     $frCanEdit = auth()->user()?->hasPermission('rental_work_orders.manage_work_terms');
-    $frLine = fn ($entries) => $entries->map(fn ($e) => ($e->supplier?->name ?? 'a removed supplier') . ' (' . \App\Models\DealV2\AgencyServiceProvider::kindLabel($e->supplier?->kind) . ')'
+    $frLine = fn ($entries) => $entries->map(fn ($e) => ($e->supplier?->displayName() ?? 'a removed supplier') . ' (' . \App\Models\DealV2\AgencyServiceProvider::kindLabel($e->supplier?->kind) . ')'
         . ($e->fault_scope === \App\Models\RentalFirstResponder::SCOPE_TYPES ? ' - only some types of fault' : ''))->implode(', then ');
 @endphp
 <div id="first-responders-panel" x-data class="rounded-md p-4 text-sm space-y-3 mt-4" style="background: var(--surface-2); border: 1px solid var(--border);">

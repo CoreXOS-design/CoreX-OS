@@ -282,6 +282,52 @@ final class RoadToSoldPageTest extends TestCase
         $res->assertSee('0 of 1', false);   // the feed rows are not part of the day's target
     }
 
+    public function test_a_rows_history_is_one_click_away_and_shows_only_what_the_viewers_breadth_allows(): void
+    {
+        $tp = $this->tp('Marine Drive', $this->owner()->id);
+        $this->item($this->agent, $tp);
+        $mk = fn (User $by, string $label, string $note) => RtsContactOutcome::withoutGlobalScopes()->create([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'track' => 'sales', 'user_id' => $by->id,
+            'tracked_property_id' => $tp->id, 'outcome_key' => 'x', 'outcome_label' => $label, 'kind' => 'conversation',
+            'note' => $note, 'next_action' => 'none', 'is_current' => false, 'occurred_at' => '2026-10-10 10:00:00',
+        ]);
+        $mk($this->agent, 'Spoke - call back', 'Wants to wait for the school holidays');
+        $mk($this->other, 'Spoke - not interested', 'Another agent private note');
+
+        $own = $this->actingAs($this->agent)->get(route('road-to-sold.index'));
+        $own->assertOk()->assertSee('openHistory', false)->assertSee('Wants to wait for the school holidays')
+            ->assertDontSee('Another agent private note');
+
+        $branchManager = User::factory()->create(['agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'role' => 'branch_manager', 'is_active' => true]);
+        $this->actingAs($branchManager)->get(route('road-to-sold.index', ['agent' => $this->agent->id]))
+            ->assertOk()->assertSee('Wants to wait for the school holidays')->assertSee('Another agent private note');
+
+        $bare = $this->tp('Ocean View Road');
+        $this->item($this->agent, $bare, ['position' => 2]);
+        $this->assertSame(1, substr_count($this->actingAs($this->agent)->get(route('road-to-sold.index'))->getContent(), '@click="openHistory($el.dataset)"'),
+            'only the row with history offers the History button');
+    }
+
+    public function test_a_property_with_no_owner_still_has_its_history_on_the_page(): void
+    {
+        $tp = $this->tp('Ocean View Road');
+        $this->item($this->agent, $tp);
+        $this->actingAs($this->agent)->post(route('road-to-sold.outcomes.record'), [
+            'tracked_property_id' => $tp->id, 'outcome_definition_id' => $this->def('no_answer')->id, 'note' => 'Nobody home, no owner on file',
+        ])->assertRedirect();
+        $this->assertSame(0, \App\Models\ContactNote::query()->count(), 'no owner, so no contact note');
+
+        $this->actingAs($this->agent)->get(route('road-to-sold.index', ['status' => 'all']))
+            ->assertOk()->assertSee('@click="openHistory($el.dataset)"', false)->assertSee('Nobody home, no owner on file');
+    }
+
+    public function test_the_track_comes_from_the_request_and_unknown_tracks_fall_back_to_sales(): void
+    {
+        $this->actingAs($this->agent)->get(route('road-to-sold.index', ['track' => 'rentals']))->assertOk()->assertDontSee('Buyers to follow up');
+        $this->actingAs($this->agent)->get(route('road-to-sold.index'))->assertOk()->assertSee('Buyers to follow up');
+        $this->actingAs($this->agent)->get(route('road-to-sold.index', ['track' => 'bogus']))->assertOk()->assertSee('Buyers to follow up');
+    }
+
     public function test_a_user_without_the_page_key_is_refused(): void
     {
         $viewer = User::factory()->create(['agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'role' => 'viewer', 'is_active' => true]);

@@ -267,7 +267,7 @@
                         @endif
                     </td>
                     <td class="px-4 py-2">{{ $workOrder->priority ? ucfirst($workOrder->priority) : '—' }}</td>
-                    <td class="px-4 py-2">{{ $workOrder->supplier?->name ?? '—' }}</td>
+                    <td class="px-4 py-2">{{ $workOrder->supplier?->displayName() ?? '—' }}</td>
                     <td class="px-4 py-2">{{ $workOrder->paid_by ? ucfirst(str_replace('_', ' ', $workOrder->paid_by)) : '—' }}</td>
                     <td class="px-4 py-2">{{ $workOrder->causeSummary() ?: '—' }}</td>
                     <td class="px-4 py-2">{{ $workOrder->whoPaysLabel() ?: '—' }}</td>

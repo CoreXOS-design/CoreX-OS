@@ -3,50 +3,35 @@
 namespace App\Services\RoadToSold\Adapters;
 
 use App\Models\User;
+use App\Services\RoadToSold\AreaService;
+use App\Services\RoadToSold\Contracts\AreaMatchProvider;
 use App\Services\RoadToSold\Contracts\AreaProvider;
 
-/**
- * AreaProvider backed by lane 1's AreaService. Until that class exists the agent has no areas —
- * with "Lock agents to their areas" off that is a normal state (the whole agency pool is offered).
- */
-final class LaneAreaProvider implements AreaProvider
+/** AreaProvider backed by lane 1's AreaService (the agent's assigned suburbs). */
+final class LaneAreaProvider implements AreaProvider, AreaMatchProvider
 {
-    private const AREA_SERVICE = '\\App\\Services\\RoadToSold\\AreaService';
+    public function suburbMatchesFor(User $user, string $track): array
+    {
+        return app(AreaService::class)->suburbMatchesFor($user, $track);
+    }
 
     public function suburbIdsFor(User $user, string $track): array
     {
-        $svc = $this->service();
-
-        return $svc ? array_values(array_map('intval', (array) $svc->suburbIdsFor($user, $track))) : [];
+        return array_values(array_map('intval', app(AreaService::class)->suburbIdsFor($user, $track)));
     }
 
     public function suburbNamesNormalisedFor(User $user, string $track): array
     {
-        $svc = $this->service();
-
-        return $svc ? array_values(array_map('strval', (array) $svc->suburbNamesNormalisedFor($user, $track))) : [];
+        return array_values(array_map('strval', app(AreaService::class)->suburbNamesNormalisedFor($user, $track)));
     }
 
     public function suburbNamesLowerTrimFor(User $user, string $track): array
     {
-        $svc = $this->service();
-        if (! $svc) {
-            return [];
-        }
-        $names = method_exists($svc, 'suburbNamesLowerTrimFor')
-            ? (array) $svc->suburbNamesLowerTrimFor($user, $track)
-            : array_map(fn ($n) => mb_strtolower(trim((string) $n)), (array) $svc->suburbNamesNormalisedFor($user, $track));
-
-        return array_values(array_map('strval', $names));
+        return array_values(array_map('strval', app(AreaService::class)->suburbNamesLowerTrimFor($user, $track)));
     }
 
     public function hasAreas(User $user, string $track): bool
     {
-        return $this->suburbIdsFor($user, $track) !== [] || $this->suburbNamesNormalisedFor($user, $track) !== [];
-    }
-
-    private function service(): ?object
-    {
-        return class_exists(self::AREA_SERVICE) ? app(self::AREA_SERVICE) : null;
+        return app(AreaService::class)->hasAreas($user, $track);
     }
 }

@@ -136,7 +136,7 @@ final class MicPoolRulesTest extends TestCase
         $this->assertNotContains($ours, $ids);
     }
 
-    public function test_a_property_that_is_another_agents_corex_listing_is_never_offered_but_mine_or_dead_ones_are_not_blocked_by_this_rule(): void
+    public function test_a_property_that_is_another_agents_corex_property_is_never_offered_whatever_its_status_but_mine_is(): void
     {
         $theirs    = $this->property($this->mate->id, ['status' => 'active']);
         $theirPros = $this->property($this->mate->id, ['status' => 'prospecting']);
@@ -151,7 +151,7 @@ final class MicPoolRulesTest extends TestCase
         $ids = $this->listingIds($this->pick());
         $this->assertNotContains($onTheirs, $ids, "another agent's active property");
         $this->assertNotContains($onTheirPros, $ids, "another agent's prospect, found through the tracked property");
-        $this->assertContains($onTheirOld, $ids, 'a withdrawn property is history, not a taken one');
+        $this->assertNotContains($onTheirOld, $ids, "another agent's withdrawn property is still theirs (AT-454 audit A: any status)");
         $this->assertContains($onMine, $ids);
     }
 
@@ -195,7 +195,7 @@ final class MicPoolRulesTest extends TestCase
 
         $guard = new class([$tpHeld->id, $tpDnc->id], [$tpMine->id]) implements SuggestionGuard {
             public function __construct(private array $blocked, private array $own) {}
-            public function blockedFor(User $user, array $ids, string $track): array { return array_values(array_intersect($ids, $this->blocked)); }
+            public function blockedFor(User $user, array $ids, string $track, ?\Carbon\CarbonInterface $on = null): array { return array_values(array_intersect($ids, $this->blocked)); }
             public function ownHeld(User $user, array $ids, string $track): array { return array_values(array_intersect($ids, $this->own)); }
         };
 

@@ -48,7 +48,7 @@
         </div>
     @endif
 
-    <form method="POST" action="{{ route('road-to-sold.settings.general.update') }}" class="space-y-4" id="rts-settings-form">
+    <form method="POST" action="{{ route($rb . 'general.update') }}" class="space-y-4" id="rts-settings-form">
         @csrf
         @method('PUT')
         <fieldset @disabled(! $canManage) class="space-y-4" style="border:0; padding:0; margin:0; min-width:0;">
@@ -67,6 +67,18 @@
                         <span style="color:var(--text-muted);">On: agents only get their own suburbs. Off: own suburbs first, then the agency's others.</span>
                     </span>
                 </label>
+                <div>
+                    <div class="text-xs font-semibold mb-1" style="color:var(--text-muted);">Portals we capture from</div>
+                    <input type="hidden" name="refresh_portals[]" value="">
+                    <div class="flex flex-wrap gap-x-5 gap-y-1">
+                        @foreach($listChoices['refresh_portals'] as $value => $choiceLabel)
+                            <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);">
+                                <input type="checkbox" name="refresh_portals[]" value="{{ $value }}" @checked(in_array($value, (array) old('refresh_portals', $settings->refreshPortals()), true))>
+                                <span>{{ $choiceLabel }}</span>
+                            </label>
+                        @endforeach
+                    </div>
+                </div>
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="area_refresh_warn_days">Ask for a refresh when nothing was captured for an area in</label>
                     <input id="area_refresh_warn_days" type="number" min="1" max="365" name="area_refresh_warn_days"
@@ -92,6 +104,14 @@
                     </span>
                 </label>
                 <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="public_holiday_country">Public holidays of</label>
+                    <select id="public_holiday_country" name="public_holiday_country" class="w-56 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        @foreach($holidayCountries as $code => $countryName)
+                            <option value="{{ $code }}" @selected(old('public_holiday_country', $settings->holidayCountry()) === $code)>{{ $countryName }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div>
                     <div class="text-xs font-semibold mb-2" style="color:var(--text-muted);">Properties not worked by the end of the day</div>
                     <label class="flex items-start gap-3 text-sm mb-2" style="color:var(--text-primary);">
                         <input type="radio" name="missed_items_mode" value="show_missed" class="mt-1" @checked(old('missed_items_mode', $settings->missedItemsMode()) === 'show_missed')>
@@ -109,7 +129,6 @@
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">Where the call list comes from</h3>
-                <p class="text-xs mt-1" style="color:var(--text-muted);">Follow-ups come first, then these sources top to bottom until the target is met.</p>
             </div>
             <ul class="divide-y" id="rts-selections" style="border-color:var(--border);">
                 @foreach($settings->selections() as $i => $sel)
@@ -151,6 +170,49 @@
                         <span class="text-xs ml-2" style="color:var(--text-muted);">{{ $unit }} (standard: {{ $defaults[$name] }})</span>
                     </div>
                 @endforeach
+            </div>
+        </div>
+
+        {{-- Matching rules and list limits (the values the list builder used to hard-code) --}}
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Matching and list size</h3>
+            </div>
+            <div class="p-5 space-y-4">
+                @foreach([
+                    'buyer_match_tiers'   => ['Buyer matches that count', $settings->buyerMatchTiers()],
+                    'active_buyer_states' => ['Buyers that count as active', $settings->activeBuyerStates()],
+                    'on_market_statuses'  => ['On the market when the status is', $settings->onMarketStatuses()],
+                ] as $field => [$groupLabel, $ticked])
+                    <div>
+                        <div class="text-xs font-semibold mb-1" style="color:var(--text-muted);">{{ $groupLabel }}</div>
+                        <input type="hidden" name="{{ $field }}[]" value="">
+                        <div class="flex flex-wrap gap-x-5 gap-y-1">
+                            @foreach($listChoices[$field] as $value => $choiceLabel)
+                                <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);">
+                                    <input type="checkbox" name="{{ $field }}[]" value="{{ $value }}" @checked(in_array($value, (array) old($field, $ticked), true))>
+                                    <span>{{ $choiceLabel }}</span>
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+                @endforeach
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    @foreach([
+                        ['add_to_day_max', 'Add to my day: most at once', $settings->addToDayMax(), 1, 500, 'properties'],
+                        ['scan_page_size', 'Properties read per window', $settings->scanPageSize(), 10, 2000, 'properties'],
+                        ['hot_pocket_weight_buyers', 'Hottest pockets: weight of a buyer', $settings->hotPocketWeightBuyers(), 0, 100, 'points'],
+                        ['hot_pocket_weight_leads', 'Hottest pockets: weight of a lead', $settings->hotPocketWeightLeads(), 0, 100, 'points'],
+                        ['hot_pocket_weight_sales', 'Hottest pockets: weight of a sale', $settings->hotPocketWeightSales(), 0, 100, 'points'],
+                    ] as [$name, $label, $value, $min, $max, $unit])
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="{{ $name }}">{{ $label }}</label>
+                            <input id="{{ $name }}" type="number" min="{{ $min }}" max="{{ $max }}" name="{{ $name }}" value="{{ old($name, $value) }}"
+                                   class="w-28 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <span class="text-xs ml-2" style="color:var(--text-muted);">{{ $unit }} (standard: {{ $defaults[$name] }})</span>
+                        </div>
+                    @endforeach
+                </div>
             </div>
         </div>
 
@@ -217,7 +279,7 @@
     </form>
 
     @if($canManage)
-        <form id="rts-reset-form" method="POST" action="{{ route('road-to-sold.settings.general.reset') }}"
+        <form id="rts-reset-form" method="POST" action="{{ route($rb . 'general.reset') }}"
               onsubmit="return confirm('Put every Road to Sold setting back to the standard defaults? Suburbs and individual weekday numbers are not affected.');">
             @csrf
         </form>

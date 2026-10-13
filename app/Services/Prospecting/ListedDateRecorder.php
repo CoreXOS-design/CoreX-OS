@@ -14,7 +14,8 @@ use Illuminate\Support\Facades\Log;
  * already send it, with the portal reference, in their payload:
  *   - Other Agency Stock import   (listing_ref + date_posted)
  *   - Pull property               (portal_ref  + date_posted)
- * Both call record() so the MIC listing for that advert learns its real date. Nothing is scraped anew.
+ *   - Presentation portal capture (the uploaded P24 listing page; its JSON-LD carries "datePosted")
+ * All three call record() so the MIC listing for that advert learns its real date. Nothing is scraped anew.
  * (P24 alert emails will call it later; an agent's manual correction is separate and always wins.)
  *
  * It only UPDATES an advert CoreX already holds in MIC — it never creates a listing. An agent-corrected
@@ -51,6 +52,27 @@ final class ListedDateRecorder
 
             return 0;
         }
+    }
+
+    /**
+     * The "datePosted" a P24 listing page's JSON-LD carries (a single object, a list, or a "@graph"), or null.
+     * Only reads what the capture already stored; the value still goes through parseDate() in record().
+     */
+    public static function datePostedFromJsonLd(mixed $jsonLd, int $depth = 0): ?string
+    {
+        if (! is_array($jsonLd) || $depth > 4) {
+            return null;
+        }
+        if (isset($jsonLd['datePosted']) && is_string($jsonLd['datePosted'])) {
+            return $jsonLd['datePosted'];
+        }
+        foreach ($jsonLd as $child) {
+            if (is_array($child) && ($found = self::datePostedFromJsonLd($child, $depth + 1)) !== null) {
+                return $found;
+            }
+        }
+
+        return null;
     }
 
     /** The MIC form of a portal reference: 'P24-<digits>' / 'PP-<ref>'. Accepts the bare or prefixed form. */

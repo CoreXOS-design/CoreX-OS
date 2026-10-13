@@ -19,6 +19,15 @@ use Illuminate\Support\Facades\DB;
  * one of the agency's towns (towns.p24_city_id), plus any suburb the agency ticked for
  * P24 auto-import (minion_capture_areas). Keyed on p24_suburbs.id — the same id that
  * tracked_properties.p24_suburb_id holds.
+ *
+ * WHOSE AREAS (spec 11.1, the one assistant rule): areas belong to the LIST OWNER - User::ownershipUserId(),
+ * the agent an assistant acts for (honouring a multi-agent assistant's "Acting for" choice); a plain user is
+ * their own list owner. A direct call with an assistant therefore answers with the agent's areas.
+ *
+ * MATCHING (spec 5.7): a property belongs to an area by the suburb ID where it has one. Only a row with
+ * no suburb id is matched by NAME, and then the name must agree with the area's town (city id, else town
+ * name) - so "Beachview" in two towns never merges. A row with no town at all is matched by name only
+ * when that name is unique among the agency's pool suburbs.
  */
 class AreaService
 {
@@ -79,8 +88,8 @@ class AreaService
         }
 
         $ids = RtsAgentArea::query()
-            ->where('agency_id', $agencyId)->where('track', $track)->where('user_id', $user->id)
-            ->pluck('p24_suburb_id')->map(fn ($i) => (int) $i)->all();
+            ->where('agency_id', $agencyId)->where('track', $track)->where('user_id', (int) $user->ownershipUserId())
+            ->pluck('p24_suburb_id')->map(fn ($i) => (int) $i)->unique()->values()->all();
 
         // Ignore assignments whose suburb has since left the agency's Prospecting Setup (spec §6).
         return $this->idsInPool($agencyId, $ids);
@@ -96,6 +105,84 @@ class AreaService
     public function suburbNamesLowerTrimFor(User $user, string $track = RtsSetting::TRACK_SALES): array
     {
         return $this->namesFor($user, $track, fn (string $n) => mb_strtolower(trim($n)));
+    }
+
+    /**
+     * The user's areas in the form property matching needs: the suburb id, its names, its P24 city and town,
+     * and whether its name is unique among the agency's pool suburbs. Feed to matchSql().
+     *
+     * @return array<int,array{p24_suburb_id:int,name_normalised:string,name_lower:string,p24_city_id:?int,town:?string,unique_in_pool:bool}>
+     */
+    public function suburbMatchesFor(User $user, string $track = RtsSetting::TRACK_SALES): array
+    {
+        $ids = $this->suburbIdsFor($user, $track);
+        if ($ids === []) {
+            return [];
+        }
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
+
+        $counts = $this->poolQuery($agencyId)->get(['s.id', 's.name'])
+            ->countBy(fn ($r) => mb_strtolower(trim((string) $r->name)));
+
+        return $this->poolQuery($agencyId)->whereIn('s.id', $ids)->orderBy('s.name')->get()
+            ->map(function ($r) use ($counts) {
+                $lower = mb_strtolower(trim((string) $r->name));
+
+                return [
+                    'p24_suburb_id'   => (int) $r->id,
+                    'name_normalised' => TrackedPropertyAddress::normaliseSuburb((string) $r->name),
+                    'name_lower'      => $lower,
+                    'p24_city_id'     => $r->p24_city_id !== null ? (int) $r->p24_city_id : null,
+                    'town'            => $r->town_name !== null ? (string) $r->town_name : null,
+                    'unique_in_pool'  => ($counts[$lower] ?? 0) <= 1,
+                ];
+            })->values()->all();
+    }
+
+    /**
+     * The ONE area-membership test: SQL (1 when the row is in one of these areas) and its bindings, for a
+     * query that has a tracked-property alias ($tp, may be NULL-joined) and a listing alias ($pl).
+     * By suburb id first; by name only for rows with no suburb id and only when the town agrees.
+     *
+     * @param  array<int,array> $matches from suburbMatchesFor()
+     * @return array{0:string,1:array} ['0',[]] when there are no areas
+     */
+    public static function matchSql(array $matches, string $tp = 'tp', string $pl = 'pl'): array
+    {
+        if ($matches === []) {
+            return ['0', []];
+        }
+
+        $ids      = array_values(array_unique(array_map(fn ($m) => (int) $m['p24_suburb_id'], $matches)));
+        $terms    = [$tp . '.p24_suburb_id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')'];
+        $bindings = $ids;
+
+        foreach ($matches as $m) {
+            // Bindings are positional: the name test comes first in the SQL, the town test after it.
+            $town     = [];
+            $townBind = [];
+            if ($m['p24_city_id'] !== null) {
+                $town[]     = $tp . '.p24_city_id = ?';
+                $townBind[] = (int) $m['p24_city_id'];
+            }
+            $unknown = $tp . '.p24_city_id IS NULL AND ';
+            if ($m['town'] !== null && trim((string) $m['town']) !== '') {
+                $unknown   .= '(' . $tp . '.town IS NULL OR LOWER(TRIM(' . $tp . '.town)) = ?)';
+                $townBind[] = mb_strtolower(trim((string) $m['town']));
+            } else {
+                $unknown .= $tp . '.town IS NULL';
+            }
+            // Town unknown on the row: the name alone decides only when it is unique in the pool.
+            $town[] = '(' . $unknown . ')';
+            $guard  = $m['unique_in_pool']
+                ? implode(' OR ', $town)
+                : '(' . implode(' OR ', $town) . ') AND NOT (' . $tp . '.p24_city_id IS NULL AND ' . $tp . '.town IS NULL)';
+
+            $terms[] = '(' . $tp . '.p24_suburb_id IS NULL AND (' . $tp . '.suburb_normalised = ? OR LOWER(TRIM(' . $pl . '.suburb)) = ?) AND (' . $guard . '))';
+            array_push($bindings, $m['name_normalised'], $m['name_lower'], ...$townBind);
+        }
+
+        return ['(CASE WHEN (' . implode(' OR ', $terms) . ') THEN 1 ELSE 0 END)', $bindings];
     }
 
     public function hasAreas(User $user, string $track = RtsSetting::TRACK_SALES): bool
@@ -139,34 +226,51 @@ class AreaService
      */
     public function lastCaptured(int $agencyId, ?array $suburbIds = null): array
     {
-        $pool = $this->poolQuery($agencyId);
-        if ($suburbIds !== null) {
-            $pool->whereIn('s.id', array_map('intval', $suburbIds));
-        }
-        $names = $pool->get(['s.id', 's.name'])->mapWithKeys(fn ($r) => [(int) $r->id => mb_strtolower(trim((string) $r->name))]);
+        // The whole pool is read (one query) so a name shared by two pool suburbs is known to be shared,
+        // even when only some suburbs were asked for.
+        $all   = $this->poolQuery($agencyId)->get(['s.id', 's.name', 's.p24_city_id']);
+        $dups  = $all->countBy(fn ($r) => mb_strtolower(trim((string) $r->name)));
+        $wanted = $suburbIds === null ? null : array_flip(array_map('intval', $suburbIds));
+        $pool  = $all->filter(fn ($r) => $wanted === null || isset($wanted[(int) $r->id]))->values();
 
-        $seen = DB::table('prospecting_listings')
-            ->where('agency_id', $agencyId)->whereNull('deleted_at')->whereNotNull('suburb')
-            ->when($suburbIds !== null, fn ($q) => $q->whereIn(DB::raw('LOWER(TRIM(suburb))'), $names->values()->unique()->all()))
-            ->selectRaw('LOWER(TRIM(suburb)) as k, portal_source, MAX(last_seen_at) as newest')
-            ->groupBy(DB::raw('LOWER(TRIM(suburb))'), 'portal_source')
-            ->get()
-            ->groupBy('k');
+        $names = $pool->map(fn ($r) => mb_strtolower(trim((string) $r->name)))->unique()->values()->all();
+
+        // Newest listing per (suburb text, portal, the tracked property's suburb id and city).
+        $seen = DB::table('prospecting_listings as pl')
+            ->leftJoin('tracked_properties as tp', 'tp.id', '=', 'pl.tracked_property_id')
+            ->where('pl.agency_id', $agencyId)->whereNull('pl.deleted_at')->whereNotNull('pl.suburb')
+            ->when($suburbIds !== null, fn ($q) => $q->where(fn ($w) => $w
+                ->whereIn(DB::raw('LOWER(TRIM(pl.suburb))'), $names === [] ? ['-'] : $names)
+                ->orWhereIn('tp.p24_suburb_id', array_keys($wanted ?? []) ?: [0])))
+            ->selectRaw('LOWER(TRIM(pl.suburb)) as k, pl.portal_source, tp.p24_suburb_id as tp_suburb, tp.p24_city_id as tp_city, MAX(pl.last_seen_at) as newest')
+            ->groupBy(DB::raw('LOWER(TRIM(pl.suburb))'), 'pl.portal_source', 'tp.p24_suburb_id', 'tp.p24_city_id')
+            ->get();
 
         $minion = DB::table('minion_capture_areas')->where('agency_id', $agencyId)->whereNull('deleted_at')
-            ->when($suburbIds !== null, fn ($q) => $q->whereIn('p24_suburb_id', $names->keys()->all()))
+            ->when($suburbIds !== null, fn ($q) => $q->whereIn('p24_suburb_id', array_keys($wanted ?? []) ?: [0]))
             ->pluck('last_captured_at', 'p24_suburb_id');
 
         $out = [];
-        foreach ($names as $id => $key) {
-            $p24 = null;
-            $pp  = null;
-            foreach ($seen->get($key, collect()) as $row) {
+        foreach ($pool as $r) {
+            $id    = (int) $r->id;
+            $key   = mb_strtolower(trim((string) $r->name));
+            $city  = $r->p24_city_id !== null ? (int) $r->p24_city_id : null;
+            $p24   = null;
+            $pp    = null;
+            foreach ($seen as $row) {
+                $byId   = $row->tp_suburb !== null && (int) $row->tp_suburb === $id;
+                // No suburb id on the row: by name, and the row's city must not contradict this suburb's city.
+                // A row with no city at all counts only when the name is unique in the pool.
+                $byName = $row->tp_suburb === null && $row->k === $key
+                    && ($row->tp_city !== null ? (int) $row->tp_city === $city : ($dups[$key] ?? 0) <= 1);
+                if (! $byId && ! $byName) {
+                    continue;
+                }
                 $at = $row->newest ? Carbon::parse($row->newest) : null;
                 if ($row->portal_source === 'p24') {
-                    $p24 = $at;
+                    $p24 = ($p24 === null || ($at && $at->greaterThan($p24))) ? $at : $p24;
                 } elseif ($row->portal_source === 'pp') {
-                    $pp = $at;
+                    $pp = ($pp === null || ($at && $at->greaterThan($pp))) ? $at : $pp;
                 }
             }
             $m = $minion->get($id);
@@ -174,7 +278,7 @@ class AreaService
                 $m   = Carbon::parse($m);
                 $p24 = ($p24 === null || $m->greaterThan($p24)) ? $m : $p24;
             }
-            $out[(int) $id] = ['p24' => $p24, 'pp' => $pp];
+            $out[$id] = ['p24' => $p24, 'pp' => $pp];
         }
 
         return $out;
@@ -193,15 +297,36 @@ class AreaService
     }
 
     /**
-     * The suburb needs a manual refresh when NEITHER portal has been captured within $warnDays.
+     * Which portals have gone stale for a suburb: 'p24' and/or 'pp' when that portal was not captured
+     * within $warnDays (never = stale). Each portal prompts on its own - a fresh P24 capture does not
+     * hide a missing Private Property one.
      *
-     * @param array{p24:?Carbon,pp:?Carbon} $captured
+     * Only the portals the agency says it captures from are checked ($portals, default both): an agency
+     * without Private Property is never asked to refresh it.
+     *
+     * @param  array{p24:?Carbon,pp:?Carbon} $captured
+     * @param  string[]|null $portals subset of ['p24','pp']; null = both
+     * @return string[]
      */
-    public function needsRefresh(array $captured, int $warnDays): bool
+    public function portalsNeedingRefresh(array $captured, int $warnDays, ?array $portals = null): array
     {
-        $newest = collect([$captured['p24'] ?? null, $captured['pp'] ?? null])->filter()->max();
+        $stale = [];
+        foreach (['p24', 'pp'] as $portal) {
+            if ($portals !== null && ! in_array($portal, $portals, true)) {
+                continue;
+            }
+            if ($this->isStale($captured[$portal] ?? null, $warnDays)) {
+                $stale[] = $portal;
+            }
+        }
 
-        return $this->isStale($newest, $warnDays);
+        return $stale;
+    }
+
+    /** True when at least one portal needs a refresh. @param array{p24:?Carbon,pp:?Carbon} $captured */
+    public function needsRefresh(array $captured, int $warnDays, ?array $portals = null): bool
+    {
+        return $this->portalsNeedingRefresh($captured, $warnDays, $portals) !== [];
     }
 
     // ── internals ─────────────────────────────────────────────────────────

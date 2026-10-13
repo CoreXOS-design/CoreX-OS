@@ -9,6 +9,7 @@ use App\Services\RoadToSold\CallListService;
 use App\Services\RoadToSold\FeedService;
 use App\Services\RoadToSold\ListBuilderService;
 use App\Services\RoadToSold\SummaryBarService;
+use App\Services\RoadToSold\Track;
 use App\Services\RoadToSold\OutcomeDefinitionService;
 use App\Services\RoadToSold\OutcomeService;
 use App\Services\RoadToSold\RoadToSoldException;
@@ -38,13 +39,14 @@ class RoadToSoldController extends Controller
         $agencyId = (int) ($viewer->effectiveAgencyId() ?: 0);
         abort_if($agencyId <= 0, 403, 'Switch into an agency to open Road to Sold.');
 
+        $track = Track::fromRequest($request);
         $agents = $this->list->viewableAgents($viewer);
         $agentId = (int) ($request->query('agent') ?: $viewer->ownershipUserId());
         abort_unless($agents->contains('id', $agentId), 404);
         $viewingOwn = $agentId === (int) $viewer->ownershipUserId();
 
         $date = $this->list->resolveDate($request->query('date'));
-        $this->buildIfMissing($viewer, $agentId, $date, $viewingOwn);
+        $this->buildIfMissing($viewer, $agentId, $date, $viewingOwn, $track);
 
         $data = $this->list->page($viewer, $agentId, [
             'view'      => $request->query('view'),
@@ -55,16 +57,17 @@ class RoadToSoldController extends Controller
             'dir'       => $request->query('dir'),
             'date'      => $date->toDateString(),
             'page'      => (int) $request->query('page', 1),
-        ]);
+        ], $track);
 
         $agentUser = \App\Models\User::query()->find($agentId);
-        $feeds = $agentUser ? [
+        // The three feeds (buyers, enquiries, expiring mandates) are sales work; another track shows none.
+        $feeds = ($agentUser && $track === 'sales') ? [
             'buyers'    => $this->feeds->buyerFollowUps($agentUser),
             'leads'     => $this->feeds->leadFollowUps($agentUser),
             'mandates'  => $this->feeds->expiringMandates($agentUser),
         ] : [];
 
-        $outcomes = $this->definitions->list($agencyId)->map(fn (Def $d) => [
+        $outcomes = $this->definitions->list($agencyId, $track)->map(fn (Def $d) => [
             'id'              => $d->id,
             'label'           => $d->label,
             'kind'            => $d->kind,
@@ -79,12 +82,14 @@ class RoadToSoldController extends Controller
 
         return view('road-to-sold.index', $data + [
             'feeds'          => $feeds,
-            'bar'            => $agentUser ? $this->bar->forAgent($agentUser, $date) : ['month' => $date->format('F Y'), 'steps' => []],
+            'bar'            => $agentUser ? $this->bar->forAgent($agentUser, $date, $track) : ['month' => $date->format('F Y'), 'steps' => []],
             'drilldownBase'  => route('road-to-sold.drilldown', [
                 'agent_id' => $agentId, 'period' => 'custom',
                 'start' => $date->copy()->startOfMonth()->toDateString(), 'end' => $date->toDateString(),
-            ]),
+            ] + Track::params($track)),
+            'track'          => $track,
             'outcomeChoices' => $outcomes,
+            'history'        => $this->outcomes->historyForPage($viewer, collect($data['rows']->items())->pluck('tracked_property_id')->all(), $track),
             'agents'         => $agents,
             'agentId'        => $agentId,
             'viewingOwn'     => $viewingOwn,
@@ -99,24 +104,27 @@ class RoadToSoldController extends Controller
             ],
             'canManageOutcomes' => $viewer->hasPermission('road_to_sold.manage_settings'),
             'canAddToDay'       => $viewingOwn,
-            'addChoices'        => collect(\App\Services\RoadToSold\SettingsService::forUser($viewer)->selections())
+            'addMax'            => \App\Services\RoadToSold\SettingsService::forUser($viewer, $track)->addToDayMax(),
+            'addChoices'        => collect(\App\Services\RoadToSold\SettingsService::forUser($viewer, $track)->selections())
                 ->where('enabled', true)->pluck('label', 'key')->all(),
         ]);
     }
 
     /** The overnight build normally has today's list ready; if it is missing, build it when the page opens. */
-    private function buildIfMissing($viewer, int $agentId, $date, bool $viewingOwn): void
+    private function buildIfMissing($viewer, int $agentId, $date, bool $viewingOwn, string $track): void
     {
         if (! $viewingOwn || ! $date->isToday()) {
             return;
         }
         try {
-            $has = RtsListItem::query()->visibleTo($viewer)->forDay($agentId, $date)->exists();
+            $has = RtsListItem::query()->visibleTo($viewer)->forDay($agentId, $date, $track)->exists();
             if (! $has) {
-                app(ListBuilderService::class)->buildFor($viewer, $date);
+                app(ListBuilderService::class)->buildFor($viewer, $date, $track);
             }
         } catch (Throwable $e) {
+            // Never a silently empty page: log it, and tell the agent their list could not be built.
             report($e);
+            session()->now('rts_error', 'We could not build your call list just now, so this list may be empty or short. Please try again in a minute or tell your manager.');
         }
     }
 
@@ -155,7 +163,7 @@ class RoadToSoldController extends Controller
         }
 
         try {
-            $outcome = $this->outcomes->record($user, (int) $data['tracked_property_id'], (int) $data['outcome_definition_id'], $input);
+            $outcome = $this->outcomes->record($user, (int) $data['tracked_property_id'], (int) $data['outcome_definition_id'], $input, Track::fromRequest($request));
         } catch (RoadToSoldException $e) {
             return back()->withInput()->with('rts_error', $e->getMessage())
                 ->with('rts_reopen', ['tp' => (int) $data['tracked_property_id'], 'item' => $data['list_item_id'] ?? null]);
@@ -167,19 +175,20 @@ class RoadToSoldController extends Controller
     /** "Add to my day" - extra properties from one selection, reported apart from the target (lane 2 builds them). */
     public function addToDay(Request $request): RedirectResponse
     {
+        $max = \App\Services\RoadToSold\SettingsService::forUser($request->user(), Track::fromRequest($request))->addToDayMax();
         $data = $request->validate([
             'selection' => ['required', 'string', 'max:40'],
-            'count'     => ['required', 'integer', 'min:1', 'max:100'],
+            'count'     => ['required', 'integer', 'min:1', 'max:' . $max],
         ], [
             'selection.required' => 'Pick which selection to add from.',
-            'count.required'     => 'Enter how many to add (1 to 100).',
-            'count.integer'      => 'Enter how many to add as a whole number from 1 to 100.',
-            'count.min'          => 'Enter how many to add (1 to 100).',
-            'count.max'          => 'You can add up to 100 at a time.',
+            'count.required'     => "Enter how many to add (1 to {$max}).",
+            'count.integer'      => "Enter how many to add as a whole number from 1 to {$max}.",
+            'count.min'          => "Enter how many to add (1 to {$max}).",
+            'count.max'          => "You can add up to {$max} at a time.",
         ]);
 
         try {
-            $added = app(ListBuilderService::class)->addToDay($request->user(), $data['selection'], (int) $data['count']);
+            $added = app(ListBuilderService::class)->addToDay($request->user(), $data['selection'], (int) $data['count'], null, Track::fromRequest($request));
         } catch (\InvalidArgumentException $e) {
             return back()->with('rts_error', $e->getMessage());
         } catch (Throwable $e) {

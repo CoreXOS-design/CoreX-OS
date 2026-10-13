@@ -108,7 +108,7 @@ class FirstResponderService
 
         return [
             'supplier_id' => (int) $s->id,
-            'name' => (string) $s->name,
+            'name' => $s->displayName(),
             'kind' => (string) ($s->kind ?: AgencyServiceProvider::KIND_CONTRACTOR),
             'kind_label' => AgencyServiceProvider::kindLabel($s->kind),
             'tell_mode' => $e->tell_mode,
@@ -154,7 +154,7 @@ class FirstResponderService
     {
         $suppliers = AgencyServiceProvider::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->where('is_active', true)
             ->maintenanceContractors()->orderBy('name')->get(['id', 'name', 'kind', 'company'])
-            ->map(fn ($s) => ['id' => (int) $s->id, 'name' => (string) $s->name, 'kind' => (string) ($s->kind ?: AgencyServiceProvider::KIND_CONTRACTOR),
+            ->map(fn ($s) => ['id' => (int) $s->id, 'name' => $s->displayName(), 'kind' => (string) ($s->kind ?: AgencyServiceProvider::KIND_CONTRACTOR),
                 'kind_label' => AgencyServiceProvider::kindLabel($s->kind), 'company' => $s->company])->values()->all();
         $types = RentalFaultType::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->where('is_active', true)
             ->orderBy('category')->orderBy('name')->get(['id', 'name', 'category'])

@@ -115,7 +115,7 @@
                 <select id="wo-inv-supplier" name="agency_service_provider_id" class="wo-ctl">
                     <option value="">Other / not in the list</option>
                     @foreach($invoiceSuppliers as $provider)
-                        <option value="{{ $provider->id }}" @selected((int) old('agency_service_provider_id', $workOrder->agency_service_provider_id) === $provider->id)>{{ $provider->name }} - {{ $provider->calloutFeeSuffix() }}</option>
+                        <option value="{{ $provider->id }}" @selected((int) old('agency_service_provider_id', $workOrder->agency_service_provider_id) === $provider->id)>{{ $provider->displayName() }} - {{ $provider->calloutFeeSuffix() }}</option>
                     @endforeach
                 </select>
             </div>

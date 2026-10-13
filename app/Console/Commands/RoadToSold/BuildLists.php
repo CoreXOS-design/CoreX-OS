@@ -12,7 +12,7 @@ use Illuminate\Support\Carbon;
  *
  * For every agent who can use Road to Sold: first CLOSE the open items of earlier days (missed, or
  * rolled onto the next working day when the agency rolls over), then BUILD today's list if today is a
- * working day for that agent. Scheduled 03:30, so the list is waiting when the agent starts the day;
+ * working day for that agent. Scheduled 04:30, so the list is waiting when the agent starts the day;
  * the page also builds on demand when it finds none. Safe to re-run: the builder tops up to the target
  * and adds nothing the second time.
  *
@@ -39,6 +39,11 @@ class BuildLists extends Command
     {
         $day = Carbon::parse($this->option('date') ?: now())->startOfDay();
         $track = (string) $this->option('track');
+        if (! in_array($track, \App\Models\RoadToSold\RtsSetting::TRACKS, true)) {
+            $this->error("Unknown track '{$track}'. Use: " . implode(', ', \App\Models\RoadToSold\RtsSetting::TRACKS) . '.');
+
+            return self::FAILURE;
+        }
         $failed = 0;
         $built = 0;
 

@@ -241,7 +241,7 @@ final class MicSelectionsTest extends TestCase
         DB::table('tracked_property_owners')->insert(['tracked_property_id' => $tp2->id, 'contact_id' => $this->contact(), 'name' => 'O', 'created_at' => now(), 'updated_at' => now()]);
         $p2 = $this->listing([], $tp2);
         // path 3 — a seller on the CoreX property a pitch created
-        $prop = $this->property($this->mate->id, ['status' => 'not_selling']);
+        $prop = $this->property($this->agent->id, ['status' => 'not_selling']);   // the agent's own pitch (another agent's would be theirs, never offered)
         DB::table('contact_property')->insert(['contact_id' => $this->contact(), 'property_id' => $prop, 'role' => 'seller', 'created_at' => now(), 'updated_at' => now()]);
         $p3 = $this->listing(['matched_property_id' => $prop]);
         // path 4 — an owner on the deed the agent linked
@@ -281,7 +281,7 @@ final class MicSelectionsTest extends TestCase
 
         $guard = new class([$tpBlocked->id], [$tpHeldByMe->id]) implements \App\Services\RoadToSold\Contracts\SuggestionGuard {
             public function __construct(private array $blocked, private array $own) {}
-            public function blockedFor(\App\Models\User $u, array $ids, string $t): array { return array_values(array_intersect($ids, $this->blocked)); }
+            public function blockedFor(\App\Models\User $u, array $ids, string $t, ?\Carbon\CarbonInterface $on = null): array { return array_values(array_intersect($ids, $this->blocked)); }
             public function ownHeld(\App\Models\User $u, array $ids, string $t): array { return array_values(array_intersect($ids, $this->own)); }
         };
 

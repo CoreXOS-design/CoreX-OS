@@ -157,7 +157,7 @@
                              Responsible/recipient select above already uses. --}}
                         <select x-on:change="it.service_provider_id = $event.target.value" :disabled="it.status==='sent'" class="corex-input" style="width:100%;font-size:.78rem;">
                             <option value="" x-bind:selected="!it.service_provider_id">— pick supplier —</option>
-                            <template x-for="s in suppliersFor(it)" :key="s.id"><option :value="s.id" x-bind:selected="String(s.id) === String(it.service_provider_id)" x-text="s.name"></option></template>
+                            <template x-for="s in suppliersFor(it)" :key="s.id"><option :value="s.id" x-bind:selected="String(s.id) === String(it.service_provider_id)" x-text="s.label || s.name"></option></template>
                         </select>
                         {{-- Item 2 — the "+ Add supplier" trigger now lives UP on the COC name line (AT-331
                              compaction); the inline add-form it opens still expands here. --}}

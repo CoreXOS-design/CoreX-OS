@@ -9,6 +9,7 @@ use App\Models\RoadToSold\RtsSetting;
 use App\Models\User;
 use App\Services\RoadToSold\AreaService;
 use App\Services\RoadToSold\SettingsService;
+use App\Services\RoadToSold\Support\Routing;
 use App\Services\RoadToSold\VisibleAgents;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -28,10 +29,15 @@ class AreasController extends Controller
 {
     use EnforcesRecordVisibility;
 
-    private const TRACK     = RtsSetting::TRACK_SALES;
     private const PAGE_SIZE = 25;
     private const SUBURB_PAGE_SIZE = 50;
     private const PICKER_LIMIT = 100;
+
+    /** Sales or rentals: decided by where these screens are mounted (see Support\Routing). */
+    private function track(): string
+    {
+        return Routing::track();
+    }
 
     public function __construct(private readonly AreaService $areas)
     {
@@ -45,7 +51,7 @@ class AreasController extends Controller
             return redirect()->route('corex.dashboard')->with('error', 'Switch into an agency first - areas belong to one agency.');
         }
 
-        $warnDays = SettingsService::forAgency($agencyId, self::TRACK)->areaRefreshWarnDays();
+        $warnDays = SettingsService::forAgency($agencyId, $this->track())->areaRefreshWarnDays();
         $mode     = $request->query('view') === 'suburbs' ? 'suburbs' : 'agents';
 
         $data = $mode === 'suburbs'
@@ -55,10 +61,11 @@ class AreasController extends Controller
         return view('road-to-sold.settings.areas', $data + [
             'mode'     => $mode,
             'warnDays' => $warnDays,
+            'portals'  => SettingsService::forAgency($agencyId, $this->track())->refreshPortals(),
             'tabs'     => SettingsController::tabsFor($viewer, 'areas'),
             'towns'    => $this->areas->towns($agencyId),
             'branches' => VisibleAgents::for($viewer)->pluck('branch.name', 'branch_id')->filter()->sort(),
-            'lockOn'   => SettingsService::forAgency($agencyId, self::TRACK)->lockAgentsToAreas(),
+            'lockOn'   => SettingsService::forAgency($agencyId, $this->track())->lockAgentsToAreas(),
         ]);
     }
 
@@ -98,7 +105,7 @@ class AreasController extends Controller
         DB::transaction(function () use ($add, $remove, $agencyId, $agent, $viewer, &$added, &$removed) {
             foreach ($add as $suburbId) {
                 $row = RtsAgentArea::withTrashed()
-                    ->where('agency_id', $agencyId)->where('track', self::TRACK)
+                    ->where('agency_id', $agencyId)->where('track', $this->track())
                     ->where('user_id', $agent->id)->where('p24_suburb_id', $suburbId)->first();
 
                 if ($row && ! $row->trashed()) {
@@ -109,7 +116,7 @@ class AreasController extends Controller
                     $row->forceFill(['branch_id' => $agent->branch_id, 'assigned_by_user_id' => $viewer->id])->save();
                 } else {
                     RtsAgentArea::create([
-                        'agency_id' => $agencyId, 'branch_id' => $agent->branch_id, 'track' => self::TRACK,
+                        'agency_id' => $agencyId, 'branch_id' => $agent->branch_id, 'track' => $this->track(),
                         'user_id' => $agent->id, 'p24_suburb_id' => $suburbId, 'assigned_by_user_id' => $viewer->id,
                     ]);
                 }
@@ -117,7 +124,7 @@ class AreasController extends Controller
             }
             foreach ($remove as $suburbId) {
                 $removed += RtsAgentArea::query()
-                    ->where('agency_id', $agencyId)->where('track', self::TRACK)
+                    ->where('agency_id', $agencyId)->where('track', $this->track())
                     ->where('user_id', $agent->id)->where('p24_suburb_id', $suburbId)
                     ->get()->each->delete()->count();
             }
@@ -128,7 +135,7 @@ class AreasController extends Controller
             : trim(($added ? "Added {$added} suburb" . ($added === 1 ? '' : 's') . ' to ' . $agent->name . '. ' : '')
                 . ($removed ? "Removed {$removed}." : ''));
 
-        return redirect()->route('road-to-sold.settings.areas.index', array_filter($request->only(['view', 'q', 'status', 'branch_id', 'town_id', 'sort'])))
+        return redirect()->route(Routing::base() . 'areas.index', array_filter($request->only(['view', 'q', 'status', 'branch_id', 'town_id', 'sort'])))
             ->with('success', $msg);
     }
 
@@ -158,6 +165,7 @@ class AreasController extends Controller
 
     private function agentsView(Request $request, User $viewer, int $agencyId, int $warnDays): array
     {
+        $portals = SettingsService::forAgency($agencyId, $this->track())->refreshPortals();
         $agents   = VisibleAgents::for($viewer);
         $status   = $request->query('status') === 'removed' ? 'removed' : 'active';
         $q        = trim((string) $request->query('q', ''));
@@ -168,7 +176,7 @@ class AreasController extends Controller
         $sort     = in_array($request->query('sort'), ['name', 'branch', 'areas', 'oldest'], true) ? $request->query('sort') : 'name';
 
         $areaQuery = RtsAgentArea::query()->visibleTo($viewer)
-            ->where('track', self::TRACK)->whereIn('user_id', $agents->keys()->all());
+            ->where('track', $this->track())->whereIn('user_id', $agents->keys()->all());
         if ($status === 'removed') {
             $areaQuery->onlyTrashed();
         }
@@ -182,8 +190,8 @@ class AreasController extends Controller
         $townFilterCity = $townId > 0 ? (int) DB::table('towns')->where('id', $townId)->where('agency_id', $agencyId)->value('p24_city_id') : 0;
 
         $byUser = $areaRows->groupBy('user_id');
-        $rows = $agents->map(function (User $u) use ($byUser, $meta, $poolIds, $captured, $warnDays) {
-            $chips = ($byUser->get($u->id) ?? collect())->map(function (RtsAgentArea $a) use ($meta, $poolIds, $captured, $warnDays) {
+        $rows = $agents->map(function (User $u) use ($byUser, $meta, $poolIds, $captured, $warnDays, $portals) {
+            $chips = ($byUser->get($u->id) ?? collect())->map(function (RtsAgentArea $a) use ($meta, $poolIds, $captured, $warnDays, $portals) {
                 $m   = $meta[(int) $a->p24_suburb_id] ?? null;
                 $cap = $captured[(int) $a->p24_suburb_id] ?? ['p24' => null, 'pp' => null];
 
@@ -196,12 +204,13 @@ class AreasController extends Controller
                     'in_pool'  => isset($poolIds[(int) $a->p24_suburb_id]),
                     'p24'      => $cap['p24'],
                     'pp'       => $cap['pp'],
-                    'needs_refresh' => isset($poolIds[(int) $a->p24_suburb_id]) && $this->areas->needsRefresh($cap, $warnDays),
+                    'stale_portals' => $stale = (isset($poolIds[(int) $a->p24_suburb_id]) ? $this->areas->portalsNeedingRefresh($cap, $warnDays, $portals) : []),
+                    'needs_refresh' => $stale !== [],
                 ];
             })->sortBy('name', SORT_NATURAL | SORT_FLAG_CASE)->values();
 
-            $oldest = $chips->map(fn ($c) => collect([$c['p24'], $c['pp']])->filter()->max())
-                ->map(fn ($d) => $d ? $d->timestamp : 0)->min();
+            // The stalest portal of the stalest suburb (a portal never captured counts as 0).
+            $oldest = $chips->flatMap(fn ($c) => collect($portals)->map(fn ($p) => $c[$p]?->timestamp ?? 0))->min();
 
             return ['user' => $u, 'chips' => $chips, 'count' => $chips->count(), 'oldest' => $oldest ?? PHP_INT_MAX];
         })->values();
@@ -247,7 +256,7 @@ class AreasController extends Controller
             $suburbQ = trim((string) $request->query('suburb_q', ''));
             $pickerTown = (int) $request->query('picker_town', 0);
             $pickerCity = $pickerTown > 0 ? (int) DB::table('towns')->where('id', $pickerTown)->where('agency_id', $agencyId)->value('p24_city_id') : 0;
-            $already = RtsAgentArea::query()->where('track', self::TRACK)->where('user_id', $addFor)->pluck('p24_suburb_id')->all();
+            $already = RtsAgentArea::query()->where('track', $this->track())->where('user_id', $addFor)->pluck('p24_suburb_id')->all();
             $pq = $this->areas->poolQuery($agencyId)
                 ->when($suburbQ !== '', fn ($b) => $b->where('s.name', 'like', '%' . str_replace(['%', '_'], ['\\%', '\\_'], $suburbQ) . '%'))
                 ->when($pickerCity > 0, fn ($b) => $b->where('s.p24_city_id', $pickerCity))
@@ -274,6 +283,7 @@ class AreasController extends Controller
 
     private function suburbsView(Request $request, User $viewer, int $agencyId, int $warnDays): array
     {
+        $portals = SettingsService::forAgency($agencyId, $this->track())->refreshPortals();
         $q        = trim((string) $request->query('q', ''));
         $townId   = (int) $request->query('town_id', 0);
         $unassigned = $request->boolean('unassigned');
@@ -286,19 +296,20 @@ class AreasController extends Controller
             ->orderBy('s.name')->get();
 
         $agents = VisibleAgents::for($viewer);
-        $assigned = RtsAgentArea::query()->visibleTo($viewer)->where('track', self::TRACK)
+        $assigned = RtsAgentArea::query()->visibleTo($viewer)->where('track', $this->track())
             ->whereIn('user_id', $agents->keys()->all())->get()->groupBy('p24_suburb_id');
         $captured = $this->areas->lastCaptured($agencyId);
 
-        $rows = $pool->map(function ($s) use ($assigned, $captured, $agents, $warnDays) {
+        $rows = $pool->map(function ($s) use ($assigned, $captured, $agents, $warnDays, $portals) {
             $cap  = $captured[(int) $s->id] ?? ['p24' => null, 'pp' => null];
             $who  = ($assigned->get((int) $s->id) ?? collect())->map(fn ($a) => $agents->get($a->user_id)?->name)->filter()->sort()->values();
 
             return [
                 'id' => (int) $s->id, 'name' => $s->name, 'town' => $s->town_name,
                 'agents' => $who, 'p24' => $cap['p24'], 'pp' => $cap['pp'],
-                'needs_refresh' => $this->areas->needsRefresh($cap, $warnDays),
-                'newest' => collect([$cap['p24'], $cap['pp']])->filter()->max()?->timestamp ?? 0,
+                'stale_portals' => $stale = $this->areas->portalsNeedingRefresh($cap, $warnDays, $portals),
+                'needs_refresh' => $stale !== [],
+                'newest' => collect($portals)->map(fn ($p) => $cap[$p]?->timestamp ?? 0)->min() ?? 0,
             ];
         });
 

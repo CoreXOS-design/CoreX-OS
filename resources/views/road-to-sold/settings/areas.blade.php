@@ -11,7 +11,7 @@
     $q       = $filters['q'] ?? '';
     $status  = $filters['status'] ?? 'active';
     $sortNow = $filters['sort'] ?? 'name';
-    $tabUrl  = fn (array $extra = []) => route('road-to-sold.settings.areas.index', array_filter(array_merge(
+    $tabUrl  = fn (array $extra = []) => route($rb . 'areas.index', array_filter(array_merge(
         ['view' => $mode, 'q' => $q ?: null, 'town_id' => ($filters['townId'] ?? 0) ?: null, 'branch_id' => ($filters['branchId'] ?? 0) ?: null,
          'status' => $status === 'removed' ? 'removed' : null, 'sort' => $sortNow === 'name' ? null : $sortNow,
          'no_areas' => !empty($filters['noAreas']) ? 1 : null, 'stale' => !empty($filters['staleOnly']) ? 1 : null,
@@ -19,15 +19,15 @@
         $extra
     ), fn ($v) => $v !== null && $v !== ''));
     $fmt = fn ($d) => $d ? $d->diffForHumans() : 'never';
+    $portalWords = fn (array $p) => collect($p)->map(fn ($x) => $x === 'pp' ? 'PP' : 'P24')->implode(' and ');
 @endphp
 
 @section('corex-content')
-<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
+<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5 cx-equal-btns">
 
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div>
             <h1 class="text-xl font-bold text-white leading-tight">Road to Sold - areas</h1>
-            <p class="text-sm text-white/60">Which suburbs each agent works. An agent's own suburbs come first on their daily list. Several agents can share a suburb.</p>
         </div>
     </div>
 
@@ -46,20 +46,14 @@
 
     {{-- View switch --}}
     <div class="flex flex-wrap gap-2">
-        <a href="{{ route('road-to-sold.settings.areas.index', ['view' => 'agents']) }}" class="px-3 py-1.5 rounded-md text-sm font-semibold"
+        <a href="{{ route($rb . 'areas.index', ['view' => 'agents']) }}" class="px-3 py-1.5 rounded-md text-sm font-semibold"
            style="{{ $mode === 'agents' ? 'background:var(--brand-icon, #0ea5e9); color:#fff;' : 'background:var(--surface); border:1px solid var(--border); color:var(--text-primary);' }}">Agents and their suburbs</a>
-        <a href="{{ route('road-to-sold.settings.areas.index', ['view' => 'suburbs']) }}" class="px-3 py-1.5 rounded-md text-sm font-semibold"
+        <a href="{{ route($rb . 'areas.index', ['view' => 'suburbs']) }}" class="px-3 py-1.5 rounded-md text-sm font-semibold"
            style="{{ $mode === 'suburbs' ? 'background:var(--brand-icon, #0ea5e9); color:#fff;' : 'background:var(--surface); border:1px solid var(--border); color:var(--text-primary);' }}">Suburbs and who works them</a>
     </div>
 
-    @if($lockOn)
-        <div class="rounded-md px-4 py-3 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-            "Lock agents to their areas" is <strong>on</strong>: an agent with no suburbs below gets no call list at all.
-        </div>
-    @endif
-
     {{-- Filters --}}
-    <form method="GET" action="{{ route('road-to-sold.settings.areas.index') }}" class="rounded-md p-4 grid grid-cols-1 sm:grid-cols-6 gap-3 items-end"
+    <form method="GET" action="{{ route($rb . 'areas.index') }}" class="rounded-md p-4 grid grid-cols-1 sm:grid-cols-6 gap-3 items-end"
           style="background:var(--surface); border:1px solid var(--border);">
         <input type="hidden" name="view" value="{{ $mode }}">
         <div class="sm:col-span-2">
@@ -118,9 +112,9 @@
             @else
                 <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);"><input type="checkbox" name="unassigned" value="1" @checked(!empty($filters['unassigned']))> Nobody works it</label>
             @endif
-            <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);"><input type="checkbox" name="stale" value="1" @checked(!empty($filters['staleOnly']))> Needs a refresh (nothing captured in {{ $warnDays }} days)</label>
-            <button type="submit" class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-icon, #0ea5e9);">Apply</button>
-            <a href="{{ route('road-to-sold.settings.areas.index', ['view' => $mode]) }}" class="text-xs underline" style="color:var(--text-muted);">Clear filters</a>
+            <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);"><input type="checkbox" name="stale" value="1" @checked(!empty($filters['staleOnly']))> Needs a refresh (a portal not captured in {{ $warnDays }} days)</label>
+            <button type="submit" class="corex-btn-primary">Apply</button>
+            <a href="{{ route($rb . 'areas.index', ['view' => $mode]) }}" class="corex-btn-outline">Clear</a>
         </div>
     </form>
 
@@ -130,9 +124,9 @@
             <div class="rounded-md p-4 space-y-3" style="background:var(--surface); border:2px solid var(--brand-icon, #0ea5e9);">
                 <div class="flex items-center justify-between">
                     <h3 class="text-sm font-bold" style="color:var(--text-primary);">Add suburbs for {{ $picker['agent']->name }}</h3>
-                    <a href="{{ $tabUrl(['add_for' => null]) }}" class="text-xs underline" style="color:var(--text-muted);">Close</a>
+                    <a href="{{ $tabUrl(['add_for' => null]) }}" class="corex-btn-outline">Close</a>
                 </div>
-                <form method="GET" action="{{ route('road-to-sold.settings.areas.index') }}" class="flex flex-wrap gap-2 items-end">
+                <form method="GET" action="{{ route($rb . 'areas.index') }}" class="flex flex-wrap gap-2 items-end">
                     <input type="hidden" name="view" value="agents">
                     <input type="hidden" name="add_for" value="{{ $picker['agent']->id }}">
                     <input name="suburb_q" value="{{ $picker['suburb_q'] }}" type="search" placeholder="Search suburbs" class="rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
@@ -140,12 +134,12 @@
                         <option value="">All towns</option>
                         @foreach($towns as $t)<option value="{{ $t->id }}" @selected($picker['town'] == $t->id)>{{ $t->name }}</option>@endforeach
                     </select>
-                    <button type="submit" class="px-3 py-2 rounded-md text-sm font-semibold" style="border:1px solid var(--border); color:var(--text-primary);">Find</button>
+                    <button type="submit" class="corex-btn-outline">Find</button>
                 </form>
                 @if($picker['results']->isEmpty())
-                    <p class="text-sm" style="color:var(--text-muted);">No suburbs match. Only suburbs from your agency's Prospecting Setup towns can be added, and ones this agent already has are left out.</p>
+                    <p class="text-sm" style="color:var(--text-muted);">No suburbs match.</p>
                 @else
-                    <form method="POST" action="{{ route('road-to-sold.settings.areas.sync', $picker['agent']->id) }}">
+                    <form method="POST" action="{{ route($rb . 'areas.sync', $picker['agent']->id) }}">
                         @csrf
                         <input type="hidden" name="view" value="agents">
                         <div class="grid grid-cols-1 sm:grid-cols-3 gap-1 max-h-72 overflow-y-auto p-2" style="border:1px solid var(--border);">
@@ -159,7 +153,7 @@
                         @if($picker['overflow'])
                             <p class="text-xs mt-1" style="color:var(--text-muted);">Showing the first {{ $picker['results']->count() }} - narrow the search to see more.</p>
                         @endif
-                        <button type="submit" class="mt-3 px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-icon, #0ea5e9);">Add ticked suburbs</button>
+                        <button type="submit" class="corex-btn-primary mt-3">Add ticked suburbs</button>
                     </form>
                 @endif
             </div>
@@ -175,12 +169,12 @@
                             <span class="text-xs ml-2" style="color:var(--text-muted);">{{ $row['count'] }} {{ $row['count'] === 1 ? 'suburb' : 'suburbs' }}</span>
                         </div>
                         @if($status === 'active')
-                            <a href="{{ $tabUrl(['add_for' => $row['user']->id]) }}" class="px-3 py-1.5 rounded-md text-xs font-semibold text-white" style="background:var(--brand-icon, #0ea5e9);">Add suburbs</a>
+                            <a href="{{ $tabUrl(['add_for' => $row['user']->id]) }}" class="corex-btn-primary">Add suburbs</a>
                         @endif
                     </div>
                     @if($row['chips']->isEmpty())
                         <p class="text-sm mt-2" style="color:var(--text-muted);">
-                            @if($status === 'removed') No removed suburbs. @else No suburbs yet.@if($lockOn) <strong>This agent gets no call list until you add some.</strong>@else They will work from your agency's other suburbs.@endif @endif
+                            @if($status === 'removed') No removed suburbs. @else No suburbs yet.@if($lockOn) <strong>No call list until you add some.</strong>@endif @endif
                         </p>
                     @else
                         <ul class="mt-3 flex flex-wrap gap-2">
@@ -188,18 +182,18 @@
                                 <li class="rounded-md px-3 py-2 text-xs" style="border:1px solid {{ $c['needs_refresh'] ? 'var(--ds-amber, #f59e0b)' : 'var(--border)' }}; color:var(--text-primary);">
                                     <div class="font-semibold">{{ $c['name'] }}@if($c['town']) <span style="color:var(--text-muted);">- {{ $c['town'] }}</span>@endif</div>
                                     @unless($c['in_pool'])
-                                        <div style="color:var(--text-muted);">No longer in your Prospecting Setup - ignored until you add the town back</div>
+                                        <div style="color:var(--text-muted);">No longer in your Prospecting Setup</div>
                                     @else
-                                        <div style="color:var(--text-muted);">Last captured: P24 {{ $fmt($c['p24']) }} &middot; PP {{ $fmt($c['pp']) }}</div>
-                                        @if($c['needs_refresh'])<div style="color:var(--text-primary);"><strong>Needs a refresh</strong> - nothing captured in {{ $warnDays }} days</div>@endif
+                                        <div style="color:var(--text-muted);">Last captured: {{ collect($portals)->map(fn ($p) => ($p === 'pp' ? 'PP ' : 'P24 ') . $fmt($c[$p]))->implode(' · ') }}</div>
+                                        @if($c['needs_refresh'])<div><strong>Needs a refresh: {{ $portalWords($c['stale_portals']) }}</strong></div>@endif
                                     @endunless
                                     <div class="mt-1">
                                         @if($status === 'removed')
-                                            <form method="POST" action="{{ route('road-to-sold.settings.areas.restore', $c['area_id']) }}" class="inline">@csrf<button type="submit" class="underline">Give back</button></form>
+                                            <form method="POST" action="{{ route($rb . 'areas.restore', $c['area_id']) }}" class="inline">@csrf<button type="submit" class="corex-btn-outline">Give back</button></form>
                                         @else
-                                            <form method="POST" action="{{ route('road-to-sold.settings.areas.archive', $c['area_id']) }}" class="inline"
+                                            <form method="POST" action="{{ route($rb . 'areas.archive', $c['area_id']) }}" class="inline"
                                                   onsubmit="return confirm('Take this suburb off {{ addslashes($row['user']->name) }}? You can give it back later from the Removed suburbs list.');">
-                                                @csrf @method('DELETE')<button type="submit" class="underline">Remove</button>
+                                                @csrf @method('DELETE')<button type="submit" class="corex-btn-outline">Remove</button>
                                             </form>
                                         @endif
                                     </div>
@@ -211,9 +205,9 @@
             @empty
                 <div class="rounded-md p-8 text-center text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-muted);">
                     @if($emptyFiltered)
-                        No agents match those filters. <a href="{{ route('road-to-sold.settings.areas.index', ['view' => 'agents']) }}" class="underline">Clear the filters</a>.
+                        No agents match those filters. <a href="{{ route($rb . 'areas.index', ['view' => 'agents']) }}" class="underline">Clear the filters</a>.
                     @else
-                        No agents can use Road to Sold yet. Give agents the "Access Road to Sold" permission in Role Manager and they will appear here.
+                        No agents have the "Access Road to Sold" permission yet. Add it in Role Manager.
                     @endif
                 </div>
             @endforelse
@@ -226,7 +220,7 @@
                 <thead>
                     <tr style="border-bottom:1px solid var(--border); color:var(--text-muted);" class="text-left text-xs">
                         <th class="px-4 py-2">Suburb</th><th class="px-4 py-2">Town</th><th class="px-4 py-2">Who works it</th>
-                        <th class="px-4 py-2">Last captured (P24)</th><th class="px-4 py-2">Last captured (PP)</th><th class="px-4 py-2"></th>
+                        @if(in_array('p24', $portals, true))<th class="px-4 py-2">Last captured (P24)</th>@endif @if(in_array('pp', $portals, true))<th class="px-4 py-2">Last captured (PP)</th>@endif<th class="px-4 py-2"></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -235,17 +229,21 @@
                         <td class="px-4 py-2 font-semibold">{{ $s['name'] }}</td>
                         <td class="px-4 py-2" style="color:var(--text-muted);">{{ $s['town'] ?? '-' }}</td>
                         <td class="px-4 py-2">{{ $s['agents']->isEmpty() ? 'Nobody yet' : $s['agents']->implode(', ') }}</td>
-                        <td class="px-4 py-2">{{ $fmt($s['p24']) }}</td>
-                        <td class="px-4 py-2">{{ $fmt($s['pp']) }}</td>
+                        @if(in_array('p24', $portals, true))<td class="px-4 py-2">{{ $fmt($s['p24']) }}</td>@endif
+                        @if(in_array('pp', $portals, true))<td class="px-4 py-2">{{ $fmt($s['pp']) }}</td>@endif
                         <td class="px-4 py-2">
                             @if($s['needs_refresh'])
-                                <span class="text-xs font-semibold px-2 py-1 rounded-md" style="border:1px solid var(--ds-amber, #f59e0b);" title="Nothing has been captured for this suburb in {{ $warnDays }} days. Refreshing is done by capturing it again from Property24 / Private Property.">Needs a refresh</span>
+                                @permission('access_settings')
+                                    <a href="{{ route('admin.minion.setup') }}" class="corex-btn-outline">Refresh now</a>
+                                @else
+                                    <span class="text-xs font-semibold" style="color:var(--text-muted);">Needs a refresh: {{ $portalWords($s['stale_portals']) }}</span>
+                                @endpermission
                             @endif
                         </td>
                     </tr>
                 @empty
-                    <tr><td colspan="6" class="px-4 py-8 text-center" style="color:var(--text-muted);">
-                        @if($emptyFiltered) No suburbs match those filters. <a href="{{ route('road-to-sold.settings.areas.index', ['view' => 'suburbs']) }}" class="underline">Clear the filters</a>.
+                    <tr><td colspan="{{ 4 + count($portals) }}" class="px-4 py-8 text-center" style="color:var(--text-muted);">
+                        @if($emptyFiltered) No suburbs match those filters. <a href="{{ route($rb . 'areas.index', ['view' => 'suburbs']) }}" class="underline">Clear the filters</a>.
                         @else Your agency has no suburbs set up yet. Add a town under Prospecting Setup first. @endif
                     </td></tr>
                 @endforelse
@@ -253,7 +251,6 @@
             </table>
         </div>
         {{ $suburbRows->links() }}
-        <p class="text-xs" style="color:var(--text-muted);">"Last captured" is the newest listing CoreX has captured for that suburb from each portal. Refreshing an area is a manual job - capture the suburb again from Property24 / Private Property.</p>
     @endif
 </div>
 @endsection

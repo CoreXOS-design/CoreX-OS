@@ -6,10 +6,14 @@ use App\Models\Concerns\BelongsToAgency;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * AT-454 — one row per (agency, track) of Road to Sold settings.
  * Spec: .ai/specs/road-to-sold.md §2.1 / §3.1.
+ *
+ * Soft delete: "put everything back to the defaults" archives the row (a missing/archived row means
+ * defaults); the next save brings it back. The audit table next to it is append-only and has no soft delete.
  *
  * Read ONLY through App\Services\RoadToSold\SettingsService; that service owns
  * the "missing row = defaults, never write on read" rule.
@@ -17,9 +21,17 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class RtsSetting extends Model
 {
     use BelongsToAgency;
+    use SoftDeletes;
 
     public const TRACK_SALES   = 'sales';
     public const TRACK_RENTALS = 'rentals';
+    public const TRACKS        = [self::TRACK_SALES, self::TRACK_RENTALS];
+
+    /** Anything that is not a known track is the sales track (absorb, never error). */
+    public static function normaliseTrack(mixed $track): string
+    {
+        return in_array($track, self::TRACKS, true) ? $track : self::TRACK_SALES;
+    }
 
     public const MISSED_SHOW   = 'show_missed';
     public const MISSED_ROLL   = 'roll_over';
@@ -28,13 +40,16 @@ class RtsSetting extends Model
 
     protected $fillable = [
         'agency_id', 'track',
-        'lock_agents_to_areas', 'half_day_leave_halves_target', 'area_refresh_warn_days', 'missed_items_mode',
+        'lock_agents_to_areas', 'half_day_leave_halves_target', 'area_refresh_warn_days', 'public_holiday_country', 'missed_items_mode',
         'selections', 'new_on_market_days', 'long_on_market_days', 'owner_known_quantity',
         'stuck_stock_min_days', 'stuck_stock_max_views', 'stuck_stock_max_leads',
         'hot_pocket_lookback_days', 'price_drop_lookback_days', 'stuck_stock_lookback_days',
         'no_answer_drop_after', 'hold_days',
         'summary_steps', 'summary_green_from_pct', 'summary_red_below_pct',
         'default_weekday_targets', 'updated_by_user_id',
+        'refresh_portals', 'buyer_match_tiers', 'active_buyer_states', 'on_market_statuses',
+        'add_to_day_max', 'scan_page_size',
+        'hot_pocket_weight_buyers', 'hot_pocket_weight_leads', 'hot_pocket_weight_sales',
     ];
 
     protected $casts = [
@@ -57,6 +72,15 @@ class RtsSetting extends Model
         'selections'                   => 'array',
         'summary_steps'                => 'array',
         'default_weekday_targets'      => 'array',
+        'refresh_portals'              => 'array',
+        'buyer_match_tiers'            => 'array',
+        'active_buyer_states'          => 'array',
+        'on_market_statuses'           => 'array',
+        'add_to_day_max'               => 'integer',
+        'scan_page_size'               => 'integer',
+        'hot_pocket_weight_buyers'     => 'integer',
+        'hot_pocket_weight_leads'      => 'integer',
+        'hot_pocket_weight_sales'      => 'integer',
     ];
 
     /** Scalar defaults — the single source of truth (migration defaults mirror these). */
@@ -64,6 +88,12 @@ class RtsSetting extends Model
         'lock_agents_to_areas'         => false,
         'half_day_leave_halves_target' => false,
         'area_refresh_warn_days'       => 7,
+        'public_holiday_country'       => 'ZA',
+        'add_to_day_max'               => 100,
+        'scan_page_size'               => 200,
+        'hot_pocket_weight_buyers'     => 1,
+        'hot_pocket_weight_leads'      => 1,
+        'hot_pocket_weight_sales'      => 1,
         'missed_items_mode'            => self::MISSED_SHOW,
         'new_on_market_days'           => 14,
         'long_on_market_days'          => 90,
@@ -79,6 +109,33 @@ class RtsSetting extends Model
         'summary_green_from_pct'       => 90,
         'summary_red_below_pct'        => 70,
     ];
+
+    /**
+     * The agency-editable lists lane 2 reads (spec 9.11). Each: stored key => the code default list.
+     * NULL in the column = this default. Choices below are the vocabularies those columns really hold.
+     */
+    public const LIST_DEFAULTS = [
+        'refresh_portals'     => ['p24', 'pp'],
+        'buyer_match_tiers'   => ['perfect', 'strong'],
+        'active_buyer_states' => ['new', 'warm'],
+        'on_market_statuses'  => ['active', 'for_sale', 'on_show'],
+    ];
+
+    /** @return array<string,array<string,string>> list column => value => plain label (the only values a save accepts) */
+    public static function listChoices(): array
+    {
+        $statuses = [
+            'active' => 'Active', 'for_sale' => 'For sale', 'to_let' => 'To let', 'under_offer' => 'Under offer',
+            'on_show' => 'On show', 'prospecting' => 'Prospecting', 'expired' => 'Expired',
+        ];
+
+        return [
+            'refresh_portals'     => ['p24' => 'Property24', 'pp' => 'Private Property'],
+            'buyer_match_tiers'   => ['perfect' => 'Perfect', 'strong' => 'Strong', 'approximate' => 'Approximate'],
+            'active_buyer_states' => ['new' => 'New', 'warm' => 'Warm', 'cold' => 'Cold'],
+            'on_market_statuses'  => $statuses,
+        ];
+    }
 
     /** Default agency weekday targets (ISO 1=Mon … 7=Sun). Mon–Fri 5, weekend 0. */
     public const DEFAULT_WEEKDAY_TARGETS = [1 => 5, 2 => 5, 3 => 5, 4 => 5, 5 => 5, 6 => 0, 7 => 0];

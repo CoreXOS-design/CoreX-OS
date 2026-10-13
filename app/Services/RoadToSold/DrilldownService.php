@@ -2,6 +2,7 @@
 
 namespace App\Services\RoadToSold;
 
+use App\Models\User;
 use App\Services\Performance\Period;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -15,12 +16,18 @@ use Illuminate\Support\Facades\DB;
  * adds the agency wall. Rows are capped at MAX_ROWS (the true count is in `total`).
  *
  * Metrics: calls_made, attempts, conversations, valuations_booked, dropped, outcome:<key>
- * (the call log); valuations_done (calendar appointments with feedback); mandates_signed (completed
+ * (the call log); worked, added_worked, missed (the day's list: worked toward the target, worked on top
+ * of it, missed or rolled over); target (one row per working day); valuations_done (calendar appointments with feedback); mandates_signed (completed
  * mandate e-sign documents); listings_live (listings that went live in the window).
  */
 class DrilldownService
 {
     public const MAX_ROWS = 1000;
+    public const ITEM_METRICS = ['worked', 'added_worked', 'missed'];
+
+    public function __construct(private readonly WorkdayService $workdays)
+    {
+    }
 
     public const LOG_METRICS = ['calls_made', 'attempts', 'conversations', 'valuations_booked', 'dropped'];
 
@@ -28,7 +35,8 @@ class DrilldownService
     {
         return in_array($metric, self::LOG_METRICS, true)
             || str_starts_with($metric, 'outcome:')
-            || in_array($metric, ['valuations_done', 'mandates_signed', 'listings_live'], true);
+            || in_array($metric, self::ITEM_METRICS, true)
+            || in_array($metric, ['target', 'valuations_done', 'mandates_signed', 'listings_live'], true);
     }
 
     /**
@@ -49,6 +57,8 @@ class DrilldownService
             $metric === 'valuations_done' => $this->valuationsDone($agentIds, $from, $to, $agencyId, $period),
             $metric === 'mandates_signed' => $this->mandatesSigned($agentIds, $from, $to, $agencyId, $period),
             $metric === 'listings_live'   => $this->listingsLive($agentIds, $from, $to, $agencyId, $period, $track),
+            $metric === 'target'          => $this->targetDays($agentIds, $agencyId, $period, $track),
+            in_array($metric, self::ITEM_METRICS, true) => $this->listItems($metric, $agentIds, $agencyId, $period, $track),
             default                       => $this->callLog($metric, $agentIds, $from, $to, $agencyId, $period, $track),
         };
     }
@@ -71,6 +81,8 @@ class DrilldownService
             $metric === 'valuations_done' => $this->valuationsDoneQuery($agentIds, $from, $to, $agencyId)->count(),
             $metric === 'mandates_signed' => $this->mandatesQuery($agentIds, $from, $to, $agencyId)->count(),
             $metric === 'listings_live'   => $this->listingsQuery($agentIds, $from, $to, $agencyId, $track)->count(),
+            $metric === 'target'          => $this->targetTotal($agentIds, $agencyId, $period, $track),
+            in_array($metric, self::ITEM_METRICS, true) => $this->itemsQuery($metric, $agentIds, $period, $agencyId, $track)->count(),
             default                       => $this->callLogQuery($metric, $agentIds, $from, $to, $agencyId, $track)->count(),
         };
     }
@@ -88,6 +100,10 @@ class DrilldownService
                 'mandates_signed'   => 'Mandates signed',
                 'listings_live'     => 'Listings live',
                 'dropped'           => 'Dropped after repeated no-answers',
+                'worked'            => 'Worked toward the target',
+                'added_worked'      => 'Worked on top of the target',
+                'missed'            => 'Missed or rolled over',
+                'target'            => 'Target',
                 default             => ucfirst(str_replace('_', ' ', $metric)),
             },
         };
@@ -100,9 +116,10 @@ class DrilldownService
     private function callLogQuery(string $metric, array $agentIds, string $from, string $to, int $agencyId, string $track)
     {
         $q = DB::table('rts_contact_outcomes as o')
-            ->join('tracked_properties as tp', 'tp.id', '=', 'o.tracked_property_id')
+            ->leftJoin('tracked_properties as tp', 'tp.id', '=', 'o.tracked_property_id')   // left: a call on an archived property still counts, as the report counts it
             ->leftJoin('contacts as c', 'c.id', '=', 'o.contact_id')
             ->leftJoin('users as u', 'u.id', '=', 'o.user_id')
+            ->leftJoin('users as rb', 'rb.id', '=', 'o.recorded_by_user_id')
             ->where('o.agency_id', $agencyId)->where('o.track', $track)->whereNull('o.deleted_at')
             ->whereIn('o.user_id', $agentIds)->whereBetween('o.occurred_at', [$from, $to]);
 
@@ -124,11 +141,12 @@ class DrilldownService
         $total = (clone $q)->count();
         $rows = $q->orderByDesc('o.occurred_at')->limit(self::MAX_ROWS)->get([
             'o.occurred_at', 'o.outcome_label', 'o.kind', 'o.note', 'o.valuation_booked', 'o.no_answer_streak', 'o.tracked_property_id',
-            'tp.street_number', 'tp.street_name', 'tp.suburb', 'u.name as agent',
+            'tp.id as tp_id', 'tp.deleted_at as tp_deleted_at', 'tp.street_number', 'tp.street_name', 'tp.suburb', 'u.name as agent', 'rb.name as made_by',
             'c.first_name', 'c.last_name', 'c.entity_name',
         ])->map(fn ($r) => [
             'when'     => Carbon::parse($r->occurred_at)->format('j M Y H:i'),
             'agent'    => $r->agent,
+            'made_by'  => $r->made_by ?: '-',
             'property' => $this->address($r),
             'owner'    => $this->ownerName($r),
             'outcome'  => $r->outcome_label . ($r->valuation_booked ? ' (valuation booked)' : ''),
@@ -139,11 +157,90 @@ class DrilldownService
         return $this->envelope($this->title($metric, $period), [
             ['key' => 'when', 'label' => 'When', 'align' => 'left'],
             ['key' => 'agent', 'label' => 'Agent', 'align' => 'left'],
+            ['key' => 'made_by', 'label' => 'Call made by', 'align' => 'left'],
             ['key' => 'property', 'label' => 'Property', 'align' => 'left'],
             ['key' => 'owner', 'label' => 'Owner', 'align' => 'left'],
             ['key' => 'outcome', 'label' => 'Outcome', 'align' => 'left'],
             ['key' => 'note', 'label' => 'Note', 'align' => 'left'],
         ], $rows, $total, $total > self::MAX_ROWS);
+    }
+
+    // ── The day's list: worked / worked on top / missed or rolled over ─────────────────────
+
+    private function itemsQuery(string $metric, array $agentIds, Period $period, int $agencyId, string $track)
+    {
+        $q = DB::table('rts_list_items as i')
+            ->where('i.agency_id', $agencyId)->where('i.track', $track)->whereNull('i.deleted_at')
+            ->whereIn('i.user_id', $agentIds)
+            ->whereBetween('i.list_date', [$period->start->toDateString(), $period->end->toDateString()]);
+
+        match ($metric) {
+            'worked'       => $q->where('i.origin', '!=', 'added')->where('i.status', 'worked'),
+            'added_worked' => $q->where('i.origin', 'added')->where('i.status', 'worked'),
+            default        => $q->where('i.origin', '!=', 'added')->whereIn('i.status', ['missed', 'rolled']),
+        };
+
+        return $q;
+    }
+
+    private function listItems(string $metric, array $agentIds, int $agencyId, Period $period, string $track): array
+    {
+        $q = $this->itemsQuery($metric, $agentIds, $period, $agencyId, $track);
+        $total = (clone $q)->count();
+        $rows = $q->leftJoin('tracked_properties as tp', 'tp.id', '=', 'i.tracked_property_id')
+            ->leftJoin('users as u', 'u.id', '=', 'i.user_id')
+            ->orderByDesc('i.list_date')->orderBy('i.position')->limit(self::MAX_ROWS)
+            ->get(['i.list_date', 'i.status', 'i.reason', 'i.tracked_property_id', 'tp.id as tp_id', 'tp.deleted_at as tp_deleted_at', 'tp.street_number', 'tp.street_name', 'tp.suburb', 'u.name as agent'])
+            ->map(fn ($r) => [
+                'when' => Carbon::parse($r->list_date)->format('j M Y'), 'agent' => $r->agent, 'property' => $this->address($r),
+                'why' => $r->reason, 'status' => ucfirst((string) $r->status),
+                'href' => $r->tracked_property_id ? route('market-intelligence.opportunities.show', $r->tracked_property_id) : null,
+            ])->all();
+
+        return $this->envelope($this->title($metric, $period), [
+            ['key' => 'when', 'label' => 'Day', 'align' => 'left'],
+            ['key' => 'agent', 'label' => 'Agent', 'align' => 'left'],
+            ['key' => 'property', 'label' => 'Property', 'align' => 'left'],
+            ['key' => 'why', 'label' => 'Why suggested', 'align' => 'left'],
+            ['key' => 'status', 'label' => 'Status', 'align' => 'left'],
+        ], $rows, $total, $total > self::MAX_ROWS);
+    }
+
+    // ── Target: one row per agent per day that carries a target ────────────────────────────
+
+    /** @return array<int, array{day:string, agent:string, target:int}> */
+    private function targetRows(array $agentIds, int $agencyId, Period $period, string $track): array
+    {
+        $agents = User::query()->where('agency_id', $agencyId)->whereIn('id', $agentIds)->orderBy('name')->get(['id', 'name', 'agency_id', 'branch_id', 'role']);
+        $rows = [];
+        foreach ($agents as $agent) {
+            for ($d = $period->start->startOfDay(); $d->lte($period->end); $d = $d->addDay()) {
+                $t = $this->workdays->targetFor($agent, $d, $track);
+                if ($t > 0) {
+                    $rows[] = ['day' => $d->format('D j M Y'), 'agent' => $agent->name, 'target' => $t, 'sort' => $d->toDateString()];
+                }
+            }
+        }
+        usort($rows, fn ($a, $b) => [$b['sort'], $a['agent']] <=> [$a['sort'], $b['agent']]);
+
+        return $rows;
+    }
+
+    private function targetTotal(array $agentIds, int $agencyId, Period $period, string $track): int
+    {
+        return (int) array_sum(array_column($this->targetRows($agentIds, $agencyId, $period, $track), 'target'));
+    }
+
+    private function targetDays(array $agentIds, int $agencyId, Period $period, string $track): array
+    {
+        $all = $this->targetRows($agentIds, $agencyId, $period, $track);
+        $rows = array_map(fn ($r) => ['when' => $r['day'], 'agent' => $r['agent'], 'target' => $r['target']], array_slice($all, 0, self::MAX_ROWS));
+
+        return $this->envelope($this->title('target', $period), [
+            ['key' => 'when', 'label' => 'Day', 'align' => 'left'],
+            ['key' => 'agent', 'label' => 'Agent', 'align' => 'left'],
+            ['key' => 'target', 'label' => 'Target', 'align' => 'right', 'format' => 'number'],
+        ], $rows, (int) array_sum(array_column($all, 'target')), count($all) > self::MAX_ROWS);
     }
 
     // ── Valuations done: valuation appointments with feedback captured ─────────────────────
@@ -246,7 +343,12 @@ class DrilldownService
         $street = trim(trim((string) $r->street_number) . ' ' . trim((string) $r->street_name));
         $line = trim($street . ($r->suburb ? ($street !== '' ? ', ' : '') . $r->suburb : ''));
 
-        return $line !== '' ? $line : '(no address)';
+        $line = $line !== '' ? $line : '(no address)';
+        if (property_exists($r, 'tp_id') && ($r->tp_id === null || ! empty($r->tp_deleted_at))) {
+            return $r->tp_id === null ? '(property archived)' : $line . ' (property archived)';
+        }
+
+        return $line;
     }
 
     private function ownerName(object $r): ?string

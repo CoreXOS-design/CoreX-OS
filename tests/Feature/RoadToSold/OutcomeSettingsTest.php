@@ -129,6 +129,18 @@ final class OutcomeSettingsTest extends TestCase
         $this->assertSame(9, $this->def('no_answer')->delay_days);
     }
 
+    public function test_the_outcome_list_belongs_to_the_track_in_the_request(): void
+    {
+        $this->actingAs($this->admin)->get(route('road-to-sold.settings.outcomes.index', ['track' => 'rentals']))->assertOk();
+        $this->actingAs($this->admin)->post(route('road-to-sold.settings.outcomes.store'), [
+            'track' => 'rentals', 'label' => 'Tenant leaving soon', 'kind' => 'conversation', 'next_action' => 'return_on_picked_date',
+        ])->assertRedirect();
+
+        $this->assertSame('rentals', Def::withoutGlobalScopes()->where('agency_id', $this->agencyId)->where('label', 'Tenant leaving soon')->value('track'));
+        $this->actingAs($this->admin)->get(route('road-to-sold.settings.outcomes.index', ['track' => 'rentals']))->assertSee('Tenant leaving soon');
+        $this->actingAs($this->admin)->get(route('road-to-sold.settings.outcomes.index'))->assertDontSee('Tenant leaving soon')->assertSee('No answer');
+    }
+
     public function test_another_agencys_outcome_is_a_404_and_no_key_is_a_403(): void
     {
         $this->actingAs($this->admin)->get(route('road-to-sold.settings.outcomes.index'));

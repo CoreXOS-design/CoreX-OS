@@ -106,6 +106,16 @@ final class SettingsTest extends TestCase
             ->assertSee('Lock agents to their areas');
     }
 
+    public function test_the_settings_page_has_no_intro_or_explainer_paragraphs(): void
+    {
+        [, $admin] = $this->agencyWithAdmin();
+
+        $this->actingAs($admin)->get(route('road-to-sold.settings.index'))
+            ->assertOk()
+            ->assertDontSee('Follow-ups come first, then these sources')
+            ->assertDontSee('These are the settings');
+    }
+
     public function test_lazy_shortcut_ticking_one_box_saves_and_leaves_everything_else_default(): void
     {
         [$agency, $admin] = $this->agencyWithAdmin();

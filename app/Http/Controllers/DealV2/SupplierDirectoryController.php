@@ -48,8 +48,7 @@ class SupplierDirectoryController extends Controller
             ]);
         // §20.4 - search (name, company, email, phone), status and call-out filters, sortable columns; default order unchanged.
         if ($f['q'] !== '') {
-            $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $f['q']) . '%';
-            $query->where(fn ($w) => $w->where('name', 'like', $like)->orWhere('company', 'like', $like)->orWhere('email', 'like', $like)->orWhere('phone', 'like', $like));
+            $query->matching($f['q']);   // the ONE supplier search: business name, contact person, email, phone and trade
         }
         if ($f['status'] !== 'all') {
             $query->where('is_active', $f['status'] === 'active');
@@ -693,7 +692,7 @@ class SupplierDirectoryController extends Controller
     private function row(AgencyServiceProvider $p): array
     {
         return [
-            'id' => $p->id, 'name' => $p->name, 'specialty' => $p->specialty,
+            'id' => $p->id, 'name' => $p->name, 'label' => $p->displayName(), 'specialty' => $p->specialty,
             'kind' => $p->kind ?: AgencyServiceProvider::KIND_CONTRACTOR, 'kind_label' => AgencyServiceProvider::kindLabel($p->kind),
             'company' => $p->company, 'email' => $p->email, 'phone' => $p->phone,
             'is_preferred' => (bool) $p->is_preferred, 'is_active' => (bool) $p->is_active,

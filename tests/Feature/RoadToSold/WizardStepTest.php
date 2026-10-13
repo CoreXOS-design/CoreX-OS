@@ -94,6 +94,30 @@ final class WizardStepTest extends TestCase
         $this->assertSame('30', (string) $fields['hold_days']);
     }
 
+    public function test_the_portals_we_capture_from_are_in_the_step_and_save_through_the_same_saver(): void
+    {
+        $fields = $this->browserFormFields($this->admin, 'road_to_sold');
+        $this->assertSame('1', (string) $fields['refresh_portal_p24']);
+        $this->assertSame('1', (string) $fields['refresh_portal_pp']);
+
+        $this->postStep(array_merge($fields, ['refresh_portal_pp' => '0']))->assertSessionHasNoErrors();
+        SettingsService::forget();
+        $this->assertSame(['p24'], SettingsService::forAgency($this->agency->id)->refreshPortals());
+
+        // Both off is refused and nothing changes.
+        $this->postStep(array_merge($fields, ['refresh_portal_p24' => '0', 'refresh_portal_pp' => '0']))->assertSessionHasErrors();
+        SettingsService::forget();
+        $this->assertSame(['p24'], SettingsService::forAgency($this->agency->id)->refreshPortals());
+
+        // The step shows what was saved, not the control default.
+        $this->assertSame('0', (string) $this->browserFormFields($this->admin, 'road_to_sold')['refresh_portal_pp']);
+
+        // A step post that never carried the toggles leaves the setting alone.
+        $this->postStep(['hold_days' => '40'])->assertSessionHasNoErrors();
+        SettingsService::forget();
+        $this->assertSame(['p24'], SettingsService::forAgency($this->agency->id)->refreshPortals());
+    }
+
     public function test_accepting_the_defaults_in_one_click_works_and_marks_the_step_complete(): void
     {
         $fields = $this->browserFormFields($this->admin, 'road_to_sold');

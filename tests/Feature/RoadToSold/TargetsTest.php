@@ -111,6 +111,19 @@ final class TargetsTest extends TestCase
             ->assertOk()->assertSee('No agents match those filters');
     }
 
+    public function test_the_targets_screen_carries_data_and_controls_only_and_its_buttons_share_one_size(): void
+    {
+        $this->save($this->admin, $this->agentNorth, [1 => 8]);
+        $this->flushSession();
+
+        $this->actingAs($this->admin)->get(route('road-to-sold.settings.targets.index'))
+            ->assertOk()
+            ->assertSee('cx-equal-btns', false)
+            ->assertDontSee('Public holidays and approved leave carry no target')
+            ->assertDontSee('Used for any agent and any day')
+            ->assertDontSee('showing the default in grey');
+    }
+
     // ── saving a week ─────────────────────────────────────────────────────
 
     public function test_a_full_week_is_saved_as_the_agents_own_numbers_and_wins_over_the_default(): void

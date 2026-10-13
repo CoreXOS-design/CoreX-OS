@@ -11,7 +11,7 @@ use InvalidArgumentException;
  */
 class PeriodResolver
 {
-    public const PRESETS = ['today', 'yesterday', 'this_week', 'last_7_days', 'this_month', 'this_quarter', 'this_year', 'custom'];
+    public const PRESETS = ['today', 'yesterday', 'this_week', 'last_7_days', 'last_30_days', 'this_month', 'this_quarter', 'this_year', 'custom'];
 
     /** 2026-08-19 — the "Compare to" selector's modes, independent of the primary-period presets above. */
     public const COMPARE_MODES = ['off', 'previous', 'same_last_year', 'custom'];
@@ -28,6 +28,8 @@ class PeriodResolver
             })(),
             'this_week'   => new Period($now->startOfWeek(), $now->endOfWeek(), 'This week', $preset),
             'last_7_days' => new Period($now->subDays(6)->startOfDay(), $now->endOfDay(), 'Last 7 days', $preset),
+            // AT-454 (Road to Sold report): the 30 days ending today, today included - the same shape as last_7_days.
+            'last_30_days' => new Period($now->subDays(29)->startOfDay(), $now->endOfDay(), 'Last 30 days', $preset),
             'this_month'  => new Period($now->startOfMonth(), $now->endOfMonth(), 'This month', $preset),
             'this_quarter' => new Period($now->startOfQuarter(), $now->endOfQuarter(), 'This quarter', $preset),
             'this_year'   => new Period($now->startOfYear(), $now->endOfYear(), 'This year', $preset),

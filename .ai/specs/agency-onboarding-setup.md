@@ -414,6 +414,7 @@ by oversight — do not reinstate them without asking:
   either. Recorded here so the omission is on the record rather than unnoticed (CLAUDE.md 10a).
 
 - **Road to Sold - the nine call-list sources (order, on/off), their limits and look-back windows, the colour lines and the on-track bar's steps** (2026-10-13, AT-454; **Johan's call on 13 Oct: "main settings in the wizard, selection order and colour limits on the settings page only"**). Expert knobs an agency tunes once it has seen the list working; they sit on Settings -> Road to Sold with standard defaults that work. Also not wizard controls: each agent's own suburbs and own weekday numbers - those are per-person records with their own screens, not an agency setting. Spec `road-to-sold.md` §4/§8.
+- **Road to Sold - public-holiday country, the match rules and list sizes** (2026-10-13, AT-454 audit; **recorded for Johan - pending his confirmation**). `public_holiday_country` has exactly one real value today (only South African holidays are loaded), so a wizard control would offer a one-item list; it is on Settings -> Road to Sold, default ZA, and becomes a wizard control the day a second country's holidays are loaded. The list-builder values (which buyer matches and buyer states count, which statuses mean "on the market", the add-to-day ceiling, the scan window size, the three hot-pocket weights) are expert knobs like the limits above, with standard defaults that work. Spec `road-to-sold.md` §9.11.
 
 ### 5.2 Commission step — the mentor programme is optional (2026-07-11)
 

@@ -46,6 +46,17 @@ class PeriodResolverTest extends TestCase
         $this->assertSame('2026-08-15 23:59:59', $p->end->toDateTimeString());
     }
 
+    public function test_last_30_days_is_a_thirty_day_window_ending_today(): void
+    {
+        // AT-454 (Road to Sold report) - the preset now appears on every report that uses PeriodResolver.
+        $p = $this->r->resolve('last_30_days', null, null, $this->now());
+        $this->assertSame('2026-07-17 00:00:00', $p->start->toDateTimeString());
+        $this->assertSame('2026-08-15 23:59:59', $p->end->toDateTimeString());
+        $this->assertSame('Last 30 days', $p->label);
+        $this->assertSame(30, $p->lengthInDays());
+        $this->assertContains('last_30_days', \App\Services\Performance\PeriodResolver::PRESETS);
+    }
+
     public function test_this_year(): void
     {
         $p = $this->r->resolve('this_year', null, null, $this->now());

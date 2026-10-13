@@ -197,6 +197,83 @@ final class ProspectingListedDateTest extends TestCase
         $this->assertSame('2026-06-03', $this->listedDateOf('P24-117010'));
     }
 
+    /** @return array<string,array{0:mixed,1:?string}> */
+    public static function jsonLdShapes(): array
+    {
+        $graph = ['@context' => 'https://schema.org', '@graph' => [
+            ['@type' => 'BreadcrumbList'], ['@type' => 'RealEstateListing', 'datePosted' => '2026-09-01'],
+        ]];
+
+        return [
+            'graph'      => [$graph, '2026-09-01'],
+            'single'     => [['@type' => 'RealEstateListing', 'datePosted' => '2026-08-02'], '2026-08-02'],
+            'list'       => [[['@type' => 'Thing'], ['@type' => 'RealEstateListing', 'datePosted' => '2026-07-03']], '2026-07-03'],
+            'none'       => [['@type' => 'RealEstateListing', 'offers' => ['price' => 1]], null],
+            'not json'   => [null, null],
+            'non-string' => [['datePosted' => ['x']], null],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('jsonLdShapes')]
+    public function test_the_date_is_found_in_the_pages_json_ld_whatever_its_shape(mixed $jsonLd, ?string $expected): void
+    {
+        $this->assertSame($expected, \App\Services\Prospecting\ListedDateRecorder::datePostedFromJsonLd($jsonLd));
+    }
+
+    /** The presentation portal capture uploads the whole P24 listing page; its JSON-LD datePosted now reaches MIC. */
+    public function test_a_presentation_portal_capture_of_a_listing_page_stores_the_pages_date_on_the_mic_listing(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('local');
+        $this->listing('P24-117580701', listed: null, firstSeen: now()->subDays(3));
+
+        $this->actingAs($this->user)->postJson('/portal-captures/ingest', $this->capturePayload([
+            '@context' => 'https://schema.org',
+            '@graph'   => [['@type' => 'RealEstateListing', 'datePosted' => '2026-09-01']],
+        ]))->assertSuccessful();
+
+        $this->assertSame('2026-09-01', $this->listedDateOf('P24-117580701'));
+    }
+
+    public function test_a_presentation_portal_capture_without_a_date_or_mic_listing_changes_nothing_and_succeeds(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('local');
+        $this->listing('P24-117580701', listed: null, firstSeen: now()->subDays(3));
+
+        $this->actingAs($this->user)->postJson('/portal-captures/ingest', $this->capturePayload(['@type' => 'RealEstateListing']))
+            ->assertSuccessful();
+        $this->assertNull($this->listedDateOf('P24-117580701'));
+
+        // A listing MIC does not hold: no row is created.
+        $other = $this->capturePayload(['@type' => 'RealEstateListing', 'datePosted' => '2026-09-01']);
+        $other['source_url'] = $other['final_url'] = 'https://www.property24.com/for-sale/uvongo/margate/kwazulu-natal/123/117999999';
+        $this->actingAs($this->user)->postJson('/portal-captures/ingest', $other)->assertSuccessful();
+        $this->assertSame(0, DB::table('prospecting_listings')->where('portal_ref', 'P24-117999999')->count());
+    }
+
+    public function test_a_presentation_portal_capture_never_overwrites_an_agents_correction(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('local');
+        $l = $this->listing('P24-117580701', listed: now()->subDays(40), firstSeen: now()->subDays(60));
+        DB::table('prospecting_listings')->where('id', $l->id)->update(['listed_date_source' => 'agent']);
+
+        $this->actingAs($this->user)->postJson('/portal-captures/ingest', $this->capturePayload(['@type' => 'RealEstateListing', 'datePosted' => '2026-09-01']))
+            ->assertSuccessful();
+
+        $this->assertSame(now()->subDays(40)->toDateString(), $this->listedDateOf('P24-117580701'));
+    }
+
+    private function capturePayload(array $jsonLd): array
+    {
+        $url = 'https://www.property24.com/for-sale/uvongo/margate/kwazulu-natal/123/117580701';
+
+        return [
+            'source_site' => 'www.property24.com', 'page_type' => 'property', 'source_url' => $url, 'final_url' => $url,
+            'captured_at' => now()->toIso8601String(), 'extractor_version' => 'test', 'parse_status' => 'parsed',
+            'html' => '<html><body><h1 class="p24_listing">3 Bedroom House</h1><div class="p24_price">R 1 850 000</div></body></html>',
+            'jsonld' => $jsonLd,
+        ];
+    }
+
     // ── days on market, new, long ────────────────────────────────────────
 
     public function test_days_on_market_uses_the_listed_date_else_first_seen(): void
