@@ -119,6 +119,7 @@ class DrilldownService
             ->leftJoin('tracked_properties as tp', 'tp.id', '=', 'o.tracked_property_id')   // left: a call on an archived property still counts, as the report counts it
             ->leftJoin('contacts as c', 'c.id', '=', 'o.contact_id')
             ->leftJoin('users as u', 'u.id', '=', 'o.user_id')
+            ->leftJoin('users as rb', 'rb.id', '=', 'o.recorded_by_user_id')
             ->where('o.agency_id', $agencyId)->where('o.track', $track)->whereNull('o.deleted_at')
             ->whereIn('o.user_id', $agentIds)->whereBetween('o.occurred_at', [$from, $to]);
 
@@ -140,11 +141,12 @@ class DrilldownService
         $total = (clone $q)->count();
         $rows = $q->orderByDesc('o.occurred_at')->limit(self::MAX_ROWS)->get([
             'o.occurred_at', 'o.outcome_label', 'o.kind', 'o.note', 'o.valuation_booked', 'o.no_answer_streak', 'o.tracked_property_id',
-            'tp.id as tp_id', 'tp.deleted_at as tp_deleted_at', 'tp.street_number', 'tp.street_name', 'tp.suburb', 'u.name as agent',
+            'tp.id as tp_id', 'tp.deleted_at as tp_deleted_at', 'tp.street_number', 'tp.street_name', 'tp.suburb', 'u.name as agent', 'rb.name as made_by',
             'c.first_name', 'c.last_name', 'c.entity_name',
         ])->map(fn ($r) => [
             'when'     => Carbon::parse($r->occurred_at)->format('j M Y H:i'),
             'agent'    => $r->agent,
+            'made_by'  => $r->made_by ?: '-',
             'property' => $this->address($r),
             'owner'    => $this->ownerName($r),
             'outcome'  => $r->outcome_label . ($r->valuation_booked ? ' (valuation booked)' : ''),
@@ -155,6 +157,7 @@ class DrilldownService
         return $this->envelope($this->title($metric, $period), [
             ['key' => 'when', 'label' => 'When', 'align' => 'left'],
             ['key' => 'agent', 'label' => 'Agent', 'align' => 'left'],
+            ['key' => 'made_by', 'label' => 'Call made by', 'align' => 'left'],
             ['key' => 'property', 'label' => 'Property', 'align' => 'left'],
             ['key' => 'owner', 'label' => 'Owner', 'align' => 'left'],
             ['key' => 'outcome', 'label' => 'Outcome', 'align' => 'left'],
