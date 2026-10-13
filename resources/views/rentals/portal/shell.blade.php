@@ -95,7 +95,8 @@
         .btn-pair { display:flex; gap:10px; }
         .btn-pair .btn { flex:1 1 0; }
         .btn-pair-keep { display:grid !important; grid-template-columns:1fr 1fr; gap:10px !important; }
-        .btn-pair-keep .btn { box-sizing:border-box; width:100%; min-width:0; }
+        .btn-pair-keep .btn, .btn-stack .btn { box-sizing:border-box; width:100%; min-width:0; border:1px solid transparent; }
+        .btn-pair-keep .btn-outline, .btn-stack .btn-outline { border-color:var(--border); }
         .btn-pair-keep .btn-spacer { display:block; }
         @media (max-width:420px) { .btn-pair { flex-direction:column; gap:0; } }
         /* AT-452 - a photo that opens the shared viewer, and the owner decision screen's sections */

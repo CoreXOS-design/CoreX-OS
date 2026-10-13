@@ -144,9 +144,11 @@
                                 <label for="owner-comment-proposed">Your comment to your agent (optional)</label>
                                 <textarea id="owner-comment-proposed" rows="2" maxlength="2000" x-model="faultForm.note" data-owner-comment-input></textarea>
                                 <p class="error" x-show="faultForm.error" x-text="faultForm.error"></p>
+                                <div class="btn-stack" data-owner-choice-buttons>
                                 <button class="btn btn-ok" :disabled="!!(faultForm.busy)" @click="sendProposed()" data-owner-yes x-text="faultForm.busy ? 'Sending…' : 'Yes, send ' + faultDetail.proposed.name"></button>
                                 <button class="btn btn-outline" :disabled="!!(faultForm.busy)" @click="chooseOther('approve')" data-owner-someone-else>Choose someone else</button>
                                 <button class="btn btn-outline" :disabled="!!(faultForm.busy)" @click="chooseOther('decline')" data-owner-decline>Decline</button>
+                                </div>
                             </div>
                         </template>
                         <template x-if="!faultDetail.proposed || faultForm.other">

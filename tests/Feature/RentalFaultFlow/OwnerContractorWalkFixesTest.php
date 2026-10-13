@@ -306,6 +306,24 @@ final class OwnerContractorWalkFixesTest extends TestCase
             ->assertDontSee('Accept the job')->assertDontSee('Upload a quote')->assertDontSee('Mark job done');
     }
 
+    public function test_a_contractors_link_after_the_job_is_finished_says_so_instead_of_expired(): void
+    {
+        [$wo, $token, $show] = $this->contractorPage();
+        $wo->forceFill(['status' => RentalWorkOrder::STATUS_COMPLETED])->save();
+        app(\App\Services\Rentals\RentalSecureAccessTokenService::class)->revokeAllFor($wo);
+
+        $this->get($show)->assertOk()->assertSee('This job is finished')->assertSee('Thank you')->assertDontSee('expired or been replaced');
+        // a link that never existed is still the plain "no longer available"
+        $this->get(route('rentals.secure-link.show', 'not-a-real-token'))->assertOk()->assertSee('This link is no longer available')->assertDontSee('This job is finished');
+    }
+
+    public function test_the_three_owner_buttons_share_one_border_box_so_they_are_equal_in_height_too(): void
+    {
+        $css = file_get_contents(base_path('resources/views/rentals/portal/shell.blade.php'));
+        $this->assertStringContainsString('.btn-pair-keep .btn, .btn-stack .btn { box-sizing:border-box; width:100%; min-width:0; border:1px solid transparent; }', $css);
+        $this->assertStringContainsString('class="btn-stack" data-owner-choice-buttons', file_get_contents(base_path('resources/views/rentals/portal/_fault-detail.blade.php')));
+    }
+
     // ── item 14: the agency's display name ──────────────────────────────────────────────────────
 
     public function test_the_contractor_page_and_email_use_the_agencys_display_name_not_the_half_filled_trading_name(): void

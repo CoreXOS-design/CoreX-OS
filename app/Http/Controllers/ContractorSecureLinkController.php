@@ -54,7 +54,11 @@ class ContractorSecureLinkController extends Controller
     {
         $record = $this->resolveToken($token);
         if (!$record) {
-            return view('rentals.secure-link.unavailable');
+            // a link that stopped working because the job is FINISHED says so - it is not "expired or replaced"
+            $closed = \App\Models\RentalSecureAccessToken::withoutGlobalScopes()->where('token_hash', \App\Models\RentalSecureAccessToken::hashToken($token))
+                ->where('purpose', \App\Models\RentalSecureAccessToken::PURPOSE_CONTRACTOR_WORK_ORDER)->first()?->workOrder;
+
+            return view('rentals.secure-link.unavailable', ['finished' => $closed && $closed->status === \App\Models\RentalWorkOrder::STATUS_COMPLETED]);
         }
 
         $workOrder = $record->workOrder()->with(['property', 'quotes', 'photos', 'supplier'])->first();
