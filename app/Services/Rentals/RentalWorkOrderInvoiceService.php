@@ -39,7 +39,7 @@ class RentalWorkOrderInvoiceService
      *
      * @param array<string, mixed> $data
      */
-    public function upload(RentalWorkOrder $workOrder, array $data, UploadedFile $file, User $by): RentalWorkOrderInvoice
+    public function upload(RentalWorkOrder $workOrder, array $data, UploadedFile $file, ?User $by, ?string $byLabel = null): RentalWorkOrderInvoice
     {
         $number = trim((string) $data['invoice_number']);
         $this->assertNumberFree($workOrder, $number, null);
@@ -48,7 +48,7 @@ class RentalWorkOrderInvoiceService
         $share = (bool) ($data['share_with_owner'] ?? false);
 
         try {
-            return $this->createRow($workOrder, $data, $number, $stored, $share, $by);
+            return $this->createRow($workOrder, $data, $number, $stored, $share, $by, $byLabel);
         } catch (\Throwable $e) {
             Storage::disk('local')->delete($stored['document_storage_path']);   // a failed save never leaves an orphan file behind
             throw $e;
@@ -56,9 +56,9 @@ class RentalWorkOrderInvoiceService
     }
 
     /** @param array<string, mixed> $data @param array<string, mixed> $stored */
-    private function createRow(RentalWorkOrder $workOrder, array $data, string $number, array $stored, bool $share, User $by): RentalWorkOrderInvoice
+    private function createRow(RentalWorkOrder $workOrder, array $data, string $number, array $stored, bool $share, ?User $by, ?string $byLabel = null): RentalWorkOrderInvoice
     {
-        return DB::transaction(function () use ($workOrder, $data, $number, $stored, $share, $by) {
+        return DB::transaction(function () use ($workOrder, $data, $number, $stored, $share, $by, $byLabel) {
             $invoice = $workOrder->invoices()->create([
                 'agency_id' => $workOrder->agency_id,
                 'agency_service_provider_id' => $data['agency_service_provider_id'] ?? null,
@@ -68,10 +68,10 @@ class RentalWorkOrderInvoiceService
                 'amount' => round((float) $data['amount'], 2),
                 'share_with_owner' => $share,
                 'shared_at' => $share ? now() : null,
-                'uploaded_by_user_id' => $by->id,
+                'uploaded_by_user_id' => $by?->id,
             ] + $stored);
 
-            $this->log($workOrder, 'invoice_uploaded', $invoice->describe() . ($share ? ' — shared with the owner' : ''), $by);
+            $this->log($workOrder, 'invoice_uploaded', $invoice->describe() . ($share ? ' — shared with the owner' : '') . ($byLabel ? ' — uploaded by ' . $byLabel . ' on their link' : ''), $by);
 
             return $invoice;
         });
@@ -289,10 +289,10 @@ class RentalWorkOrderInvoiceService
         return $name === '' ? null : mb_substr($name, 0, 191);
     }
 
-    private function log(RentalWorkOrder $workOrder, string $type, string $note, User $by): void
+    private function log(RentalWorkOrder $workOrder, string $type, string $note, ?User $by): void
     {
         $workOrder->updates()->create([
-            'agency_id' => $workOrder->agency_id, 'update_type' => $type, 'note' => $note, 'created_by_user_id' => $by->id,
+            'agency_id' => $workOrder->agency_id, 'update_type' => $type, 'note' => $note, 'created_by_user_id' => $by?->id,
         ]);
     }
 

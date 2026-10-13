@@ -112,7 +112,11 @@
             </div>
             <div><button type="submit" class="corex-btn-primary text-xs">{{ $workOrder->appointment_at ? 'Change appointment' : 'Set appointment' }}</button></div>
         </form>
-        <p class="text-xs" style="color: var(--text-muted);">The tenant is emailed when you set or change this. The owner can also set it from their portal.</p>
+        @if(app(\App\Services\Rentals\RentalWorkOrderService::class)->propertyHasTenant($workOrder))
+            <p class="text-xs" style="color: var(--text-muted);" data-appointment-agent-only>The tenant is emailed when you set or change this. A tenant lives in the property, so only you arrange the appointment - the owner sees it on their portal.</p>
+        @else
+            <p class="text-xs" style="color: var(--text-muted);" data-appointment-owner-too>The tenant is emailed when you set or change this. The property has no tenant, so the owner can also set it from their portal.</p>
+        @endif
         @else
             <p class="text-xs" style="color: var(--text-muted);" data-appointment-locked>An appointment can be set once the cost is authorised.</p>
         @endif
