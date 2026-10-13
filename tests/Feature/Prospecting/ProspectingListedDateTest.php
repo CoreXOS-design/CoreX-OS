@@ -40,99 +40,161 @@ final class ProspectingListedDateTest extends TestCase
         ]);
     }
 
-    private function capture(array $listing)
+    // ── where a real date comes from: listing-page captures only ────────
+
+    private function recorder(): \App\Services\Prospecting\ListedDateRecorder
+    {
+        return app(\App\Services\Prospecting\ListedDateRecorder::class);
+    }
+
+    private function listedDateOf(string $ref): ?string
+    {
+        return ProspectingListing::withoutGlobalScopes()->where('portal_ref', $ref)->firstOrFail()->listed_date?->toDateString();
+    }
+
+    public function test_search_result_captures_never_set_a_listed_date_and_first_seen_is_untouched(): void
     {
         Sanctum::actingAs($this->user);
+        $this->postJson('/api/v1/prospecting/import', [
+            'source' => 'p24',
+            'search_context' => ['url' => 'https://www.property24.com/for-sale/margate/1/p1', 'search_term' => 'Margate', 'total_results' => 1, 'pages_captured' => 1],
+            'listings' => [['portal_ref' => 'P24-5001', 'address' => '12 Marine Drive', 'suburb' => 'Margate', 'price' => 1850000,
+                'portal_url' => 'https://www.property24.com/listing/5001', 'listed_date' => '2026-07-17']],
+        ])->assertOk();
 
-        return $this->postJson('/api/v1/prospecting/import', [
-            'source'         => 'p24',
-            'search_context' => [
-                'url' => 'https://www.property24.com/for-sale/margate/1/p1',
-                'search_term' => 'Margate for sale', 'total_results' => 1, 'pages_captured' => 1,
-            ],
-            'listings' => [array_merge([
-                'portal_ref' => 'P24-5001', 'address' => '12 Marine Drive', 'suburb' => 'Margate',
-                'price' => 1850000, 'portal_url' => 'https://www.property24.com/listing/5001',
-            ], $listing)],
-        ]);
-    }
-
-    private function row(string $ref = 'P24-5001'): ProspectingListing
-    {
-        return ProspectingListing::withoutGlobalScopes()->where('portal_ref', $ref)->firstOrFail();
-    }
-
-    // ── capture ───────────────────────────────────────────────────────────
-
-    public function test_capture_stores_the_real_listed_date_apart_from_first_seen(): void
-    {
-        $this->capture(['listed_date' => '2026-07-17'])->assertOk()->assertJson(['imported' => 1]);
-
-        $l = $this->row();
-        $this->assertSame('2026-07-17', $l->listed_date->toDateString());
-        $this->assertSame(ProspectingListing::LISTED_DATE_SOURCE_PORTAL, $l->listed_date_source);
-        $this->assertTrue($l->first_seen_at->isToday(), 'first_seen_at stays the capture time');
-    }
-
-    public function test_capture_without_a_date_leaves_it_null(): void
-    {
-        $this->capture([])->assertOk();
-
-        $l = $this->row();
-        $this->assertNull($l->listed_date);
+        $l = ProspectingListing::withoutGlobalScopes()->where('portal_ref', 'P24-5001')->firstOrFail();
+        $this->assertNull($l->listed_date, 'tiles carry no date: even a stray field is ignored by the search capture');
         $this->assertNull($l->listed_date_source);
-        $this->assertFalse($l->hasRealListedDate());
+        $this->assertTrue($l->first_seen_at->isToday());
+    }
+
+    public function test_the_recorder_stores_a_listing_pages_date_on_the_matching_mic_listing_in_either_reference_form(): void
+    {
+        $this->listing('P24-117001', listed: null, firstSeen: now()->subDays(3));
+        $this->listing('PP-T555', listed: null, firstSeen: now()->subDays(3));
+
+        $this->assertSame(1, $this->recorder()->record($this->agency->id, 'p24', '117001', '17 July 2026'));
+        $this->assertSame(1, $this->recorder()->record($this->agency->id, 'pp', 'T555', '2026-06-01'));
+
+        $this->assertSame('2026-07-17', $this->listedDateOf('P24-117001'));
+        $this->assertSame('2026-06-01', $this->listedDateOf('PP-T555'));
+        $this->assertSame('portal', ProspectingListing::withoutGlobalScopes()->where('portal_ref', 'P24-117001')->value('listed_date_source'));
+
+        // prefixed form, same advert: same date -> nothing to change
+        $this->assertSame(0, $this->recorder()->record($this->agency->id, 'p24', 'P24-117001', '2026-07-17'));
+        // a changed date on the page is taken
+        $this->assertSame(1, $this->recorder()->record($this->agency->id, 'p24', 'P24-117001', '2026-07-20'));
+        $this->assertSame('2026-07-20', $this->listedDateOf('P24-117001'));
+    }
+
+    public function test_the_recorder_never_overwrites_an_agents_correction_and_never_creates_a_listing(): void
+    {
+        $l = $this->listing('P24-117002', listed: now()->subDays(40), firstSeen: now()->subDays(3));
+        DB::table('prospecting_listings')->where('id', $l->id)->update(['listed_date_source' => 'agent']);
+        $before = DB::table('prospecting_listings')->count();
+
+        $this->assertSame(0, $this->recorder()->record($this->agency->id, 'p24', '117002', '2026-01-01'));
+        $this->assertSame(now()->subDays(40)->toDateString(), $this->listedDateOf('P24-117002'));
+
+        $this->assertSame(0, $this->recorder()->record($this->agency->id, 'p24', '999999', '2026-01-01'), 'an advert MIC does not hold is not created');
+        $this->assertSame($before, DB::table('prospecting_listings')->count());
+    }
+
+    public function test_the_recorder_only_touches_its_own_agency_and_live_listings(): void
+    {
+        $other = Agency::create(['name' => 'Other', 'slug' => 'other-' . uniqid()]);
+        $ob = Branch::create(['agency_id' => $other->id, 'name' => 'Main']);
+        $ou = User::factory()->create(['agency_id' => $other->id, 'branch_id' => $ob->id, 'role' => 'admin']);
+        $theirs = $this->listing('P24-117003', listed: null, firstSeen: now()->subDays(3), agencyId: $other->id, branchId: $ob->id, capturedBy: $ou->id);
+        $gone = $this->listing('P24-117004', listed: null, firstSeen: now()->subDays(3));
+        DB::table('prospecting_listings')->where('id', $gone->id)->update(['deleted_at' => now()]);
+
+        $this->assertSame(0, $this->recorder()->record($this->agency->id, 'p24', '117003', '2026-07-01'), 'another agency\'s advert');
+        $this->assertSame(0, $this->recorder()->record($this->agency->id, 'p24', '117004', '2026-07-01'), 'a deleted listing');
+        $this->assertNull($theirs->fresh()->listed_date);
+        $this->assertSame(0, $this->recorder()->record(0, 'p24', '117003', '2026-07-01'));
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('unusableDates')]
-    public function test_a_malformed_or_future_date_never_fails_the_batch(string $raw): void
+    public function test_a_blank_future_or_impossible_page_date_is_ignored(string $raw): void
     {
-        $this->capture(['listed_date' => $raw])->assertOk()->assertJson(['imported' => 1]);
+        $this->listing('P24-117005', listed: null, firstSeen: now()->subDays(3));
 
-        $this->assertNull($this->row()->listed_date, "'{$raw}' must be absorbed to null");
+        $this->assertSame(0, $this->recorder()->record($this->agency->id, 'p24', '117005', $raw), "'{$raw}'");
+        $this->assertNull($this->listedDateOf('P24-117005'));
     }
 
     public static function unusableDates(): array
     {
         return [
-            'zero'         => ['0'],
-            'dash'         => ['-'],
-            'words'        => ['Listed soon'],
-            'future'       => [now()->addDays(10)->toDateString()],
-            'before 2000'  => ['1989-03-01'],
-            'impossible'   => ['2026-02-31'],
+            'blank'       => [''],
+            'zero'        => ['0'],
+            'dash'        => ['-'],
+            'words'       => ['Listed soon'],
+            'future'      => [now()->addDays(10)->toDateString()],
+            'before 2000' => ['1989-03-01'],
+            'impossible'  => ['2026-02-31'],
         ];
     }
 
-    public function test_a_portal_date_in_the_portals_own_format_is_understood(): void
+    public function test_an_unknown_portal_or_blank_reference_is_ignored(): void
     {
-        $this->capture(['listed_date' => '17 July 2026'])->assertOk();
-        $this->assertSame('2026-07-17', $this->row()->listed_date->toDateString());
+        $this->listing('P24-117006', listed: null, firstSeen: now()->subDays(3));
+
+        $this->assertSame(0, $this->recorder()->record($this->agency->id, 'property24', '117006', '2026-07-01'));
+        $this->assertSame(0, $this->recorder()->record($this->agency->id, 'p24', '  ', '2026-07-01'));
+        $this->assertSame(0, $this->recorder()->record($this->agency->id, 'p24', 'abc', '2026-07-01'));
     }
 
-    public function test_a_recapture_updates_a_portal_date_but_never_an_agent_correction(): void
+    /** The Other Agency Stock import already reads the page's "Listing Date" (date_posted): it now reaches MIC too. */
+    public function test_the_other_agency_stock_import_stores_the_pages_date_on_the_mic_listing(): void
     {
-        $this->capture(['listed_date' => '2026-07-17'])->assertOk();
-        $this->capture(['listed_date' => '2026-08-01'])->assertOk();
-        $this->assertSame('2026-08-01', $this->row()->listed_date->toDateString());
+        \Illuminate\Support\Facades\Http::fake(['*' => \Illuminate\Support\Facades\Http::response('', 404)]);
+        $this->listing('PP-T99999', listed: null, firstSeen: now()->subDays(3));
+        $payload = [
+            'portal' => 'pp', 'listing_ref' => 'T99999', 'consent' => true, 'price' => 1500000, 'property_type' => 'house',
+            'listing_url' => 'https://www.privateproperty.co.za/for-sale/kwazulu-natal/margate/T99999',
+            'beds' => 3, 'baths' => 2, 'suburb' => 'Uvongo', 'description' => 'A lovely home',
+            'source_agency_name' => 'Seeff', 'source_agent_name' => 'Jane Agent', 'date_posted' => '17 July 2026',
+        ];
 
-        // an agent corrects it; a later capture must not undo that
-        $this->row()->forceFill([
-            'listed_date' => '2026-05-05', 'listed_date_source' => ProspectingListing::LISTED_DATE_SOURCE_AGENT,
-        ])->save();
-        $this->capture(['listed_date' => '2026-09-09'])->assertOk();
+        $this->actingAs($this->user)->postJson(route('v1.other-agency-stock.import'), $payload)->assertOk();
 
-        $l = $this->row();
-        $this->assertSame('2026-05-05', $l->listed_date->toDateString());
-        $this->assertSame(ProspectingListing::LISTED_DATE_SOURCE_AGENT, $l->listed_date_source);
+        $this->assertSame('2026-07-17', $this->listedDateOf('PP-T99999'));
     }
 
-    public function test_a_recapture_without_a_date_keeps_the_stored_one(): void
+    public function test_the_other_agency_stock_import_still_succeeds_when_no_mic_listing_or_no_date(): void
     {
-        $this->capture(['listed_date' => '2026-07-17'])->assertOk();
-        $this->capture([])->assertOk();
+        \Illuminate\Support\Facades\Http::fake(['*' => \Illuminate\Support\Facades\Http::response('', 404)]);
+        $base = [
+            'portal' => 'pp', 'listing_ref' => 'T88888', 'consent' => true, 'price' => 1500000, 'property_type' => 'house',
+            'listing_url' => 'https://www.privateproperty.co.za/for-sale/kwazulu-natal/margate/T88888',
+            'beds' => 3, 'baths' => 2, 'suburb' => 'Uvongo', 'description' => 'A lovely home',
+            'source_agency_name' => 'Seeff', 'source_agent_name' => 'Jane Agent',
+        ];
 
-        $this->assertSame('2026-07-17', $this->row()->listed_date->toDateString());
+        $this->actingAs($this->user)->postJson(route('v1.other-agency-stock.import'), $base + ['date_posted' => '17 July 2026'])->assertOk();
+        $this->assertSame(0, DB::table('prospecting_listings')->where('portal_ref', 'PP-T88888')->count(), 'nothing is created in MIC');
+
+        $this->listing('PP-T88889', listed: null, firstSeen: now()->subDays(3));
+        $this->actingAs($this->user)->postJson(route('v1.other-agency-stock.import'), array_merge($base, ['listing_ref' => 'T88889']))->assertOk();
+        $this->assertNull($this->listedDateOf('PP-T88889'));
+    }
+
+    /** The single-listing "Pull property" capture carries the page's Listing Date as date_posted. */
+    public function test_pulling_a_property_stores_the_pages_date_on_the_mic_listing(): void
+    {
+        \Illuminate\Support\Facades\Queue::fake();
+        \Illuminate\Support\Facades\Http::fake(['*' => \Illuminate\Support\Facades\Http::response('', 404)]);
+        $this->listing('P24-117010', listed: null, firstSeen: now()->subDays(3));
+
+        $this->actingAs($this->user)->postJson(route('v1.properties.pull-from-portal'), [
+            'portal_ref' => 'P24-117010', 'portal_url' => 'https://www.property24.com/for-sale/margate/kwazulu-natal/1/117010',
+            'title' => '3 Bedroom House in Margate', 'price' => 1850000, 'suburb' => 'Margate', 'beds' => 3, 'baths' => 2,
+            'date_posted' => '3 June 2026',
+        ])->assertOk();
+
+        $this->assertSame('2026-06-03', $this->listedDateOf('P24-117010'));
     }
 
     // ── days on market, new, long ────────────────────────────────────────
@@ -310,7 +372,7 @@ final class ProspectingListedDateTest extends TestCase
             'agency_id'           => $agencyId ?? $this->agency->id,
             'branch_id'           => $branchId ?? $this->branch->id,
             'captured_by_user_id' => $capturedBy ?? $this->user->id,
-            'portal_source'       => 'p24',
+            'portal_source'       => str_starts_with($ref, 'PP-') ? 'pp' : 'p24',
             'portal_ref'          => $ref,
             'portal_url'          => 'https://example.test/' . $ref,
             'address'             => '1 Test Road',

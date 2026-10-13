@@ -342,8 +342,6 @@
         agent_name:       null,
         agency_name:      agencyName,
         thumbnail_url:    thumbnail,
-        // AT-454 — the advert's own listed date, only when the tile states one; else null.
-        listed_date:      (window.CoreXListedDate ? window.CoreXListedDate.fromText(card.textContent) : null),
         source:           'pp',
       });
     });

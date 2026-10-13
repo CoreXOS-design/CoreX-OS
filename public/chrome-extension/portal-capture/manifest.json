@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CoreX",
-  "version": "3.12.0",
+  "version": "3.11.0",
   "description": "Pull properties and capture listings from portals into CoreX OS",
   "homepage_url": "https://www.corexos.co.za/extension/privacy",
   "permissions": ["activeTab", "storage", "unlimitedStorage", "notifications", "alarms", "scripting"],
@@ -22,12 +22,12 @@
   "content_scripts": [
     {
       "matches": ["https://www.property24.com/*"],
-      "js": ["listed-date.js", "content-p24-detail.js"],
+      "js": ["content-p24-detail.js"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://www.privateproperty.co.za/*"],
-      "js": ["listed-date.js", "content-pp.js"],
+      "js": ["content-pp.js"],
       "run_at": "document_idle"
     },
     {

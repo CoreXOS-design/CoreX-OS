@@ -168,27 +168,33 @@ final class MicSelectionsTest extends TestCase
 
     // ── 5: new on market ────────────────────────────────────────────────
 
-    public function test_new_on_market_needs_a_real_listed_date_inside_the_window(): void
+    public function test_new_on_market_uses_the_real_date_else_first_seen_and_says_which(): void
     {
-        $new    = $this->listing(['listed_date' => '2026-10-10', 'listed_date_source' => 'portal']);
+        $new    = $this->listing(['listed_date' => '2026-10-10', 'listed_date_source' => 'portal', 'first_seen_at' => '2026-03-01 08:00:00']);   // captured long ago, listed 4 days ago
         $newer  = $this->listing(['listed_date' => '2026-10-13', 'listed_date_source' => 'portal']);
         $edge   = $this->listing(['listed_date' => '2026-09-30', 'listed_date_source' => 'portal']);   // exactly 14 days before the 14th
         $stale  = $this->listing(['listed_date' => '2026-09-29', 'listed_date_source' => 'portal']);
-        $noDate = $this->listing(['first_seen_at' => '2026-10-13 06:00:00']);                              // captured yesterday: proves nothing
+        $oldReal = $this->listing(['listed_date' => '2026-05-01', 'listed_date_source' => 'portal', 'first_seen_at' => '2026-10-12 06:00:00']); // captured yesterday but listed in May: NOT new
+        $seenNew = $this->listing(['first_seen_at' => '2026-10-12 06:00:00']);                          // no real date: first seen yesterday
+        $seenOld = $this->listing(['first_seen_at' => '2026-03-01 08:00:00']);                          // no real date: first seen in March
 
         $c = (new NewOnMarketSelection())->candidates($this->ctx(), 50);
+        $ids = $this->listingIds($c);
 
-        $this->assertSame([$newer, $new, $edge], $this->listingIds($c), 'newest first; no real date = not "new"');
+        $this->assertSame([$newer, $seenNew, $new, $edge], $ids, 'newest first, real and first-seen dates ordered together');
+        foreach ([$stale, $oldReal, $seenOld] as $never) {
+            $this->assertNotContains($never, $ids);
+        }
         $this->assertSame('Listed 1 day ago', $c[0]->reason);
-        $this->assertSame('Listed 4 days ago', $c[1]->reason);
-        $this->assertNotContains($noDate, $this->listingIds($c));
+        $this->assertSame('First seen by us 2 days ago (listed date not known)', $c[1]->reason);
+        $this->assertSame('Listed 4 days ago', $c[2]->reason);
     }
 
     public function test_new_on_market_window_is_the_agency_setting(): void
     {
         $l = $this->listing(['listed_date' => '2026-09-20', 'listed_date_source' => 'portal']);
 
-        $this->assertSame([], (new NewOnMarketSelection())->candidates($this->ctx(), 50));
+        $this->assertSame([], (new NewOnMarketSelection())->candidates($this->ctx(), 50));   // 24 days ago, window 14
         $this->assertSame([$l], $this->listingIds((new NewOnMarketSelection())->candidates($this->ctx(settings: ['newOnMarketDays' => 30]), 50)));
     }
 
@@ -205,7 +211,7 @@ final class MicSelectionsTest extends TestCase
 
         $this->assertSame([$realOld, $seenOld], $this->listingIds($c));
         $this->assertSame('On the market for 166 days', $c[0]->reason);
-        $this->assertStringContainsString('at least 135 days (since we first saw it)', $c[1]->reason);
+        $this->assertStringContainsString('at least 135 days (first seen by us; listed date not known)', $c[1]->reason);
     }
 
     public function test_long_on_market_window_is_the_agency_setting(): void

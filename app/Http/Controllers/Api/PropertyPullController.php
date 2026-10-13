@@ -186,6 +186,16 @@ class PropertyPullController extends Controller
             $property = Property::create($propertyData);
         }
 
+        // AT-454 — the listing page carries the advert's real listed date: let the MIC listing for this
+        // advert learn it (updates an existing MIC listing only; never fails the pull).
+        if (! empty($data['portal_ref']) && ! empty($data['date_posted'])) {
+            app(\App\Services\Prospecting\ListedDateRecorder::class)->record(
+                (int) ($user->effectiveAgencyId() ?: 0),
+                str_starts_with(strtoupper((string) $data['portal_ref']), 'PP') ? 'pp' : 'p24',
+                (string) $data['portal_ref'], $data['date_posted']
+            );
+        }
+
         // Add a note with pull metadata (only on create, not on re-pull)
         if (!$isUpdate) {
             $noteContent = 'Property pulled from portal via CoreX extension.';

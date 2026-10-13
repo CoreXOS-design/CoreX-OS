@@ -203,6 +203,13 @@ class OtherAgencyStockImportController extends Controller
 
         $property = $service->import($validated, $request->user());
 
+        // AT-454 — the listing page carries the advert's real listed date: let the MIC listing for this
+        // advert learn it (updates an existing MIC listing only; never fails the import).
+        app(\App\Services\Prospecting\ListedDateRecorder::class)->record(
+            (int) ($request->user()?->effectiveAgencyId() ?: 0),
+            (string) $validated['portal'], (string) $validated['listing_ref'], $validated['date_posted'] ?? null
+        );
+
         // Same response shape PropertyPullController returns — the popup's
         // image-download polling (pull-status) is shared code and reads
         // images_count from here exactly like the Pull flow.

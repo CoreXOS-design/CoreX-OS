@@ -287,10 +287,6 @@
     // MIC SOLD / OFF-MARKET — portal lifecycle status (active/under_offer/sold/withdrawn).
     listing.portal_status = extractP24Status(card);
 
-    // AT-454 — the advert's own listed date, only when the tile states one ("Listed 17 July 2026",
-    // "Listed 3 days ago"). null otherwise; the server then uses the first-sighting day.
-    try { listing.listed_date = window.CoreXListedDate ? window.CoreXListedDate.fromText(card.textContent) : null; } catch (e) { listing.listed_date = null; }
-
     return listing;
   }
 

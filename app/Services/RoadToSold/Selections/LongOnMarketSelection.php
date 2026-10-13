@@ -7,9 +7,9 @@ use Illuminate\Support\Carbon;
 
 /**
  * Selection 6 — long on market. On the market MORE than the agency's window (default 90 days), by the
- * real listed date when we have one, else by the day we first captured it. The fallback can only
- * under-state the age ("first seen at least N days ago" proves "listed at least N days ago"), so
- * nothing here is wrongly included. Longest first.
+ * real listed date when we have one, else by the day we first captured it (labelled on the row). The
+ * fallback can only under-state the age ("first seen at least N days ago" proves "listed at least N days
+ * ago"). Longest first.
  */
 final class LongOnMarketSelection extends MicPoolSelection
 {
@@ -48,6 +48,6 @@ final class LongOnMarketSelection extends MicPoolSelection
 
         return $row->listed_date
             ? "On the market for {$days} days"
-            : "On the market for at least {$days} days (since we first saw it)";
+            : "On the market for at least {$days} days (first seen by us; listed date not known)";
     }
 }
