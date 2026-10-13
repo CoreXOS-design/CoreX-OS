@@ -264,7 +264,9 @@ final class LeasePropertyStatusTest extends TestCase
 
     public function test_row6_out_inspection_completion_restores_pre_let_status(): void
     {
-        $lease = $this->activeLease();
+        // The tenancy is over (its end date has come): the out-inspection confirming vacant ends it. Before the move-out date it
+        // would not - see RenewalWalkFixesTest (rental-renewals.md §22).
+        $lease = $this->activeLease(['end_date' => now()->subDay()->toDateString()]);
         self::assertTrue((bool) $this->property->fresh()->status_before_letting);
 
         $inspection = RentalInspection::create([

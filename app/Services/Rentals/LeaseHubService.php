@@ -61,11 +61,13 @@ class LeaseHubService
             || ($lease->source !== Lease::SOURCE_ESIGN_DOCUMENT && $lease->source !== 'rental_application' && $lease->status !== Lease::STATUS_DRAFT);
         $steps[] = $this->step('lease_signed', 'Lease signed', $leaseSigned ? 'done' : ($lease->status === Lease::STATUS_DRAFT ? 'current' : 'pending'));
 
-        $steps[] = $this->step('in_inspection', 'In-inspection', $hasCompletedIn
+        // A renewal carries on the same tenancy: the tenant is already in, so the in-inspection step is not waiting on anything.
+        $inAlreadyDone = $hasCompletedIn || $lease->previous_lease_id !== null;
+        $steps[] = $this->step('in_inspection', 'In-inspection', $inAlreadyDone
             ? 'done'
             : ($lease->status === Lease::STATUS_ACTIVE ? 'current' : 'pending'));
 
-        $tenancyDone = $lease->status === Lease::STATUS_ACTIVE && $hasCompletedIn;
+        $tenancyDone = $lease->status === Lease::STATUS_ACTIVE && $inAlreadyDone;
         $steps[] = $this->step('tenancy', 'Tenancy', $tenancyDone ? 'done' : 'pending');
 
         $steps[] = $this->step('renewal_notice', 'Renewal / notice', $hasRenewal
@@ -120,7 +122,9 @@ class LeaseHubService
             return ['label' => 'Start out-inspection', 'route_name' => 'corex.rental-inspections.create', 'route_param' => ['lease_id' => $lease->id, 'type' => 'out']];
         }
 
-        if ($lease->status === Lease::STATUS_ACTIVE && !$hasCompletedIn) {
+        // A renewal is the same tenancy carrying on: the tenant is already in the property, so it never needs its own in-inspection
+        // (the term it renews had one; the Command Centre's due-inspection rule says the same).
+        if ($lease->status === Lease::STATUS_ACTIVE && !$hasCompletedIn && !$lease->previous_lease_id) {
             return ['label' => 'Start in-inspection', 'route_name' => 'corex.rental-inspections.create', 'route_param' => ['lease_id' => $lease->id, 'type' => 'in']];
         }
 
@@ -134,6 +138,12 @@ class LeaseHubService
         // exists, so the next-step card links straight into it instead of
         // AT-440's own placeholder (lease edit). Suppressed once an outcome
         // is already on file — nothing left to "review" until it's reversed.
+        // rental-renewals.md §22 - the renewal is signed and only waiting for its start date: say so, nothing to click.
+        if ($lease->status === Lease::STATUS_ACTIVE && !$lease->renewed_lease_id
+            && ($waiting = $lease->renewalDrafts()->get()->first(fn (Lease $d) => $d->isSignedRenewalAwaitingStart()))) {
+            return ['label' => 'Renewal signed - starts ' . $waiting->start_date->format('j M Y'), 'route_name' => null, 'route_param' => null];
+        }
+
         if ($withinRenewalWindow && !$lease->hasActiveNotice() && !$lease->renewed_lease_id) {
             return ['label' => 'Review renewal', 'route_name' => 'corex.leases.renewal.create', 'route_param' => $lease->id];
         }
@@ -197,6 +207,11 @@ class LeaseHubService
                     return $user && app(LeaseAgreementConfirmService::class)->mayConfirm($user, $lease)
                         ? ['label' => 'Signed — confirm the lease details', 'route_name' => 'corex.leases.agreement.confirm', 'route_param' => $lease->id]
                         : $none('Signed — the agent who sent it must confirm the lease details');
+                }
+
+                // rental-renewals.md §22 - a renewal signed ahead of its start date: it goes active on that date by itself.
+                if ($lease->isSignedRenewalAwaitingStart()) {
+                    return $none('Signed - starts ' . $lease->start_date->format('j M Y') . '. The current lease stays active until then.');
                 }
 
                 // leases.md §15.5 — signed, but another lease is still active on the property: say what to do.

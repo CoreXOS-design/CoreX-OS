@@ -296,6 +296,13 @@ class LeaseSigningStateService
      */
     private function goLive(Lease $locked, ?User $actor, \DateTimeInterface $signedAt): array
     {
+        // rental-renewals.md §22 - a renewal signed ahead of its start date does not touch the running lease: it waits, signed, for its start
+        // date and `leases:advance-terms` activates it then.
+        $renewals = app(LeaseRenewalService::class);
+        if ($renewals->startsLater($locked)) {
+            return [$locked, false, $renewals->holdUntilStart($locked, $actor)];
+        }
+
         try {
             $locked = $this->activate($locked, $actor);
             $this->event($locked, LeaseEvent::TYPE_LEASE_ACTIVATED_BY_SIGNING, 'Lease active — signed on ' . $signedAt->format('d M Y'), $actor, [

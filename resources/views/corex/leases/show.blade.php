@@ -82,7 +82,7 @@
                 @endif{{ $lease->property?->trashed() ? ' (archived)' : '' }}
             </h1>
             <div class="flex items-center gap-2 mt-1 text-sm">
-                <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst($lease->status) }}</span>
+                <span class="ds-badge {{ $statusBadgeClass }}">{{ $lease->displayStatus() }}</span>
                 @if($lease->signingStatusLabel())
                     <span class="ds-badge ds-badge-info" data-qa="header-signing-status">Agreement: {{ $lease->signingStatusLabel() }}</span>
                 @endif

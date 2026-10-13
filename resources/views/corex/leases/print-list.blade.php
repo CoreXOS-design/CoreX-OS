@@ -25,7 +25,7 @@
                     <td>{{ $lease->tenantNames() }}</td>
                     <td>{{ $lease->ownerAgent?->name ?: '—' }}</td>
                     <td>{{ $lease->tenantAgent?->name ?: '—' }}</td>
-                    <td>{{ ucfirst($lease->status) }}</td>
+                    <td>{{ $lease->displayStatus() }}</td>
                     <td>{{ $lease->start_date?->format('Y-m-d') }}</td>
                     <td>{{ $lease->end_date?->format('Y-m-d') ?? ($lease->is_month_to_month ? 'Month-to-month' : '—') }}</td>
                     <td>R{{ number_format((float) $lease->rental_amount, 2) }}</td>
