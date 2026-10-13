@@ -151,36 +151,35 @@ final class RentalApprovalGateServiceTest extends TestCase
         $this->assertSame('400.00', $row->baseline_amount);
     }
 
-    public function test_the_tolerance_is_measured_above_the_approved_amount_and_the_boundary_is_inclusive(): void
+    public function test_the_authorised_amount_is_a_hard_lock_the_exact_amount_passes_and_one_cent_over_goes_to_the_owner(): void
     {
-        $this->property->forceFill(['rental_variation_tolerance_percent' => 10])->save();
+        // a stored tolerance (the old work term) is NOT read any more - set it high on the property AND the agency to prove it
+        $this->property->forceFill(['rental_variation_tolerance_percent' => 50])->save();
+        $this->setting(['variation_tolerance_percent' => 50]);
         $wo = $this->approved(1000);
 
-        $within = $this->gate->evaluateVariation($wo, 1080.0, $this->admin);
-        $this->assertTrue($within->authorised);
-        $this->assertSame('variation_tolerance', $within->basis);
-        $row = $this->rows($wo)->sole();
-        $this->assertSame('variation_tolerance', $row->term_key);
-        $this->assertSame('10.00', $row->term_value);
-        $this->assertSame('property', $row->term_source);
-        $this->assertSame('1100.00', $row->limit_amount, 'the ceiling is baseline + 10 %');
-        $this->assertStringContainsString('R1,000.00 + 10 % = R1,100.00', $row->note);
+        $this->assertSame('no_change', $this->gate->evaluateVariation($wo, 1000.00, $this->admin)->decision, 'exactly the authorised amount needs nothing');
 
-        $this->assertTrue($this->gate->evaluateVariation($wo, 1100.00, $this->admin)->authorised, 'exactly the ceiling is inside it');
-        $over = $this->gate->evaluateVariation($wo, 1100.01, $this->admin);
-        $this->assertFalse($over->authorised);
+        $over = $this->gate->evaluateVariation($wo, 1000.01, $this->admin);
+        $this->assertFalse($over->authorised, 'R0.01 above the authorised amount is NOT passed');
         $this->assertSame('needs_owner', $over->decision);
-        $this->assertStringContainsString('above what the owner approved (R1,000.00) plus the agreed 10 % tolerance (R1,100.00', $this->rows($wo)->last()->note);
+        $row = $this->rows($wo)->sole();
+        $this->assertSame('needs_owner', $row->decision);
+        $this->assertSame('owner_decision', $row->term_key);
+        $this->assertSame('1000.00', $row->limit_amount);
+        $this->assertStringContainsString('above what was authorised (R1,000.00)', $row->note);
+        $this->assertStringContainsString('extra of R0.01', $row->note);
+
+        $this->assertSame('needs_owner', $this->gate->evaluateVariation($wo, 1500.00, $this->admin)->decision, 'and so does 50 % over');
     }
 
-    public function test_a_zero_tolerance_sends_every_increase_to_the_owner(): void
+    public function test_no_tolerance_is_read_anywhere_in_the_terms(): void
     {
-        $wo = $this->approved(1000);
+        $this->property->forceFill(['rental_variation_tolerance_percent' => 25])->save();
+        $terms = $this->gate->termsFor($this->property->fresh());
 
-        $decision = $this->gate->evaluateVariation($wo, 1000.01, $this->admin);
-
-        $this->assertFalse($decision->authorised);
-        $this->assertStringContainsString('no tolerance is agreed', $this->rows($wo)->sole()->note);
+        $this->assertFalse(property_exists($terms, 'variationPct'));
+        $this->assertFalse(property_exists($terms, 'pctSource'));
     }
 
     public function test_emergency_work_is_covered_and_never_gated(): void
@@ -197,9 +196,9 @@ final class RentalApprovalGateServiceTest extends TestCase
 
     // ── the no-creep rule, end to end on a real job ──────────────────
 
-    public function test_small_auto_approved_steps_cannot_creep_past_the_ceiling_set_by_what_the_owner_approved(): void
+    public function test_a_small_extra_on_a_real_job_goes_to_the_owner_and_the_baseline_does_not_move(): void
     {
-        $this->property->forceFill(['rental_variation_tolerance_percent' => 10])->save();
+        $this->property->forceFill(['rental_variation_tolerance_percent' => 10])->save();   // ignored: the amount is a hard lock
         [$card, $wo] = $this->internalJob(1000.0);
         $wo = $this->sendQuote($card);
         $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $wo->owner_approval_status, 'R1,000 is over the R500 limit');
@@ -208,17 +207,17 @@ final class RentalApprovalGateServiceTest extends TestCase
 
         $this->travel(5)->seconds();
         app(\App\Services\Rentals\RentalJobCardService::class)->addLine($card->fresh(), ['type' => 'part', 'description' => 'Valve', 'quantity' => 1, 'unit_price' => 80], $this->admin);
-        $first = $wo->fresh()->variations()->sole();
-        $this->assertSame(RentalWorkOrderVariation::STATUS_AUTO_APPROVED, $first->status);
-        $this->assertSame('1080.00', $first->new_total);
-        $this->assertSame('1000.00', $wo->fresh()->approved_amount, 'an auto-approved extra does NOT move the baseline');
+        $open = $wo->fresh()->openVariation();
+        $this->assertNotNull($open, 'an R80 extra (8 %) is not passed by any tolerance: it waits for the owner');
+        $this->assertSame(RentalWorkOrderVariation::STATUS_AWAITING_OWNER, $open->status);
+        $this->assertSame('1000.00', $open->baseline_amount);
+        $this->assertSame('1000.00', $wo->fresh()->approved_amount, 'the approved amount does not move until the owner decides');
 
         $this->travel(5)->seconds();
         app(\App\Services\Rentals\RentalJobCardService::class)->addLine($card->fresh(), ['type' => 'part', 'description' => 'Pipe', 'quantity' => 1, 'unit_price' => 60], $this->admin);
         $open = $wo->fresh()->openVariation();
-        $this->assertNotNull($open, '1,140 is 14 % above what the owner approved — NOT 5 % above the last step');
-        $this->assertSame('140.00', $open->extra_amount);
-        $this->assertSame('1000.00', $open->baseline_amount);
+        $this->assertSame('140.00', $open->extra_amount, 'the one open request is revised, measured from what the owner approved');
+        $this->assertSame(1, $wo->fresh()->variations()->count());
     }
 
     // ── multi-agency ─────────────────────────────────────────────────

@@ -29,11 +29,8 @@ use Illuminate\Support\Facades\Log;
  * the ceiling it was tested against), and the same sentence is stored in `note`
  * so a later change of a term never rewrites history (§17.6.4).
  *
- * BUILT in Build 2 (§17.21.3). The two owner work terms (§17.6.1) are
- * (i) the no-approval limit — per JOB, never per line — and (ii) the variation
- * tolerance, an increase of up to Y % above the APPROVED amount that is
- * auto-approved. Emergency work (§17.8) is never gated: the owner's agreement is
- * captured by the office (recordEmergency) and there is no override of it.
+ * BUILT in Build 2 (§17.21.3); rewritten by rentals-faults-work-orders.md §22.6: NOTHING IS APPROVED BY ITSELF and the authorised amount is a HARD LOCK - no
+ * tolerance, no limit and no R0.01 can pass an amount above it (it goes to the owner as a request for the extra). The old variation tolerance % is no longer read.
  */
 class RentalApprovalGateService
 {
@@ -60,17 +57,7 @@ class RentalApprovalGateService
                 : WorkTerms::SOURCE_CONSTANT;
         }
 
-        if ($property->rental_variation_tolerance_percent !== null) {
-            $pct = (float) $property->rental_variation_tolerance_percent;
-            $pctSource = WorkTerms::SOURCE_PROPERTY;
-        } else {
-            $pct = RentalWorkOrderSetting::variationTolerancePercentFor($property->agency_id);
-            $pctSource = RentalWorkOrderSetting::hasAgencyVariationTolerance($property->agency_id)
-                ? WorkTerms::SOURCE_AGENCY_DEFAULT
-                : WorkTerms::SOURCE_CONSTANT;
-        }
-
-        return new WorkTerms($limit, $limitSource, $pct, $pctSource);
+        return new WorkTerms($limit, $limitSource);
     }
 
     /** Same terms for a work order whose property row is somehow unavailable: the agency defaults only. */
@@ -83,8 +70,6 @@ class RentalApprovalGateService
         return new WorkTerms(
             RentalWorkOrderSetting::spendThresholdFor($workOrder->agency_id),
             RentalWorkOrderSetting::hasAgencySpendThreshold($workOrder->agency_id) ? WorkTerms::SOURCE_AGENCY_DEFAULT : WorkTerms::SOURCE_CONSTANT,
-            RentalWorkOrderSetting::variationTolerancePercentFor($workOrder->agency_id),
-            RentalWorkOrderSetting::hasAgencyVariationTolerance($workOrder->agency_id) ? WorkTerms::SOURCE_AGENCY_DEFAULT : WorkTerms::SOURCE_CONSTANT,
         );
     }
 
@@ -102,7 +87,7 @@ class RentalApprovalGateService
         $amount = round($ownerFacingAmount, 2);
         $limit = $workOrder->property ? RentalOwnerFaultSettings::for($workOrder->property)->repairLimit() : null;
 
-        if ($limit !== null && $amount <= $limit + 0.001) {
+        if ($limit !== null && round($amount * 100) <= round($limit * 100)) {
             $decision = new GateDecision(
                 authorised: false,
                 decision: RentalApprovalDecision::DECISION_NEEDS_AGENT,
@@ -194,15 +179,14 @@ class RentalApprovalGateService
     // ───────────────────────── variations ─────────────────────────
 
     /**
-     * §17.6.3 — the five-step variation rule, compared with `approved_amount` only:
+     * §17.6.3 / §22.6 — the variation rule, compared with `approved_amount` only:
      * 1 emergency → emergency_covered; 2 a decrease (or no baseline) → no change, writes nothing;
-     * 3 within the no-approval limit → auto-approved (term i); 4 within the tolerance → auto-approved (term ii);
-     * 5 otherwise needs the owner. $record = false lets assessAfterLineChange() write the row itself once the
+     * 3 anything above the authorised amount - even R0.01 - needs the owner (section 22.6: a hard lock, no limit and no tolerance can pass it).
+     * $record = false lets assessAfterLineChange() write the row itself once the
      * variation exists (so the row can point at it).
      */
     public function evaluateVariation(RentalWorkOrder $workOrder, float $newTotal, ?User $by, bool $record = true, ?RentalWorkOrderVariation $variation = null): GateDecision
     {
-        $terms = $this->termsForWorkOrder($workOrder);
         $newTotal = round($newTotal, 2);
 
         if ($this->isEmergency($workOrder)) {
@@ -213,7 +197,7 @@ class RentalApprovalGateService
                 termKey: RentalApprovalDecision::TERM_EMERGENCY,
                 termSource: RentalApprovalDecision::SOURCE_EMERGENCY,
                 amountTested: $newTotal,
-                note: 'Emergency work the owner agreed to — no approval limit or tolerance applies; the final amount is settled afterwards.',
+                note: 'Emergency work the owner agreed to — an agreement made before costs were authorised one by one; the final amount is settled afterwards.',
             );
             if ($record) {
                 $this->record($workOrder, $decision, $by, variation: $variation);
@@ -232,41 +216,19 @@ class RentalApprovalGateService
             return GateDecision::noChange('A lower or equal total never needs approval.');
         }
 
-        $toleranceCeiling = $terms->variationPct > 0 ? round($baseline * (1 + $terms->variationPct / 100), 2) : null;
-
-        // section 22.6: extra money is never approved by the repair limit - only the owner's own agreed tolerance may pass a small overrun
-        if ($toleranceCeiling !== null && $newTotal <= $toleranceCeiling) {
-            $decision = new GateDecision(
-                authorised: true,
-                decision: RentalApprovalDecision::DECISION_AUTO_APPROVED,
-                basis: RentalWorkOrder::BASIS_VARIATION_TOLERANCE,
-                termKey: RentalApprovalDecision::TERM_VARIATION_TOLERANCE,
-                termValue: $terms->variationPct,
-                termSource: $terms->pctSource,
-                amountTested: $newTotal,
-                baselineAmount: $baseline,
-                limitAmount: $toleranceCeiling,
-                note: 'Auto-approved on ' . $this->when() . ' — the new total of ' . $this->money($newTotal) . " is within the owner's agreed " . $this->pct($terms->variationPct)
-                    . ' tolerance (' . $this->money($baseline) . ' + ' . $this->pct($terms->variationPct) . ' = ' . $this->money($toleranceCeiling) . '; ' . $this->sourceLabel($terms->pctSource, false) . ')',
-            );
-        } else {
-            $ceiling = $toleranceCeiling ?? $baseline;
-            $decision = new GateDecision(
-                authorised: false,
-                decision: RentalApprovalDecision::DECISION_NEEDS_OWNER,
-                basis: null,
-                termKey: RentalApprovalDecision::TERM_VARIATION_TOLERANCE,
-                termValue: $terms->variationPct,
-                termSource: $terms->pctSource,
-                amountTested: $newTotal,
-                baselineAmount: $baseline,
-                limitAmount: $ceiling,
-                note: 'The new total of ' . $this->money($newTotal) . ' is above what the owner approved (' . $this->money($baseline) . ')'
-                    . ($toleranceCeiling !== null
-                        ? ' plus the agreed ' . $this->pct($terms->variationPct) . ' tolerance (' . $this->money($toleranceCeiling) . '; ' . $this->sourceLabel($terms->pctSource, false) . ') — the owner is asked to approve the extra.'
-                        : ' and no tolerance is agreed (' . $this->sourceLabel($terms->pctSource, false) . ') — the owner is asked to approve the extra.'),
-            );
-        }
+        // section 22.6 - THE AUTHORISED AMOUNT IS A HARD LOCK (Johan, 13 Oct 2026): not the repair limit, not a tolerance, not R0.01. Anything above it is a request
+        // for the extra, decided by the owner (their link, or the agent recording what they said); until then the job cannot close.
+        $decision = new GateDecision(
+            authorised: false,
+            decision: RentalApprovalDecision::DECISION_NEEDS_OWNER,
+            basis: null,
+            termKey: RentalApprovalDecision::TERM_OWNER_DECISION,
+            termSource: RentalApprovalDecision::SOURCE_OWNER,
+            amountTested: $newTotal,
+            baselineAmount: $baseline,
+            limitAmount: $baseline,
+            note: 'The new total of ' . $this->money($newTotal) . ' is above what was authorised (' . $this->money($baseline) . ') - the owner is asked to approve the extra of ' . $this->money(round($newTotal - $baseline, 2)) . '.',
+        );
 
         if ($record) {
             $this->record($workOrder, $decision, $by, variation: $variation);
@@ -322,24 +284,6 @@ class RentalApprovalGateService
             $origin = $newLines->contains(fn (RentalJobCardLine $l) => $l->origin !== RentalJobCardLine::ORIGIN_OFFICE)
                 ? RentalWorkOrderVariation::ORIGIN_CREW_LINES
                 : RentalWorkOrderVariation::ORIGIN_OFFICE_EDIT;
-
-            if ($decision->decision === RentalApprovalDecision::DECISION_AUTO_APPROVED) {
-                $last = $workOrder->variations()->where('status', RentalWorkOrderVariation::STATUS_AUTO_APPROVED)->orderByDesc('id')->first();
-                if (! $open && $last && abs((float) $last->new_total - $newTotal) < 0.005) {
-                    return [$last, false]; // nothing changed since the last auto-approved step — idempotent, nothing to announce
-                }
-                if ($open) {
-                    // the extra now fits the owner's terms after all — the open request is moot
-                    $this->withdraw($open, 'The job total now falls within the owner\'s agreed terms.', $by);
-                }
-
-                $variation = $this->createVariation($workOrder, $card, $by, $decision, RentalWorkOrderVariation::STATUS_AUTO_APPROVED, $origin, $baseline, $newTotal, $extra, $priceChange);
-                $this->linkLines($variation, $newLines);
-                $this->record($workOrder, $decision, $by, variation: $variation);
-                $this->logVariation($workOrder, $by, 'variation_raised', 'Extra work of ' . $this->money($extra) . ' auto-approved — ' . $decision->note);
-
-                return [$variation, true];
-            }
 
             // needs the owner
             if ($open) {
@@ -407,17 +351,6 @@ class RentalApprovalGateService
             }
             $extra = round($newTotal - $baseline, 2);
 
-            if ($decision->decision === RentalApprovalDecision::DECISION_AUTO_APPROVED) {
-                if ($open) {
-                    $this->withdraw($open, 'The selected quote now falls within the owner\'s agreed terms.', $by);
-                }
-                $variation = $this->createVariation($workOrder, null, $by, $decision, RentalWorkOrderVariation::STATUS_AUTO_APPROVED, RentalWorkOrderVariation::ORIGIN_EXTERNAL_QUOTE, $baseline, $newTotal, $extra, $extra, $quote);
-                $this->record($workOrder, $decision, $by, variation: $variation, quote: $quote);
-                $this->logVariation($workOrder, $by, 'variation_raised', 'Higher quote auto-approved — ' . $decision->note);
-
-                return $variation;
-            }
-
             if ($open) {
                 $open->forceFill([
                     'revision' => (int) $open->revision + 1, 'extra_amount' => $extra, 'new_total' => $newTotal, 'price_change_amount' => $extra,
@@ -453,12 +386,10 @@ class RentalApprovalGateService
         $newTotal = round($finalAmount, 2);
         $baseline = round((float) $workOrder->approved_amount, 2);
         $extra = round($newTotal - $baseline, 2);
-        $terms = $this->termsForWorkOrder($workOrder);
-        $toleranceCeiling = $terms->variationPct > 0 ? round($baseline * (1 + $terms->variationPct / 100), 2) : null;
         $decision = new GateDecision(
             authorised: false, decision: RentalApprovalDecision::DECISION_NEEDS_OWNER, basis: null,
-            termKey: RentalApprovalDecision::TERM_VARIATION_TOLERANCE, termValue: $terms->variationPct, termSource: $terms->pctSource,
-            amountTested: $newTotal, baselineAmount: $baseline, limitAmount: $toleranceCeiling ?? $baseline,
+            termKey: RentalApprovalDecision::TERM_OWNER_DECISION, termSource: RentalApprovalDecision::SOURCE_OWNER,
+            amountTested: $newTotal, baselineAmount: $baseline, limitAmount: $baseline,
             note: 'The final cost of ' . $this->money($newTotal) . ' is above what was authorised (' . $this->money($baseline) . ') - the difference of '
                 . $this->money($extra) . ' is sent to the owner to approve.',
         );
@@ -589,8 +520,6 @@ class RentalApprovalGateService
             $service = app(RentalWorkOrderService::class);
             if ($variation->isAwaitingOwner()) {
                 $service->sendOwnerVariation($variation, $by);
-            } elseif ($variation->status === RentalWorkOrderVariation::STATUS_AUTO_APPROVED && RentalWorkOrderSetting::notifyLandlordOnAutoVariationFor($variation->agency_id)) {
-                $service->sendOwnerVariationAuto($variation, $by);
             }
             $service->notifyVariationRaised($variation);
         } catch (\Throwable $e) {

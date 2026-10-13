@@ -315,20 +315,43 @@ final class ExternalContractorFlowTest extends TestCase
         $this->assertSame('final_invoice', $wo->variations()->sole()->origin, 'section 22.6: the difference is put to the owner as a request for the extra');
     }
 
-    public function test_a_final_cost_within_the_tolerance_is_auto_approved_logged_and_closes_the_job(): void
+    public function test_the_authorised_amount_is_a_hard_lock_exactly_it_closes_one_cent_over_goes_to_the_owner(): void
     {
-        $this->property->forceFill(['rental_variation_tolerance_percent' => 10])->save();
+        $this->property->forceFill(['rental_variation_tolerance_percent' => 10])->save();   // the old work term: stored, never read
         $wo = $this->externalWorkOrder();
         $wo->selectQuote($this->quote($wo, 1000), $this->admin);
         $wo->fresh()->recordApproval($this->admin, ['decision' => 'approved', 'evidence_type' => 'email', 'evidence_text' => 'OK']);
 
-        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.complete', $wo), ['paid_by' => 'owner', 'cost_amount' => 1080])
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.complete', $wo), ['paid_by' => 'owner', 'cost_amount' => 1000.01])
+            ->assertSessionHasErrors('rental_work_order');
+        $this->assertSame(RentalWorkOrder::STATUS_REPORTED, $wo->fresh()->status, 'R0.01 over: the job cannot close');
+        $this->assertStringContainsString('R0.01 above what was authorised (R1,000.00)', session('errors')->first('rental_work_order'));
+        $variation = $wo->variations()->sole();
+        $this->assertSame('final_invoice', $variation->origin);
+        $this->assertSame('0.01', $variation->extra_amount);
+        $this->assertSame(RentalWorkOrderVariation::STATUS_AWAITING_OWNER, $variation->status);
+
+        // still locked while the owner has not decided ...
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.complete', $wo), ['paid_by' => 'owner', 'cost_amount' => 1000.01])
+            ->assertSessionHasErrors('rental_work_order');
+        $this->assertSame(1, $wo->variations()->count(), 'the one open request is revised, never duplicated');
+
+        // ... and an open request keeps the lock even at the authorised amount: it must be decided first
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.complete', $wo), ['paid_by' => 'owner', 'cost_amount' => 1000.00])
+            ->assertSessionHasErrors('rental_work_order');   // the open request still waits for the owner, even at the authorised amount
+    }
+
+    public function test_exactly_the_authorised_amount_closes_the_job(): void
+    {
+        $wo = $this->externalWorkOrder();
+        $wo->selectQuote($this->quote($wo, 1000), $this->admin);
+        $wo->fresh()->recordApproval($this->admin, ['decision' => 'approved', 'evidence_type' => 'email', 'evidence_text' => 'OK']);
+
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.complete', $wo), ['paid_by' => 'owner', 'cost_amount' => 1000.00])
             ->assertRedirect()->assertSessionHasNoErrors();
 
         $this->assertSame(RentalWorkOrder::STATUS_COMPLETED, $wo->fresh()->status);
-        $row = RentalApprovalDecision::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->where('basis', 'variation_tolerance')->sole();
-        $this->assertSame('auto_approved', $row->decision);
-        $this->assertSame('1080.00', $row->amount_tested);
+        $this->assertSame(0, $wo->variations()->count());
     }
 
     public function test_a_final_cost_at_or_under_the_approved_amount_just_closes_and_the_owner_gets_the_final_statement(): void

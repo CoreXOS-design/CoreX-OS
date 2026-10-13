@@ -919,8 +919,7 @@ class RentalWorkOrder extends Model
             throw new \LogicException("Cannot {$action} while owner approval is pending or declined.");
         }
         // §17.6/§17.8 — emergency work has no threshold, and a work order with an approved amount is measured against
-        // that amount by RentalCloseGuards::assertFinalCostWithinApproval() (within tolerance → auto-approved and
-        // logged). This older check only guards a work order with no approved baseline at all.
+        // that amount by RentalCloseGuards::assertFinalCostWithinApproval() (anything above it goes to the owner, section 22.6). This older check only guards a work order with no approved baseline at all.
         if ($cost !== null && ! $this->isOwnerContractor() && $this->approved_amount === null && $this->approval_basis !== self::BASIS_EMERGENCY
             && $cost > $this->spendThreshold() && $this->owner_approval_status !== self::APPROVAL_APPROVED) {
             throw new \LogicException('The cost of R' . number_format($cost, 2) . ' is above the approval threshold — record the owner\'s approval before ' . $action . '.');

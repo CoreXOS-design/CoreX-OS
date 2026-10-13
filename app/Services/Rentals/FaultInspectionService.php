@@ -45,7 +45,7 @@ class FaultInspectionService
         if ($status === AgencyServiceProvider::CALLOUT_NO) {
             return $base + ['allowed' => true, 'basis' => RentalAuthorisation::BASIS_AGENT_NO_CALLOUT_FEE, 'line' => null];
         }
-        if ($status === AgencyServiceProvider::CALLOUT_YES && $fee !== null && $allowance !== null && $fee <= $allowance + 0.001) {
+        if ($status === AgencyServiceProvider::CALLOUT_YES && $fee !== null && $allowance !== null && round($fee * 100) <= round($allowance * 100)) {
             return $base + ['allowed' => true, 'basis' => RentalAuthorisation::BASIS_AGENT_CALLOUT_SETTING,
                 'line' => $name . ' charges a call-out fee of ' . AgencyServiceProvider::formatRand($fee) . '. This is inside the owner\'s call-out permission of ' . AgencyServiceProvider::formatRand($allowance) . '. The owner will be told.'];
         }

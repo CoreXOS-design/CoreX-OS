@@ -4439,8 +4439,6 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_work_orders.manage_work_terms')->name('rental-owner-fault-settings.send');
         Route::get('/{property}/rental-owner-fault-settings/evidence', [\App\Http\Controllers\CoreX\RentalPropertyFaultSettingsController::class, 'evidence'])
             ->middleware('permission:rental_work_orders.manage_work_terms')->name('rental-owner-fault-settings.evidence');
-        Route::put('/{property}/rental-work-terms', [\App\Http\Controllers\CoreX\RentalPropertyWorkTermsController::class, 'update'])
-            ->middleware('permission:rental_work_orders.manage_work_terms')->name('rental-work-terms.update');
     });
     Route::prefix('rental-work-orders')->middleware('permission:rental_work_orders.view')->group(function () {
         // §17.8 — emergency work: the office captures the owner's agreement (no cost attached); void with a reason; attachment download.

@@ -122,7 +122,7 @@ final class LeaseTimelineMaintenanceFlowTest extends TestCase
 
         $variation = $this->descriptions('variation');
         $this->assertContains('Variation raised: extra R80.00 (new total R1,080.00) — Fix the geyser', $variation);
-        $this->assertContains("Extra work passed — within the owner's agreed tolerance: Fix the geyser", $variation);
+        $this->assertContains("Extra work passed (recorded before the amount became a hard lock): Fix the geyser", $variation);
     }
 
     public function test_the_type_filter_narrows_the_log_and_other_types_are_unaffected(): void

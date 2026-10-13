@@ -380,9 +380,11 @@ by oversight — do not reinstate them without asking:
   `.ai/specs/rental-work-orders.md` §17.6.2 / §17.14). Per-owner agreements, edited on the property's
   Rental tab ("Work terms agreed with the owner", own permission, append-only history) — not an
   agency-wide onboarding choice (same ruling as the other per-property overrides). The **agency
-  defaults** they inherit ARE in the wizard (Rentals step: variation tolerance %, the owner email on
-  an auto-approved extra, the fee on an outside contractor's quote — type and value; saver
-  `RentalWorkOrderSettingsController::updateApprovals`, every field `has()`-guarded).
+  defaults** they inherit ARE in the wizard (Rentals step: the fee on an outside contractor's quote — type and
+  value; saver `RentalWorkOrderSettingsController::updateApprovals`, every field `has()`-guarded).
+  **13 Oct 2026 (AT-452, Johan): the variation tolerance % and the owner email on an auto-approved extra were
+  REMOVED from the wizard and from Settings** - the authorised amount is a hard lock
+  (`rentals-faults-work-orders.md` §22.6), nothing reads either value any more. Stored data is kept.
 
 **From the feature switchboard (spec `.ai/specs/agency-onboarding-feature-switchboard.md` §3.5):**
 

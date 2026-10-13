@@ -82,15 +82,12 @@ final class RentalWorkOrderSettingTest extends TestCase
         $this->assertSame(350.0, RentalWorkOrderSetting::spendThresholdFor($this->agency->id));
     }
 
-    /** AT-452 (rentals-faults-work-orders.md section 22.7) - the repair limit lives in ONE place (the owner's own settings); the work-terms endpoint no longer takes it. */
-    public function test_the_work_terms_endpoint_no_longer_takes_the_repair_limit(): void
+    /** AT-452 (rentals-faults-work-orders.md sections 22.7 / 22.6) - the repair limit lives in ONE place (the owner's own settings); the work-terms endpoint is gone altogether. */
+    public function test_the_work_terms_endpoint_is_gone_and_the_repair_limit_has_no_second_editor(): void
     {
         $property = $this->property();
 
-        $this->actingAs($this->admin)->put(route('corex.properties.rental-work-terms.update', $property), [
-            'no_approval_limit' => 3000,
-        ])->assertRedirect();
-
+        $this->assertFalse(\Illuminate\Support\Facades\Route::has('corex.properties.rental-work-terms.update'));
         $this->assertNull($property->fresh()->rental_no_approval_spend_threshold);
         $this->assertSame(500.0, RentalWorkOrderSetting::thresholdFor($property->fresh()), 'the agency default is still the fallback while the owner has no answer');
     }
@@ -103,7 +100,7 @@ final class RentalWorkOrderSettingTest extends TestCase
             'rental_no_approval_spend_threshold' => 99999,
         ])->assertRedirect();
 
-        $this->assertSame(1800.0, (float) $property->fresh()->rental_no_approval_spend_threshold, 'only the work-terms panel can change it');
+        $this->assertSame(1800.0, (float) $property->fresh()->rental_no_approval_spend_threshold, 'nothing on the property screen writes it');
     }
 
     /** The legacy column is only a fallback now: it is still honoured while the owner has no answer, and the owner's own answer wins once there is one. */

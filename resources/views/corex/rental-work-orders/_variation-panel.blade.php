@@ -19,7 +19,7 @@
         @php
             $vpBadge = match ($vp->status) {
                 'awaiting_owner' => ['ds-badge-warning', 'Awaiting owner'],
-                'auto_approved' => ['ds-badge-info', 'Within the agreed tolerance'],
+                'auto_approved' => ['ds-badge-info', 'Passed earlier (old agreement)'],
                 'approved' => ['ds-badge-success', 'Approved by the owner'],
                 'declined' => ['ds-badge-danger', 'Declined by the owner'],
                 default => ['ds-badge-muted', 'Withdrawn'],
@@ -46,9 +46,9 @@
                     @endforeach
                 </ul>
             @endif
-            @if($vp->term_basis)
+            @if($vp->term_basis && $vp->term_basis !== 'owner_decision')
                 <div class="text-xs" style="color: var(--text-muted);">
-                    Term relied on:
+                    Older agreement relied on:
                     @if($vp->term_basis === 'variation_tolerance')
                         {{ rtrim(rtrim(number_format((float) $vp->term_value, 2, '.', ''), '0'), '.') }} % tolerance @if($vpSourceText($vp->term_source))({{ $vpSourceText($vp->term_source) }})@endif
                     @else

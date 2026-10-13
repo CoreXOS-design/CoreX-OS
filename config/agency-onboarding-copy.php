@@ -476,8 +476,8 @@ return [
             ['controller' => \App\Http\Controllers\CoreX\RentalWorkOrderPricingSettingsController::class, 'method' => 'updateDefaultMarkups'],
             ['controller' => \App\Http\Controllers\CoreX\RentalWorkOrderPricingSettingsController::class, 'method' => 'updateQuoteEstimateTerm'],
             // BUILD 1 END
-            // BUILD 2 BEGIN — approvals savers (tolerance, auto-variation mail, external-quote fee)
-            // §17.14 — ONE narrow saver for the four approvals controls below; every field is has()-guarded in it, so a wizard step that posts
+            // BUILD 2 BEGIN — approvals savers (external-quote fee)
+            // §17.14 — ONE narrow saver for the approvals controls below; every field is has()-guarded in it, so a wizard step that posts
             // only a subset can never reset a setting it did not render (agency-onboarding-setup.md §6.1).
             ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'updateApprovals'],
             // BUILD 2 END
@@ -967,14 +967,6 @@ return [
              'affects' => 'The wording the owner reads at the bottom of the quote PDF and in the quote email. The wording in force on the day a quote is sent is kept with that quote, so changing it later never alters a quote already sent.'],
             // BUILD 1 END
             // BUILD 2 BEGIN — approvals controls (.ai/specs/rental-work-orders.md §17.14)
-            ['key' => 'variation_tolerance_percent', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 0, 'min' => 0, 'max' => 100, 'step' => 0.5,
-             'label' => 'Extra work the owner is not asked about (% above what they approved)',
-             'explain' => 'When a repair turns out to need extra work after the owner has approved the quote, this is how far the new total may rise above the approved amount before the owner is asked again. Each property can have its own figure, agreed with its owner; this is the starting point for any property that has none.',
-             'affects' => 'Whether small extras go ahead straight away (and the owner is told) or always wait for the owner. 0 means every increase is put to the owner first — the safe starting point for a new agency. The owner\'s own repair and emergency limits are separate - they are set per property by the owner and are never decided here.'],
-            ['key' => 'notify_landlord_on_auto_variation', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 1,
-             'label' => 'Email the owner when extra work passes within the agreed tolerance',
-             'explain' => 'When extra work falls within the tolerance the owner agreed it goes ahead without asking them. This sends the owner an information email saying what was added and the new total.',
-             'affects' => 'Whether the owner hears about every small extra that passed within the agreed tolerance, or only about the ones that need their decision. On by default.'],
             ['key' => 'external_quote_markup_type', 'source' => 'rental_work_orders', 'type' => 'select', 'default' => 'percent',
              'options' => ['percent' => 'A percentage of the contractor\'s quote', 'amount' => 'A fixed amount (R)'],
              'label' => 'Your fee on an outside contractor\'s quote — how it is worked out',

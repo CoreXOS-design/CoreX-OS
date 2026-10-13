@@ -48,7 +48,7 @@
             <span class="ds-badge ds-badge-muted" data-cost-status="none">Not authorised yet</span>
         @endif
         @if($cdOpenVariation)<span class="ds-badge ds-badge-warning">Extra work waiting for the owner</span>@endif
-        @if($cdAutoCount > 0)<span class="ds-badge ds-badge-info">{{ $cdAutoCount }} {{ $cdAutoCount > 1 ? 'extras' : 'extra' }} passed within the agreed tolerance</span>@endif
+        @if($cdAutoCount > 0)<span class="ds-badge ds-badge-info">{{ $cdAutoCount }} {{ $cdAutoCount > 1 ? 'extras' : 'extra' }} passed earlier under an old agreement</span>@endif
     </div>
 
     @error('cost_decision')<div class="text-xs" style="color: var(--ds-crimson);" data-cost-error>{{ $message }}</div>@enderror

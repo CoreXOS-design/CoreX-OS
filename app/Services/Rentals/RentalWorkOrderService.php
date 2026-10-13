@@ -5,7 +5,6 @@ namespace App\Services\Rentals;
 use App\Mail\Rentals\RentalContractorWorkOrderMail;
 use App\Mail\Rentals\RentalOwnerFinalStatementMail;
 use App\Mail\Rentals\RentalOwnerQuoteMail;
-use App\Mail\Rentals\RentalOwnerVariationAutoMail;
 use App\Mail\Rentals\RentalOwnerVariationMail;
 use App\Mail\Rentals\RentalWorkOrderOwnerMail;
 use App\Mail\Rentals\RentalWorkOrderTenantMail;
@@ -628,35 +627,6 @@ class RentalWorkOrderService
         return $sent;
     }
 
-    /** §17.7.2 — information only: extra work went ahead within the owner's terms (agency setting notify_landlord_on_auto_variation). */
-    public function sendOwnerVariationAuto(RentalWorkOrderVariation $variation, ?User $by): int
-    {
-        $workOrder = $variation->workOrder()->with(['property', 'lease'])->firstOrFail();
-        $lines = $variation->lines()->where('office_status', \App\Models\RentalJobCardLine::OFFICE_ACCEPTED)->orderBy('id')->get()->map(fn ($l) => [
-            'description' => (string) $l->description,
-            'quantity' => rtrim(rtrim(number_format((float) $l->quantity, 2, '.', ''), '0'), '.'),
-            'total' => number_format((float) ($l->line_total ?? 0), 2),
-        ])->all();
-        $within = $variation->term_basis === \App\Models\RentalApprovalDecision::TERM_VARIATION_TOLERANCE
-            ? 'within the ' . rtrim(rtrim(number_format((float) $variation->term_value, 2, '.', ''), '0'), '.') . ' % tolerance you agreed'
-            : 'within what you agreed';
-        $agent = $this->senderFor($workOrder, $by);
-
-        $sent = 0;
-        foreach ($this->ownerRecipients($workOrder) as $owner) {
-            $mail = new RentalOwnerVariationAutoMail($variation, $workOrder, (string) ($owner->first_name ?? ''), $lines, $within, $agent);
-            if ($this->dispatchMail($owner->email, $mail)) {
-                $sent++;
-            }
-        }
-        if ($sent > 0) {
-            $variation->forceFill(['mail_sent_at' => now()])->save();
-            $this->noteSent($workOrder, $by, 'Owner told the extra work was approved within their agreed terms');
-        }
-
-        return $sent;
-    }
-
     /**
      * §17.9.5 — "Send work order to contractor": the work order PDF (with "Owner approval: approved on {date} — {basis}") to
      * the contractor's contact(s), replacing the plain supplier mail. Returns true when a mail went out; false when the
@@ -720,7 +690,7 @@ class RentalWorkOrderService
         if (! $workOrder) {
             return;
         }
-        $what = $variation->isAwaitingOwner() ? 'needs the owner' : 'passed within the owner\'s agreed tolerance';
+        $what = $variation->isAwaitingOwner() ? 'needs the owner' : 'was recorded';
         $this->fireInternal(
             $workOrder,
             'rental_work_order.variation_raised',

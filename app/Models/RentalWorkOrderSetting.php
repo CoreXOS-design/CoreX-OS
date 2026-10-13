@@ -34,7 +34,6 @@ class RentalWorkOrderSetting extends Model
     public const DEFAULT_PARTS_MARKUP_PERCENT = 0.0;
     public const DEFAULT_LABOUR_MARKUP_PERCENT = 0.0;
     /** §17.6.1 term (ii) — agency default; a property may override. 0 = every increase goes to the owner. */
-    public const DEFAULT_VARIATION_TOLERANCE_PERCENT = 0.0;
     /** §17.11 / R6 — the estimate wording printed on every owner quote, variation notice and work-order notice. Neutral; agency-editable. */
     public const DEFAULT_QUOTE_ESTIMATE_TERM = 'This quote is an estimate. The full extent of the work can only be confirmed once the affected area has been opened up, and the final invoice may differ. Any extra work will be put to you for approval before it is done, except where your agreed work terms already allow it.';
     /** §17.10 — days a tenant has to answer before silence counts as accepted (Decision 2). */
@@ -42,7 +41,6 @@ class RentalWorkOrderSetting extends Model
     public const DEFAULT_TENANT_COMPLETION_CHECK_ENABLED = true;
     public const DEFAULT_NOTIFY_LANDLORD_ON_DISPUTE = true;
     /** §17.7.2 — information email when a variation is auto-approved (Decision 5). */
-    public const DEFAULT_NOTIFY_LANDLORD_ON_AUTO_VARIATION = true;
     /** §17.9.1a — the agency's fee on an outside contractor's quote (Decision 1). Value 0 = off. */
     public const EXTERNAL_MARKUP_PERCENT = 'percent';
     public const EXTERNAL_MARKUP_AMOUNT = 'amount';
@@ -207,31 +205,10 @@ class RentalWorkOrderSetting extends Model
         return self::floatFor($agencyId, 'default_labour_markup_percent', self::DEFAULT_LABOUR_MARKUP_PERCENT);
     }
 
-    /** §17.6.1 term (ii), agency default. For the per-property value use variationToleranceFor(). */
-    public static function variationTolerancePercentFor(?int $agencyId): float
-    {
-        return self::floatFor($agencyId, 'variation_tolerance_percent', self::DEFAULT_VARIATION_TOLERANCE_PERCENT);
-    }
-
-    /** §17.6.1 — the property's own tolerance when set, else the agency default. */
-    public static function variationToleranceFor(Property $property): float
-    {
-        if ($property->rental_variation_tolerance_percent !== null) {
-            return (float) $property->rental_variation_tolerance_percent;
-        }
-
-        return self::variationTolerancePercentFor($property->agency_id);
-    }
-
     /** Did the agency actually set its own spend limit (vs the built-in constant)? Used to cite the term's source. */
     public static function hasAgencySpendThreshold(?int $agencyId): bool
     {
         return self::rawFor($agencyId, 'no_approval_spend_threshold') !== null;
-    }
-
-    public static function hasAgencyVariationTolerance(?int $agencyId): bool
-    {
-        return self::rawFor($agencyId, 'variation_tolerance_percent') !== null;
     }
 
     /** §17.11 — a null or blank stored term resolves to the built-in wording. */
@@ -257,11 +234,6 @@ class RentalWorkOrderSetting extends Model
     public static function notifyLandlordOnDisputeFor(?int $agencyId): bool
     {
         return self::boolFor($agencyId, 'notify_landlord_on_dispute', self::DEFAULT_NOTIFY_LANDLORD_ON_DISPUTE);
-    }
-
-    public static function notifyLandlordOnAutoVariationFor(?int $agencyId): bool
-    {
-        return self::boolFor($agencyId, 'notify_landlord_on_auto_variation', self::DEFAULT_NOTIFY_LANDLORD_ON_AUTO_VARIATION);
     }
 
     /** §17.9.1a — `percent` | `amount`. */
