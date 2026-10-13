@@ -7,6 +7,7 @@ use App\Models\Branch;
 use App\Models\User;
 use App\Services\Performance\Period;
 use App\Services\Performance\PeriodResolver;
+use App\Services\RoadToSold\Track;
 use App\Services\RoadToSold\CallListService;
 use App\Services\RoadToSold\DrilldownService;
 use App\Services\RoadToSold\ReportService;
@@ -52,7 +53,7 @@ class ReportController extends Controller
             'compare' => $data['compareMode'] !== 'off' ? $data['compareMode'] : null,
             'compare_start' => $request->query('compare_start'), 'compare_end' => $request->query('compare_end'),
             'branch_id' => $request->query('branch_id'), 'q' => $request->query('q'),
-        ], fn ($v) => $v !== null && $v !== '');
+        ] + Track::params(Track::fromRequest($request)), fn ($v) => $v !== null && $v !== '');
 
         return view('road-to-sold.report.index', $data + [
             'paged'         => $paged,
@@ -152,7 +153,8 @@ class ReportController extends Controller
         $ids = $this->cohortIds($request);
         $agents = User::query()->where('agency_id', $agencyId)->whereIn('id', $ids ?: [0])->orderBy('name')->get();
 
-        $built = $this->report->build($agencyId, $agents, $period, $compare);
+        $track = Track::fromRequest($request);
+        $built = $this->report->build($agencyId, $agents, $period, $compare, $track);
 
         $sort = (string) $request->query('sort', 'name');
         $valid = array_merge(['name'], array_column($built['columns'], 'key'));
@@ -170,6 +172,7 @@ class ReportController extends Controller
             'compared'    => $built['compared'],
             'period'      => $period,
             'preset'      => $preset,
+            'track'       => $track,
             'compare'     => $compare,
             'compareMode' => $compareMode,
             'comparisonMeta' => $compareMeta,
@@ -263,7 +266,7 @@ class ReportController extends Controller
 
         $agentIds = $this->cohortIds($request);
 
-        return response()->json($this->drill->rows($metric, $agentIds, $period, $agencyId));
+        return response()->json($this->drill->rows($metric, $agentIds, $period, $agencyId, Track::fromRequest($request)));
     }
 
     /**

@@ -45,6 +45,7 @@
     Optional: $formAction — the branch/agent pages need next requests to
     keep hitting their own drill-down route, not the company report; omit it
     on the company report page to GET the current URL as usual.
+    Optional: $hiddenFields (array name => value) - extra query fields the form keeps when it re-submits (AT-454: the Road to Sold track).
     Optional: $compareMode (string, default 'off'), $compareModes (array) —
     2026-08-19 (Johan, period-comparison) — the "Compare to" selector. Off by
     default on branch/agent pages if they don't pass these (index.blade.php
@@ -81,6 +82,7 @@
             @endforeach
         </select>
     </label>
+    @foreach(($hiddenFields ?? []) as $hk => $hv)<input type="hidden" name="{{ $hk }}" value="{{ $hv }}">@endforeach
     <template x-if="preset === 'custom'">
         <div class="flex items-end gap-2 flex-wrap">
             <label class="text-[11px]" style="color:var(--text-muted);">Start

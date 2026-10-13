@@ -308,6 +308,26 @@ final class RoadToSoldPageTest extends TestCase
             'only the row with history offers the History button');
     }
 
+    public function test_a_property_with_no_owner_still_has_its_history_on_the_page(): void
+    {
+        $tp = $this->tp('Ocean View Road');
+        $this->item($this->agent, $tp);
+        $this->actingAs($this->agent)->post(route('road-to-sold.outcomes.record'), [
+            'tracked_property_id' => $tp->id, 'outcome_definition_id' => $this->def('no_answer')->id, 'note' => 'Nobody home, no owner on file',
+        ])->assertRedirect();
+        $this->assertSame(0, \App\Models\ContactNote::query()->count(), 'no owner, so no contact note');
+
+        $this->actingAs($this->agent)->get(route('road-to-sold.index', ['status' => 'all']))
+            ->assertOk()->assertSee('@click="openHistory($el.dataset)"', false)->assertSee('Nobody home, no owner on file');
+    }
+
+    public function test_the_track_comes_from_the_request_and_unknown_tracks_fall_back_to_sales(): void
+    {
+        $this->actingAs($this->agent)->get(route('road-to-sold.index', ['track' => 'rentals']))->assertOk()->assertDontSee('Buyers to follow up');
+        $this->actingAs($this->agent)->get(route('road-to-sold.index'))->assertOk()->assertSee('Buyers to follow up');
+        $this->actingAs($this->agent)->get(route('road-to-sold.index', ['track' => 'bogus']))->assertOk()->assertSee('Buyers to follow up');
+    }
+
     public function test_a_user_without_the_page_key_is_refused(): void
     {
         $viewer = User::factory()->create(['agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'role' => 'viewer', 'is_active' => true]);
