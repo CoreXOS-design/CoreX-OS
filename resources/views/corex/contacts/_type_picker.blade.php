@@ -15,7 +15,7 @@
 @php
     $pickerParents = ($contactTypes ?? collect())->map(fn ($p) => [
         'id'      => (int) $p->id,
-        'name'    => $p->name,
+        'name'    => \App\Models\ContactType::displayName($p->esign_role, $p->name),
         'color'   => $p->color ?: '#6366f1',
         'subTags' => $p->subTags->map(fn ($t) => [
             'id'    => (int) $t->id,
@@ -59,6 +59,17 @@
             && empty($seenParents[(int) $pc->contact_type_id])
             && in_array((int) $pc->contact_type_id, $canonicalIds, true)) {
             $pickerInitial[] = ['parentId' => (int) $pc->contact_type_id, 'tagId' => null, 'newTag' => null];
+        }
+        // A landlord linked from a property (New Property, the contacts tab) holds the link but no TYPE yet: pre-fill Landlord so
+        // the first save does not fail with "assign at least one contact type" (Sherry walk, 13 Oct 2026).
+        if ($pickerInitial === []) {
+            $linkedRoles = \Illuminate\Support\Facades\DB::table('contact_property')->where('contact_id', $pc->id)->whereNull('deleted_at')->pluck('role')->all();
+            if (array_intersect(['landlord', 'lessor'], $linkedRoles) !== []) {
+                $lessor = ($contactTypes ?? collect())->first(fn ($p) => $p->esign_role === 'lessor');
+                if ($lessor && in_array((int) $lessor->id, $canonicalIds, true)) {
+                    $pickerInitial[] = ['parentId' => (int) $lessor->id, 'tagId' => null, 'newTag' => null];
+                }
+            }
         }
     }
 @endphp

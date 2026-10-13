@@ -309,7 +309,13 @@ return Application::configure(basePath: dirname(__DIR__))
                 // THROWN abort(410) does) — that path is untouched by this.
                 return response()->view($isAuthed ? 'errors.404-app' : 'errors.404-guest', [], 410);
             }
-            return response()->view($isAuthed ? 'errors.403-app' : 'errors.403-guest', [], 403);
+            // A signed-in user is told the plain reason when the code gave one ("You created this application ...").
+            $reason = $isAuthed ? trim((string) $e->getMessage()) : '';
+            if (in_array($reason, ['', 'Forbidden', 'This action is unauthorized.'], true)) {
+                $reason = '';
+            }
+
+            return response()->view($isAuthed ? 'errors.403-app' : 'errors.403-guest', ['reason' => $reason], 403);
         });
 
         $exceptions->reportable(function (\Throwable $e) {

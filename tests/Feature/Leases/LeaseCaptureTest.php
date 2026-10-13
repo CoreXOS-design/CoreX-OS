@@ -1056,7 +1056,9 @@ final class LeaseCaptureTest extends TestCase
         $open = Lease::create($this->leaseAttributes(['property_id' => $this->makeProperty($this->agency, $this->branch, $this->admin)->id]));
 
         $html = $this->actingAs($this->admin)->get(route('corex.leases.show', $locked))->assertOk()->getContent();
-        $this->assertStringContainsString(Lease::LOCKED_FOR_SIGNING_MESSAGE, $html);
+        // 13 Oct 2026: a lease signed by everyone and waiting for the agent's approval says THAT, not "out for signing"
+        $this->assertStringContainsString($locked->lockedMessage(), $html);
+        $this->assertStringContainsString('Everyone has signed', $html);
         $this->assertMatchesRegularExpression('/name="deposit_amount"[^>]*\sdisabled/', $html);
         $this->assertMatchesRegularExpression('/name="end_date"[^>]*\sdisabled/', $html);
 

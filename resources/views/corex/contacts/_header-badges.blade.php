@@ -13,7 +13,7 @@
     @forelse($contact->parentTypes as $pt)
     <span class="text-[11px] px-2 py-0.5 rounded-md font-semibold"
           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">
-        {{ $pt->name }}
+        {{ \App\Models\ContactType::displayName($pt->esign_role, $pt->name) }}
     </span>
     @empty
     @if($contact->type)

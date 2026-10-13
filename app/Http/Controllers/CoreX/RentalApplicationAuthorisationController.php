@@ -92,9 +92,9 @@ class RentalApplicationAuthorisationController extends Controller
         }
 
         abort_unless(
-            $user->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id),
+            $user->mayDecideOwnRentalApplication((int) $rentalApplication->agency_id),
             403,
-            'You created this application, so it needs another authoriser.',
+            'You created this application and your agency has other approvers, so another approver must decide it.',
         );
     }
 

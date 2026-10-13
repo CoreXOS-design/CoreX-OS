@@ -755,7 +755,7 @@
             // — AT-403's own finding, 13 vs 66 real matches from the pivot
             // alone). No duplication: if the contact already holds the Lessor
             // type, "Landlord" is not added a second time.
-            $typeBadges = $contact->parentTypes->pluck('name')->all();
+            $typeBadges = $contact->parentTypes->map(fn ($t) => \App\Models\ContactType::displayName($t->esign_role, $t->name))->all();
             if ($isRentalEntry) {
                 $hasLessorType = $contact->parentTypes->contains(fn ($t) => $t->esign_role === 'lessor');
                 $isPropertyLandlord = $contact->relationLoaded('properties')

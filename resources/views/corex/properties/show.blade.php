@@ -1277,7 +1277,7 @@
                             $statusLabel2 = $property->status ? $property->statusBadge() : 'Draft';
                             $brandPillStyle2 = 'background:var(--brand-default); color:#fff; border:none;';
                         @endphp
-                        <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}">{{ $listingTypeLabel2 }}</span>
+                        <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}" data-listing-chip>{{ $listingTypeLabel2 }}</span>
                         <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}">{{ $statusLabel2 }}</span>
                         @if(!empty($property->status_label))
                             <span class="ds-badge ds-badge-warning" title="Special label on the listing's status — e.g. price reduced, or an offer received but the property is still for sale.">{{ $property->status_label }}</span>
@@ -2088,6 +2088,22 @@
                                             && auth()->user()->hasPermission('auctions.create');
                                         $openAuctions = $auctionChoiceOpen ? \App\Services\Auctions\AuctionLotAttacher::openAuctions() : collect();
                                     @endphp
+                                    @if($isNew)
+                                    <script>
+                                        // New property: the page is rendered before the type is chosen, so picking "For Rental" must
+                                        // change what the page SAYS at once - the header chip and the price box (that number is the rent).
+                                        document.addEventListener('DOMContentLoaded', function () {
+                                            var sel = document.getElementById('prop-listing-type'), lab = document.getElementById('prop-price-label');
+                                            if (!sel) return;
+                                            var sync = function () {
+                                                var rental = sel.value === 'rental';
+                                                document.querySelectorAll('[data-listing-chip]').forEach(function (c) { c.textContent = rental ? 'For Rent' : 'For Sale'; });
+                                                if (lab) lab.innerHTML = (rental ? 'Monthly rent (ZAR)' : 'Price (ZAR)') + ' <span class="prop-required">*</span>';
+                                            };
+                                            sel.addEventListener('change', sync); sync();
+                                        });
+                                    </script>
+                                    @endif
                                     <select name="listing_type" class="prop-select prop-field-enum" id="prop-listing-type">
                                         <option value="sale"   {{ old('listing_type', $property->listing_type ?? 'sale') === 'sale'   ? 'selected' : '' }}>For Sale</option>
                                         <option value="rental" {{ old('listing_type', $property->listing_type ?? 'sale') === 'rental' ? 'selected' : '' }}>For Rental</option>
@@ -2173,7 +2189,7 @@
                     <div x-show="info.pricing" x-collapse class="prop-section-body space-y-4">
                         <div class="grid grid-cols-2 sm:grid-cols-4 gap-4" x-data="{ showPriceModal: false }">
                             <div class="relative" data-tour="prop-info-price">
-                                <label class="prop-label">
+                                <label class="prop-label" id="prop-price-label">
                                     {{ $property->isRental() ? 'Sale Price (ZAR)' : 'Price (ZAR)' }}
                                     @unless($property->isRental())<span class="prop-required">*</span>@endunless
                                 </label>

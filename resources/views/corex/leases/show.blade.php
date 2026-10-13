@@ -722,7 +722,7 @@
                     @endunless
                 @endpermission
                 @if($nt['locked'])
-                    <div class="text-xs" style="color: var(--text-muted);">{{ \App\Models\Lease::LOCKED_FOR_SIGNING_MESSAGE }}</div>
+                    <div class="text-xs" style="color: var(--text-muted);">{{ $lease->lockedMessage() }}</div>
                 @endif
             </div>
             @endif
@@ -756,7 +756,7 @@
                          signing these fields change in the agreement, not here. Read-only, with the reason. --}}
                     @php $leaseLocked = $lease->isLockedForSigning(); @endphp
                     @if($leaseLocked)
-                        <p class="text-xs" style="color: var(--text-muted);">{{ \App\Models\Lease::LOCKED_FOR_SIGNING_MESSAGE }}</p>
+                        <p class="text-xs" style="color: var(--text-muted);">{{ $lease->lockedMessage() }}</p>
                     @endif
                     {{-- LEASE-AGREEMENT END --}}
                     {{-- Johan, 2026-09-22 — "the rental amount shows on the lease screen, but not on the edit screen... displaying the
