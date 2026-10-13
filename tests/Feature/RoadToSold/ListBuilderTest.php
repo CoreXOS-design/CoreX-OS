@@ -6,7 +6,7 @@ namespace Tests\Feature\RoadToSold;
 
 use App\Models\RoadToSold\RtsListItem;
 use App\Models\User;
-use App\Services\RoadToSold\Adapters\NullSuggestionGuard;
+use Tests\Feature\RoadToSold\Concerns\NullSuggestionGuard;
 use App\Services\RoadToSold\Contracts\AreaProvider;
 use App\Services\RoadToSold\Contracts\FollowUp;
 use App\Services\RoadToSold\Contracts\FollowUpSource;

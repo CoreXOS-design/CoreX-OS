@@ -12,7 +12,7 @@ use Illuminate\Support\Carbon;
  *
  * For every agent who can use Road to Sold: first CLOSE the open items of earlier days (missed, or
  * rolled onto the next working day when the agency rolls over), then BUILD today's list if today is a
- * working day for that agent. Scheduled 03:30, so the list is waiting when the agent starts the day;
+ * working day for that agent. Scheduled 04:30, so the list is waiting when the agent starts the day;
  * the page also builds on demand when it finds none. Safe to re-run: the builder tops up to the target
  * and adds nothing the second time.
  *

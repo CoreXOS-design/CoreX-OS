@@ -10,7 +10,6 @@ use App\Models\Contact;
 use App\Models\Prospecting\TrackedProperty;
 use App\Models\User;
 use App\Services\Prospecting\OnMarketStockService;
-use App\Services\RoadToSold\Adapters\NullSuggestionGuard;
 use App\Services\RoadToSold\Contracts\SuggestionGuard;
 use App\Services\RoadToSold\Selections\SelectionContext;
 use App\Services\RoadToSold\Support\BuilderSettings;

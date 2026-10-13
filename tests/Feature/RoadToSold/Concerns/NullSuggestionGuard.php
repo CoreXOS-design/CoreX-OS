@@ -1,13 +1,13 @@
 <?php
 
-namespace App\Services\RoadToSold\Adapters;
+namespace Tests\Feature\RoadToSold\Concerns;
 
 use App\Models\User;
 use App\Services\RoadToSold\Contracts\SuggestionGuard;
 
 /**
- * No holds known. Used until lane 3's HoldService / do-not-contact marker exist; the builder's own
- * exclusions (another agent's stock, MIC claims and pitch locks) still apply.
+ * Test double: no holds known. Lets a builder test isolate the builder's own exclusions
+ * (another agent's stock, MIC claims and pitch locks) from lane 3's holds.
  */
 final class NullSuggestionGuard implements SuggestionGuard
 {
