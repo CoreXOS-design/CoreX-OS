@@ -241,6 +241,18 @@ class ProspectingListing extends Model
         })->whereNotExists(static::trackedStreetExists($table));
     }
 
+    /**
+     * SQL twin of scopeWithAddress() for raw / query-builder selects and ORDER BYs (1 = has an address).
+     * $listing / $tp are the aliases of prospecting_listings and the (LEFT-joined) tracked_properties
+     * in the surrounding query. Kept beside the scope so the rule is spelled in one file.
+     */
+    public static function hasAddressSql(string $listing = 'pl', string $tp = 'tp'): string
+    {
+        return "(CASE WHEN ({$listing}.address IS NOT NULL AND {$listing}.address <> '' AND {$listing}.address <> '"
+            . self::ADDRESS_PLACEHOLDER . "') "
+            . "OR ({$tp}.street_name IS NOT NULL AND {$tp}.street_name <> '') THEN 1 ELSE 0 END)";
+    }
+
     /** Instance form of the same rule, for code that already holds a listing. */
     public function hasAddress(): bool
     {
