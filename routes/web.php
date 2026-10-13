@@ -7609,6 +7609,13 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
             [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'matchTooltip'])
             ->name('match-tooltip');
 
+        // AT-454 — correct a listing's listed date (reason required, history kept).
+        Route::put('/listing/{listing}/listed-date',
+            [\App\Http\Controllers\CoreX\ProspectingListingListedDateController::class, 'update'])
+            ->whereNumber('listing')
+            ->middleware('permission:mic.listed_date.correct')
+            ->name('listing.listed-date.update');
+
         // Phase F — CMA report import pipeline. Every route gated by
         // permission:mic.upload_reports (Laravel 11 — middleware is at the
         // route level, not the controller constructor).

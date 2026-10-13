@@ -121,7 +121,8 @@ class ProspectingActionPresetService
                 // Listings first seen within the agency's configured lookback
                 // window (default 1 day ≈ today). max(1, ...) guards a blank save.
                 $lookbackDays = max(1, (int) $thresholds->new_listing_lookback_days);
-                return $query->where('first_seen_at', '>=', now()->subDays($lookbackDays));
+                // AT-454 — by the real listed date when known, else first sighting (one definition).
+                return $query->listedWithinDays($lookbackDays);
         }
 
         Log::warning('ProspectingActionPresetService::applyPreset received unknown preset', [

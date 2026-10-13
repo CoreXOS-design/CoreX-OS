@@ -607,7 +607,7 @@ trait DrivesRentalLifecycle
                 $card = $wo->fresh()->jobCard;
                 $token = app(\App\Services\Rentals\RentalSecureAccessTokenService::class)->issueForJobCard($card, $this->agent)['raw_token'];
                 $this->asGuest();
-                $this->post("/secure/job-cards/{$token}/complete", ['full_name' => 'Crew Chief', 'confirm' => '1'])->assertSessionHasNoErrors();
+                $this->post("/secure/job-cards/{$token}/complete", ['full_name' => 'Crew Chief', 'confirm' => '1', 'found_text' => 'Worn washer inside the tap', 'cause_note' => 'Wear and tear'])->assertSessionHasNoErrors();
             } else {
                 $this->post(route('corex.rental-work-orders.contractor-done', $wo), ['reported_via' => 'phone', 'note' => 'Done', 'date_done' => now()->toDateString()])->assertSessionHasNoErrors();
             }
