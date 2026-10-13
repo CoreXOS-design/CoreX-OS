@@ -10,6 +10,7 @@
             @if($tenantLine)<br><br><strong>Tenant:</strong> {{ $tenantLine }}@endif
             @if(!empty($calloutFee))<br><br><strong>Call-out fee on our records:</strong> {{ $calloutFee }}@if(!empty($calloutNote)) ({{ $calloutNote }})@endif. Please tell us if this is not right.@endif
         </div>
+        @if(!empty($lookAndQuote))<p data-look-and-quote><strong>This is a visit to look at the problem and give a quote.</strong> Any repair work is agreed with the owner separately, before it starts.</p>@endif
         <p><a href="{{ $url }}" style="display:inline-block;padding:11px 18px;background:#0b2a4a;color:#ffffff;border-radius:6px;text-decoration:none;font-weight:bold;">Open the job</a></p>
         <p>On the job page you can look at the photos, accept or decline the job, and upload your quote. No login is needed.@if($expiresOn) The link works until {{ $expiresOn }}.@endif</p>
         @if($agentLine)<p class="muted">To arrange access or ask a question, contact {{ $agentLine }}.</p>@else<p class="muted">Please contact {{ $agencyName }} to arrange access to the property.</p>@endif

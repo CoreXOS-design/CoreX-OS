@@ -84,7 +84,7 @@
                         <p><strong>The repair</strong> <span class="badge" x-text="faultDetail.work_order.stage_label"></span></p>
                         <p class="muted" x-text="faultDetail.work_order.who_label + (faultDetail.work_order.contractor_name ? ' — ' + faultDetail.work_order.contractor_name : '')"></p>
                         <p class="muted" x-show="faultDetail.work_order.contractor_callout" x-text="faultDetail.work_order.contractor_callout" data-owner-callout></p>
-                        <p x-show="faultDetail.work_order.appointment_at"><strong x-text="faultDetail.work_order.appointment_at ? 'Appointment: ' + new Date(faultDetail.work_order.appointment_at).toLocaleString([], {dateStyle:'full', timeStyle:'short'}) : ''"></strong></p>
+                        <p x-show="faultDetail.work_order.appointment_at"><strong x-text="faultDetail.work_order.appointment_at ? 'Appointment: ' + fmtDateTime(faultDetail.work_order.appointment_at, true) : ''"></strong></p>
                         <button class="btn btn-outline" @click="landlordTab='jobs'; loadWorkOrders(); loadDecisions()">Open the work order</button>
                     </div>
                 </template>
@@ -119,71 +119,87 @@
             </section>
         </template>
 
-        {{-- 5. Your decision: the answer once made, or the controls while it is waiting --}}
-        <template x-if="faultDetail.decision || faultDetail.awaiting_decision">
+        {{-- 5. Your decision: the controls while it is waiting; once the OWNER pressed it, the answer. When an agent wrote it down for the owner, the sentence above ("Authorised on your instruction") says it once - nothing is repeated here. --}}
+        <template x-if="faultDetail.awaiting_decision || (faultDetail.decision && faultDetail.decision.via_link)">
             <section class="sec" data-fault-section="decision">
                 <h3>Your decision</h3>
-                <template x-if="faultDetail.decision">
+                <template x-if="faultDetail.decision && faultDetail.decision.via_link">
                     <div>
-                        <p><strong x-text="faultDetail.decision.decision === 'approved' ? (faultDetail.decision.via_link ? 'You asked for someone to look and quote.' : 'Someone is to look and quote, on your instruction.') : 'This repair was declined.'"></strong></p>
+                        <p><strong x-text="faultDetail.decision.decision === 'approved' ? 'You asked for someone to look and quote.' : 'You declined this repair.'"></strong></p>
                         <p class="muted" x-show="faultDetail.decision.reason" x-text="'Reason: ' + faultDetail.decision.reason"></p>
                         <p class="muted" x-show="faultDetail.decision.contractor" x-text="faultDetail.decision.contractor"></p>
-                        <p class="muted" x-text="faultDetail.decision.how + ' · ' + new Date(faultDetail.decision.at).toLocaleString()"></p>
+                        <p class="muted" data-decision-when x-text="'On ' + fmtDateTime(faultDetail.decision.at)"></p>
                         <p class="muted" x-show="faultDetail.owner_comment" data-owner-comment-readback><strong>Your comment to your agent:</strong> <span x-text="faultDetail.owner_comment ? faultDetail.owner_comment.text : ''"></span></p>
+                        <p class="muted" x-show="faultDetail.decision.decision === 'approved'" data-decision-next>Your agent will arrange it and tell you. You will be asked again before any repair cost is approved.</p>
                     </div>
                 </template>
                 <template x-if="faultDetail.awaiting_decision">
                     <div>
-                        {{-- section 22.4 - who the agent would send, and what the visit costs, BEFORE the owner chooses --}}
-                        <template x-if="faultDetail.proposed">
-                            <p data-proposed-inspector style="margin:0 0 8px;"><strong>Your agent suggests:</strong> <span x-text="faultDetail.proposed.name"></span><span x-show="faultDetail.proposed.callout" x-text="' - ' + (faultDetail.proposed.callout || '')" data-proposed-callout></span></p>
+                        {{-- the agent suggested someone: ONE press accepts them; or choose someone else; or decline. Nothing is spent yet. --}}
+                        <template x-if="faultDetail.proposed && !faultForm.other">
+                            <div data-proposed-choice>
+                                <p style="margin:0 0 6px;" data-proposed-inspector><strong x-text="'Your agent would like to send ' + faultDetail.proposed.name + ' to look at this and give you a quote.'"></strong></p>
+                                <p style="margin:0 0 6px;" x-show="faultDetail.proposed.callout" data-owner-callout x-text="faultDetail.proposed.callout"></p>
+                                <p class="muted" style="margin:0 0 6px;">Nothing is spent yet: you will be asked again before any repair cost is approved.</p>
+                                <label for="owner-comment-proposed">Your comment to your agent (optional)</label>
+                                <textarea id="owner-comment-proposed" rows="2" maxlength="2000" x-model="faultForm.note" data-owner-comment-input></textarea>
+                                <p class="error" x-show="faultForm.error" x-text="faultForm.error"></p>
+                                <button class="btn btn-ok" :disabled="!!(faultForm.busy)" @click="sendProposed()" data-owner-yes x-text="faultForm.busy ? 'Sending…' : 'Yes, send ' + faultDetail.proposed.name"></button>
+                                <button class="btn btn-outline" :disabled="!!(faultForm.busy)" @click="chooseOther('approve')" data-owner-someone-else>Choose someone else</button>
+                                <button class="btn btn-outline" :disabled="!!(faultForm.busy)" @click="chooseOther('decline')" data-owner-decline>Decline</button>
+                            </div>
                         </template>
-                        <label style="margin-top:0;">What would you like to do?</label>
-                        <select x-model="faultForm.decision" data-owner-decision-select>
-                            <option value="">Choose…</option>
-                            <option value="approve">Send someone to look and quote</option>
-                            <option value="decline">Decline</option>
-                        </select>
-                        <template x-if="faultForm.decision === 'approve'">
+                        <template x-if="!faultDetail.proposed || faultForm.other">
                             <div>
-                                <label>Who should look and quote?</label>
-                                <select x-model="faultForm.handled_by">
+                                <p class="muted" style="margin:0 0 8px;" x-show="faultDetail.proposed && faultForm.other">Your agent suggested <span x-text="faultDetail.proposed ? faultDetail.proposed.name : ''"></span>. Choose who you would rather use, or decline.</p>
+                                <label style="margin-top:0;">What would you like to do?</label>
+                                <select x-model="faultForm.decision" data-owner-decision-select>
                                     <option value="">Choose…</option>
-                                    <option value="own">My own contractor</option>
-                                    <option value="list" :hidden="!faultDetail.has_contractor" :disabled="!!(!faultDetail.has_contractor)">A contractor from my agent's list</option>
-                                    <option value="agency">My agent arranges it</option>
+                                    <option value="approve">Send someone to look and quote</option>
+                                    <option value="decline">Decline</option>
                                 </select>
-                                {{-- AT-452 item 9 - the same "is a contractor loaded for this type of work?" answer the agent's warning uses (has_contractor). --}}
-                                <p class="muted" x-show="!faultDetail.has_contractor" data-no-contractor-note>Your agent has no contractor on file for this type of work yet. You can use your own, or ask your agent to arrange it.</p>
-                                <template x-if="faultForm.handled_by === 'own'">
+                                <template x-if="faultForm.decision === 'approve'">
                                     <div>
-                                        <label>Contractor's name (optional)</label>
-                                        <input type="text" x-model="faultForm.contractor_name" maxlength="191">
-                                        <label>Contractor's phone number (optional)</label>
-                                        <input type="text" x-model="faultForm.contractor_phone" maxlength="40">
-                                        <p class="muted">Your agent may need to speak to them about access and the work.</p>
-                                    </div>
-                                </template>
-                                <template x-if="faultForm.handled_by === 'list'">
-                                    <div>
-                                        <label>Choose a contractor</label>
-                                        <select x-model="faultForm.agency_service_provider_id">
+                                        <label>Who should look and quote?</label>
+                                        <select x-model="faultForm.handled_by">
                                             <option value="">Choose…</option>
-                                            <template x-for="c in faultDetail.contractors" :key="c.id"><option :value="c.id" x-text="c.name"></option></template>
+                                            <option value="own">My own contractor</option>
+                                            <option value="list" :hidden="!faultDetail.has_contractor" :disabled="!!(!faultDetail.has_contractor)">A contractor from my agent's list</option>
+                                            <option value="agency">My agent arranges it</option>
                                         </select>
+                                        {{-- AT-452 item 9 - the same "is a contractor loaded for this type of work?" answer the agent's warning uses (has_contractor). --}}
+                                        <p class="muted" x-show="!faultDetail.has_contractor" data-no-contractor-note>Your agent has no contractor on file for this type of work yet. You can use your own, or ask your agent to arrange it.</p>
+                                        <template x-if="faultForm.handled_by === 'own'">
+                                            <div>
+                                                <label>Contractor's name (optional)</label>
+                                                <input type="text" x-model="faultForm.contractor_name" maxlength="191">
+                                                <label>Contractor's phone number (optional)</label>
+                                                <input type="text" x-model="faultForm.contractor_phone" maxlength="40">
+                                                <p class="muted">Your agent may need to speak to them about access and the work.</p>
+                                            </div>
+                                        </template>
+                                        <template x-if="faultForm.handled_by === 'list'">
+                                            <div>
+                                                <label>Choose a contractor</label>
+                                                <select x-model="faultForm.agency_service_provider_id">
+                                                    <option value="">Choose…</option>
+                                                    <template x-for="c in faultDetail.contractors" :key="c.id"><option :value="c.id" x-text="c.name"></option></template>
+                                                </select>
+                                            </div>
+                                        </template>
                                     </div>
                                 </template>
+                                {{-- AT-452 (§19.12) - the owner's own comment to the agent, for every decision (for a decline it is the reason, and it is required). --}}
+                                <template x-if="faultForm.decision">
+                                    <div data-owner-comment-box>
+                                        <label for="owner-comment-decision" data-owner-comment-label x-text="faultForm.decision === 'decline' ? 'Your comment to your agent (required - please tell us why you are declining)' : 'Your comment to your agent (optional)'"></label>
+                                        <textarea id="owner-comment-decision" rows="3" maxlength="2000" x-model="faultForm.note" data-owner-comment-input></textarea>
+                                    </div>
+                                </template>
+                                <p class="error" x-show="faultForm.error" x-text="faultForm.error"></p>
+                                <button class="btn btn-ok" :disabled="!!(faultForm.busy || !faultForm.decision)" @click="submitFaultDecision()">Send my decision</button>
                             </div>
                         </template>
-                        {{-- AT-452 (§19.12) - the owner's own comment to the agent, for every decision (for a decline it is the reason, and it is required). --}}
-                        <template x-if="faultForm.decision">
-                            <div data-owner-comment-box>
-                                <label for="owner-comment-decision" data-owner-comment-label x-text="faultForm.decision === 'decline' ? 'Your comment to your agent (required - please tell us why you are declining)' : 'Your comment to your agent (optional)'"></label>
-                                <textarea id="owner-comment-decision" rows="3" maxlength="2000" x-model="faultForm.note" data-owner-comment-input></textarea>
-                            </div>
-                        </template>
-                        <p class="error" x-show="faultForm.error" x-text="faultForm.error"></p>
-                        <button class="btn btn-ok" :disabled="!!(faultForm.busy || !faultForm.decision)" @click="submitFaultDecision()">Send my decision</button>
                     </div>
                 </template>
             </section>

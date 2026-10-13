@@ -58,7 +58,7 @@ class RentalOwnerNoticeController extends Controller
 
         return response()->view('rentals.owner-notice', [
             'action' => $action, 'state' => $state, 'error' => $error,
-            'agencyName' => $agency?->trading_name ?: ($agency?->name ?: config('app.name', 'CoreX OS')),
+            'agencyName' => \App\Models\Agency::displayNameFor($agency, (string) config('app.name', 'CoreX OS')),
             'address' => $job->property?->buildDisplayAddress() ?: ('Property #' . $job->property_id),
             'ownerName' => trim((string) $owner->first_name) ?: 'there',
             'jobTitle' => $fault ? (string) ($fault->ownerVersion()['title'] ?? $fault->title) : (string) $wo->title,

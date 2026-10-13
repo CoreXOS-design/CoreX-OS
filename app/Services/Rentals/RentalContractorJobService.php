@@ -545,7 +545,7 @@ class RentalContractorJobService
     {
         $agency = $wo->agency ?? $wo->property?->agency;
 
-        return $agency?->trading_name ?: ($agency?->name ?: 'Your agency');
+        return \App\Models\Agency::displayNameFor($agency);
     }
 
     /** The agent a mail is sent AS: whoever pressed the button, else the property's agent, else whoever created the work order. */

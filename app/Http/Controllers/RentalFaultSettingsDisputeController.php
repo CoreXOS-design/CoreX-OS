@@ -26,7 +26,7 @@ class RentalFaultSettingsDisputeController extends Controller
         $agency = $prop->agency;
         $version = (int) $request->query('v', 0);
         $view = [
-            'agencyName' => $agency?->trading_name ?: ($agency?->name ?: config('app.name', 'CoreX OS')),
+            'agencyName' => \App\Models\Agency::displayNameFor($agency, (string) config('app.name', 'CoreX OS')),
             'address' => $prop->buildDisplayAddress() ?: ('Property #' . $prop->id),
             'ownerName' => trim((string) $owner->first_name) ?: 'there',
             'lines' => $row ? $service->valuesSentence(['repair_limit' => $row->repair_limit, 'emergency_limit' => $row->emergency_limit, 'callout_mode' => $row->callout_mode, 'callout_limit' => $row->callout_limit]) : '',

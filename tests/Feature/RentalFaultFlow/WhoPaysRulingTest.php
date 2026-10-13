@@ -171,6 +171,7 @@ final class WhoPaysRulingTest extends TestCase
         $supplier = AgencyServiceProvider::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'name' => 'Pipe Pros', 'email' => 'pipe@example.invalid', 'is_active' => true, 'specialty' => 'other']);
         $wo = $this->workOrder(null, ['agency_service_provider_id' => $supplier->id]);
         $raw = app(RentalSecureAccessTokenService::class)->issueFor($wo, $this->agent)['raw_token'];
+        $this->post(route('rentals.secure-link.respond', $raw), ['answer' => 'accept']);   // 13 Oct 2026: "What did you find?" / Mark done are offered (and accepted) only once the job has been accepted
 
         $this->get(route('rentals.secure-link.show', $raw))->assertOk()->assertSee('What did you find?')->assertSee('Foreign object in the drain')->assertSee('Something else (describe it)');
 
@@ -193,6 +194,7 @@ final class WhoPaysRulingTest extends TestCase
         $supplier = AgencyServiceProvider::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'name' => 'Pipe Pros', 'email' => 'pipe2@example.invalid', 'is_active' => true, 'specialty' => 'other']);
         $wo = $this->workOrder(null, ['agency_service_provider_id' => $supplier->id, 'reported_fault_report_id' => null]);
         $raw = app(RentalSecureAccessTokenService::class)->issueFor($wo, $this->agent)['raw_token'];
+        $this->post(route('rentals.secure-link.respond', $raw), ['answer' => 'accept']);   // 13 Oct 2026: "What did you find?" / Mark done are offered (and accepted) only once the job has been accepted
 
         $this->get(route('rentals.secure-link.show', $raw))->assertOk()->assertDontSee('What did you find?');
         $this->post(route('rentals.secure-link.mark-done', $raw), [])->assertSessionHasNoErrors();

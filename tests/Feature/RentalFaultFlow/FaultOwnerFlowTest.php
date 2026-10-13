@@ -439,7 +439,7 @@ class FaultOwnerFlowTest extends TestCase
             ->assertJsonPath('fault_report.decision.decision', 'declined')
             ->assertJsonPath('fault_report.decision.via_link', false)
             ->assertJsonPath('fault_report.decision.reason', 'Owner declined by phone.');
-        $this->assertStringContainsString('Captured by the agent', $detail->json('fault_report.decision.how'));
+        $this->assertNull($detail->json('fault_report.decision.how'), 'the owner is never shown "Captured by the agent (verbal note)" - the sentence above says it once');
         $this->assertSame($this->agent->name, $detail->json('fault_report.decision.by'));
     }
 

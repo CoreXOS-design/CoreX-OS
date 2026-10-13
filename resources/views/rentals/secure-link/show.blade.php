@@ -53,6 +53,9 @@
             @if ($accessNotes)
                 <p class="muted"><strong>Getting in:</strong> {{ $accessNotes }}</p>
             @endif
+            @if (! empty($lookAndQuote))
+                <p data-look-and-quote><strong>This is a visit to look at the problem and give a quote.</strong> Any repair work is agreed with the owner separately, before it starts.</p>
+            @endif
             @if ($jobCard?->access_notes)
                 <p class="muted"><strong>Access notes:</strong> {{ $jobCard->access_notes }}</p>
             @endif
@@ -94,7 +97,7 @@
         <div class="card" data-contractor-answer>
             <h2>Can you take this job?</h2>
             <p class="muted" data-contractor-answer-state>{{ $response ? $responseLabel : 'Not answered yet' }}@if ($response === 'declined' && $workOrder->contractor_decline_reason) &mdash; {{ $workOrder->contractor_decline_reason }}@endif</p>
-            @if (! in_array($workOrder->status, ['completed', 'cancelled'], true))
+            @if (! in_array($workOrder->status, ['completed', 'cancelled'], true) && (! $response || $response === 'pending'))
                 <form method="POST" action="{{ route('rentals.secure-link.respond', $token) }}">
                     @csrf
                     <input type="hidden" name="answer" value="accept">
@@ -122,7 +125,8 @@
         @endif
 
 
-        <div class="card">
+        @if ($response !== 'declined')
+        <div class="card" data-contractor-quote>
             <h2>Upload a quote</h2>
             <form method="POST" action="{{ route('rentals.secure-link.quote', $token) }}" enctype="multipart/form-data">
                 @csrf
@@ -130,15 +134,19 @@
                 <input type="number" step="0.01" min="0" name="amount" required>
                 <label>Quote date</label>
                 <input type="date" name="quote_date" required value="{{ now()->toDateString() }}">
-                <label>Details (optional)</label>
+                <label>Details of the quote <span class="muted">(needed if you do not attach a document)</span></label>
                 <textarea name="detail_text" rows="2"></textarea>
-                <label>Quote document (optional)</label>
+                <label>Quote document <span class="muted">(needed if you do not write the details)</span></label>
                 <input type="file" name="document" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif">
                 <button class="btn btn-primary" type="submit">Submit quote</button>
             </form>
         </div>
 
-        <div class="card">
+        @endif
+
+        {{-- "What did you find?" and the after photos only make sense once the job is accepted --}}
+        @if (in_array($response, ['accepted', 'quote_uploaded'], true))
+        <div class="card" data-contractor-photos>
             <h2>Upload after photos</h2>
             <form method="POST" action="{{ route('rentals.secure-link.photo', $token) }}" enctype="multipart/form-data">
                 @csrf
@@ -147,7 +155,7 @@
             </form>
         </div>
 
-        <div class="card">
+        <div class="card" data-contractor-done>
             <h2>Mark job done</h2>
             <form method="POST" action="{{ route('rentals.secure-link.mark-done', $token) }}">
                 @csrf
@@ -155,6 +163,7 @@
                 <button class="btn btn-ok" type="submit">Mark done</button>
             </form>
         </div>
+        @endif
         @endif
     </div>
 </body>
