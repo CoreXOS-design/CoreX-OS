@@ -449,8 +449,9 @@ class AgencySetupWizardTest extends TestCase
         // switchboard inserted at position 2 (switchboard spec §5/§7), + AT-379's
         // 'proforma' (after commission), 'market_intelligence' (after matches),
         // and 'welcome' (the new first step), + AT-395's 'outgoing_mail' and the leases-spec 'leases' step = 18,
-        // + AT-432's 'auctions' step (after properties; gated on the auctions feature) = 19.
-        $this->assertSame(19,\App\Models\AgencyOnboardingSetup::totalSteps());
+        // + AT-432's 'auctions' step (after properties; gated on the auctions feature) = 19,
+        // + AT-454's 'road_to_sold' step (after market_intelligence; gated on the road-to-sold feature) = 20.
+        $this->assertSame(20,\App\Models\AgencyOnboardingSetup::totalSteps());
 
         $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'properties']))
             ->assertOk()

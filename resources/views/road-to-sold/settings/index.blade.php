@@ -13,7 +13,6 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div>
             <h1 class="text-xl font-bold text-white leading-tight">Road to Sold settings</h1>
-            <p class="text-sm text-white/60">How the daily call list is built, how targets are measured, and when an agent is shown as on track.</p>
         </div>
     </div>
 
@@ -43,12 +42,6 @@
         </div>
     @endforeach
 
-    @unless($settings->isCustomised())
-        <div class="rounded-md px-4 py-3 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-muted);">
-            You have not changed anything yet - everything below shows the standard defaults, and they are already working for your agents.
-        </div>
-    @endunless
-
     @if(! $canManage)
         <div class="rounded-md px-4 py-3 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-muted);">
             You can look at these settings but not change them. Ask an administrator for the "Manage Road to Sold settings" permission.
@@ -71,15 +64,15 @@
                     <input type="checkbox" name="lock_agents_to_areas" value="1" class="mt-1" @checked(old('lock_agents_to_areas', $settings->lockAgentsToAreas()))>
                     <span>
                         <span class="font-semibold">Lock agents to their areas</span><br>
-                        <span style="color:var(--text-muted);">Off (recommended): each agent's own suburbs come first, then the list carries on into your agency's other suburbs if the day is not full. On: agents only ever get properties from their own suburbs - an agent with no suburbs gets no list.</span>
+                        <span style="color:var(--text-muted);">On: agents only get their own suburbs. Off: own suburbs first, then the agency's others.</span>
                     </span>
                 </label>
                 <div>
-                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="area_refresh_warn_days">Ask for a refresh when an area was last captured more than this many days ago</label>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="area_refresh_warn_days">Ask for a refresh when nothing was captured for an area in</label>
                     <input id="area_refresh_warn_days" type="number" min="1" max="365" name="area_refresh_warn_days"
                            value="{{ old('area_refresh_warn_days', $settings->areaRefreshWarnDays()) }}"
                            class="w-28 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                    <span class="text-xs ml-2" style="color:var(--text-muted);">days (standard: {{ $defaults['area_refresh_warn_days'] }}). Refreshing an area stays a manual job.</span>
+                    <span class="text-xs ml-2" style="color:var(--text-muted);">days (standard: {{ $defaults['area_refresh_warn_days'] }})</span>
                 </div>
             </div>
         </div>
@@ -95,18 +88,18 @@
                     <input type="checkbox" name="half_day_leave_halves_target" value="1" class="mt-1" @checked(old('half_day_leave_halves_target', $settings->halfDayLeaveHalvesTarget()))>
                     <span>
                         <span class="font-semibold">Half-day leave halves the target</span><br>
-                        <span style="color:var(--text-muted);">Off: an agent on approved half-day leave still owes the full target that day. On: that day's target is halved (rounded to the nearest whole number). Whole days of leave and public holidays never carry a target.</span>
+                        <span style="color:var(--text-muted);">On: half-day leave halves that day's target. Off: the full target still applies.</span>
                     </span>
                 </label>
                 <div>
-                    <div class="text-xs font-semibold mb-2" style="color:var(--text-muted);">Properties an agent did not get to by the end of the day</div>
+                    <div class="text-xs font-semibold mb-2" style="color:var(--text-muted);">Properties not worked by the end of the day</div>
                     <label class="flex items-start gap-3 text-sm mb-2" style="color:var(--text-primary);">
                         <input type="radio" name="missed_items_mode" value="show_missed" class="mt-1" @checked(old('missed_items_mode', $settings->missedItemsMode()) === 'show_missed')>
-                        <span><span class="font-semibold">Show them as missed</span> (standard) - they stay on the day they were meant for and count against that day.</span>
+                        <span><span class="font-semibold">Show as missed</span> (standard) - they stay on that day.</span>
                     </label>
                     <label class="flex items-start gap-3 text-sm" style="color:var(--text-primary);">
                         <input type="radio" name="missed_items_mode" value="roll_over" class="mt-1" @checked(old('missed_items_mode', $settings->missedItemsMode()) === 'roll_over')>
-                        <span><span class="font-semibold">Roll them over</span> - they move to the agent's next working day.</span>
+                        <span><span class="font-semibold">Roll over</span> - they move to the next working day.</span>
                     </label>
                 </div>
             </div>
@@ -116,7 +109,7 @@
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">Where the call list comes from</h3>
-                <p class="text-xs mt-1" style="color:var(--text-muted);">Follow-ups due today always come first. After that CoreX fills the day from the sources below, top to bottom, until the agent's target is reached. Switch a source off to skip it; move it up or down to change the order.</p>
+                <p class="text-xs mt-1" style="color:var(--text-muted);">Follow-ups come first, then these sources top to bottom until the target is met.</p>
             </div>
             <ul class="divide-y" id="rts-selections" style="border-color:var(--border);">
                 @foreach($settings->selections() as $i => $sel)
@@ -127,8 +120,8 @@
                             <input type="checkbox" data-name="enabled" name="selections[{{ $i }}][enabled]" value="1" @checked($sel['enabled'])>
                             <span class="font-semibold">{{ $sel['label'] }}</span>
                         </label>
-                        <button type="button" data-rts-move="up" title="Move up" class="px-2 py-1 rounded-md text-xs" style="border:1px solid var(--border);">&uarr;</button>
-                        <button type="button" data-rts-move="down" title="Move down" class="px-2 py-1 rounded-md text-xs" style="border:1px solid var(--border);">&darr;</button>
+                        <button type="button" data-rts-move="up" title="Move up" class="inline-flex items-center justify-center w-8 h-8 rounded-md text-sm leading-none" style="border:1px solid var(--border); color:var(--text-primary);">&uarr;</button>
+                        <button type="button" data-rts-move="down" title="Move down" class="inline-flex items-center justify-center w-8 h-8 rounded-md text-sm leading-none" style="border:1px solid var(--border); color:var(--text-primary);">&darr;</button>
                     </li>
                 @endforeach
             </ul>
@@ -141,15 +134,15 @@
             </div>
             <div class="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
                 @foreach([
-                    ['new_on_market_days', 'New on market: listed within this many days', $settings->newOnMarketDays(), 1, 365, 'days'],
-                    ['long_on_market_days', 'Long on market: on the market for more than this many days', $settings->longOnMarketDays(), 1, 3650, 'days'],
-                    ['owner_known_quantity', 'Owner already known: how many to show each day', $settings->ownerKnownQuantity(), 0, 100, 'properties'],
-                    ['stuck_stock_min_days', 'My stock not selling: on the market for at least', $settings->stuckStockMinDaysOnMarket(), 1, 3650, 'days'],
+                    ['new_on_market_days', 'New on market: listed within', $settings->newOnMarketDays(), 1, 365, 'days'],
+                    ['long_on_market_days', 'Long on market: more than', $settings->longOnMarketDays(), 1, 3650, 'days'],
+                    ['owner_known_quantity', 'Owner already known: show up to', $settings->ownerKnownQuantity(), 0, 100, 'properties'],
+                    ['stuck_stock_min_days', 'Not selling: on the market at least', $settings->stuckStockMinDaysOnMarket(), 1, 3650, 'days'],
                     ['stuck_stock_max_views', '...and fewer views than', $settings->stuckStockMaxViews(), 0, 100000, 'views'],
                     ['stuck_stock_max_leads', '...and fewer leads than', $settings->stuckStockMaxLeads(), 0, 1000, 'leads'],
-                    ['stuck_stock_lookback_days', '...counting views and leads over the last', $settings->stuckStockLookbackDays(), 1, 3650, 'days'],
-                    ['hot_pocket_lookback_days', 'Hottest sales pockets: look at buyers, leads and sales from the last', $settings->hotPocketLookbackDays(), 1, 3650, 'days'],
-                    ['price_drop_lookback_days', 'Price drops: look for a reduction in the last', $settings->priceDropLookbackDays(), 1, 3650, 'days'],
+                    ['stuck_stock_lookback_days', '...counted over the last', $settings->stuckStockLookbackDays(), 1, 3650, 'days'],
+                    ['hot_pocket_lookback_days', 'Hottest pockets: look back', $settings->hotPocketLookbackDays(), 1, 3650, 'days'],
+                    ['price_drop_lookback_days', 'Price drops: look back', $settings->priceDropLookbackDays(), 1, 3650, 'days'],
                 ] as [$name, $label, $value, $min, $max, $unit])
                     <div>
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="{{ $name }}">{{ $label }}</label>
@@ -168,8 +161,8 @@
             </div>
             <div class="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
                 @foreach([
-                    ['no_answer_drop_after', 'Drop a property off the agent\'s list after this many no-answers in a row', $settings->noAnswerDropAfter(), 1, 20, 'calls'],
-                    ['hold_days', 'An agent keeps a property for this long after logging an outcome', $settings->holdDays(), 1, 365, 'days'],
+                    ['no_answer_drop_after', 'Drop off the list after this many no-answers in a row', $settings->noAnswerDropAfter(), 1, 20, 'calls'],
+                    ['hold_days', 'Agent keeps a property after logging an outcome for', $settings->holdDays(), 1, 365, 'days'],
                 ] as [$name, $label, $value, $min, $max, $unit])
                     <div>
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="{{ $name }}">{{ $label }}</label>
@@ -185,7 +178,6 @@
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">The on-track bar</h3>
-                <p class="text-xs mt-1" style="color:var(--text-muted);">Each step compares what an agent should have done by today this month with what they have actually done.</p>
             </div>
             <div class="p-5 space-y-4">
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -211,24 +203,23 @@
                         </div>
                     @endforeach
                 </div>
-                <p class="text-xs" style="color:var(--text-muted);">In between the two numbers the bar shows amber.</p>
             </div>
         </div>
 
         </fieldset>
 
         @if($canManage)
-            <div class="flex items-center justify-between gap-3">
-                <button type="submit" class="px-5 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-icon, #0ea5e9);">Save settings</button>
+            <div class="flex items-center gap-3">
+                <button type="submit" class="inline-flex items-center justify-center h-10 px-5 rounded-md text-sm font-semibold text-white" style="background:var(--brand-icon, #0ea5e9); border:1px solid var(--brand-icon, #0ea5e9);">Save settings</button>
+                <button type="submit" form="rts-reset-form" class="inline-flex items-center justify-center h-10 px-5 rounded-md text-sm font-semibold" style="border:1px solid var(--border); color:var(--text-primary);">Put everything back to the defaults</button>
             </div>
         @endif
     </form>
 
     @if($canManage)
-        <form method="POST" action="{{ route('road-to-sold.settings.general.reset') }}"
-              onsubmit="return confirm('Put every Road to Sold setting back to the standard defaults? Each agent's suburbs and own weekday numbers are not affected.');">
+        <form id="rts-reset-form" method="POST" action="{{ route('road-to-sold.settings.general.reset') }}"
+              onsubmit="return confirm('Put every Road to Sold setting back to the standard defaults? Suburbs and individual weekday numbers are not affected.');">
             @csrf
-            <button type="submit" class="text-xs underline" style="color:var(--text-muted);">Put everything back to the defaults</button>
         </form>
     @endif
 

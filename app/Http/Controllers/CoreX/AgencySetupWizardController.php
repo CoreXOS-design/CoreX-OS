@@ -627,6 +627,24 @@ class AgencySetupWizardController extends Controller
                     'core_matches_excluded_buyer_states' => \App\Models\AgencyContactSettings::forAgencyReadOnly($agency->id)->coreMatchesExcludedBuyerStates(),
                     default => $control['default'] ?? null,
                 },
+                // Road to Sold - AT-454, .ai/specs/road-to-sold.md section 4. Explicit per-key match (spec 6.2).
+                // Read through SettingsService (defaults when the agency has saved nothing - never writes).
+                'road_to_sold' => (function () use ($key, $agency, $control) {
+                    $rts = \App\Services\RoadToSold\SettingsService::forAgency($agency->id);
+                    if (preg_match('/^default_target_([1-7])$/', $key, $m)) {
+                        return $rts->defaultWeekdayTargets()[(int) $m[1]];
+                    }
+
+                    return match ($key) {
+                        'half_day_leave_halves_target' => $rts->halfDayLeaveHalvesTarget(),
+                        'lock_agents_to_areas'         => $rts->lockAgentsToAreas(),
+                        'area_refresh_warn_days'       => $rts->areaRefreshWarnDays(),
+                        'missed_items_mode'            => $rts->missedItemsMode(),
+                        'no_answer_drop_after'         => $rts->noAnswerDropAfter(),
+                        'hold_days'                    => $rts->holdDays(),
+                        default                        => $control['default'] ?? null,
+                    };
+                })(),
                 // Bug found 2026-09-20 (cc4, while wiring rental_work_orders'
                 // display case): 'rental_inspections' originally had NO arm at
                 // all, so both of its controls fell through to `default =>
