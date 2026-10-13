@@ -277,6 +277,10 @@ class RentalWorkOrderClientViewService
                 : null,
         ];
 
+        if ($audience === self::AUDIENCE_TENANT) {
+            $payload += $this->tenantProgressActions($workOrder);
+        }
+
         if ($audience === self::AUDIENCE_LANDLORD) {
             // The owner-facing amount only (§17.2): the selected quote's selling figure, else the final amount
             // once the work order is closed. Never cost, markup or margin.
@@ -342,17 +346,36 @@ class RentalWorkOrderClientViewService
             || in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true)) {
             return $none(null);
         }
-        if ($workOrder->status === RentalWorkOrder::STATUS_REPORTED) {
-            return $none('You can tell us when the work starts and finishes once the agency has sent this to the contractor.');
-        }
-        if ($checkWaiting) {
-            return $none('The work has been reported finished. The agency will check it and close the job.');
+        // spec 22.18 - the SAME rule the server refuses with (RentalWorkOrderService::progressBlock): with a tenant in the property the owner only watches
+        $svc = app(RentalWorkOrderService::class);
+        if ($block = $svc->progressBlock($workOrder, 'owner', 'finished')) {
+            return $none($block);
         }
 
         return [
             'owner_can_start' => $workOrder->status === RentalWorkOrder::STATUS_ORDERED,
             'owner_can_finish' => true,
             'owner_progress_note' => null,
+        ];
+    }
+
+    /**
+     * Spec 22.18 - what the TENANT may press on a repair in their property: "The contractor has arrived - work has started" and "The work is finished"
+     * (with "it is not fixed" as the alternative). Same rule the server refuses with.
+     *
+     * @return array{tenant_can_start:bool, tenant_can_finish:bool, tenant_progress_note:?string}
+     */
+    public function tenantProgressActions(RentalWorkOrder $workOrder): array
+    {
+        $svc = app(RentalWorkOrderService::class);
+        $startBlock = $svc->progressBlock($workOrder, 'tenant', 'started');
+        $finishBlock = $svc->progressBlock($workOrder, 'tenant', 'finished');
+        $quiet = $workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL || in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true);
+
+        return [
+            'tenant_can_start' => $startBlock === null && $workOrder->status === RentalWorkOrder::STATUS_ORDERED,
+            'tenant_can_finish' => $finishBlock === null,
+            'tenant_progress_note' => $quiet ? null : ($finishBlock ?? $startBlock),
         ];
     }
 

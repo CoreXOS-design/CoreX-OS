@@ -263,20 +263,21 @@ final class BackHalfWalkTest extends TestCase
         $this->assertStringContainsString('Bob the Plumber', $step['detail']);
         $this->assertSame('appointment_set', $this->ownerLine($fault)['current']);
 
-        // The owner reports it started, then finished.
+        // AT-452 22.18 (Johan, 14 Oct 2026): a tenant lives in the property, so the owner may NOT report progress - the TENANT reports it started, then finished.
         $this->asOwner();   // (the agent's session above replaced the owner's login)
-        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/progress", ['action' => 'started'])->assertOk();
+        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/progress", ['action' => 'started'])->assertStatus(422);
+        $this->asTenant();
+        $this->postJson("/api/v1/client/rentals/work-orders/{$wo->id}/progress", ['action' => 'started'])->assertOk();
         $this->assertSame('in_progress', $this->tenantLine($fault)['current']);
-        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/progress", ['action' => 'finished', 'note' => 'All done'])->assertOk();
+        $this->postJson("/api/v1/client/rentals/work-orders/{$wo->id}/progress", ['action' => 'finished', 'note' => 'All done'])->assertOk();
         $round = RentalWorkCompletionRound::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->first();
-        $this->assertNotNull($round, 'the owner reporting it finished records the (optional) tenant check');
-        $this->assertSame(RentalWorkCompletionRound::OUTCOME_AWAITING_TENANT, $round->outcome);
-        $this->assertSame(RentalWorkOrder::STATUS_IN_PROGRESS, $wo->fresh()->status, 'T1: reported finished closes nothing');
+        $this->assertNotNull($round, 'the tenant reporting it finished records the round (their own confirmation)');
+        $this->assertSame(RentalWorkCompletionRound::VIA_TENANT_PORTAL, $round->reported_via);
+        $this->assertSame(RentalWorkCompletionRound::OUTCOME_CONFIRMED, $round->outcome);
+        $this->assertSame(RentalWorkOrder::STATUS_IN_PROGRESS, $wo->fresh()->status, 'reported finished closes nothing - the agent completes it');
         $this->assertSame('Work reported finished', $this->tenantLine($fault)['current_label'], 'and starts no tenant hold');
 
-        // The tenant confirms; the agent closes and records the cost against the TENANT's deposit.
-        $this->asTenant();
-        $this->postJson("/api/v1/client/rentals/work-orders/{$wo->id}/completion-response", ['fixed' => true])->assertOk();
+        // The agent closes and records the cost against the TENANT's deposit.
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.complete', $wo), ['paid_by' => 'deposit_deduction', 'cost_amount' => 850])
             ->assertSessionHasNoErrors();
         $this->assertSame('deposit_deduction', $wo->fresh()->paid_by);
