@@ -40,7 +40,7 @@
     $prefillTradeCode = null;
     if ($faultReport->faultType?->category) {
         $needle = strtolower($faultReport->faultType->category);
-        $prefillTradeCode = optional(\App\Models\DealV2\AgencyServiceType::orderBy('label')->get()->first(
+        $prefillTradeCode = optional(\App\Models\DealV2\AgencyServiceType::work()->orderBy('label')->get()->first(
             fn ($t) => str_contains(strtolower($t->label . ' ' . $t->code), $needle)
         ))->code;
     }

@@ -1191,6 +1191,12 @@ Route::prefix('deals-v2/settings/service-types')->middleware(['auth', 'permissio
     Route::put('/{service_type}', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'update'])->name('deals-v2.settings.service-types.update');
     Route::delete('/{service_type}', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'destroy'])->name('deals-v2.settings.service-types.destroy');
     Route::post('/{id}/restore', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'restore'])->name('deals-v2.settings.service-types.restore');
+    // Johan, 13 Oct 2026 - the agency's own groups for its service types (Your trades / Property sales / its own)
+    Route::post('/groups', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'storeGroup'])->name('deals-v2.settings.service-types.groups.store');
+    Route::put('/groups/{group}', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'updateGroup'])->name('deals-v2.settings.service-types.groups.update');
+    Route::post('/groups/{group}/move', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'moveGroup'])->name('deals-v2.settings.service-types.groups.move');
+    Route::delete('/groups/{group}', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'destroyGroup'])->name('deals-v2.settings.service-types.groups.destroy');
+    Route::post('/groups/{id}/restore', [\App\Http\Controllers\DealV2\AgencyServiceTypeController::class, 'restoreGroup'])->name('deals-v2.settings.service-types.groups.restore');
 });
 
 // ===== DEAL REGISTER V2 — SUPPLIER DIRECTORY (WS2 / D2) =====
@@ -5736,6 +5742,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // 2026-09-21 — retrofit a room type onto a legacy typeless space item
         // (e.g. one created before this fix). See RentalInspectionRecordingController::assignType().
         Route::post('/{property}/rental-inspection-items/{item}/assign-type', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'assignType'])->middleware('permission:rental_inspections.create')->name('rental-inspection-items.assign-type');
+        // 13 Oct 2026 - the property page's own map-strip call. routes/api.php keeps the bearer-only mobile route (its group has the
+        // browser-session support stripped on purpose, bootstrap/app.php), so a signed-in page used to get a silent 401 on every load.
+        Route::post('/{property}/geocode', [\App\Http\Controllers\CoreX\PropertyController::class, 'geocode'])->middleware('permission:access_properties')->name('geocode');
         Route::post('/{property}/rental-inspection-items/seed-from-advertising', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'seedFromAdvertising'])->middleware('permission:rental_inspections.create')->name('rental-inspection-items.seed-from-advertising');
         // 2026-09-21, Johan on property 5792 — room walking order. apply-default-order
         // is the explicit, agent-triggered one-click fix for a property's EXISTING

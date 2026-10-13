@@ -452,4 +452,61 @@ final class MarketingReadinessDriveGateTest extends TestCase
         $this->assertTrue($this->checklist($p)['mandate']['present'], 'Mandate row should tick after inline upload');
         $this->assertTrue($this->report($p)->ready, 'Gate should recompute to ready after the mandate lands');
     }
+
+    // ── Sherry walk, 13 Oct 2026: a RENTAL is not a sale ─────────────────────────────────────────────────────────
+
+    private function makeRental(): Property
+    {
+        $p = $this->makeListing();
+        $p->forceFill(['listing_type' => 'rental', 'rental_amount' => 14500, 'price' => 0])->save();
+
+        return $p->fresh();
+    }
+
+    public function test_a_rental_is_not_blocked_on_the_sellers_disclosure_form_and_the_wording_says_landlord(): void
+    {
+        $p = $this->makeRental();
+        $landlord = $this->addSeller($p);
+        $p->contacts()->updateExistingPivot($landlord->id, ['role' => 'landlord']);
+        $this->fileDoc('mandate', 'upload', $p);
+        // no disclosure form, no landlord FICA yet
+
+        $report = $this->report($p);
+
+        $this->assertArrayNotHasKey('disclosure', $report->checklist, 'the Mandatory Disclosure Form is a SALE document');
+        $this->assertFalse($report->ready, 'landlord FICA is still required on a rental');
+        $text = implode(' | ', $report->blockedBy) . ' | ' . json_encode($report->nextActions);
+        $this->assertStringContainsStringIgnoringCase('landlord', $text);
+        $this->assertStringNotContainsStringIgnoringCase('seller', $text);
+        $this->assertStringNotContainsStringIgnoringCase('disclosure', $text);
+
+        $this->approveFica($landlord);
+        $ready = $this->report($p);
+        $this->assertTrue($ready->ready, 'mandate + landlord FICA + photos + details is enough for a rental. Blocked by: ' . implode(' | ', $ready->blockedBy));
+        $this->assertStringContainsString('landlord', strtolower($ready->checklist['fica']['detail']));
+    }
+
+    public function test_the_same_agency_still_needs_the_disclosure_form_on_a_sale(): void
+    {
+        $p = $this->makeListing();
+        $seller = $this->addSeller($p);
+        $this->fileDoc('mandate', 'upload', $p);
+        $this->approveFica($seller);
+
+        $report = $this->report($p);
+        $this->assertFalse($report->ready);
+        $this->assertFalse($report->checklist['disclosure']['passed']);
+        $this->assertStringContainsStringIgnoringCase('seller', json_encode($report->checklist));
+    }
+
+    public function test_a_rental_with_no_landlord_linked_is_told_to_link_a_landlord(): void
+    {
+        $p = $this->makeRental();
+        $this->fileDoc('mandate', 'upload', $p);
+
+        $report = $this->report($p);
+        $this->assertFalse($report->checklist['fica']['passed']);
+        $this->assertSame('Link a landlord', $report->checklist['fica']['action_label']);
+        $this->assertStringContainsString('No landlords linked', $report->checklist['fica']['detail']);
+    }
 }

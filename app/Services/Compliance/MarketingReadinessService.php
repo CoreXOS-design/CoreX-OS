@@ -262,7 +262,7 @@ class MarketingReadinessService
             $isFica = $type->slug === $ficaSlug;
 
             if ($present) {
-                $detail = $isFica ? 'All sellers FICA approved' : ($type->label . ' on file');
+                $detail = $isFica ? 'All ' . $this->partyWord($property, true) . ' FICA approved' : ($type->label . ' on file');
             } elseif ($isFica) {
                 $detail = $item['fica_detail'] ?? ('Missing: ' . $type->label);
             } else {
@@ -278,7 +278,7 @@ class MarketingReadinessService
             $actionLabel = $present
                 ? null
                 : ($isFica
-                    ? ($this->primarySellerId($property) ? 'Verify seller FICA' : 'Link a seller')
+                    ? ($this->primarySellerId($property) ? 'Verify ' . $this->partyWord($property) . ' FICA' : 'Link a ' . $this->partyWord($property))
                     : 'Upload ' . $type->label);
 
             $gates[$type->slug] = [
@@ -320,6 +320,15 @@ class MarketingReadinessService
 
         if ($requiredTypes->isEmpty()) {
             return [];
+        }
+
+        // A rental mandate is not a sale: the checks that exist for a SELLER (the Mandatory Disclosure Form) do not apply.
+        if ($property->isRental()) {
+            $exempt = (array) config('corex-compliance.rental_not_required_slugs', []);
+            $requiredTypes = $requiredTypes->reject(fn ($t) => in_array($t->slug, $exempt, true))->values();
+            if ($requiredTypes->isEmpty()) {
+                return [];
+            }
         }
 
         $sellerIds = $this->sellerContactIds($property);
@@ -443,12 +452,12 @@ class MarketingReadinessService
                     'via' => $item['via'],
                     'doc' => null,
                     'detail' => $present
-                        ? 'Seller FICA approved'
-                        : ($item['fica_detail'] ?? 'Seller FICA outstanding'),
+                        ? ucfirst($this->partyWord($property)) . ' FICA approved'
+                        : ($item['fica_detail'] ?? ucfirst($this->partyWord($property)) . ' FICA outstanding'),
                     'action_url' => $primarySeller
                         ? route('compliance.fica.create') . '?contact_id=' . $primarySeller->id
                         : $contactsTab,
-                    'action_label' => $present ? null : ($primarySeller ? 'Verify FICA' : 'Link a seller'),
+                    'action_label' => $present ? null : ($primarySeller ? 'Verify FICA' : 'Link a ' . $this->partyWord($property)),
                     'seller_name' => $sellerName,
                 ];
                 continue;
@@ -483,6 +492,14 @@ class MarketingReadinessService
         return $rows;
     }
 
+    /** What the person who mandated this property is called on a rental ("landlord") and on a sale ("seller"). */
+    private function partyWord(Property $property, bool $plural = false): string
+    {
+        $word = $property->isRental() ? 'landlord' : 'seller';
+
+        return $plural ? $word . 's' : $word;
+    }
+
     /** Seller/owner/landlord/lessor contact ids linked to the property. */
     private function sellerContactIds(Property $property): \Illuminate\Support\Collection
     {
@@ -510,7 +527,7 @@ class MarketingReadinessService
     private function checkSellersFicaSubmissions(Property $property, \Illuminate\Support\Collection $sellerIds): array
     {
         if ($sellerIds->isEmpty()) {
-            return [false, 'No sellers linked to property'];
+            return [false, 'No ' . $this->partyWord($property, true) . ' linked to property'];
         }
 
         $approvedIds = FicaSubmission::applyGenuineApprovalFilter(
@@ -522,7 +539,7 @@ class MarketingReadinessService
         $missing = $sellerIds->reject(fn ($id) => $approvedIds->contains($id));
 
         if ($missing->isEmpty()) {
-            return [true, 'All sellers FICA approved'];
+            return [true, 'All ' . $this->partyWord($property, true) . ' FICA approved'];
         }
 
         $names = DB::table('contacts')
@@ -532,7 +549,7 @@ class MarketingReadinessService
             ->filter()
             ->implode(', ');
 
-        return [false, 'FICA outstanding — no approved FICA or FICA document on Drive for: ' . ($names ?: 'seller(s)')];
+        return [false, 'FICA outstanding — no approved FICA or FICA document on Drive for: ' . ($names ?: $this->partyWord($property) . '(s)')];
     }
 
     /**

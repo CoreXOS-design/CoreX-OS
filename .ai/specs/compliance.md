@@ -242,3 +242,13 @@ An applicant opens the FICA link logged out, so `BelongsToAgency` has no user to
 - **Reported, not changed:** `rmcp-ack/receipt-print` and `policy-ack/receipt-print` style with `var(--…)` CSS variables that do not exist in a standalone print file (header colours may not render) — a styling question for those receipts, different cause.
 
 **Tests.** `CompliancePdfDownloadTest` (5): RMCP PDF is a real named download for an active AND a draft version, with agency name, version, approval line, every section, page numbers · another agency's version 404, no permission refused · printer failure → redirect with message, never HTML · print document is standalone (no app CSS variables, links or sidebar) · policy PDF named after the policy, cross-agency 404 · both registers are PDFs. PDF-rendering tests need Node + Puppeteer + Chromium and skip without them.
+
+
+## A rental is not a sale - the marketing-compliance panel (13 Oct 2026, cc1; Sherry walk)
+
+`/corex/properties/{id}` > Compliance Status demanded "Disclosure" and "Verify seller FICA" for a LANDLORD on a rental and blocked marketing until both were green. `MarketingReadinessService` evaluated the agency's required-document list as one list and spoke of sellers throughout.
+**Rule for a rental mandate (listing type rental):**
+- **Kept:** the mandate (the letting mandate), **FICA on the landlord** (FICA applies to every client and party - buyer, seller, landlord, tenant; the landlord is the client who mandates the letting), the photos, the property details. Everything else the agency has ticked as required stays required.
+- **Dropped:** the **Mandatory Disclosure Form** (`document_types.slug = 'disclosure'`). It is the seller's statement of the condition of a property being SOLD; a letting has no equivalent in the rules CoreX applies. The list is `config/corex-compliance.php` -> `rental_not_required_slugs` (one place; an agency's own configuration of what it requires is untouched, a rental simply skips these).
+- **Wording:** the panel, the next-action buttons and the Drive-tab checklist say "landlord" for a rental ("All landlords FICA approved", "Verify landlord FICA", "Link a landlord", "landlord-level compliance") and "seller" for a sale, through one helper (`partyWord`). The gate and the Drive-tab checklist read the same `evaluateRequiredTypes()`, so they cannot disagree. A sale is unchanged.
+Tests: `MarketingReadinessDriveGateTest` (3 new: rental not blocked on disclosure and says landlord; the same agency's sale still needs it; a rental with no landlord is told to link one).

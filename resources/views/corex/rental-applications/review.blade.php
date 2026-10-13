@@ -255,7 +255,7 @@
                     row (which would just recreate the "lots of wasted
                     screen" complaint one row lower).
                 --}}
-                <h1 class="flex items-center gap-1.5 text-sm leading-tight" style="color: var(--text-primary);" title="{{ $headerFullText }}">
+                <h1 class="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm leading-tight" style="color: var(--text-primary);" title="{{ $headerFullText }}">
                     <span class="truncate font-bold" style="min-width:0;">{{ $headerTitleText }}</span>
                     <span class="text-xs font-normal flex-shrink-0 whitespace-nowrap" style="color: var(--text-muted);">
                         &middot; {{ $headerPropertyFact }}@if($headerExtraFact) &middot; {{ $headerExtraFact }}@endif
@@ -267,6 +267,10 @@
                          visual language for it. --}}
                     @php
                         $ficaStatus = $rentalApplication->contact?->ficaStatus() ?? 'incomplete';
+                        // Approve modal start values (Sherry walk): the property's own rent and deposit, never 0.00 to retype.
+                        $prefillProperty = $rentalApplication->property;
+                        $prefillRent = $rentalApplication->approved_rental_amount ?: ($prefillProperty && (float) $prefillProperty->rental_amount > 0 ? number_format((float) $prefillProperty->rental_amount, 2, '.', '') : '');
+                        $prefillDeposit = $rentalApplication->approved_deposit_amount ?: ($prefillProperty && (float) $prefillProperty->deposit_amount > 0 ? number_format((float) $prefillProperty->deposit_amount, 2, '.', '') : '');
                         // 2026-10-08, Johan: the FICA gate lifts on SUBMITTED. An applicant who has submitted (compliance has
                         // not finished verifying) is not "Outstanding" in red — they have done their part; it reads amber.
                         $ficaGateInfo = $rentalApplication->ficaGateDescribe();
@@ -1351,7 +1355,7 @@
                             <div class="pb-2" style="border-bottom: 1px solid var(--border);"
                                  @if($index >= 10) x-show="showAllAudit" x-cloak @endif>
                                 <div style="color: var(--text-primary);">
-                                    <strong>{{ $entry->actor_label ?? ($entry->user->name ?? 'System') }}</strong>
+                                    <strong>{{ (! $entry->actor_label || $entry->actor_label === 'unattributed') ? ($entry->user->name ?? 'System') : $entry->actor_label }}</strong>
                                     &mdash; {{ $entry->human_summary ?? $entry->event_type }}
                                     @if($entry->is_override)
                                         <span class="ds-badge ds-badge-warning" title="This changed an existing decision.">OVERRIDE</span>
@@ -1702,7 +1706,7 @@
                     <div class="rounded-md px-3 py-2 text-xs mb-2" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);">
                         <p class="font-semibold mb-1.5">&check; Approved for R{{ number_format($rentalApplication->approved_rental_amount, 2) }} a month{{ $rentalApplication->approved_subject_to_fica_at ? ', subject to FICA verification' : '' }} — not yet sent.</p>
                         @if($rentalApplication->approved_subject_to_fica_at)
-                            <p class="mb-2">FICA is still outstanding for this applicant. The approval will resolve automatically once compliance verifies FICA — no need to come back and check.</p>
+                            <p class="mb-2">@if(! empty($ficaSubmittedOnly))FICA has been submitted and is with compliance for verification.@else FICA is still outstanding for this applicant.@endif The approval will resolve automatically once compliance verifies FICA — no need to come back and check.</p>
                         @endif
                         @if($rentalApplication->property_id)
                             <p class="mb-2">The approval goes to the applicant for this property, and tells them the lease is next.</p>
@@ -1870,7 +1874,14 @@
                  jump target"). --}}
             <div>
                 <p class="rr-ledger-group-label">Income</p>
-                <template x-if="incomeEntries().length === 0"><p class="text-[11px]" style="color: var(--text-muted);">None captured.</p></template>
+                @php $statedIncome = (float) ($rentalApplication->monthly_salary ?? 0); @endphp
+                <template x-if="incomeEntries().length === 0 && {{ $statedIncome > 0 ? 'true' : 'false' }}">
+                    <div class="flex items-center justify-between gap-2 text-[11px]" style="color: var(--text-secondary);" data-qa="stated-income">
+                        <span>Stated on the application: <strong>R{{ number_format($statedIncome, 0, '.', ' ') }}</strong> a month</span>
+                        <button type="button" class="corex-btn-outline text-xs" :disabled="reviewLocked || manualEntrySaving" @click="useStatedIncome(@js(number_format($statedIncome, 2, '.', '')))">Use this</button>
+                    </div>
+                </template>
+                <template x-if="incomeEntries().length === 0 && {{ $statedIncome > 0 ? 'false' : 'true' }}"><p class="text-[11px]" style="color: var(--text-muted);">None captured.</p></template>
                 <template x-for="(row, idx) in incomeEntries()" :key="row.id">
                     <div class="rr-ledger-row" :style="{ cursor: (row.document_id && !row.document_missing) ? 'pointer' : 'default' }" :title="row.document_missing ? 'This entry\'s document was removed — the figure is no longer backed by evidence you can check.' : (row.document_id ? 'Jump to this mark on the document' : '')" @click="jumpToMark(row)">
                         <span class="rr-ledger-badge" x-show="row.document_id && !row.document_missing" style="background: var(--ds-purple, #7c3aed);" x-text="idx + 1"></span>
@@ -2088,7 +2099,12 @@
         {{-- END Checklist accordion section. --}}
 
             {{-- Actions. --}}
-            <div class="pt-2" style="border-top: 1px solid var(--border);">
+            <style>
+    /* One height for every action button in this block: the filled button had no border, the outline one had 1px, so they differed by 2px. */
+    .rr-equal-btns .corex-btn-primary, .rr-equal-btns .corex-btn-outline { box-sizing: border-box; border: 1px solid transparent; min-height: 30px; display: inline-flex; align-items: center; justify-content: center; }
+    .rr-equal-btns .corex-btn-outline { border-color: var(--border); }
+</style>
+            <div class="pt-2 rr-equal-btns" style="border-top: 1px solid var(--border);">
                 @if($viewerRole === 'agent')
                     {{-- Stage 3, 2026-09-11 — for a figure with nothing to
                          highlight. A self-contained inline form (@click
@@ -2288,12 +2304,16 @@
                      endpoint) — there is no "always a first decision" override
                      path here, since $canApproveDirectly only renders while
                      the application is still pre-decision. --}}
-                <div x-show="approveModalOpen" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @keydown.escape.window="approveModalOpen = false; approveConfirming = false">
+                <div x-show="approveModalOpen" x-cloak x-init="if (!approveAmount) approveAmount = @js($prefillRent); if (!approveDepositAmount) approveDepositAmount = @js($prefillDeposit);" class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @keydown.escape.window="approveModalOpen = false; approveConfirming = false">
                     <div class="w-full max-w-md rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="approveModalOpen = false; approveConfirming = false">
                         <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Approve application</h3>
                         @if($rentalApplication->ficaOutstanding())
-                            <p class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);">
-                                FICA is still outstanding for this applicant — approving now records this as <strong>Approved, subject to FICA verification</strong>, not a plain approval.
+                            <p class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);" data-qa="approve-fica-note">
+                                @if(! empty($ficaSubmittedOnly))
+                                    FICA has been submitted and is with compliance for verification — approving now records this as <strong>Approved, subject to FICA verification</strong>, not a plain approval.
+                                @else
+                                    FICA is still outstanding for this applicant — approving now records this as <strong>Approved, subject to FICA verification</strong>, not a plain approval.
+                                @endif
                             </p>
                         @endif
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Monthly amount</label>
@@ -2364,7 +2384,7 @@
                      confirm()+unload-guard-suppress @submit pattern as
                      before this round; only the surrounding chrome (now a
                      modal instead of an always-visible card) changed. --}}
-                <div x-show="approveModalOpen" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @keydown.escape.window="approveModalOpen = false; approveConfirming = false">
+                <div x-show="approveModalOpen" x-cloak x-init="if (!approveAmount) approveAmount = @js($prefillRent); if (!approveDepositAmount) approveDepositAmount = @js($prefillDeposit);" class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @keydown.escape.window="approveModalOpen = false; approveConfirming = false">
                     <div class="w-full max-w-md rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="approveModalOpen = false; approveConfirming = false">
                         <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Approve</h3>
                         @if($alreadyDecided && $canOverride)
@@ -2377,8 +2397,12 @@
                              One button throughout; this is the only thing
                              that changes depending on live FICA state. --}}
                         @if($rentalApplication->ficaOutstanding())
-                            <p class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);">
-                                FICA is still outstanding for this applicant — approving now records this as <strong>Approved, subject to FICA verification</strong>, not a plain approval.
+                            <p class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);" data-qa="approve-fica-note">
+                                @if(! empty($ficaSubmittedOnly))
+                                    FICA has been submitted and is with compliance for verification — approving now records this as <strong>Approved, subject to FICA verification</strong>, not a plain approval.
+                                @else
+                                    FICA is still outstanding for this applicant — approving now records this as <strong>Approved, subject to FICA verification</strong>, not a plain approval.
+                                @endif
                             </p>
                         @endif
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Monthly amount</label>
@@ -2916,6 +2940,12 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl, ca
                 this.manualEntryError = 'Network error — this entry was not saved.';
             }
             this.manualEntrySaving = false;
+        },
+        // The applicant typed their income on the form: one click confirms it as the income line instead of retyping it.
+        async useStatedIncome(amount) {
+            if (this.reviewLocked || this.manualEntrySaving) return;
+            this.manualEntry = { entry_type: 'income', entry_date: new Date().toISOString().slice(0, 10), entry_description: 'Stated on the application', entry_amount: String(amount) };
+            await this.saveManualEntry();
         },
         incomeEntries() {
             return this.captureEntries.filter(e => e.entry_type === 'income');

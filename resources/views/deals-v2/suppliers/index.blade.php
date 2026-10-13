@@ -115,6 +115,13 @@
             </select>
         </div>
         <div>
+            <label for="sd-group" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Group</label>
+            <select id="sd-group" name="group" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                <option value="">All groups</option>
+                @foreach(($groups ?? []) as $gr)<option value="{{ $gr->id }}" @selected(($fl['group'] ?? '') === (string) $gr->id)>{{ $gr->label }}</option>@endforeach
+            </select>
+        </div>
+        <div>
             <label for="sd-callout" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Call-out fee</label>
             <select id="sd-callout" name="callout" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 <option value="any" @selected($fl['callout'] === 'any')>Any</option>
@@ -149,7 +156,7 @@
                         @php($mainContact = $p->serviceContacts->firstWhere('is_active', true))
                         @php($mainName = $mainContact ? ($mainContact->attorney_name ?: $mainContact->contact_person) : null)
                         @php($kindLabel = \App\Models\DealV2\AgencyServiceProvider::kindLabel($p->kind))
-                        @php($specialtyLabel = ucwords(str_replace('_', ' ', $p->specialty)))
+                        @php($specialtyLabel = ($roleLabels[$p->specialty] ?? null) ?: ucwords(str_replace('_', ' ', $p->specialty)))
                         {{-- a contractor's trade is its ticked service types (Settings -> Service types), not the old fixed list; attorneys / bond originators keep their role word --}}
                         @php($ownTrades = collect($p->typeCodes())->map(fn ($c) => $typeLabels[$c] ?? $c)->filter()->implode(', '))
                         @php($specialtyLabel = ($ownTrades !== '' && ! in_array($p->specialty, ['transfer_attorney', 'bond_attorney', 'conveyancer', 'bond_originator'], true)) ? $ownTrades : $specialtyLabel)

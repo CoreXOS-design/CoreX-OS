@@ -14975,3 +14975,14 @@ Not built (kept as is): D7 who signs first / receives the signed mail stays "who
 - **One message.** The layout's toast already shows every `success`/`error`/`warning` flash; the application list, the staff application page and the read-only view each ALSO printed an inline banner of the same flash, so "Rental application created…" showed twice. The inline banners are gone; the toast is the one place.
 
 **Tests:** `tests/Feature/Leases/RentalsGoLiveWalkFixesTest.php` (14; 13 fail on the old code).
+
+
+## Review screens - Sherry walk, second batch, 13 Oct 2026 (cc1)
+
+On `/corex/rental-applications/{id}/review` (tests `SherryWalkRound2Test`):
+- **FICA chip ran off the right edge:** the title row was a single non-wrapping flex line; it now wraps, so the chips drop to a second line instead of overflowing.
+- **Affordability "None captured" although the applicant typed R42,000:** the ledger only lists marked-up document lines, and the form's stated income (`monthly_salary`) was never offered. The Income group now shows "Stated on the application: R42 000 a month - **Use this**" while no income line exists; one click creates the income line (the existing manual-entry endpoint, description "Stated on the application", today's date) - the agent confirms instead of retyping. The form states no expenses (only the current rent), so there is nothing to carry for Expenses.
+- **Audit trail "unattributed":** system events are written with that placeholder (`AuditContext`); the trail now shows "System" (existing rows too).
+- **Approve modal started at 0.00:** the monthly amount and deposit now start from the application's approved figures, else the property's rent and deposit (both approve modals: the one-step agent modal and the authoriser's).
+- **One FICA story:** the modals asked "has compliance verified?" while the header chip asked "has it been submitted?". A submitted-but-not-yet-verified applicant now reads "FICA has been submitted and is with compliance for verification - approving now records this as Approved, subject to FICA verification" in the modals and the approved box, matching the header's "FICA Submitted"; "still outstanding" is said only when nothing was submitted.
+- **Button heights:** the filled buttons had no border and the outline ones 1px, so "Approve & continue" read 28px beside 30px "Send back / Decline", and "Continue to the lease" the same. The action zone (review) and the lease-choice form (read-only view) are in a scope (`rr-equal-btns`) where both kinds are one box-sized 30px.

@@ -140,7 +140,7 @@
             <label class="text-xs font-medium">Trade type</label>
             <select name="trade_type" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                 <option value="">— Not yet known —</option>
-                @foreach(\App\Models\DealV2\AgencyServiceType::orderBy('label')->get() as $type)
+                @foreach(\App\Models\DealV2\AgencyServiceType::work()->orderBy('label')->get() as $type)
                     <option value="{{ $type->code }}">{{ $type->label }}</option>
                 @endforeach
             </select>

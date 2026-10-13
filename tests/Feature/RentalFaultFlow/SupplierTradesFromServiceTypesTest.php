@@ -56,8 +56,8 @@ final class SupplierTradesFromServiceTypesTest extends TestCase
         $this->assertStringContainsString('<option value="type:security"', $html);
         $this->assertStringContainsString('<option value="type:Plumbing"', $html);
         $this->assertStringContainsString('<option value="type:general_contractor"', $html);
-        $this->assertStringContainsString('<option value="transfer_attorney">', $html, 'the property-sales roles are still offered');
-        $this->assertStringContainsString('<option value="bond_originator">', $html);
+        $this->assertStringContainsString('<option value="transfer_attorney"', $html, 'the property-sales roles are still offered');
+        $this->assertStringContainsString('<option value="bond_originator"', $html);
         $this->assertStringNotContainsString('<option value="plumber">', $html, 'the old fixed contractor list is no longer the source');
         $this->assertStringNotContainsString('<option value="electrician">', $html);
     }

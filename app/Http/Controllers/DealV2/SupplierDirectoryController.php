@@ -59,15 +59,24 @@ class SupplierDirectoryController extends Controller
         if ($f['kind'] !== '') {
             $query->where('kind', $f['kind']);
         }
+        if ($f['group'] !== '') {
+            $inGroup = AgencyServiceType::withoutGlobalScopes()->where('agency_id', $agencyId)->where('group_id', (int) $f['group'])->get(['code', 'legacy_specialty']);
+            $query->where(fn ($w) => $w
+                ->whereIn('id', \Illuminate\Support\Facades\DB::table('agency_service_provider_service_types')->where('agency_id', $agencyId)->whereNull('deleted_at')
+                    ->whereIn('service_type', $inGroup->whereNull('legacy_specialty')->pluck('code'))->select('service_provider_id'))
+                ->orWhereIn('specialty', $inGroup->whereNotNull('legacy_specialty')->pluck('legacy_specialty')));
+        }
+        // the Specialty column shows a contractor's ticked service types (else a role's name, else the old value) - it SORTS on that same word, not the old stored value
+        $tradeWord = "COALESCE((select min(t.label) from agency_service_provider_service_types p join agency_service_types t on t.code = p.service_type and t.agency_id = p.agency_id where p.service_provider_id = agency_service_providers.id and p.deleted_at is null and t.deleted_at is null and t.legacy_specialty is null), (select t2.label from agency_service_types t2 where t2.agency_id = agency_service_providers.agency_id and t2.legacy_specialty = agency_service_providers.specialty and t2.deleted_at is null limit 1), specialty)";
         $dir = $f['dir'] === 'desc' ? 'desc' : 'asc';
         match ($f['sort']) {
             'name' => $query->orderBy('name', $dir),
             'kind' => $query->orderBy('kind', $dir)->orderBy('name'),
-            'specialty' => $query->orderBy('specialty', $dir)->orderBy('name'),
+            'specialty' => $query->orderByRaw($tradeWord . ' ' . $dir)->orderBy('name'),
             'status' => $query->orderBy('is_active', $dir)->orderBy('name'),
             // asc = charges (largest fee first), then no fee, then not known; desc = the reverse
             'callout' => $query->orderByRaw("FIELD(callout_fee_mode, 'yes', 'no', 'unknown') " . $dir)->orderBy('callout_fee_amount', $dir === 'asc' ? 'desc' : 'asc')->orderBy('name'),
-            default => $query->orderByDesc('is_active')->orderBy('specialty')->orderByDesc('is_preferred')->orderBy('name'),
+            default => $query->orderByDesc('is_active')->orderByRaw($tradeWord)->orderByDesc('is_preferred')->orderBy('name'),
         };
         $providers = $query->paginate(50)->withQueryString();
 
@@ -94,6 +103,8 @@ class SupplierDirectoryController extends Controller
             'kinds' => AgencyServiceProvider::KINDS,
             'specialties' => self::SPECIALTIES,
             'serviceTypes' => $serviceTypes,
+            'groups' => \App\Models\DealV2\AgencyServiceTypeGroup::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->orderBy('sort_order')->orderBy('id')->get(['id', 'label']),
+            'roleLabels' => AgencyServiceType::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNotNull('legacy_specialty')->whereNull('deleted_at')->pluck('label', 'legacy_specialty'),
             'returnFault' => $this->returnFault($request, $agencyId),
         ]);
     }
@@ -107,6 +118,8 @@ class SupplierDirectoryController extends Controller
             // rentals-faults-work-orders.md section 21.1 - filter by the KIND of supplier
             'kind' => array_key_exists((string) $request->query('kind', ''), AgencyServiceProvider::KINDS) ? (string) $request->query('kind') : '',
             'callout' => in_array($request->query('callout'), AgencyServiceProvider::CALLOUT_MODES, true) ? $request->query('callout') : 'any',
+            // the service-type GROUP (Your trades / Property sales / one the agency added): a supplier is in a group when one of its ticked service types is, or its stored role is
+            'group' => ctype_digit((string) $request->query('group', '')) ? (string) (int) $request->query('group') : '',
             'sort' => in_array($request->query('sort'), ['name', 'kind', 'specialty', 'callout', 'status'], true) ? $request->query('sort') : '',
             'dir' => $request->query('dir') === 'desc' ? 'desc' : 'asc',
         ];
@@ -334,7 +347,7 @@ class SupplierDirectoryController extends Controller
         // ACTIVE type (shown "(archived)"). The tick UI only manages active codes; archived-tagged
         // codes ride through every save untouched until the type is restored/managed in Settings.
         $activeCodes = AgencyServiceType::withoutGlobalScope(AgencyScope::class)
-            ->where('agency_id', (int) $provider->agency_id)->where('is_active', true)->pluck('code')->all();
+            ->where('agency_id', (int) $provider->agency_id)->where('is_active', true)->whereNull('legacy_specialty')->pluck('code')->all();
         $archivedTagged = array_values(array_diff($provider->typeCodes(), $activeCodes));
         $codes = array_values(array_unique(array_merge($codes, $archivedTagged)));
 
@@ -521,11 +534,16 @@ class SupplierDirectoryController extends Controller
         $postedTrade = (string) $request->input('specialty', '');
         if (str_starts_with($postedTrade, 'type:')) {
             $code = substr($postedTrade, 5);
-            $label = AgencyServiceType::withoutGlobalScope(AgencyScope::class)->where('agency_id', (int) $request->user()?->effectiveAgencyId())->where('code', $code)->value('label');
-            $request->merge([
-                'specialty' => AgencyServiceProvider::legacySpecialtyForType($code, $label),
-                'service_types' => array_values(array_unique(array_merge((array) $request->input('service_types', []), [$code]))),
-            ]);
+            $row = AgencyServiceType::withoutGlobalScope(AgencyScope::class)->where('agency_id', (int) $request->user()?->effectiveAgencyId())->where('code', $code)->first(['label', 'legacy_specialty']);
+            if ($row && $row->legacy_specialty) {
+                // a property-sales role row: the stored value is the role itself, and it is never ticked as a work type
+                $request->merge(['specialty' => $row->legacy_specialty]);
+            } else {
+                $request->merge([
+                    'specialty' => AgencyServiceProvider::legacySpecialtyForType($code, $row?->label),
+                    'service_types' => array_values(array_unique(array_merge((array) $request->input('service_types', []), [$code]))),
+                ]);
+            }
         }
         $kind = (string) $request->input('kind', '');
         if ($kind === 'bond_originator') {
@@ -583,7 +601,7 @@ class SupplierDirectoryController extends Controller
         // authoritative agency_id, bypassing ONLY AgencyScope (SoftDeletes kept, so an archived
         // type is never treated as valid).
         $valid = AgencyServiceType::withoutGlobalScope(AgencyScope::class)
-            ->where('agency_id', $agencyId)->where('is_active', true)->pluck('code')->all();
+            ->where('agency_id', $agencyId)->where('is_active', true)->whereNull('legacy_specialty')->pluck('code')->all();
 
         return array_values(array_unique(array_intersect($posted, $valid)));
     }
