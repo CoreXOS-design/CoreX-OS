@@ -454,6 +454,9 @@ Schedule::command('matches:recompute')->dailyAt('04:30')->onOneServer()->without
 // excludes them and their stale cached scores get purged the same night.
 Schedule::command('prospecting:flag-stale-listings')->dailyAt('03:50')->onOneServer()->withoutOverlapping();
 Schedule::command('prospecting:recompute-matches')->dailyAt('04:00')->onOneServer()->withoutOverlapping();
+// AT-454 Road to Sold — close earlier days, then build each agent's list for today. After the
+// buyer-match recompute above (04:00) so "stock for my buyers" reads fresh matches.
+Schedule::command('rts:build-lists')->dailyAt('04:30')->onOneServer()->withoutOverlapping();
 Schedule::command('corex:leave:send-reminders')->dailyAt('06:00')->onOneServer()->withoutOverlapping();
 
 // (P24 location tree now refreshes DAILY at 11:00 with stamp-and-sweep — see
