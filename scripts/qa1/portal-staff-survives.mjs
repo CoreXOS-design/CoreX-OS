@@ -37,8 +37,7 @@ const staffAlive = () => A.evaluate(async () => { const r = await fetch('/corex/
 const staffPage = async () => { await A.bringToFront(); await A.goto(BASE + '/corex/platform-esign/documents', { waitUntil: 'networkidle2' }); return A.url().includes('/login') ? 'SIGNED OUT (login page)' : 'signed in, page ' + (await A.title()).slice(0, 30); };
 const portalState = (p) => p.evaluate(() => { const t = (s) => ((document.querySelector(s) || {}).innerText || '').trim(); const who = t('[data-who-name]'); return who ? who + ' ' + t('[data-who-role]') : (/Sign in/.test(document.body.innerText) ? 'SIGN-IN SCREEN' : 'no header'); }).catch((e) => 'ERR');
 const bad = [];
-const check = async (label, extra = '') => { const s = await staffAlive(); const ok = s === 'signed in'; if (!ok) bad.push(`${label}: staff ${s}`);
-  if (/@/.test(extra)) bad.push(`${label}: the portal header shows an email, not the person: ${extra}`);   // header = the contact the link was written for (14 Oct) console.log(`${ok ? 'ok ' : 'BAD'} ${label.padEnd(46)} staff: ${s} ${extra}`); };
+const check = async (label, extra = '') => { const s = await staffAlive(); const ok = s === 'signed in'; if (!ok) bad.push(`${label}: staff ${s}`); if (/@/.test(extra)) bad.push(`${label}: the portal header shows an email, not the person: ${extra}`); console.log(`${ok ? 'ok ' : 'BAD'} ${label.padEnd(46)} staff: ${s} ${extra}`); };
 console.log('staff tab first load:', await staffPage()); await check('baseline');
 const csrfAtStart = await A.evaluate(() => (document.querySelector('meta[name=csrf-token]') || {}).content);   // the token the staff page was loaded with, before any portal activity
 const go = async (p, url) => { await p.bringToFront(); await p.goto(url, { waitUntil: 'networkidle2' }); await wait(1800); };
