@@ -1782,6 +1782,13 @@ return [
             ['controller' => SettingsController::class, 'method' => 'updateDashboardMode'],
             ['controller' => SettingsController::class, 'method' => 'updateAgencyDashboardSettings'],
         ],
+        // AT-451 follow-up (14 Oct 2026) - written through updateAgencyDashboardSettings, which only touches the field when this step posts it.
+        'controls' => [
+            ['key' => 'alert_catchup_minutes', 'source' => 'alert_settings', 'type' => 'number', 'default' => 10, 'min' => 1, 'max' => 240,
+             'label' => 'Show alerts still unread from the last (minutes)',
+             'explain' => 'When someone opens CoreX in a new tab or signs in, any alert that arrived in this many minutes and has not been read pops up on screen, so a fault reported a moment before is not missed.',
+             'affects' => 'How far back a freshly opened CoreX screen looks for unread alerts to pop up. A short time suits a busy office; a longer one suits people who open CoreX only now and then.'],
+        ],
     ],
 
     'roles' => [

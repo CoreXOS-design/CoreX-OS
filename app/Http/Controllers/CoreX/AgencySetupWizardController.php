@@ -627,6 +627,11 @@ class AgencySetupWizardController extends Controller
                     'core_matches_excluded_buyer_states' => \App\Models\AgencyContactSettings::forAgencyReadOnly($agency->id)->coreMatchesExcludedBuyerStates(),
                     default => $control['default'] ?? null,
                 },
+                // Live alert popup - AT-451 follow-up. Explicit per-key match (spec 6.2); read through the service, never an Agency column.
+                'alert_settings' => match ($key) {
+                    'alert_catchup_minutes' => app(\App\Services\CommandCenter\AlertSwitchService::class)->catchupMinutesFor($agency->id),
+                    default => $control['default'] ?? null,
+                },
                 // Road to Sold - AT-454, .ai/specs/road-to-sold.md section 4. Explicit per-key match (spec 6.2).
                 // Read through SettingsService (defaults when the agency has saved nothing - never writes).
                 'road_to_sold' => (function () use ($key, $agency, $control) {

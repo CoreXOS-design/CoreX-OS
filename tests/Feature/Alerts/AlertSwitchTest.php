@@ -31,6 +31,7 @@ use Tests\TestCase;
 final class AlertSwitchTest extends TestCase
 {
     use RefreshDatabase;
+    use \Tests\Feature\Onboarding\Concerns\PostsWizardStepLikeABrowser;
 
     private Agency $agency;
     private Branch $branch;
@@ -324,11 +325,29 @@ final class AlertSwitchTest extends TestCase
         $this->assertSame(10, app(AlertSwitchService::class)->catchupMinutesFor($this->agency->id));
     }
 
-    public function test_the_setting_is_on_the_settings_page_and_the_setup_wizard_step(): void
+    public function test_the_setting_is_on_the_settings_page_and_in_the_setup_wizard_with_its_current_value_and_saves_from_there(): void
     {
         $admin = $this->user('admin');
         $this->actingAs($admin)->get(route('corex.settings'))->assertOk()->assertSee('name="alert_catchup_minutes"', false);
-        $this->assertStringContainsString('name="alert_catchup_minutes"', file_get_contents(resource_path('views/agency-setup/steps/notifications.blade.php')));
+
+        $control = collect(config('agency-onboarding-copy.notifications.controls'))->firstWhere('key', 'alert_catchup_minutes');
+        $this->assertNotNull($control, 'the wizard config carries the control');
+        $this->assertNotEmpty($control['explain']);
+        $this->assertNotEmpty($control['affects']);
+
+        $page = fn () => $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'notifications']))->assertOk()->getContent();
+        $shown = function () use ($page): ?string {
+            return preg_match('/<input[^>]*id="f_alert_catchup_minutes"[^>]*>/s', $page(), $m) && preg_match('/value="([^"]*)"/', $m[0], $v) ? $v[1] : null;
+        };
+        $this->assertSame('10', $shown(), 'default shown');
+        $this->assertSame(1, substr_count($page(), 'name="alert_catchup_minutes"'), 'one field, not a copy in the partial as well');
+
+        // posted the way the browser posts the step (every field the page renders), with the one value changed
+        AgencyDashboardSetting::withoutGlobalScopes()->updateOrCreate(['agency_id' => $this->agency->id], ['alert_poll_seconds' => 45]);
+        $this->actingAs($admin)->post(route('corex.agency-setup.step.save', ['step' => 'notifications']), array_replace($this->browserFormFields($admin, 'notifications'), ['alert_catchup_minutes' => '25']))->assertRedirect();
+        $this->assertSame(45, app(AlertSwitchService::class)->pollSecondsFor($this->agency->id), 'the other alert setting is untouched');
+        $this->assertSame(25, app(AlertSwitchService::class)->catchupMinutesFor($this->agency->id));
+        $this->assertSame('25', $shown(), 'the saved value is what the wizard shows');
     }
 
     // ── The popup is on EVERY staff layout, once ─────────────────────────────────────────────
