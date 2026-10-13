@@ -104,6 +104,28 @@ final class ProspectingListingAddressRuleTest extends TestCase
         $this->assertNotContains($b->id, $ids);
     }
 
+    /** The SQL twin used for ORDER BY in the Road to Sold builder must agree with the scope on every row. */
+    public function test_the_sql_expression_agrees_with_the_scope_and_the_instance_helper(): void
+    {
+        [$agencyId] = $this->seedAgency();
+        $street = $this->trackedProperty($agencyId, streetName: 'Beach Road');
+        $none   = $this->trackedProperty($agencyId, streetName: null);
+        $this->listing($agencyId, '12 Marine Drive');
+        $this->listing($agencyId, null, $street->id);
+        $this->listing($agencyId, null, $none->id);
+        $this->listing($agencyId, '', null);
+        $this->listing($agencyId, ProspectingListing::ADDRESS_PLACEHOLDER, $none->id);
+
+        $viaScope = $this->ids(ProspectingListing::withoutGlobalScopes()->withAddress());
+        $viaSql = DB::table('prospecting_listings as pl')
+            ->leftJoin('tracked_properties as tp', 'tp.id', '=', 'pl.tracked_property_id')
+            ->whereRaw(ProspectingListing::hasAddressSql('pl', 'tp') . ' = 1')
+            ->pluck('pl.id')->map(fn ($v) => (int) $v)->all();
+
+        $this->assertEqualsCanonicalizing($viaScope, $viaSql);
+        $this->assertCount(2, $viaSql);
+    }
+
     /**
      * The real path end to end: an agent corrects the address through the real route, and the
      * Work tab's "with address" tick then lists the listing. Before this change it did not.
