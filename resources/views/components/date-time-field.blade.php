@@ -38,6 +38,9 @@
     .cx-dt-date { flex: 1 1 100px; min-width: 110px; }
     .cx-dt-time { flex: 0 0 112px; }
     .cx-dt-other { flex: 0 0 76px; }
+    .cx-dt .cx-dt-time { width: 112px; }
+    .cx-dt .cx-dt-other { width: 76px; }
+    .cx-dt .cx-dt-date { width: auto; }
     .cx-dt-other[x-cloak] { display: none; }
 </style>
 @endonce
