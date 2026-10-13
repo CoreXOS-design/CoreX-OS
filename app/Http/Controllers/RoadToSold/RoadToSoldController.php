@@ -7,6 +7,7 @@ use App\Models\RoadToSold\RtsListItem;
 use App\Models\RoadToSold\RtsOutcomeDefinition as Def;
 use App\Services\RoadToSold\CallListService;
 use App\Services\RoadToSold\FeedService;
+use App\Services\RoadToSold\SummaryBarService;
 use App\Services\RoadToSold\OutcomeDefinitionService;
 use App\Services\RoadToSold\OutcomeService;
 use App\Services\RoadToSold\RoadToSoldException;
@@ -26,6 +27,7 @@ class RoadToSoldController extends Controller
         private readonly OutcomeService $outcomes,
         private readonly OutcomeDefinitionService $definitions,
         private readonly FeedService $feeds,
+        private readonly SummaryBarService $bar,
     ) {
     }
 
@@ -76,6 +78,11 @@ class RoadToSoldController extends Controller
 
         return view('road-to-sold.index', $data + [
             'feeds'          => $feeds,
+            'bar'            => $agentUser ? $this->bar->forAgent($agentUser, $date) : ['month' => $date->format('F Y'), 'steps' => []],
+            'drilldownBase'  => route('road-to-sold.drilldown', [
+                'agent_id' => $agentId, 'period' => 'custom',
+                'start' => $date->copy()->startOfMonth()->toDateString(), 'end' => $date->toDateString(),
+            ]),
             'outcomeChoices' => $outcomes,
             'agents'         => $agents,
             'agentId'        => $agentId,
