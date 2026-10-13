@@ -116,9 +116,14 @@ class RentalWorkOrderController extends Controller
         // filter above already wires in; a spend-threshold tile was the
         // other option Johan named, but overdue is the one this list
         // already has a real, working query-param filter for.
-        $woTileBase = fn () => RentalWorkOrder::query()
-            ->when($showArchived, fn ($q) => $q->onlyTrashed())
-            ->visibleTo($user, $request->get('scope'));
+        $woTileBase = function () use ($showArchived, $user, $request) {
+            $q = RentalWorkOrder::query()
+                ->when($showArchived, fn ($q) => $q->onlyTrashed())
+                ->visibleTo($user, $request->get('scope'));
+            $this->applyListContext($q, $request);
+
+            return $q;
+        };
         $tileCounts = [
             'total' => $woTileBase()->count(),
             'reported' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_REPORTED)->count(),
@@ -185,18 +190,8 @@ class RentalWorkOrderController extends Controller
         if ($priority = $request->get('priority')) {
             $query->where('rental_work_orders.priority', $priority);
         }
-        if ($propertyId = $request->get('property_id')) {
-            $query->where('rental_work_orders.property_id', $propertyId);
-        }
-        if ($leaseId = $request->get('lease_id')) {
-            $query->where('rental_work_orders.lease_id', $leaseId);
-        }
-        if ($contactId = $request->get('contact_id')) {
-            $query->where(function ($q) use ($contactId) {
-                $q->whereHas('lease.tenants', fn ($t) => $t->where('contact_id', $contactId))
-                    ->orWhereHas('property.contacts', fn ($c) => $c->where('contacts.id', $contactId));
-            });
-        }
+        // The page's CONTEXT (one property / lease / contact, or the command centre's properties): shared with the tile counts.
+        $this->applyListContext($query, $request);
         if ($paidBy = $request->get('paid_by')) {
             $query->where('rental_work_orders.paid_by', $paidBy);
         }
@@ -223,11 +218,6 @@ class RentalWorkOrderController extends Controller
         if ($request->boolean('open')) {
             $query->whereNotIn('rental_work_orders.status', \App\Services\Rentals\RentalCommandCentreService::WORK_ORDER_OPEN_STATUSES_EXCLUDED);
         }
-        // ...and, from the command centre's Open work orders tile, only the properties that tile counted (its own/branch/all choice).
-        if (in_array($request->get('cc_scope'), ['own', 'branch', 'all'], true)) {
-            app(\App\Services\Rentals\RentalCommandCentreService::class)
-                ->limitToCommandCentreProperties($query, $request->user(), $request->get('cc_scope'), 'rental_work_orders.property_id');
-        }
         if ($request->boolean('overdue')) {
             $query->overdue(RentalWorkOrderSetting::overdueReminderDaysFor($user->effectiveAgencyId()));
         }
@@ -240,6 +230,33 @@ class RentalWorkOrderController extends Controller
         }
 
         return $query;
+    }
+
+    /**
+     * The page's CONTEXT - what the list was opened FOR (one property, one lease, one contact, or a command-centre tile's
+     * properties) - as opposed to the ad-hoc filters (search, status, trade, date ...). The list and its summary tiles both
+     * apply it, so a tile never counts the whole agency beside a list narrowed to one lease (go-live walk, 14 Oct 2026).
+     */
+    private function applyListContext($query, Request $request): void
+    {
+        if ($propertyId = $request->get('property_id')) {
+            $query->where('rental_work_orders.property_id', $propertyId);
+        }
+        if ($leaseId = $request->get('lease_id')) {
+            $query->where('rental_work_orders.lease_id', $leaseId);
+        }
+        if ($contactId = $request->get('contact_id')) {
+            $query->where(function ($q) use ($contactId) {
+                $q->whereHas('lease.tenants', fn ($t) => $t->where('contact_id', $contactId))
+                    ->orWhereHas('property.contacts', fn ($c) => $c->where('contacts.id', $contactId));
+            });
+        }
+
+        // From the command centre's Open work orders tile, only the properties that tile counted (its own/branch/all choice).
+        if (in_array($request->get('cc_scope'), ['own', 'branch', 'all'], true)) {
+            app(\App\Services\Rentals\RentalCommandCentreService::class)
+                ->limitToCommandCentreProperties($query, $request->user(), $request->get('cc_scope'), 'rental_work_orders.property_id');
+        }
     }
 
     private function activeWorkOrderFiltersSummary(Request $request): array
