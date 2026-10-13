@@ -392,8 +392,8 @@ final class WorkOrderFromFaultTest extends TestCase
         $reported = $this->fault();
         $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $reported))->getContent();
         $this->assertStringContainsString('data-confirm-modal', $html);
-        $this->assertStringContainsString('Save and send to owner', $html);
-        $this->assertStringContainsString('name="send_now"', $html);
+        $this->assertStringContainsString('Send to owner to authorise', $html, 'the ONE way to send to the owner');
+        $this->assertStringNotContainsString('Save and send to owner', $html);
         $this->assertStringContainsString('Archive this fault report?', $html);
         $source = (string) file_get_contents(base_path('resources/views/corex/rental-fault-reports/show.blade.php'));
         $this->assertStringNotContainsString('confirm(', $source);

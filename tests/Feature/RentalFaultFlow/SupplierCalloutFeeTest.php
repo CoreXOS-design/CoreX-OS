@@ -399,9 +399,9 @@ final class SupplierCalloutFeeTest extends TestCase
         $this->assertNull($rows[$no->id]['callout_notice'], 'nothing to say when there is no fee');
 
         $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $fault))->assertOk()->getContent();
-        $this->assertStringContainsString('- call-out R750', $html);
-        $this->assertStringContainsString('- no call-out fee', $html);
-        $this->assertStringContainsString('- call-out fee not known', $html);
+        $this->assertStringContainsString('>call-out R750<', $html);
+        $this->assertStringContainsString('>no call-out fee<', $html);
+        $this->assertStringContainsString('>call-out fee not known<', $html);
         $this->assertStringContainsString('data-callout-notice', $html);
         $this->assertStringContainsString('Sparky Plumbing charges a call-out fee of R750. The owner will be told.', $html);
 

@@ -22,6 +22,7 @@ use Illuminate\Support\Collection;
 class FaultInspectionService
 {
     public const CREW_KEY = 'crew';
+    public const NO_CONTACT_LINE = 'No email or mobile on file - they cannot be sent the job.';
 
     public function __construct(private RentalAuthorisationService $authorisations) {}
 
@@ -73,12 +74,14 @@ class FaultInspectionService
         $map = [];
         foreach ($pickerRows as $row) {
             $e = $property ? $this->evaluate($property, (string) $row['name'], (string) $row['callout_status'], $row['callout_amount'] ?? null) : ['allowed' => false, 'line' => null];
+            $noContact = ! ($row['has_contact'] ?? true);
             $map[(string) $row['id']] = [
                 'name' => (string) $row['name'],
-                // allowed + a fee: cc4's "...The owner will be told." (or the permission sentence); blocked: the "must authorise first" line; no fee: nothing
-                'text' => (string) ($e['line'] ?? ($row['callout_notice'] ?? '')),
+                // allowed + a fee: cc4's "...The owner will be told." (or the permission sentence); blocked: the "must authorise first" line; no fee: nothing.
+                // A contractor with no email or mobile cannot be sent the job at all (the owner can still be asked).
+                'text' => $noContact ? self::NO_CONTACT_LINE : (string) ($e['line'] ?? ($row['callout_notice'] ?? '')),
                 'status' => (string) $row['callout_status'],
-                'inspect_allowed' => (bool) $e['allowed'],
+                'inspect_allowed' => ! $noContact && (bool) $e['allowed'],
             ];
         }
         $map[self::CREW_KEY] = ['name' => 'our own crew', 'text' => '', 'status' => AgencyServiceProvider::CALLOUT_NO, 'inspect_allowed' => true];
@@ -89,7 +92,7 @@ class FaultInspectionService
     // ───────────────────────── the two actions ─────────────────────────
 
     /** The ways a fault cannot have someone sent to look at it right now (null = it can). */
-    public function blockReason(RentalFaultReport $fault): ?string
+    public function blockReason(RentalFaultReport $fault, bool $versionSavedByPress = false): ?string
     {
         if ($held = app(RentalOwnerHoldService::class)->holdReason($fault)) {   // section 22.7 - paused by the owner
             return $held;
@@ -97,8 +100,9 @@ class FaultInspectionService
         if ($fault->isTenantSelfResolved()) {
             return 'The tenant closed this themselves - there is nothing to inspect.';
         }
-        if ($fault->owner_version_saved_at === null) {
-            return 'Save the owner version first - it is what the owner will read.';
+        // the page's buttons save the owner version themselves (they send its fields with the press), so an unsaved draft is not a reason to refuse there
+        if ($fault->owner_version_saved_at === null && ! $versionSavedByPress) {
+            return 'Save what the owner will see first - it is what the owner will read.';
         }
         if ($fault->hasLiveWorkOrder()) {
             return 'Someone has already been sent - this fault already has a work order.';
@@ -140,6 +144,9 @@ class FaultInspectionService
             }
             $eval = $this->evaluate($property, (string) $supplier->name, $supplier->calloutFeeStatus(), $supplier->calloutFeeAmount());
             $label = (string) $supplier->name;
+            if (! app(RentalContractorJobService::class)->contactFor($supplier)['has_contact']) {
+                throw new \LogicException(self::NO_CONTACT_LINE);
+            }
             if (! $eval['allowed']) {
                 throw new \LogicException((string) $eval['line']);
             }

@@ -500,21 +500,22 @@ class FaultPhotoMarksTest extends TestCase
         $this->realPhoto($fault);
 
         $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $fault))->assertOk()->getContent();
-        $this->assertStringContainsString('data-no-contractor-warning', $html);
+        $this->assertSame(1, substr_count($html, 'data-no-contractor-suits'), 'shown once, in the "Who goes to look first?" block');
         $this->assertStringContainsString('No contractor loaded for Leaking tap.', $html);
+        $this->assertSame(1, substr_count($html, 'No contractor loaded for Leaking tap.'));
         $this->assertStringContainsString('Add a contractor', $html);
         $this->assertStringContainsString('Add Leaking tap to an existing contractor', $html);
         $this->assertStringContainsString('data-contractor-popup="add"', $html, 'the add paths open a popup over the fault, they do not navigate away');
         $this->assertStringContainsString('data-fault-id="' . $fault->id . '"', $html);
         $this->assertStringNotContainsString('href="' . route('deals-v2.suppliers.index', ['fault' => $fault->id, 'mode' => 'add']) . '"', $html);
-        $this->assertStringContainsString('Send without a contractor for Leaking tap?', $html, 'the app\'s own confirm dialog, not a browser box');
+        $this->assertStringNotContainsString('Send without a contractor', $html, 'one way to the owner: "Send to owner to authorise" - it works with nobody picked');
+        $this->assertStringContainsString('Send to owner to authorise', $html);
         $this->assertStringNotContainsString('confirm(', explode('id="owner-version-card"', $html)[1] ?? '');
 
         $this->supplier('Drip Plumbing', 'Plumbing');
         $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $fault))->assertOk()->getContent();
-        $this->assertStringNotContainsString('data-no-contractor-warning', $html, 'covered now: the warning is gone');
+        $this->assertStringNotContainsString('data-no-contractor-suits', $html, 'covered now: the warning is gone');
         $this->assertStringNotContainsString('Send without a contractor', $html);
-        $this->assertStringContainsString('Send this to the owner now?', $html);
     }
 
     public function test_the_two_controls_show_only_to_users_who_may_manage_suppliers(): void

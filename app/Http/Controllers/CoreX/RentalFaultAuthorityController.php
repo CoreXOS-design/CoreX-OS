@@ -39,11 +39,40 @@ class RentalFaultAuthorityController extends Controller
         return $v;
     }
 
+    /**
+     * The two decision buttons save "what the owner will see" themselves: the page sends the draft's fields with the press, so there is no separate Save to hunt for.
+     * Nothing is sent when the draft is invalid (a title is required).
+     */
+    private function saveOwnerVersionFromPress(Request $request, RentalFaultReport $fault): ?string
+    {
+        if (! $request->has('owner_title') || $fault->sent_to_owner_at !== null) {
+            return null;
+        }
+        $v = $request->validate([
+            'owner_title' => ['required', 'string', 'max:191'],
+            'owner_description' => ['nullable', 'string', 'max:5000'],
+            'owner_agent_note' => ['nullable', 'string', 'max:3000'],
+            'owner_photo_ids' => ['nullable', 'array'],
+            'owner_photo_ids.*' => ['integer'],
+        ], ['owner_title.required' => 'Write the title the owner will see first.']);
+        try {
+            $fault->saveOwnerVersion($v, $request->user());
+        } catch (\LogicException|\InvalidArgumentException $e) {
+            return $e->getMessage();
+        }
+
+        return null;
+    }
+
     /** "Send <name> to inspect". */
     public function inspect(Request $request, FaultInspectionService $service, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
         $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
         $choice = $this->choice($request);
+        if ($problem = $this->saveOwnerVersionFromPress($request, $rentalFaultReport)) {
+            return redirect($this->back($rentalFaultReport))->withErrors(['rental_fault_report' => $problem]);
+        }
+        $rentalFaultReport->refresh();
 
         try {
             $made = $service->sendToInspect($rentalFaultReport, $request->user(), $choice);
@@ -68,6 +97,10 @@ class RentalFaultAuthorityController extends Controller
             'agency_service_provider_id' => ['nullable', 'integer'],
             'rental_crew_id' => ['nullable', 'integer'],
         ]);
+        if ($problem = $this->saveOwnerVersionFromPress($request, $rentalFaultReport)) {
+            return redirect($this->back($rentalFaultReport))->withErrors(['rental_fault_report' => $problem]);
+        }
+        $rentalFaultReport->refresh();
 
         try {
             $service->sendToOwnerToAuthorise($rentalFaultReport, $request->user(), $v);
