@@ -14,11 +14,11 @@
         .error { color: #9b1c1c; font-size: 14px; }
         .banner { background: #fdecec; border: 1px solid #9b1c1c; color: #7a1313; border-radius: 8px; padding: 10px 12px; font-weight: bold; }
         textarea { width: 100%; box-sizing: border-box; min-height: 90px; border: 1px solid #c7ced9; border-radius: 6px; padding: 10px; font: inherit; }
-        .btns { display: flex; gap: 10px; margin-top: 16px; }
-        .btn { flex: 1 1 0; display: block; box-sizing: border-box; text-align: center; padding: 12px 8px; border-radius: 6px; border: 2px solid #1a365d; font: inherit; font-weight: bold; text-decoration: none; cursor: pointer; background: #fff; color: #1a365d; }
+        .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+        .btn { display: block; width: 100%; min-width: 0; box-sizing: border-box; text-align: center; padding: 12px 8px; border-radius: 6px; border: 2px solid #1a365d; font: inherit; font-weight: bold; text-decoration: none; cursor: pointer; background: #fff; color: #1a365d; }
         .btn-primary { background: #1a365d; color: #fff; }
         .btn-stop { background: #9b1c1c; border-color: #9b1c1c; color: #fff; }
-        form.inline { flex: 1 1 0; display: flex; margin: 0; }
+        form.inline { display: block; margin: 0; }
         form.inline .btn { width: 100%; }
         .q { border-top: 1px solid #e6e9ef; padding-top: 8px; margin-top: 8px; font-size: 14px; }
     </style>
