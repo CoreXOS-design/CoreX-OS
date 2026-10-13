@@ -147,6 +147,9 @@
                     ['stuck_stock_min_days', 'My stock not selling: on the market for at least', $settings->stuckStockMinDaysOnMarket(), 1, 3650, 'days'],
                     ['stuck_stock_max_views', '...and fewer views than', $settings->stuckStockMaxViews(), 0, 100000, 'views'],
                     ['stuck_stock_max_leads', '...and fewer leads than', $settings->stuckStockMaxLeads(), 0, 1000, 'leads'],
+                    ['stuck_stock_lookback_days', '...counting views and leads over the last', $settings->stuckStockLookbackDays(), 1, 3650, 'days'],
+                    ['hot_pocket_lookback_days', 'Hottest sales pockets: look at buyers, leads and sales from the last', $settings->hotPocketLookbackDays(), 1, 3650, 'days'],
+                    ['price_drop_lookback_days', 'Price drops: look for a reduction in the last', $settings->priceDropLookbackDays(), 1, 3650, 'days'],
                 ] as [$name, $label, $value, $min, $max, $unit])
                     <div>
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="{{ $name }}">{{ $label }}</label>

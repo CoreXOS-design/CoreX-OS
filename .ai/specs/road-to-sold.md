@@ -90,6 +90,9 @@ Namespace `App\Services\RoadToSold\`. Every method takes/returns plain PHP types
 | `stuckStockMinDaysOnMarket()` | int | `60` | lane 2 (selection 9) |
 | `stuckStockMaxViews()` | int | `30` | lane 2 (selection 9) |
 | `stuckStockMaxLeads()` | int | `2` | lane 2 (selection 9) |
+| `hotPocketLookbackDays()` | int (1–3650) | `180` | lane 2 (selection 3) — added at lane 2's request (§9.7) |
+| `priceDropLookbackDays()` | int (1–3650) | `30` | lane 2 (selection 4) — same |
+| `stuckStockLookbackDays()` | int (1–3650) | `30` | lane 2 (selection 9) — same |
 | `noAnswerDropAfter()` | int (1–20) | `3` | lane 3 |
 | `holdDays()` | int (1–365) | `30` | lane 3 (HoldService) |
 | `summarySteps()` | ordered list of `['key','label','enabled']` | six on | lane 3 |
@@ -141,7 +144,7 @@ All tables: `agency_id` NOT NULL FK + `BelongsToAgency`; `branch_id` nullable + 
 
 ### 3.1 `rts_settings` — one row per (agency, track)
 `id`, `agency_id`, `track`, then:
-`lock_agents_to_areas` tinyint(1) default 0; `half_day_leave_halves_target` tinyint(1) default 0; `area_refresh_warn_days` smallint default 7; `missed_items_mode` varchar(20) default `show_missed`; `selections` json (ordered `[{key,enabled}]`); `new_on_market_days` smallint default 14; `long_on_market_days` smallint default 90; `owner_known_quantity` smallint default 3; `stuck_stock_min_days` smallint default 60; `stuck_stock_max_views` smallint default 30; `stuck_stock_max_leads` smallint default 2; `no_answer_drop_after` smallint default 3; `hold_days` smallint default 30; `summary_steps` json (ordered `[{key,enabled}]`); `summary_green_from_pct` smallint default 90; `summary_red_below_pct` smallint default 70; `default_weekday_targets` json (`{"1":5,…,"7":0}`); `updated_by_user_id` nullable.
+`lock_agents_to_areas` tinyint(1) default 0; `half_day_leave_halves_target` tinyint(1) default 0; `area_refresh_warn_days` smallint default 7; `missed_items_mode` varchar(20) default `show_missed`; `selections` json (ordered `[{key,enabled}]`); `new_on_market_days` smallint default 14; `long_on_market_days` smallint default 90; `owner_known_quantity` smallint default 3; `stuck_stock_min_days` smallint default 60; `stuck_stock_max_views` smallint default 30; `stuck_stock_max_leads` int default 2; `hot_pocket_lookback_days` smallint default 180; `price_drop_lookback_days` smallint default 30; `stuck_stock_lookback_days` smallint default 30; `no_answer_drop_after` smallint default 3; `hold_days` smallint default 30; `summary_steps` json (ordered `[{key,enabled}]`); `summary_green_from_pct` smallint default 90; `summary_red_below_pct` smallint default 70; `default_weekday_targets` json (`{"1":5,…,"7":0}`); `updated_by_user_id` nullable.
 Unique `(agency_id, track)` (soft delete is not used on this table — it is a singleton; "reset to defaults" overwrites the values, no archive). Missing row ⇒ `SettingsService` returns defaults and creates the row on first save, never on read. Every change is appended to `rts_settings_audit` (`agency_id`, `track`, `changed_by_user_id`, `old_values` json, `new_values` json, `changed_at`) — append-only, never edited or deleted, same shape as `core_match_buyer_state_audit`. A save that changes nothing writes nothing.
 
 ### 3.2 `rts_agent_areas` — agent ↔ suburb

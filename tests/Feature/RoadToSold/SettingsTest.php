@@ -59,6 +59,9 @@ final class SettingsTest extends TestCase
         $this->assertSame(60, $s->stuckStockMinDaysOnMarket());
         $this->assertSame(30, $s->stuckStockMaxViews());
         $this->assertSame(2, $s->stuckStockMaxLeads());
+        $this->assertSame(180, $s->hotPocketLookbackDays());
+        $this->assertSame(30, $s->priceDropLookbackDays());
+        $this->assertSame(30, $s->stuckStockLookbackDays());
         $this->assertSame(3, $s->noAnswerDropAfter());
         $this->assertSame(30, $s->holdDays());
         $this->assertSame(90, $s->summaryGreenFromPct());
@@ -171,6 +174,9 @@ final class SettingsTest extends TestCase
             'stuck days zero'       => ['stuck_stock_min_days', '0'],
             'stuck views negative'  => ['stuck_stock_max_views', '-5'],
             'stuck leads decimal'   => ['stuck_stock_max_leads', '1.5'],
+            'hot pocket window 0'   => ['hot_pocket_lookback_days', '0'],
+            'price drop window text' => ['price_drop_lookback_days', 'lately'],
+            'stuck window too big'  => ['stuck_stock_lookback_days', '99999'],
             'no-answer zero'        => ['no_answer_drop_after', '0'],
             'no-answer too many'    => ['no_answer_drop_after', '21'],
             'hold days zero'        => ['hold_days', '0'],

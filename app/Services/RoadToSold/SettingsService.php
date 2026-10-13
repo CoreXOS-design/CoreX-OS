@@ -185,6 +185,24 @@ class SettingsService
         return (int) $this->scalar('stuck_stock_max_leads');
     }
 
+    /** How far back the hot-pockets selection looks at buyers, leads and sales. */
+    public function hotPocketLookbackDays(): int
+    {
+        return (int) $this->scalar('hot_pocket_lookback_days');
+    }
+
+    /** How far back the price-drops selection looks for a reduction. */
+    public function priceDropLookbackDays(): int
+    {
+        return (int) $this->scalar('price_drop_lookback_days');
+    }
+
+    /** How far back "my stock that is not selling" counts views and leads. */
+    public function stuckStockLookbackDays(): int
+    {
+        return (int) $this->scalar('stuck_stock_lookback_days');
+    }
+
     // ── Outcomes / holds (read by lane 3) ─────────────────────────────────
 
     public function noAnswerDropAfter(): int
