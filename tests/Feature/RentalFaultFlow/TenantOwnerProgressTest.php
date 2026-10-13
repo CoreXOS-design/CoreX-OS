@@ -154,6 +154,12 @@ final class TenantOwnerProgressTest extends TestCase
         $this->postJson(self::T . "/work-orders/{$wo->id}/progress", ['action' => 'not_fixed', 'note' => 'The contractor left and it still drips'])->assertOk();
         $this->assertSame(RentalWorkOrder::STATUS_ORDERED, $wo->fresh()->status, 'still open');
         $this->assertStringContainsString('says it is NOT fixed', $wo->updates()->where('update_type', 'tenant_progress')->latest('id')->first()->note);
+        // ...and it writes the SAME tenant-check fields the agent's Next line reads
+        $fresh = $wo->fresh();
+        $this->assertFalse((bool) $fresh->tenant_confirmed_fixed);
+        $this->assertNotNull($fresh->tenant_confirmed_at);
+        $this->assertSame($this->tenant->id, (int) $fresh->tenant_confirmed_by_contact_id);
+        $this->assertSame('The contractor left and it still drips', $fresh->tenant_confirmation_note);
 
         // after someone reported the work done, "not fixed" is the usual "tenant says not fixed" row
         $wo2 = $this->liveJob();
