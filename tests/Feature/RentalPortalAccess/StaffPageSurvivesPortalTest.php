@@ -81,9 +81,12 @@ final class StaffPageSurvivesPortalTest extends TestCase
         $token = PortalDemoSignin::issue($contact, 'tenant');
 
         $this->staffPageOpen();
-        $this->get('/demo-signin/' . $token)->assertRedirect();
+        $res = $this->get('/demo-signin/' . $token);
+        $res->assertRedirect();
 
-        $this->assertSame($this->login->id, Auth::guard('client-web')->id(), 'the portal is signed in');
+        // per-tab sign-in (rental-portal-access.md 28.5): the TAB is signed in with a token of its own (in the URL fragment); the browser session is not touched at all
+        $this->assertMatchesRegularExpression('/#tt=/', (string) $res->headers->get('Location'), 'the tab is signed in');
+        $this->assertFalse(Auth::guard('client-web')->check(), 'the shared session is left alone');
         $this->assertSame(self::PAGE_TOKEN, $this->token(), 'the demo sign-in must not rotate the staff token');
     }
 
