@@ -94,18 +94,18 @@
                             <td class="px-4 py-2">{{ $prices['label'] ?? '—' }}</td>
                             <td class="px-4 py-2 text-right">{{ $prices['incl'] !== null ? 'R' . number_format($prices['incl'], 2) : '—' }}</td>
                         @endif
-                        <td class="px-4 py-2 text-right space-x-2">
+                        <td class="px-4 py-2 text-right space-x-2 cx-equal-btns">
                             @permission('rental_catalogue.manage')
                                 @if($status === 'archived')
                                     <form method="POST" action="{{ route('corex.rental-catalogue-items.restore', $item->id) }}" class="inline">
                                         @csrf
-                                        <button type="submit" class="text-xs" style="color: var(--brand-icon, #0ea5e9);">Restore</button>
+                                        <button type="submit" class="corex-btn-outline text-xs">Restore</button>
                                     </form>
                                 @else
-                                    <a href="{{ route('corex.rental-catalogue-items.edit', $item) }}" class="text-xs" style="color: var(--brand-icon, #0ea5e9);">Edit</a>
+                                    <a href="{{ route('corex.rental-catalogue-items.edit', $item) }}" class="corex-btn-outline text-xs">Edit</a>
                                     <form method="POST" action="{{ route('corex.rental-catalogue-items.archive', $item) }}" class="inline" data-confirm="Archive this item?" data-confirm-danger data-confirm-label="Archive">
                                         @csrf
-                                        <button type="submit" class="text-xs" style="color: #991b1b;">Archive</button>
+                                        <button type="submit" class="corex-btn-danger text-xs">Archive</button>
                                     </form>
                                 @endif
                             @endpermission

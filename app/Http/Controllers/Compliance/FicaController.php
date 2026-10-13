@@ -1146,6 +1146,7 @@ class FicaController extends Controller
             $path = app(\App\Services\Compliance\FicaDocumentStorage::class)->putUploaded($file, "fica/{$submission->id}");
 
             $doc = FicaDocument::create([
+                'agency_id'          => $submission->agency_id,
                 'fica_submission_id' => $submission->id,
                 'document_type'      => $type,
                 'file_path'          => $path,

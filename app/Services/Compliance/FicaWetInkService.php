@@ -87,6 +87,7 @@ class FicaWetInkService
             ->putUploaded($file, "fica/wet-ink/{$submission->id}");
 
         return FicaDocument::create([
+            'agency_id'          => $submission->agency_id,
             'fica_submission_id' => $submission->id,
             'document_type'      => $slot,
             'file_path'          => $path,
@@ -120,6 +121,7 @@ class FicaWetInkService
         app(\App\Services\Compliance\FicaDocumentStorage::class)->putBytes($relPath, $bytes);
 
         return FicaDocument::create([
+            'agency_id'          => $submission->agency_id,
             'fica_submission_id' => $submission->id,
             'document_type'      => $slot,
             'file_path'          => $relPath,

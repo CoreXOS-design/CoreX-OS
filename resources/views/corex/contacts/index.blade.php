@@ -372,7 +372,7 @@
             </div>
             @endif
 
-            <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
+            <span class="cx-equal-btns inline-flex"><button type="submit" class="corex-btn-outline text-xs">Search</button></span>
             @if(request()->hasAny(['search','type']))
             <a href="{{ route($contactsRoute, $canPickAgent ? ['agent_id' => $filterAgentId] : []) }}"
                class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear</a>

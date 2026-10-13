@@ -773,3 +773,20 @@ The page: every `<img>` uses `:src="x.thumb_url || x.url"`, `loading="lazy"` and
 - **When:** only once the cost is authorised and the go-ahead has gone, not while the owner has the job stopped, never after completion - the same rule for both people (`RentalWorkOrderService::progressBlock`).
 - **"Finished" never completes the work order:** it records the tenant's confirmation (a completion round via `tenant_portal`, answered) and tells the agent, who completes the job (final cost, what was found, who pays). "Not fixed" tells the agent and keeps the job open. Full detail and the fields the agent page reads: `rentals-faults-work-orders.md` §22.18.
 - **Cross-browser guard:** the portal's `:disabled` bindings stay `!!( )` booleans (`tests/js/portal-shell.test.mjs`).
+
+## QA demo sign-in (never on Staging/live)
+
+_13 Oct 2026, Johan: for a live demo on the QA1 test site both portals must be open and stay signed in, with no emailed code and no re-logging in._
+
+**What it is.** A one-click link per demo contact and side (owner / tenant). Opening it signs THIS browser's portal session in as that contact on that side and lands on the portal. It is a test-site tool and must be impossible anywhere else.
+
+**The gate (one test, `App\Support\PortalDemoSigninGate::open()`).** `APP_ENV` is `qa` AND `config('clientauth.demo_signin_enabled')` is true. The flag is `PORTAL_DEMO_SIGNIN` (default false); it is set to true only in QA1's own `.env`. `routes/web.php` calls `PortalDemoSigninGate::registerRoutes()`, which registers NOTHING unless the gate is open, so on Staging, live, local or with the flag off the URL is a plain 404. The controller and the artisan command re-check the gate, so a route registered by mistake (stale route table) still answers 404.
+
+**Tokens.** `portal_demo_signins`: one per contact and side, only the sha256 of the 48-character token is stored (shown once when issued), revocable (`revoked_at`), issuing again revokes the earlier link, `last_used_at` + `use_count`. A token opens exactly its own contact's login; a changed, unknown or revoked token is a 404. Every use writes a `demo_signin` row to `client_access_logs` (contact, role, token id, ip, agent).
+Issue / revoke: `php artisan portal:demo-signin {contactId} {owner|tenant} [--revoke]` (refuses outside the gate).
+
+**Session.** Only the portal login (`client-web` guard) is signed in, and the session id is regenerated; a STAFF login in the same browser session (`web` guard) is untouched. Session lifetime on QA1 is 480 minutes, sliding, so a demo does not expire inside a day.
+
+**Two portals at once - honest limit.** One browser holds ONE portal login per session (`EnsurePortalSameLogin`, section 28). Two windows of the same browser share the session cookie, and the portal's API calls are not under a path that could scope a second cookie, so "owner and tenant side by side in one browser" cannot be made clean. Use the owner link in a normal window and the tenant link in a private/incognito window (a separate session). The two demo contacts therefore sit on SEPARATE portal logins (the tenant on an agency-managed login on the `corexclient.co.za` placeholder domain; her contact email stays the real demo address), so each window can only ever show its own side.
+
+**Files.** `config/clientauth.php`, `app/Support/PortalDemoSigninGate.php`, `app/Models/PortalDemoSignin.php`, `app/Http/Controllers/PortalDemoSigninController.php`, `app/Console/Commands/PortalDemoSigninCommand.php`, migration `2026_10_13_100000_create_portal_demo_signins_table.php`, `tests/Feature/RentalPortalAccess/PortalDemoSigninTest.php`.

@@ -99,7 +99,7 @@
                         <div class="space-y-2">
                             <p class="text-xs font-semibold" style="color:var(--text-primary);">Send the signed report to:</p>
                             <ul class="text-xs space-y-0.5" style="color:var(--text-secondary);">
-                                <template x-for="r in reportRecipients" :key="r.email">
+                                <template x-for="(r, i) in reportRecipients" :key="i + '|' + r.email">
                                     <li x-text="r.name + ' (' + r.role + ') — ' + r.email"></li>
                                 </template>
                             </ul>
@@ -116,7 +116,7 @@
                     </template>
                     <template x-if="resendResult">
                         <div class="space-y-1">
-                            <template x-for="r in resendResult" :key="r.email">
+                            <template x-for="(r, i) in resendResult" :key="i + '|' + r.email">
                                 <p class="text-xs" :style="r.status === 'sent' ? 'color:var(--ds-green,#059669);' : 'color:var(--ds-crimson);'" x-text="(r.status === 'sent' ? '✓ ' : '✗ ') + r.email"></p>
                             </template>
                             <div class="flex justify-end pt-1">
