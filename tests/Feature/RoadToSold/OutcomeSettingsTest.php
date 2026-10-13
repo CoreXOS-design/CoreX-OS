@@ -54,7 +54,7 @@ final class OutcomeSettingsTest extends TestCase
     public function test_the_list_shows_the_seeded_eight_and_filters_search_and_sort(): void
     {
         $r = $this->actingAs($this->admin)->get(route('road-to-sold.settings.outcomes.index'));
-        $r->assertOk()->assertSee('No answer')->assertSee('Spoke - valuation booked')->assertSee('Do not contact')->assertSee('Wrong number');
+        $r->assertOk()->assertSee('No answer')->assertSee('Spoke - evaluation booked')->assertSee('Do not contact')->assertSee('Wrong number');
         $r->assertSee('Comes back after 7 days')->assertSee('Moves to the list');
 
         $this->actingAs($this->admin)->get(route('road-to-sold.settings.outcomes.index', ['q' => 'wrong']))
@@ -109,10 +109,10 @@ final class OutcomeSettingsTest extends TestCase
         $this->actingAs($this->admin)->post(route('road-to-sold.settings.outcomes.toggle', $na->id));
         $this->assertFalse($na->fresh()->is_active);
 
-        $second = $this->def('spoke_valuation_booked');
+        $second = $this->def('spoke_evaluation_booked');
         $this->actingAs($this->admin)->post(route('road-to-sold.settings.outcomes.move', $second->id), ['dir' => 'up']);
         $order = Def::withoutGlobalScopes()->where('agency_id', $this->agencyId)->orderBy('sort_order')->pluck('key')->all();
-        $this->assertSame('spoke_valuation_booked', $order[0]);
+        $this->assertSame('spoke_evaluation_booked', $order[0]);
 
         $this->actingAs($this->admin)->delete(route('road-to-sold.settings.outcomes.archive', $na->id));
         $this->assertNotNull($this->def('no_answer')->deleted_at);

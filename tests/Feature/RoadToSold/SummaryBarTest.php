@@ -25,10 +25,10 @@ use Tests\TestCase;
 /**
  * AT-454 (lane 3) - the summary bar and the rows behind its figures. Spec section 10.6.
  *
- * Paths proven: calls / conversations / valuations booked counted from the call log and agreeing with
+ * Paths proven: calls / conversations / evaluations booked counted from the call log and agreeing with
  * the drill-down rows; should-be-by-today from the weekday targets; green / amber / red from the
  * agency's two lines; steps without a target show the actual only; a step switched off is gone;
- * listings live from the Agency Tracker listings target; valuations done (appointment + feedback) and
+ * listings live from the Agency Tracker listings target; evaluations done (appointment + feedback) and
  * mandates signed (completed mandate document) counted; the drill-down endpoint (envelope, unknown
  * figure 422, other agent 404 by direct URL, cross-agency nothing); the bar renders on the page.
  */
@@ -89,11 +89,11 @@ final class SummaryBarTest extends TestCase
         return collect($bar['steps'])->firstWhere('key', $key);
     }
 
-    public function test_calls_conversations_and_valuations_booked_count_from_the_log_and_other_agents_and_months_are_left_out(): void
+    public function test_calls_conversations_and_evaluations_booked_count_from_the_log_and_other_agents_and_months_are_left_out(): void
     {
         $this->log($this->agent, 'no_answer', 3);
         $this->log($this->agent, 'spoke_call_back', 2);
-        $this->log($this->agent, 'spoke_valuation_booked', 1, ['valuation_booked' => true]);
+        $this->log($this->agent, 'spoke_evaluation_booked', 1, ['valuation_booked' => true]);
         $this->log($this->other, 'no_answer', 4);
         $this->log($this->agent, 'no_answer', 2, ['occurred_at' => '2026-09-30 10:00:00']);   // last month
         $this->log($this->agent, 'no_answer', 1, ['occurred_at' => '2026-10-15 10:00:00']);   // after the day shown
@@ -103,7 +103,7 @@ final class SummaryBarTest extends TestCase
         $this->assertSame('October 2026', $bar['month']);
         $this->assertSame(6, $this->step($bar, 'calls_made')['actual']);
         $this->assertSame(3, $this->step($bar, 'conversations')['actual']);
-        $this->assertSame(1, $this->step($bar, 'valuations_booked')['actual']);
+        $this->assertSame(1, $this->step($bar, 'evaluations_booked')['actual']);
     }
 
     public function test_should_be_by_today_comes_from_the_weekday_targets_and_the_colour_from_the_agencys_lines(): void
@@ -148,12 +148,12 @@ final class SummaryBarTest extends TestCase
     public function test_a_step_the_agency_switched_off_is_gone(): void
     {
         $steps = collect(SettingsService::forAgency($this->agencyId)->summarySteps())
-            ->map(fn ($s) => ['key' => $s['key'], 'enabled' => $s['key'] !== 'valuations_done'])->all();
+            ->map(fn ($s) => ['key' => $s['key'], 'enabled' => $s['key'] !== 'evaluations_done'])->all();
         DB::table('rts_settings')->insert(['agency_id' => $this->agencyId, 'track' => 'sales', 'summary_steps' => json_encode($steps), 'created_at' => now(), 'updated_at' => now()]);
         SettingsService::forget();
 
         $keys = collect($this->bar()['steps'])->pluck('key')->all();
-        $this->assertNotContains('valuations_done', $keys);
+        $this->assertNotContains('evaluations_done', $keys);
         $this->assertContains('calls_made', $keys);
     }
 
@@ -179,16 +179,16 @@ final class SummaryBarTest extends TestCase
         $this->assertNotNull($live['pct']);
     }
 
-    public function test_valuations_done_and_mandates_signed_are_counted(): void
+    public function test_evaluations_done_and_mandates_signed_are_counted(): void
     {
         $evt = DB::table('calendar_events')->insertGetId([
             'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'user_id' => $this->agent->id, 'created_by_id' => $this->agent->id,
-            'event_type' => 'manual', 'category' => 'property_evaluation', 'title' => 'Valuation: 14 Marine Drive', 'event_date' => '2026-10-10 10:00:00',
+            'event_type' => 'manual', 'category' => 'property_evaluation', 'title' => 'Evaluation: 14 Marine Drive', 'event_date' => '2026-10-10 10:00:00',
             'status' => 'completed', 'priority' => 'normal', 'source_type' => 'manual', 'created_at' => now(), 'updated_at' => now(),
         ]);
         $noFeedback = DB::table('calendar_events')->insertGetId([
             'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'user_id' => $this->agent->id, 'created_by_id' => $this->agent->id,
-            'event_type' => 'manual', 'category' => 'property_evaluation', 'title' => 'Valuation: no feedback', 'event_date' => '2026-10-11 10:00:00',
+            'event_type' => 'manual', 'category' => 'property_evaluation', 'title' => 'Evaluation: no feedback', 'event_date' => '2026-10-11 10:00:00',
             'status' => 'pending', 'priority' => 'normal', 'source_type' => 'manual', 'created_at' => now(), 'updated_at' => now(),
         ]);
         DB::table('calendar_event_feedback')->insert([
@@ -211,7 +211,7 @@ final class SummaryBarTest extends TestCase
 
         $bar = $this->bar();
 
-        $this->assertSame(1, $this->step($bar, 'valuations_done')['actual']);
+        $this->assertSame(1, $this->step($bar, 'evaluations_done')['actual']);
         $this->assertSame(1, $this->step($bar, 'mandates_signed')['actual']);
         $this->assertNotNull($noFeedback);
     }
@@ -262,7 +262,7 @@ final class SummaryBarTest extends TestCase
 
         $res = $this->actingAs($this->agent)->get(route('road-to-sold.index'));
 
-        $res->assertOk()->assertSee('Calls made')->assertSee('Conversations')->assertSee('Valuations booked')->assertSee('Listings live');
+        $res->assertOk()->assertSee('Calls made')->assertSee('Conversations')->assertSee('Evaluations booked')->assertSee('Listings live');
         $res->assertSee('buyersReport(', false)->assertSee('Click to see the rows behind this figure', false);
         $res->assertDontSee('Social');
     }

@@ -26,7 +26,7 @@ class OutcomeDefinitionService
         return [
             ['key' => 'no_answer', 'label' => 'No answer', 'kind' => Def::KIND_ATTEMPT,
              'next_action' => Def::ACTION_AFTER_DAYS, 'delay_days' => 7, 'counts_as_no_answer' => true],
-            ['key' => 'spoke_valuation_booked', 'label' => 'Spoke - valuation booked', 'kind' => Def::KIND_CONVERSATION,
+            ['key' => 'spoke_evaluation_booked', 'label' => 'Spoke - evaluation booked', 'kind' => Def::KIND_CONVERSATION,
              'next_action' => Def::ACTION_APPOINTMENT],
             ['key' => 'spoke_call_back', 'label' => 'Spoke - call back', 'kind' => Def::KIND_CONVERSATION,
              'next_action' => Def::ACTION_PICKED_DATE],

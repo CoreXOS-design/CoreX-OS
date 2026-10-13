@@ -276,7 +276,7 @@
             <template x-for="(h, i) in historyRows" :key="i">
                 <div class="text-xs py-2" style="border-top: 1px solid var(--border); color: var(--text-primary);">
                     <div><span class="font-semibold" x-text="h.label"></span>
-                        <span style="color: var(--text-muted);" x-text="' · ' + (h.kind === 'conversation' ? 'conversation' : 'attempt') + (h.valuation ? ' · valuation booked' : '')"></span></div>
+                        <span style="color: var(--text-muted);" x-text="' · ' + (h.kind === 'conversation' ? 'conversation' : 'attempt') + (h.valuation ? ' · evaluation booked' : '')"></span></div>
                     <div style="color: var(--text-muted);" x-text="h.when + (h.by ? ' · ' + h.by : '') + (h.next ? ' · back on ' + h.next : '')"></div>
                     <div x-show="h.note" x-text="h.note"></div>
                 </div>
@@ -321,11 +321,11 @@
 
             <label class="flex items-center gap-2 text-xs" style="color: var(--text-primary);" x-show="current && current.offers_valuation">
                 <input type="checkbox" name="valuation_booked" value="1" x-model="valuation">
-                Valuation booked
+                Evaluation booked
             </label>
 
             <div x-show="needsAppointment">
-                <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-appt">Valuation date and time</label>
+                <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-appt">Evaluation date and time</label>
                 <input id="rts-appt" type="datetime-local" name="appointment_at" x-model="appointmentAt" :required="needsAppointment" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}">
             </div>
 

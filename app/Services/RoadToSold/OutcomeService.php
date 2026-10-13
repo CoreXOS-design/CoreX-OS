@@ -22,7 +22,7 @@ use Throwable;
  * Spec: .ai/specs/road-to-sold.md §10. KEY = tracked_properties.id.
  *
  * record() is ONE transaction: call-log row, hold, no-answer streak / drop-off, owner-contact note,
- * last-contacted (conversations only), calendar appointment (valuation booked), and — for a
+ * last-contacted (conversations only), calendar appointment (evaluation booked), and — for a
  * "Do not contact" outcome — a call-channel opt-out consent record + the property's "never
  * suggest" marker. Anything that cannot be accepted is refused with a RoadToSoldException whose
  * message tells the agent what to do.
@@ -66,12 +66,12 @@ class OutcomeService
                 || ($def->isConversation() && filter_var($input['valuation_booked'] ?? false, FILTER_VALIDATE_BOOLEAN)));
         $appointmentAt = null;
         if ($wantsValuation) {
-            $appointmentAt = $this->parseDateTime($input['appointment_at'] ?? null, 'the valuation');
+            $appointmentAt = $this->parseDateTime($input['appointment_at'] ?? null, 'the evaluation');
             if (! $appointmentAt) {
-                throw new RoadToSoldException('Pick the date and time of the valuation.');
+                throw new RoadToSoldException('Pick the date and time of the evaluation.');
             }
             if ($appointmentAt->lt(now()->startOfMinute())) {
-                throw new RoadToSoldException('The valuation cannot be booked in the past. Pick a date and time from now on.');
+                throw new RoadToSoldException('The evaluation cannot be booked in the past. Pick a date and time from now on.');
             }
         }
 
@@ -115,7 +115,7 @@ class OutcomeService
             $eventId = null;
             if ($wantsValuation) {
                 $event = $this->calendar->create([
-                    'title'       => 'Valuation: ' . ($tp->displayAddress() ?: 'property'),
+                    'title'       => 'Evaluation: ' . ($tp->displayAddress() ?: 'property'),
                     'category'    => 'property_evaluation',
                     'event_date'  => $appointmentAt->format('Y-m-d H:i:s'),
                     'description' => 'Booked from Road to Sold' . ($note !== '' ? ': ' . $note : ''),
@@ -179,7 +179,7 @@ class OutcomeService
     /**
      * What happens next, as [next_action, next_action_at, list_tag].
      *
-     * A booked valuation settles it: the appointment is the follow-up, so the property leaves the
+     * A booked evaluation settles it: the appointment is the follow-up, so the property leaves the
      * call list whatever outcome it was booked from.
      *
      * @return array{0:string,1:?Carbon,2:?string}
@@ -228,7 +228,7 @@ class OutcomeService
             case Def::ACTION_NEVER_AGAIN:
                 return [Def::ACTION_NEVER_AGAIN, null, null];
 
-            default: // calendar_appointment without a valuation cannot happen (wantsValuation is true)
+            default: // calendar_appointment without an evaluation cannot happen (wantsValuation is true)
                 return ['none', null, null];
         }
     }
