@@ -15,12 +15,11 @@
 @endphp
 
 @section('corex-content')
-<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
+<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5 cx-equal-btns">
 
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div>
             <h1 class="text-xl font-bold text-white leading-tight">Road to Sold - targets</h1>
-            <p class="text-sm text-white/60">How many properties each agent should work on each day of the week. Public holidays and approved leave carry no target. Leave a box blank to use the agency default.</p>
         </div>
     </div>
 
@@ -38,14 +37,13 @@
     @endif
     @unless($canWrite)
         <div class="rounded-md px-4 py-3 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-muted);">
-            You can look at these numbers but not change them. Targets are set by your manager.
+            You can look at these numbers but not change them.
         </div>
     @endunless
 
     {{-- Agency default --}}
     <div class="rounded-md p-4" style="background:var(--surface); border:2px solid var(--brand-icon, #0ea5e9);">
         <h3 class="text-sm font-bold mb-1" style="color:var(--text-primary);">Agency default week</h3>
-        <p class="text-xs mb-3" style="color:var(--text-muted);">Used for any agent and any day where the agent has no number of their own. Use 0 for a day nobody works.</p>
         <form method="POST" action="{{ route('road-to-sold.settings.targets.default') }}" class="flex flex-wrap items-end gap-3">
             @csrf @method('PUT')
             @foreach($keep as $k => $v)<input type="hidden" name="{{ $k }}" value="{{ $v }}">@endforeach
@@ -57,10 +55,10 @@
                 </div>
             @endforeach
             @if($canEditDefault)
-                <button type="submit" class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-icon, #0ea5e9);">Save default</button>
+                <button type="submit" class="corex-btn-primary">Save default</button>
                 <button type="submit" formaction="{{ route('road-to-sold.settings.targets.copy-agents') }}" formmethod="POST" name="_method" value="POST"
                         onclick="return confirm('Give EVERY agent this week as their own numbers? Their current numbers are replaced (you can clear them again later).');"
-                        class="px-4 py-2 rounded-md text-sm font-semibold" style="border:1px solid var(--border); color:var(--text-primary);">Give every agent this week</button>
+                        class="corex-btn-outline">Give every agent this week</button>
             @endif
         </form>
     </div>
@@ -106,8 +104,8 @@
             </select>
         </div>
         <div class="sm:col-span-5 flex items-center gap-3">
-            <button type="submit" class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-icon, #0ea5e9);">Apply</button>
-            <a href="{{ route('road-to-sold.settings.targets.index') }}" class="text-xs underline" style="color:var(--text-muted);">Clear filters</a>
+            <button type="submit" class="corex-btn-primary">Apply</button>
+            <a href="{{ route('road-to-sold.settings.targets.index') }}" class="corex-btn-outline">Clear</a>
         </div>
     </form>
 
@@ -148,19 +146,19 @@
                             @if($status === 'cleared')
                                 @if($canWrite)
                                     <button type="submit" formaction="{{ route('road-to-sold.settings.targets.restore', $u->id) }}" name="_method" value="POST"
-                                            class="px-3 py-1.5 rounded-md text-xs font-semibold text-white" style="background:var(--brand-icon, #0ea5e9);">Bring back</button>
+                                            class="corex-btn-primary">Bring back</button>
                                 @endif
                             @elseif($canWrite)
-                                <button type="submit" class="px-3 py-1.5 rounded-md text-xs font-semibold text-white" style="background:var(--brand-icon, #0ea5e9);">Save</button>
+                                <button type="submit" class="corex-btn-primary">Save</button>
                                 <button type="submit" formaction="{{ route('road-to-sold.settings.targets.fill-weekdays', $u->id) }}" name="_method" value="POST"
-                                        title="Copies the Monday number onto Tuesday to Friday" class="px-3 py-1.5 rounded-md text-xs" style="border:1px solid var(--border);">Monday to Friday</button>
+                                        title="Copies the Monday number onto Tuesday to Friday" class="corex-btn-outline">Monday to Friday</button>
                                 <button type="submit" formaction="{{ route('road-to-sold.settings.targets.copy-agents') }}" name="_method" value="POST"
                                         onclick="return confirm('Give EVERY agent the numbers shown on this row? Their current numbers are replaced (blank boxes clear that day).');"
-                                        title="Copies the boxes on this row to every agent you can see" class="px-3 py-1.5 rounded-md text-xs" style="border:1px solid var(--border);">To all agents</button>
+                                        title="Copies the boxes on this row to every agent you can see" class="corex-btn-outline">To all agents</button>
                                 @if($row['custom'])
                                     <button type="submit" formaction="{{ route('road-to-sold.settings.targets.clear', $u->id) }}" name="_method" value="DELETE"
                                             onclick="return confirm('Clear {{ addslashes($u->name) }}\'s own numbers? They go back to the agency default and you can bring them back later.');"
-                                            class="px-3 py-1.5 rounded-md text-xs" style="border:1px solid var(--border);">Clear</button>
+                                            class="corex-btn-outline">Clear</button>
                                 @endif
                             @endif
                         </form>
@@ -169,13 +167,12 @@
             @empty
                 <tr><td colspan="{{ count($weekdays) + 4 }}" class="px-4 py-8 text-center" style="color:var(--text-muted);">
                     @if($emptyFiltered) No agents match those filters. <a class="underline" href="{{ route('road-to-sold.settings.targets.index') }}">Clear the filters</a>.
-                    @else No agents can use Road to Sold yet. Give agents the "Access Road to Sold" permission in Role Manager and they will appear here. @endif
+                    @else No agents have the "Access Road to Sold" permission yet. Add it in Role Manager. @endif
                 </td></tr>
             @endforelse
             </tbody>
         </table>
     </div>
     {{ $rows->links() }}
-    <p class="text-xs" style="color:var(--text-muted);">A box with a number is that agent's own target for the day; a blank box (showing the default in grey) uses the agency default. 0 means the agent owes nothing that day.</p>
 </div>
 @endsection

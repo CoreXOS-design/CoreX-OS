@@ -211,6 +211,9 @@ Routes (web, `auth`, `feature:road-to-sold`; names `road-to-sold.settings.*`):
 
 An `own`-breadth viewer who holds `manage_targets` can look at their own row but every write answers 403 (agents do not set their own targets). Target rows record who set them (`set_by_user_id`); there is no separate audit table for per-agent numbers — the agency default week is audited in `rts_settings_audit`.
 
+### 5.0 Screen-text rule (Johan, 13 Oct 2026) — applies to all three settings screens
+Screen space is for data and controls only: no intro sentences under the banner, no explainer paragraphs, no tooltip-length notes in chips or cells; at most one short line per setting. Every button on a screen is the same height (the `cx-equal-btns` scope with `corex-btn-primary` / `corex-btn-outline`), and Save / reset sit side by side on one baseline. Empty states and refusal messages keep one plain sentence. Pinned by tests in `SettingsTest`, `AreasTest`, `TargetsTest`.
+
 ### 5.1 General tab (no list)
 Fields: lock toggle; refresh-warning days; missed-items mode (radio); nine selections as a reorderable on/off list; three number thresholds + owner-known quantity; stuck-stock thresholds; no-answer count; hold days; six summary steps on/off; green-from % and red-below %. Warnings shown on this tab: **"N agents have no areas and the lock is on — they will get no list"** with the agent names linking to the Areas tab; stale-areas count.
 
@@ -221,7 +224,7 @@ Fields: lock toggle; refresh-warning days; missed-items mode (radio); nine selec
 - **Sort:** agent name (**default A→Z**), branch, number of areas, oldest refresh. Pagination 25 agents per page.
 - **Cell:** a chip list of the agent's suburbs, each with the refresh badge ("P24 3 days ago · PP never"), amber when older than the warn setting; an **Add suburbs** picker (searchable, town-grouped, pool only) and a per-chip remove with confirmation; archived chips shown under the "archived" status filter with **Restore**.
 - **Empty states:** "No agents match your search" (filter) vs "No agents can use Road to Sold yet — give agents the Road to Sold permission in Role Manager" (genuinely empty).
-- **By-suburb view:** columns suburb, town, agents assigned (count + names), P24 last refreshed, PP last refreshed, stale flag. Search suburb/town/agent; filter town, stale only, unassigned only; **sort default suburb A→Z**, plus stalest first, most agents; 50 per page. A stale suburb shows **"Refresh now"** that opens the existing manual capture path (P24 Auto-Import / Chrome capture) — refresh itself stays manual and outside this feature.
+- **By-suburb view:** columns suburb, town, agents assigned (count + names), P24 last refreshed, PP last refreshed, stale flag. Search suburb/town/agent; filter town, stale only, unassigned only; **sort default suburb A→Z**, plus stalest first, most agents; 50 per page. A stale suburb shows **"Refresh now"** that opens the existing manual capture path (P24 Auto-Import / Chrome capture) — refresh itself stays manual and outside this feature. **Built:** the button links to `admin.minion.setup` (P24 Auto-Import, gated by `access_settings`) and is shown only to a viewer who holds that permission; anyone else sees the plain "Needs a refresh" text.
 
 ### 5.3 Targets — agents × weekdays
 - **Top row:** "Agency default" (Mon–Fri 5, Sat/Sun 0) — applies to agents with no own number for that day; shown as a placeholder in every agent cell that has no own number so it is visible *why* the number is what it is.
