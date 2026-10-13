@@ -85,6 +85,7 @@ class RoadToSoldController extends Controller
                 'start' => $date->copy()->startOfMonth()->toDateString(), 'end' => $date->toDateString(),
             ]),
             'outcomeChoices' => $outcomes,
+            'history'        => $this->outcomes->historyForPage($viewer, collect($data['rows']->items())->pluck('tracked_property_id')->all()),
             'agents'         => $agents,
             'agentId'        => $agentId,
             'viewingOwn'     => $viewingOwn,
