@@ -241,6 +241,9 @@
         // 'corex.rental-notices.*' had the identical gap (sidebar-active-item
         // audit, 2026-10-05) — its own link already lives in this panel too.
         || request()->routeIs('corex.leases.*', 'corex.rental-inspections.*', 'corex.rental-fault-types.*', 'corex.rental-fault-reports.*', 'corex.rental-work-orders.*', 'corex.rental-notices.*', 'corex.rentals.take-on-import.*')
+        // rentals-faults-work-orders.md section 20.8 - the Rentals menu's "Suppliers & contractors" link opens the SAME Supplier Directory screen
+        // with ?nav=rentals so the Rentals panel stays open; the Deal Register Settings link (no ?nav) still opens its own panel below.
+        || (request()->routeIs('deals-v2.suppliers.*') && request()->query('nav') === 'rentals')
         || (request()->routeIs('corex.properties.*') && session('corex.lens.properties', false))
         || ((request()->routeIs('corex.core-matches.*') || request()->routeIs('corex.contacts.matches.*')) && session('corex.lens.core_matches', false))
         || (request()->routeIs('command-center.buyers.*') && session('corex.lens.pipeline', false))
@@ -1310,6 +1313,14 @@
                 <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-work-orders.*') ? 'active' : '' }}">Rental Work Orders</a>
                 @endpermission
                 @endfeature
+
+                {{-- rentals-faults-work-orders.md section 20.8 - the Supplier Directory, reachable from Rentals (Johan, 13 Oct 2026). Same screen and the
+                     same permission as the Deal Register Settings link; ?nav=rentals keeps this panel open. --}}
+                @permission('deals_v2.manage_suppliers')
+                @if(\Illuminate\Support\Facades\Route::has('deals-v2.suppliers.index'))
+                <a href="{{ route('deals-v2.suppliers.index', ['nav' => 'rentals']) }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.suppliers.*') && request()->query('nav') === 'rentals' ? 'active' : '' }}">Suppliers &amp; contractors</a>
+                @endif
+                @endpermission
 
                 {{-- AT-445 — .ai/specs/rental-portal-access.md §10. Same-day
                      nav entry per non-negotiable #2. --}}
@@ -2870,7 +2881,7 @@
                 @endpermission
                 @permission('deals_v2.manage_suppliers')
                 @if(\Illuminate\Support\Facades\Route::has('deals-v2.suppliers.index'))
-                <a href="{{ route('deals-v2.suppliers.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.suppliers.*') ? 'active' : '' }}">Supplier Directory</a>
+                <a href="{{ route('deals-v2.suppliers.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.suppliers.*') && request()->query('nav') !== 'rentals' ? 'active' : '' }}">Supplier Directory</a>
                 @endif
                 @endpermission
                 @permission('deals_v2.manage_distribution_rules')
@@ -2926,7 +2937,7 @@
                 {{-- 1. Supplier Directory --}}
                 @permission('deals_v2.manage_suppliers')
                 @if(\Illuminate\Support\Facades\Route::has('deals-v2.suppliers.index'))
-                <a href="{{ route('deals-v2.suppliers.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.suppliers.*') ? 'active' : '' }}">Supplier Directory</a>
+                <a href="{{ route('deals-v2.suppliers.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.suppliers.*') && request()->query('nav') !== 'rentals' ? 'active' : '' }}">Supplier Directory</a>
                 @endif
                 @endpermission
 
