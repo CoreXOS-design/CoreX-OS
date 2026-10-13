@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-/** AT-454 — an agent's hold on a tracked property. Spec: .ai/specs/road-to-sold.md §9. */
+/** AT-454 — an agent's hold on a tracked property. Spec: .ai/specs/road-to-sold.md §10. */
 class RtsHold extends Model
 {
     use BelongsToAgency, BelongsToBranch, SoftDeletes;

@@ -6,7 +6,7 @@ use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-/** AT-454 — an RTS-level marker on a tracked property ("never suggest"). Spec §9. */
+/** AT-454 — an RTS-level marker on a tracked property ("never suggest"). Spec §10. */
 class RtsPropertyFlag extends Model
 {
     use BelongsToAgency, SoftDeletes;

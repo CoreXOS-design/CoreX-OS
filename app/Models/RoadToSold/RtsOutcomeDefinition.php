@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * AT-454 — one outcome an agent can pick in the "Contacted client" popup (agency-defined).
- * Spec: .ai/specs/road-to-sold.md §9.
+ * Spec: .ai/specs/road-to-sold.md §10.
  */
 class RtsOutcomeDefinition extends Model
 {

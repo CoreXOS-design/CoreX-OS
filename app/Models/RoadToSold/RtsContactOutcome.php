@@ -14,7 +14,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * AT-454 — the Road to Sold call log: one row per captured outcome. History on the property
- * (tracked_property_id) and on the owner contact (contact_id). Spec: .ai/specs/road-to-sold.md §9.
+ * (tracked_property_id) and on the owner contact (contact_id). Spec: .ai/specs/road-to-sold.md §10.
  */
 class RtsContactOutcome extends Model
 {

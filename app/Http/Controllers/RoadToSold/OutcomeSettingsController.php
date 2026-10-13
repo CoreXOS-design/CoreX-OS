@@ -11,7 +11,7 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * AT-454 - the agency's Road to Sold outcome list (rename, add, switch off, re-time, reorder,
- * archive, restore). Spec: .ai/specs/road-to-sold.md §9.4. Agency-wide settings: the scope is the
+ * archive, restore). Spec: .ai/specs/road-to-sold.md §10.4. Agency-wide settings: the scope is the
  * agency (AgencyScope on the model; route binding answers 404 for another agency's row), gated by
  * road_to_sold.manage_settings.
  */

@@ -19,7 +19,7 @@ use Throwable;
 
 /**
  * AT-454 — captures a "Contacted client" outcome and everything that follows from it.
- * Spec: .ai/specs/road-to-sold.md §9. KEY = tracked_properties.id.
+ * Spec: .ai/specs/road-to-sold.md §10. KEY = tracked_properties.id.
  *
  * record() is ONE transaction: call-log row, hold, no-answer streak / drop-off, owner-contact note,
  * last-contacted (conversations only), calendar appointment (valuation booked), and — for a
@@ -47,7 +47,7 @@ class OutcomeService
             throw new RoadToSoldException('Switch into an agency before capturing an outcome.');
         }
         $agentId = (int) $actor->ownershipUserId();
-        $settings = SettingsBridge::forAgency($agencyId, $track);
+        $settings = SettingsService::forAgency($agencyId, $track);
 
         $def = Def::query()->where('agency_id', $agencyId)->where('track', $track)
             ->where('is_active', true)->find($outcomeDefinitionId);

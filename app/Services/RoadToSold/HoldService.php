@@ -43,6 +43,23 @@ class HoldService
             ->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all();
     }
 
+    /** @return int[] ids (from the given list) the user's own identity holds right now. */
+    public function ownHeldIds(array $trackedPropertyIds, User $user, string $track = 'sales'): array
+    {
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
+        $ids = array_values(array_unique(array_filter(array_map('intval', $trackedPropertyIds))));
+        if ($agencyId <= 0 || $ids === []) {
+            return [];
+        }
+
+        return RtsHold::query()
+            ->where('agency_id', $agencyId)->where('track', $track)
+            ->whereIn('tracked_property_id', $ids)
+            ->active()
+            ->whereIn('user_id', $user->dataIdentityIds())
+            ->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all();
+    }
+
     /** @return int[] marked "never suggest" (any agent's do-not-contact). */
     public function neverSuggestIds(int $agencyId, array $trackedPropertyIds, string $track = 'sales'): array
     {
