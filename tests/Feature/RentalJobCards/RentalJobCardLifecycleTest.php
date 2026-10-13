@@ -344,6 +344,7 @@ final class RentalJobCardLifecycleTest extends TestCase
     {
         RentalWorkOrderSetting::create(['agency_id' => $this->agency->id, 'completion_requires_photo' => false]);
         $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);
+        $jobCard->workOrder->forceFill(['approval_basis' => RentalWorkOrder::BASIS_LEGACY_GRANDFATHERED])->save();   // section 22.6: closing needs the cost authorised first
         $jobCard->workerSignOff($this->admin);
         $jobCard->agentSignOff($this->admin);
 

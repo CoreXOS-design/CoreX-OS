@@ -35,7 +35,8 @@
             <span class="ds-badge {{ $statusBadgeClass }}" title="{{ $workOrder->statusLabel() }}">{{ $workOrder->stageLabel('agent') }}</span>
             <span class="text-xs" style="color: var(--text-muted);">{{ $workOrder->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $workOrder->property?->trashed() ? ' (archived)' : '' }}</span>
         </div>
-        <div class="flex items-center gap-2">
+        @include('partials.header-actions-style')
+        <div class="flex flex-wrap items-center gap-2" data-header-actions>
             <a href="{{ route('corex.rental-work-orders.pdf', $workOrder) }}" target="_blank" class="corex-btn-outline text-xs">Download PDF</a>
             <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-btn-outline text-xs">&larr; All work orders</a>
         </div>
@@ -60,7 +61,7 @@
             @elseif(! $selectedQuote && $workOrder->quotes->isNotEmpty())
                 <div class="font-medium" style="color: var(--ds-crimson, #b3261e);" data-quote-not-selected>No quote chosen yet &mdash; the owner has not been asked, and the work order cannot be sent. Choose the quote below with its Select button.</div>
             @elseif(! $selectedQuote)
-                <div>Capture {{ $nextContractor }}'s quote below and select it. Nothing is approved by itself: under &ldquo;Approve the cost&rdquo; you authorise it if it is inside the owner's repair limit, or the owner approves it first (their link, or you record what they told you). Then you can send the work order. <a href="#cost-decision" class="underline font-medium" data-go-to-cost>Go to &ldquo;Approve the cost&rdquo;</a></div>
+                <div>Capture {{ $nextContractor }}'s quote below and select it, then approve its cost under &ldquo;Approve the cost&rdquo;: you authorise it if it is inside the owner's repair limit, otherwise the owner decides first (their link, or you record what they told you). Then you can send the work order. <a href="#cost-decision" class="underline font-medium" data-go-to-cost>Go to &ldquo;Approve the cost&rdquo;</a></div>
             @elseif($workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_PENDING)
                 <div class="font-medium" data-quote-sent-to-owner>Quote sent to {{ app(\App\Services\Rentals\RentalWorkOrderService::class)->ownerNames($workOrder) ?: 'the owner' }} for approval.</div>
                 <div>The quote of <strong>R{{ number_format($selectedQuote->ownerFacingAmount(), 2) }}</strong> needs the owner's approval first ({{ $costRepair['line'] }}). You can send the work order to {{ $nextContractor }} once they approve. <a href="#cost-decision" class="underline font-medium" data-go-to-cost>Record their answer under &ldquo;Approve the cost&rdquo;</a></div>
@@ -68,8 +69,6 @@
                 <div>The cost is authorised{{ $workOrder->approvalBasisLabel() ? ' (' . strtolower($workOrder->approvalBasisLabel()) . ')' : '' }}. Next: send the work order to {{ $nextContractor }}.</div>
             @elseif($costRepair['agent_can'])
                 <div data-cost-needed>The quote of <strong>R{{ number_format($selectedQuote->ownerFacingAmount(), 2) }}</strong> is inside the owner's repair limit &mdash; press &ldquo;Authorise&rdquo; under &ldquo;Approve the cost&rdquo; to approve it, then send the work order to {{ $nextContractor }}. <a href="#cost-decision" class="underline font-medium" data-go-to-cost>Go to &ldquo;Approve the cost&rdquo;</a></div>
-            @else
-                <div>{{ $proceed->note }}</div>
             @endif
         </div>
     @endif
@@ -115,7 +114,7 @@
         </form>
         <p class="text-xs" style="color: var(--text-muted);">The tenant is emailed when you set or change this. The owner can also set it from their portal.</p>
         @else
-            <p class="text-xs" style="color: var(--text-muted);" data-appointment-locked>An appointment can be set once the job is approved &mdash; the tenant is not told about a date or a contractor before then. {{ $proceed->note }}</p>
+            <p class="text-xs" style="color: var(--text-muted);" data-appointment-locked>An appointment can be set once the cost is authorised.</p>
         @endif
         @if($workOrder->isOwnerContractor())
             <form method="POST" action="{{ route('corex.rental-work-orders.owner-contractor.update', $workOrder) }}" class="grid grid-cols-3 gap-3 items-end pt-2">
@@ -140,17 +139,21 @@
         <div class="grid grid-cols-2 gap-3 text-sm" x-show="!editing">
             <div class="col-span-2"><span style="color: var(--text-muted);">Description:</span> {{ $workOrder->description }}</div>
             <div><span style="color: var(--text-muted);">Tenancy:</span> {{ $workOrder->lease?->tenantNames() ?? 'None — vacancy period' }}</div>
-            <div><span style="color: var(--text-muted);">Item:</span> {{ $workOrder->inspectionItem?->label ?? '—' }}</div>
-            <div><span style="color: var(--text-muted);">Trade:</span> {{ $workOrder->trade_type ? ucfirst($workOrder->trade_type) : '—' }}</div>
-            {{-- AT-442 req #1 — "who does the work" is the first choice on every work order. --}}
+            @if($workOrder->inspectionItem?->label)<div><span style="color: var(--text-muted);">Item:</span> {{ $workOrder->inspectionItem->label }}</div>@endif
+            @if($workOrder->trade_type)<div><span style="color: var(--text-muted);">Trade:</span> {{ ucfirst($workOrder->trade_type) }}</div>@endif
+            {{-- AT-442 req #1 — "who does the work" shows here only where no Supplier card says it (our own crew); the Supplier card and the Appointment card carry the rest. --}}
+            @if($workOrder->assignment_type === \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL)
             <div><span style="color: var(--text-muted);">Who does the work:</span> {{ $workOrder->whoLabel() }}</div>
+            @endif
             @if($workOrder->isOwnerContractor())
             <div><span style="color: var(--text-muted);">Owner's contractor:</span> {{ $workOrder->contractor_name ?: 'name not given' }}{{ $workOrder->contractor_phone ? ' - ' . $workOrder->contractor_phone : '' }}</div>
             @endif
-            @if($workOrder->assignment_type === \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER)
-            <div><span style="color: var(--text-muted);">Supplier:</span> {{ $workOrder->contractorLabel() ?? '—' }}@if(! $workOrder->supplier && $workOrder->contractorLabel()) <span class="text-xs" style="color: var(--text-muted);">(from the selected quote - assigned when the work order is sent)</span>@endif</div>
+            @if($workOrder->assignment_type === \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER && ! $workOrder->supplier && $workOrder->contractorLabel())
+            <div><span style="color: var(--text-muted);">Supplier:</span> {{ $workOrder->contractorLabel() }} <span class="text-xs" style="color: var(--text-muted);">(from the selected quote - not sent the job yet)</span></div>
             @endif
+            @unless($isOpen)
             <div><span style="color: var(--text-muted);">Appointment:</span> {{ $workOrder->appointment_at ? $workOrder->appointment_at->copy()->setTimezone($workOrder->agency?->outreachTimezone() ?: config('app.timezone'))->format('D j M Y H:i') . ($workOrder->appointment_note ? ' - ' . $workOrder->appointment_note : '') : 'Not booked yet' }}</div>
+            @endunless
             <div><span style="color: var(--text-muted);">Reported by:</span> {{ ucfirst(str_replace('_', ' ', $workOrder->reported_by_type)) }}</div>
             @if($workOrder->reportedFaultReport)
                 <div><span style="color: var(--text-muted);">From fault report:</span> @feature('rental-faults')<a href="{{ route('corex.rental-fault-reports.show', $workOrder->reported_fault_report_id) }}" class="underline">#{{ $workOrder->reported_fault_report_id }}</a>@else #{{ $workOrder->reported_fault_report_id }} @endfeature</div>
@@ -263,7 +266,7 @@
          internal job card's own quote-to-owner lives on its own screen. --}}
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Quotes</h2>
-        <p class="text-xs" style="color: var(--text-muted);">Selecting a quote approves nothing. The cost is approved under &ldquo;Approve the cost&rdquo; below: by you, inside the owner's repair limit, or by the owner.</p>
+        <p class="text-xs" style="color: var(--text-muted);">Capture the contractor's quote, or let them upload it from their link.</p>
         @if($workOrder->quotes->isEmpty())
             <p class="text-xs" style="color: var(--text-muted);">No quotes captured yet.</p>
         @else
@@ -407,7 +410,7 @@
                 @elseif($workOrder->quotes->whereNull('declined_at')->isNotEmpty())
                     <p class="text-xs col-span-2" style="color: var(--text-muted);">No quote is chosen yet. Capture this one, then choose it with its Select button to put it to the owner.</p>
                 @else
-                    <p class="text-xs col-span-2" style="color: var(--text-muted);" data-quote-autoselect>This is the first quote, so it is selected automatically. Nothing is approved by that &mdash; authorise the cost under &ldquo;Approve the cost&rdquo;; above the owner's repair limit the owner is asked.</p>
+                    <p class="text-xs col-span-2" style="color: var(--text-muted);" data-quote-autoselect>The first quote is selected for you.</p>
                 @endif
             </div>
             <button type="submit" class="corex-btn-outline text-xs">Capture quote</button>
@@ -450,40 +453,7 @@
     @include('corex.rental-work-orders._approval-panel')
     @include('corex.rental-work-orders._completion-panel')
 
-    {{-- §3.4a — only for a work order raised directly (no upstream fault
-         report already satisfied this). Applies to both assignment paths —
-         an internal job card's quote still rides this same gate. --}}
-    @if($isOpen && ($workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_PENDING || $workOrder->approvals->isNotEmpty()))
-    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
-        <h2 class="text-sm font-semibold">Owner approval</h2>
-        @if($workOrder->approvals->isNotEmpty())
-            {{-- 2026-09-22, Johan — an approval is otherwise an unanchored fact
-                 ("approved", nothing saying for what). quote_amount_at_decision
-                 shows what it was actually recorded against WHEN a snapshot
-                 exists; older rows (recorded before this column existed) have
-                 none, and correctly show nothing extra rather than implying a
-                 zero or an unknown amount. The "superseded" flag compares by
-                 id (quote_id_at_decision), never by amount/supplier text —
-                 two different quotes could coincidentally match on those. One
-                 line per approval, no separate section, per screen-space rule. --}}
-            @php($currentQuoteId = optional($workOrder->quotes->firstWhere('is_selected', true))->id)
-            <ul class="space-y-1 text-sm">
-                @foreach($workOrder->approvals as $approval)
-                    <li>
-                        {{ ucfirst($approval->decision) }}@if($approval->quote_amount_at_decision !== null) — R{{ number_format((float) $approval->quote_amount_at_decision, 2) }} ({{ $approval->quote_supplier_name_at_decision ?? 'Unknown supplier' }})@endif
-                        <span style="color: var(--text-muted);">({{ ucfirst(str_replace('_', ' ', $approval->evidence_type)) }}, {{ $approval->decided_at?->format('Y-m-d') }})</span>
-                        @if($approval->quote_id_at_decision !== null && $approval->quote_id_at_decision !== $currentQuoteId)
-                            <span style="color: var(--ds-crimson);">— superseded, a different quote is now selected</span>
-                        @endif
-                    </li>
-                @endforeach
-            </ul>
-        @endif
-        @if($workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_PENDING)
-            <p class="text-xs" style="color: var(--text-muted);" data-record-in-cost-panel>If the owner tells you their answer, use &ldquo;Record the owner's decision&rdquo; under &ldquo;Approve the cost&rdquo;.</p>
-        @endif
-    </div>
-    @endif
+    {{-- (the separate "Owner approval" card is gone: its lines - who decided, how, when, for what amount - are the authorisation records under "Approve the cost") --}}
 
     {{-- AT-442 req #8 — an internal job card has its own assign-crew/
          start/complete controls on its own screen; this section (assign a

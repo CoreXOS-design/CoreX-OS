@@ -13,7 +13,7 @@
                 @if($ar->note && $ar->basis === \App\Models\RentalAuthorisation::BASIS_OWNER_INSTRUCTION)<em>&ldquo;{{ $ar->note }}&rdquo;</em>@endif
                 @if($ar->proof_path)<a href="{{ $ar->proof_path }}" target="_blank" rel="noopener" class="underline">Proof</a>@endif
                 <span style="color: var(--text-muted);">
-                    &middot; at stage: {{ ucfirst(str_replace('_', ' ', (string) $ar->stage)) ?: '-' }}
+                    &middot; job was: {{ $arSvc->stageWords($ar) ?: '-' }}
                     @if($ar->owner_told_at) &middot; owner told {{ $ar->owner_told_at->copy()->setTimezone($faultReport->agency?->outreachTimezone() ?: 'Africa/Johannesburg')->format('j M Y H:i') }}@endif
                     @if($ar->superseded_at) &middot; <em>replaced by a newer record</em>@else &middot; <em>this is the one that stands</em>@endif
                 </span>

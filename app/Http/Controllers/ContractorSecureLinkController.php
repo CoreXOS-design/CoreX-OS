@@ -173,6 +173,10 @@ class ContractorSecureLinkController extends Controller
         if ($held = $this->onHold($record)) {
             return back()->withErrors(['work_order' => $held]);
         }
+        // section 22.6: nothing is finished before its cost is authorised - in the contractor's words, never the office's (cc4's walk of QA1, item 1)
+        if (! app(\App\Services\Rentals\RentalApprovalGateService::class)->authoriseToProceed($record->workOrder, false)->authorised) {
+            return back()->withErrors(['work_order' => 'This job has not been authorised yet - the agency will tell you when you can go ahead. Send your quote and wait for their answer.']);
+        }
 
         // spec section 22.13.2 - a job that came from a fault is not done until the contractor says what was found and what caused it
         $who = app(\App\Services\Rentals\RentalWhoPaysService::class);

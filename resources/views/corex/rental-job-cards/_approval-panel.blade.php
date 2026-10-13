@@ -1,51 +1,13 @@
 {{--
-    .ai/specs/rental-work-orders.md §17.6–§17.8 — BUILD 2's job-card slot: why it was approved, the approval chips, the variation panel and
-    the emergency chip (the emergency form itself lives on the work order). Receives $jobCard, $isOpen and everything show.blade.php has in scope.
-    Owner-facing amounts only — nothing here shows cost, markup or margin.
+    .ai/specs/rental-work-orders.md §17.6-§17.8 + rentals-faults-work-orders.md §22.6 - the job card's approval slot. ONE section: "Approve the cost" (the same box as on the
+    work order - status, the owner's limits, the amount [our crew's work-order selling price, never the cost], the buttons, and below them the records), then the variation
+    panel. The old separate "Owner approval" chips / "Work cannot start yet" line are gone: they said the same thing a second time.
+    Receives $jobCard, $isOpen and everything show.blade.php has in scope. Owner-facing amounts only - nothing here shows cost, markup or margin.
 --}}
-@php
-    $jaWorkOrder = $jobCard->workOrder;
-@endphp
+@php $jaWorkOrder = $jobCard->workOrder; @endphp
 @if($jaWorkOrder)
-    @php
-        $jaGate = app(\App\Services\Rentals\RentalApprovalGateService::class);
-        $jaProceed = $jaGate->authoriseCard($jobCard, false);
-        $jaEmergency = $jaWorkOrder->activeEmergencyApproval();
-        $jaLatest = $jaWorkOrder->latestApprovalDecision();
-        $jaOpenVariation = $jaWorkOrder->openVariation();
-    @endphp
-    <div id="jc-approval-panel" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
-        <h2 class="text-sm font-semibold">Owner approval</h2>
-        <div class="flex flex-wrap items-center gap-2 text-xs">
-            @if($jaEmergency)
-                <span class="ds-badge ds-badge-warning">Emergency — owner agreed by {{ str_replace('_', ' ', $jaEmergency->approved_via) }} on {{ $jaEmergency->approved_at?->format('j M Y') }}</span>
-                @feature('rental-work-orders')<a href="{{ route('corex.rental-work-orders.show', $jaWorkOrder) }}#emergency-panel" class="underline">Work order</a>@else Work order @endfeature
-            @elseif($jaWorkOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_PENDING)
-                <span class="ds-badge ds-badge-warning">Awaiting owner approval</span>
-            @elseif($jaWorkOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_DECLINED)
-                <span class="ds-badge ds-badge-danger">Owner declined</span>
-            @elseif($jaWorkOrder->approvalBasisLabel())
-                <span class="ds-badge ds-badge-success">{{ $jaWorkOrder->approvalBasisLabel() }}</span>
-            @elseif(isset($stage) && $stage['quote']['within'] && $jobCard->acceptedLines()->exists())
-                {{-- section 22.6: inside the owner's repair limit nothing needs ASKING the owner - but nothing is approved either until the agent authorises the cost. --}}
-                <span class="ds-badge ds-badge-info" data-cost-to-authorise>Inside the owner's repair limit - the cost still has to be authorised</span>
-            @else
-                <span class="ds-badge ds-badge-muted">Not approved yet</span>
-            @endif
-            @if($jaOpenVariation)<span class="ds-badge ds-badge-warning">Variation awaiting owner</span>@endif
-        </div>
-        @if($jaWorkOrder->approved_amount !== null)
-            <p class="text-sm">Approved amount (to the owner): <strong>R{{ number_format((float) $jaWorkOrder->approved_amount, 2) }}</strong></p>
-        @endif
-        @if($jaLatest)
-            <p class="text-xs"><span style="color: var(--text-muted);">{{ $jaWorkOrder->approvalReasonLabel() }}</span> {{ $jaLatest->note }}</p>
-        @endif
-        @if(!$jaProceed->authorised)
-            <p class="text-xs" style="color: var(--ds-crimson);">Work cannot start or be scheduled yet: {{ $jaProceed->note }}
-
-            </p>
-        @endif
+    <div id="jc-approval-panel" class="space-y-3">
+        @include('corex.rental-work-orders._cost-decision', ['workOrder' => $jaWorkOrder, 'isOpen' => $isOpen])
     </div>
-    @include('corex.rental-work-orders._cost-decision', ['workOrder' => $jaWorkOrder, 'isOpen' => $isOpen])
     @include('corex.rental-work-orders._variation-panel', ['workOrder' => $jaWorkOrder])
 @endif

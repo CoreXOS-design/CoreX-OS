@@ -64,7 +64,7 @@ class RentalAuthorisationService
 
     private function rand(float $amount): string
     {
-        return 'R' . number_format($amount, 2, '.', ' ');
+        return 'R' . number_format($amount, 2, '.', ',');   // the app's one money format - the same as every other figure on the page
     }
 
     /** When the owner said it / pressed the button / the agent authorised, in the agency's timezone. */
@@ -123,6 +123,45 @@ class RentalAuthorisationService
                 . ($row->amount_up_to !== null ? ' (' . $this->rand((float) $row->amount_up_to) . ')' : '') . '.' . ($row->emergency_reason ? ' Emergency: ' . $row->emergency_reason : ''),
             default => "Authorised by {$name} on {$when}.",
         };
+    }
+
+    /** Where the job stood when a record was made, in the screen's own words ("Waiting for the owner"), never a raw status ("ordered"). */
+    public function stageNow(RentalFaultReport|RentalWorkOrder $subject): string
+    {
+        $word = $subject instanceof RentalFaultReport ? $subject->statusLabel() : $subject->stageLabel('agent');
+
+        return mb_substr((string) $word, 0, 40);
+    }
+
+    /** The same, for a record (older records hold the raw status; both read as plain words). */
+    public function stageWords(RentalAuthorisation $row): string
+    {
+        $stage = (string) $row->stage;
+        if ($stage === '') {
+            return '';
+        }
+        if (! preg_match('/^[a-z_]+$/', $stage)) {
+            return $stage;   // already plain words
+        }
+
+        return (string) (RentalWorkOrder::statusWord($stage) ?? ucfirst(str_replace('_', ' ', $stage)));
+    }
+
+    /** The banner an AGENT reads after "Send to inspect": what happened, written for the agent (the owner's own email says it in the owner's words). */
+    public function arrangedLineForAgent(RentalFaultReport $fault): ?string
+    {
+        $row = $this->activeFor($fault, RentalAuthorisation::POINT_INSPECT);
+        if (! $row || ! $fault->isArrangedByAgent()) {
+            return null;
+        }
+        $who = $row->inspector_label ?: 'The contractor';
+        $fee = match ($row->basis) {
+            RentalAuthorisation::BASIS_AGENT_CALLOUT_SETTING => 'call-out fee ' . $this->rand((float) $row->callout_fee) . ', inside the owner\'s call-out permission of ' . $this->rand((float) $row->limit_amount),
+            default => 'no call-out fee',
+        };
+        $when = ($row->owner_told_at ?? $fault->arranged_by_agent_at)?->copy()->setTimezone($this->tz($fault))->format('j M Y H:i');
+
+        return ($when ? "The owner was told on {$when}: " : 'The owner was told: ') . "{$who} is going to look and quote, {$fee}. The owner can stop or query this from their link; you are told if they do.";
     }
 
     public static function pointLabel(string $point): string
@@ -283,7 +322,7 @@ class RentalAuthorisationService
     private function parseToldAt(RentalFaultReport|RentalWorkOrder $subject, mixed $value): Carbon
     {
         try {
-            $at = ! empty($value) ? Carbon::parse((string) $value, $this->tz($subject))->utc() : now();
+            $at = ! empty($value) ? Carbon::parse((string) $value, $this->tz($subject))->setTimezone(config('app.timezone')) : now();   // stored in the app timezone: the column is read back in it (->utc() showed 06:20 as 04:20)
         } catch (\Throwable) {
             throw new \InvalidArgumentException('That date and time is not valid.');
         }
@@ -308,7 +347,7 @@ class RentalAuthorisationService
             'agency_id' => $fault->agency_id, 'rental_fault_report_id' => $fault->id, 'point' => RentalAuthorisation::POINT_INSPECT,
             'outcome' => $approval->decision === RentalApproval::DECISION_APPROVED ? RentalAuthorisation::OUTCOME_AUTHORISED : RentalAuthorisation::OUTCOME_DECLINED,
             'basis' => $viaLink ? RentalAuthorisation::BASIS_OWNER_LINK : RentalAuthorisation::BASIS_OWNER_INSTRUCTION,
-            'stage' => $fault->status,
+            'stage' => $this->stageNow($fault),
             'owner_contact_id' => $viaLink && $by instanceof Contact ? $by->id : $ownerContactId,
             'by_contact_id' => $by instanceof Contact ? $by->id : null,
             'by_user_id' => $by instanceof User ? $by->id : null,
@@ -334,7 +373,7 @@ class RentalAuthorisationService
         $previous = $this->activeFor($fault, RentalAuthorisation::POINT_INSPECT);
         $row = RentalAuthorisation::withoutGlobalScopes()->create([
             'agency_id' => $fault->agency_id, 'rental_fault_report_id' => $fault->id, 'point' => RentalAuthorisation::POINT_INSPECT,
-            'outcome' => RentalAuthorisation::OUTCOME_AUTHORISED, 'basis' => $basis, 'stage' => $fault->status,
+            'outcome' => RentalAuthorisation::OUTCOME_AUTHORISED, 'basis' => $basis, 'stage' => $this->stageNow($fault),
             'by_user_id' => $by->id, 'told_at' => now(), 'inspector_label' => $label, 'agency_service_provider_id' => $supplierId,
             'callout_fee' => $fee, 'amount_up_to' => $fee, 'limit_amount' => $basis === RentalAuthorisation::BASIS_AGENT_CALLOUT_SETTING ? $allowance : null,
         ]);
@@ -375,7 +414,7 @@ class RentalAuthorisationService
         $viaLink = $basis === RentalAuthorisation::BASIS_OWNER_LINK;
         $row = RentalAuthorisation::withoutGlobalScopes()->create([
             'agency_id' => $subject->agency_id, 'rental_fault_report_id' => $isFault ? $subject->id : null, 'rental_work_order_id' => $isFault ? null : $subject->id,
-            'point' => $point, 'outcome' => RentalAuthorisation::OUTCOME_AUTHORISED, 'basis' => $basis, 'stage' => $subject->status,
+            'point' => $point, 'outcome' => RentalAuthorisation::OUTCOME_AUTHORISED, 'basis' => $basis, 'stage' => $this->stageNow($subject),
             'owner_contact_id' => $owner->id, 'by_contact_id' => $viaLink ? $owner->id : null, 'by_user_id' => $viaLink ? null : $by?->id,
             'told_via' => $via, 'told_at' => $toldAt, 'note' => $note ? trim($note) : null, 'proof_path' => $proofPath, 'owner_told_at' => $viaLink ? now() : null,
         ]);
@@ -434,7 +473,7 @@ class RentalAuthorisationService
         $base = ['amount' => $amount, 'source' => $source, 'label' => $label, 'kind' => $kind, 'limit' => $limit, 'agent_can' => false, 'basis' => null];
 
         if ($amount === null) {
-            return $base + ['line' => 'Nothing is priced yet. Select a quote, price the job card, or type the amount if it is a small job you already know the price of.'];
+            return $base + ['line' => 'Nothing is priced yet - select a quote or type an amount.'];
         }
         if ($limit === null) {
             $disputed = $settings && $settings->status() === 'disputed';
@@ -515,7 +554,7 @@ class RentalAuthorisationService
 
             $row = RentalAuthorisation::withoutGlobalScopes()->create([
                 'agency_id' => $locked->agency_id, 'rental_fault_report_id' => $locked->reported_fault_report_id, 'rental_work_order_id' => $locked->id,
-                'point' => RentalAuthorisation::POINT_COST, 'outcome' => RentalAuthorisation::OUTCOME_AUTHORISED, 'basis' => $eval['basis'], 'stage' => $locked->status,
+                'point' => RentalAuthorisation::POINT_COST, 'outcome' => RentalAuthorisation::OUTCOME_AUTHORISED, 'basis' => $eval['basis'], 'stage' => $this->stageNow($locked),
                 'amount_up_to' => $eval['amount'], 'limit_amount' => $eval['limit'], 'is_emergency' => $emergency, 'emergency_reason' => $emergency ? $reason : null,
                 'by_user_id' => $by->id, 'told_at' => now(),
                 'note' => $eval['source'] === 'typed' ? 'Amount typed by the agent (no quote).' : null,
@@ -630,7 +669,7 @@ class RentalAuthorisationService
         $row = RentalAuthorisation::withoutGlobalScopes()->create([
             'agency_id' => $wo->agency_id, 'rental_fault_report_id' => $wo->reported_fault_report_id, 'rental_work_order_id' => $wo->id,
             'point' => RentalAuthorisation::POINT_COST, 'outcome' => $approved ? RentalAuthorisation::OUTCOME_AUTHORISED : RentalAuthorisation::OUTCOME_DECLINED,
-            'basis' => $viaLink ? RentalAuthorisation::BASIS_OWNER_LINK : RentalAuthorisation::BASIS_OWNER_INSTRUCTION, 'stage' => $wo->status,
+            'basis' => $viaLink ? RentalAuthorisation::BASIS_OWNER_LINK : RentalAuthorisation::BASIS_OWNER_INSTRUCTION, 'stage' => $this->stageNow($wo),
             'amount_up_to' => $upTo, 'owner_contact_id' => $viaLink ? $by->id : ($extra['owner_contact_id'] ?? null),
             'by_contact_id' => $viaLink ? $by->id : null, 'by_user_id' => $viaLink ? null : $by->id,
             'told_via' => $viaLink ? RentalAuthorisation::VIA_LINK : match ($evidenceType) {
