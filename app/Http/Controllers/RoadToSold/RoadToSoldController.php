@@ -7,6 +7,8 @@ use App\Models\RoadToSold\RtsListItem;
 use App\Models\RoadToSold\RtsOutcomeDefinition as Def;
 use App\Services\RoadToSold\CallListService;
 use App\Services\RoadToSold\FeedService;
+use App\Services\RoadToSold\ListBuilderService;
+use App\Services\RoadToSold\SummaryBarService;
 use App\Services\RoadToSold\OutcomeDefinitionService;
 use App\Services\RoadToSold\OutcomeService;
 use App\Services\RoadToSold\RoadToSoldException;
@@ -26,6 +28,7 @@ class RoadToSoldController extends Controller
         private readonly OutcomeService $outcomes,
         private readonly OutcomeDefinitionService $definitions,
         private readonly FeedService $feeds,
+        private readonly SummaryBarService $bar,
     ) {
     }
 
@@ -76,6 +79,11 @@ class RoadToSoldController extends Controller
 
         return view('road-to-sold.index', $data + [
             'feeds'          => $feeds,
+            'bar'            => $agentUser ? $this->bar->forAgent($agentUser, $date) : ['month' => $date->format('F Y'), 'steps' => []],
+            'drilldownBase'  => route('road-to-sold.drilldown', [
+                'agent_id' => $agentId, 'period' => 'custom',
+                'start' => $date->copy()->startOfMonth()->toDateString(), 'end' => $date->toDateString(),
+            ]),
             'outcomeChoices' => $outcomes,
             'agents'         => $agents,
             'agentId'        => $agentId,
@@ -90,7 +98,7 @@ class RoadToSoldController extends Controller
                 'dir'       => $request->query('dir') === 'desc' ? 'desc' : 'asc',
             ],
             'canManageOutcomes' => $viewer->hasPermission('road_to_sold.manage_settings'),
-            'canAddToDay'       => $viewingOwn && class_exists(\App\Services\RoadToSold\ListBuilderService::class),
+            'canAddToDay'       => $viewingOwn,
             'addChoices'        => collect(\App\Services\RoadToSold\SettingsService::forUser($viewer)->selections())
                 ->where('enabled', true)->pluck('label', 'key')->all(),
         ]);
@@ -99,13 +107,13 @@ class RoadToSoldController extends Controller
     /** The overnight build normally has today's list ready; if it is missing, build it when the page opens. */
     private function buildIfMissing($viewer, int $agentId, $date, bool $viewingOwn): void
     {
-        if (! $viewingOwn || ! $date->isToday() || ! class_exists(\App\Services\RoadToSold\ListBuilderService::class)) {
+        if (! $viewingOwn || ! $date->isToday()) {
             return;
         }
         try {
             $has = RtsListItem::query()->visibleTo($viewer)->forDay($agentId, $date)->exists();
             if (! $has) {
-                app(\App\Services\RoadToSold\ListBuilderService::class)->buildFor($viewer, $date);
+                app(ListBuilderService::class)->buildFor($viewer, $date);
             }
         } catch (Throwable $e) {
             report($e);
@@ -170,13 +178,10 @@ class RoadToSoldController extends Controller
             'count.max'          => 'You can add up to 100 at a time.',
         ]);
 
-        $builder = \App\Services\RoadToSold\ListBuilderService::class;
-        if (! class_exists($builder)) {
-            return back()->with('rts_error', 'Adding to your day is not switched on yet.');
-        }
-
         try {
-            $added = app($builder)->addToDay($request->user(), $data['selection'], (int) $data['count']);
+            $added = app(ListBuilderService::class)->addToDay($request->user(), $data['selection'], (int) $data['count']);
+        } catch (\InvalidArgumentException $e) {
+            return back()->with('rts_error', $e->getMessage());
         } catch (Throwable $e) {
             report($e);
 

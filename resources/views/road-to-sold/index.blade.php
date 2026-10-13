@@ -63,6 +63,8 @@
         </div>
     @endif
 
+    @include('road-to-sold._summary-bar')
+
     {{-- Filters --}}
     <form method="GET" class="flex items-end gap-3 flex-wrap">
         @if(! $viewingOwn)<input type="hidden" name="agent" value="{{ $agentId }}">@endif
