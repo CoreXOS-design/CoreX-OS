@@ -116,12 +116,7 @@
         </x-slot>
     </x-sticky-action-bar>
 
-    @if(session('success'))
-        <div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-emerald-soft, #ecfdf5); color: var(--ds-emerald, #059669);">{{ session('success') }}</div>
-    @endif
-    @if(session('error'))
-        <div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626);">{{ session('error') }}</div>
-    @endif
+    {{-- success / error flashes are shown ONCE, by the layout's toast — never again as an inline banner (they used to appear twice). --}}
 
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626);">
@@ -308,8 +303,9 @@
 
         <div>
             <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Property</h2>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <x-rental-application-field name="property_address_override" label="Property address (if not linked above)" :value="$rentalApplication->property_address_override" />
+            @include('corex.rental-applications.partials.property-link-control')
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                <x-rental-application-field name="property_address_override" label="Property address (only if it isn't one of your properties)" :value="$rentalApplication->property_address_override" />
             </div>
         </div>
 

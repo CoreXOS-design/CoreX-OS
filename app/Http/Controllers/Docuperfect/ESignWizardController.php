@@ -33,6 +33,24 @@ use Illuminate\Support\Facades\Schema;
 class ESignWizardController extends Controller
 {
     /**
+     * Does this template have stored page images to preview? A WEB (Blade) template can carry a page_count (6 for
+     * the lease agreement) but has no page-N.png files — it renders as live HTML — so asking the page-image route
+     * for them 404'd (six console 404s on every step page). Only a template whose first image really exists gets
+     * image URLs; anything else is previewed from its live HTML as before.
+     */
+    private function templateHasPageImages(Template $template): bool
+    {
+        if ((int) $template->page_count <= 0) {
+            return false;
+        }
+
+        $dir = "docuperfect/templates/{$template->id}";
+
+        return \Illuminate\Support\Facades\Storage::exists("{$dir}/page-0.png")
+            || \Illuminate\Support\Facades\Storage::exists("{$dir}/page-0.jpg");
+    }
+
+    /**
      * Test render: minimal page to verify template page images + field overlays.
      */
     public function testRender(Request $request, $templateId)
@@ -348,13 +366,13 @@ class ESignWizardController extends Controller
                         $tpl = null;
                     }
                 }
-                if ($tpl && $tpl->page_count > 0) {
+                if ($tpl && $this->templateHasPageImages($tpl)) {
                     for ($n = 0; $n < $tpl->page_count; $n++) {
                         $pageImages[] = route('docuperfect.page.image', ['id' => $tplId, 'page' => $n]);
                     }
                 }
             }
-        } elseif ($template && $template->page_count > 0) {
+        } elseif ($template && $this->templateHasPageImages($template)) {
             for ($n = 0; $n < $template->page_count; $n++) {
                 $pageImages[] = route('docuperfect.page.image', ['id' => $template->id, 'page' => $n]);
             }
@@ -1943,8 +1961,10 @@ class ESignWizardController extends Controller
                     }
                 }
                 if ($tpl && $tpl->page_count > 0) {
-                    for ($n = 0; $n < $tpl->page_count; $n++) {
-                        $allPages[] = route('docuperfect.page.image', ['id' => $tplId, 'page' => $n]);
+                    if ($this->templateHasPageImages($tpl)) {
+                        for ($n = 0; $n < $tpl->page_count; $n++) {
+                            $allPages[] = route('docuperfect.page.image', ['id' => $tplId, 'page' => $n]);
+                        }
                     }
                     $totalPageCount += $tpl->page_count;
                 }

@@ -170,6 +170,13 @@ return [
         'sink_address' => env('MAIL_GUARD_SINK_ADDRESS', 'outbound-guard@localhost.test'),
     ],
 
+    /*
+    | The web address of this environment's test-mail catcher (Mailpit), shown as "Open Mailpit" in the QA banner.
+    | One catcher per box, reached through its own host name; set MAILPIT_UI_URL where an environment has its own.
+    | The default is the host that fronts this server's catcher today (behind a password).
+    */
+    'mailpit_ui_url' => env('MAILPIT_UI_URL', 'https://mail.demo1.corexos.co.za'),
+
     'from' => [
         'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
         'name' => env('MAIL_FROM_NAME', 'Example'),

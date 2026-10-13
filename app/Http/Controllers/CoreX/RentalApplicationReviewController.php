@@ -142,7 +142,9 @@ class RentalApplicationReviewController extends Controller
         $newPropertyId = $newProperty?->id;
 
         if ($oldPropertyId === $newPropertyId) {
-            return back();
+            return $request->expectsJson()
+                ? response()->json(['ok' => true, 'label' => $newProperty?->buildDisplayAddress(), 'updated_at' => $rentalApplication->updated_at?->timestamp])
+                : back();
         }
 
         abort_if(
@@ -169,6 +171,16 @@ class RentalApplicationReviewController extends Controller
                     : 'Cleared the linked property',
             );
         });
+
+        // The staff application page links/changes the property in place (fetch), so unsaved edits in its form
+        // are not lost to a reload — and it needs the new updated_at to keep its own save's staleness check true.
+        if ($request->expectsJson()) {
+            return response()->json([
+                'ok' => true,
+                'label' => $newProperty?->buildDisplayAddress(),
+                'updated_at' => $rentalApplication->fresh()->updated_at?->timestamp,
+            ]);
+        }
 
         return back()->with('success', $newProperty ? 'Property linked.' : 'Property link cleared.');
     }

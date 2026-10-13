@@ -56,12 +56,7 @@ class LeaseSigningLauncher
         $property = $lease->property;
 
         return [
-            'property' => [
-                'property_id' => $property?->id,
-                '_property_source' => 'properties',
-                'title' => $property?->title,
-                'suburb' => $property?->suburb,
-            ],
+            'property' => $this->propertySnapshot($property),
             'recipients' => ['recipients' => $this->recipientRows($lease, $user)],
             'details' => [
                 'lease_start' => $terms['start_date'] ?? optional($lease->start_date)->toDateString(),
@@ -71,6 +66,52 @@ class LeaseSigningLauncher
                 'lease_type' => $lease->lease_type,
             ],
         ];
+    }
+
+    /**
+     * The property as the e-sign wizard's own property step records it, so the agreement's merge fields find
+     * what CoreX already knows: the STREET line (not the marketing title), the unit, the complex, the area.
+     * Before this the snapshot carried only the title and suburb, so "street address" pre-filled with the
+     * property's TITLE ("2 Bed Flat Sea Point") and unit and complex were never filled at all.
+     *
+     * @return array<string,mixed>
+     */
+    public function propertySnapshot(?Property $property): array
+    {
+        if (! $property) {
+            return ['property_id' => null, '_property_source' => 'properties'];
+        }
+
+        $street = trim($property->composeStreetLine());
+        if ($street === '') {
+            $street = trim((string) $property->address) !== '' ? trim((string) $property->address) : trim($property->buildDisplayAddress());
+        }
+
+        $snapshot = [
+            'property_id' => $property->id,
+            '_property_source' => 'properties',
+            'title' => $property->title,
+            'address' => $street,
+            'street' => $street,
+            'street_name' => $property->street_name ?? '',
+            'suburb' => $property->suburb ?? '',
+            'town' => $property->town ?? '',
+            'city' => $property->city ?? '',
+            'erf' => $property->property_number ?? '',
+            'erf_no' => $property->property_number ?? '',
+            'property_number' => $property->property_number ?? '',
+            'complex_name' => $property->complex_name ?? '',
+            'unit_number' => $property->unit_number ?? '',
+            'property_type' => $property->property_type ?? '',
+            'rental_amount' => $property->rental_amount,
+            'deposit_amount' => $property->deposit_amount,
+        ];
+        // Only when the property has one: the template data service has its own default for a missing district.
+        if (trim((string) $property->district) !== '') {
+            $snapshot['district'] = $property->district;
+        }
+
+        return $snapshot;
     }
 
     /**
@@ -92,12 +133,7 @@ class LeaseSigningLauncher
         $stepData = [
             'template' => ['template_id' => $templateId],
             'fields' => $fields,
-            'property' => [
-                'property_id' => $property?->id,
-                '_property_source' => 'properties',
-                'title' => $property?->title,
-                'suburb' => $property?->suburb,
-            ],
+            'property' => $this->propertySnapshot($property),
             'recipients' => ['recipients' => $this->recipientRows($newTerm, $user)],
             'details' => [
                 'lease_start' => optional($newTerm->start_date)->toDateString(),
@@ -237,7 +273,7 @@ class LeaseSigningLauncher
         if (trim((string) $contact->id_number) === '' && trim((string) $contact->passport_number) === '') {
             $needs['id'] = 'ID or passport number';
         }
-        if (isset($map["{$prefix}_address"]) && trim((string) $contact->address) === '') {
+        if (isset($map["{$prefix}_address"]) && $this->addressFor($contact, $prefix) === '') {
             $needs['address'] = 'address';
         }
 
@@ -549,6 +585,44 @@ class LeaseSigningLauncher
         return $rows;
     }
 
+    /**
+     * The address CoreX already knows for a signing party, so nothing known is typed again: the contact's own
+     * address; else one built from the contact's street / suburb / city columns; else — for a tenant — the
+     * residential address on their rental application (the contact itself is usually blank there: the applicant
+     * typed their address into the application form, and nothing copies it onto the contact).
+     * '' when nothing is known.
+     */
+    public function addressFor(Contact $contact, string $role): string
+    {
+        $own = trim((string) $contact->address);
+        if ($own !== '') {
+            return $own;
+        }
+
+        $built = implode(', ', array_filter([
+            trim(trim((string) $contact->street_number) . ' ' . trim((string) $contact->street_name)),
+            trim((string) $contact->suburb),
+            trim((string) $contact->city),
+        ], fn ($part) => $part !== ''));
+        if ($built !== '') {
+            return $built;
+        }
+
+        if (strtolower($role) === 'tenant' || strtolower($role) === 'lessee') {
+            $fromApplication = \App\Models\RentalApplication::query()
+                ->where('contact_id', $contact->id)
+                ->whereNotNull('current_residential_address')
+                ->where('current_residential_address', '!=', '')
+                ->orderByRaw("CASE WHEN status = 'approved' THEN 0 ELSE 1 END")
+                ->latest('id')
+                ->value('current_residential_address');
+
+            return trim((string) $fromApplication);
+        }
+
+        return '';
+    }
+
     /** @return array<string,mixed> */
     private function recipientRow(string $role, Contact $contact, int $order): array
     {
@@ -564,7 +638,7 @@ class LeaseSigningLauncher
             'passport_number' => $contact->passport_number ?? '',
             'email' => $contact->email ?? '',
             'cell' => $contact->phone ?? '',
-            'address' => $contact->address ?? '',
+            'address' => $this->addressFor($contact, $role),
             '_contact_id' => $contact->id,
             '_is_entity' => $contact->isEntity(),
         ];

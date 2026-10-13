@@ -61,7 +61,10 @@
         // leases.md §15.3 (Build L3a) — the landlord panel and per-tenant hints.
         'partyUrl' => route('corex.leases.party-check'),
         'signersOn' => $canPrepare && $agreementReady,
-        'fixedPropertyId' => $isRenew ? $lease->property_id : null,
+        // A property chosen before this screen opened (from the property page / ?property_id=) is printed as plain text with
+        // a hidden id — the picker's own state stays empty — so the Who signs panel never knew which property to look up
+        // and said "Choose a property to see its landlord" with one already chosen. Fix it to the chosen property.
+        'fixedPropertyId' => $isRenew ? $lease->property_id : ($property?->id),
         'fixedTenantIds' => $isRenew ? $lease->tenants->sortByDesc('is_primary')->pluck('contact_id')->filter()->values()->all() : [],
         // leases.md §17 — once the agent has chosen an owner's agent themselves (or the form came back with one), picking
         // a different property no longer overwrites it.

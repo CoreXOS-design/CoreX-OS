@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ $heading ?? 'Your CoreX verification code' }}</title>
+    <title>{{ $heading ?? 'Your verification code' }}</title>
 </head>
 <body style="margin:0; padding:0; background:#f4f6fb; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
 
@@ -14,9 +14,17 @@
 
                     <tr>
                         <td align="center" style="padding-bottom:32px;">
+                            @if(!empty($agencyName))
+                                @if(!empty($agencyLogoUrl))
+                                    <img src="{{ $agencyLogoUrl }}" alt="{{ $agencyName }}" style="max-height:56px; max-width:220px;">
+                                @else
+                                    <div style="font-size:1.5rem; font-weight:800; letter-spacing:-0.02em; color:{{ $agencyColor ?? '#0b2a4a' }}; line-height:1.1;">{{ $agencyName }}</div>
+                                @endif
+                            @else
                             <div style="font-size:1.75rem; font-weight:800; letter-spacing:-0.04em; color:#0b2a4a; line-height:1;">
                                 CoreX <span style="color:#00b4d8;">Os</span>
                             </div>
+                            @endif
                         </td>
                     </tr>
 
@@ -44,9 +52,24 @@
 
                     <tr>
                         <td align="center" style="padding-top:24px;">
+                            @if(!empty($agencyName))
+                                <p style="margin:0 0 4px; font-size:0.75rem; font-weight:600; color:#6b7280;">{{ $agencyName }}</p>
+                                @php
+                                    $details = array_filter([
+                                        trim((string) ($agency->address ?? '')),
+                                        trim((string) ($agency->phone ?? '')),
+                                        trim((string) ($agency->email ?? '')),
+                                        trim((string) ($agency->website ?? '')),
+                                    ]);
+                                @endphp
+                                @if($details)
+                                    <p style="margin:0; font-size:0.6875rem; line-height:1.5; color:#9ca3af;">{{ implode(' · ', $details) }}</p>
+                                @endif
+                            @else
                             <p style="margin:0; font-size:0.6875rem; color:#9ca3af;">
                                 &copy; {{ date('Y') }} CoreX OS. All rights reserved.
                             </p>
+                            @endif
                         </td>
                     </tr>
 

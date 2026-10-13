@@ -18,17 +18,17 @@
 @include('docuperfect.signatures.partials._capture-modal', ['savedSignatureSupport' => ($savedSignatureSupport ?? false)])
 
 {{-- Apply-to-all confirmation modal --}}
-<div x-show="showApplyAll" x-cloak x-transition.opacity
+<div x-show="showApplyAll && remainingSignatureCount > 0" x-cloak x-transition.opacity
      class="fixed inset-0 z-[60] flex items-center justify-center"
      style="background:rgba(0,0,0,0.5);">
     <div class="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6 space-y-4" @click.stop>
         <h3 class="text-lg font-semibold text-slate-800">Apply to Remaining Markers?</h3>
         <p class="text-sm text-slate-600">
-            You signed this marker. Apply the same signature to your remaining
+            You signed this marker. Apply the same <span x-text="$data.applyAllNoun || 'signature'"></span> to your remaining
             <span class="font-semibold" x-text="remainingSignatureCount"></span>
-            signature marker<span x-show="remainingSignatureCount !== 1">s</span>?
+            <span x-text="$data.applyAllNoun || 'signature'"></span> marker<span x-show="remainingSignatureCount !== 1">s</span>?
         </p>
-        <p class="text-xs text-slate-400">
+        <p class="text-xs text-slate-400" x-show="($data.applyAllNoun || 'signature') === 'signature'">
             Initials and date fields still need to be signed separately.
         </p>
         <div class="flex items-center justify-end gap-3 pt-2">

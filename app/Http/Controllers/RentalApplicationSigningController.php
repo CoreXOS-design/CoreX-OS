@@ -140,7 +140,8 @@ class RentalApplicationSigningController extends Controller
             'mail' => fn ($code) => new OtpMail(
                 $code, 10,
                 "Verify it's you to view your rental application",
-                'Your verification code for your rental application',
+                'Your verification code for your rental application — ' . \App\Models\Agency::displayNameFor($application->agency),
+                $application->agency,
             ),
         ]);
     }
@@ -333,7 +334,8 @@ class RentalApplicationSigningController extends Controller
             'mail' => fn ($code) => new OtpMail(
                 $code, $expiresMinutes,
                 "Verify it's you to complete your rental application",
-                'Your verification code for your rental application',
+                'Your verification code for your rental application — ' . \App\Models\Agency::displayNameFor($application->agency),
+                $application->agency,
             ),
         ];
         if (($length = RentalApplicationQualifyingSetting::identityGateOtpLengthFor($agencyId)) !== null) {

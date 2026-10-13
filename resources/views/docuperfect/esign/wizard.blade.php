@@ -3303,6 +3303,12 @@ function esignWizard() {
         signingRoleLabel(role) {
             return getRoleLabel(role);
         },
+        // Exposed on the component: four template expressions above call getRoleLabel(...) as a page-level
+        // function, but the helper is a closure inside esignWizard() — without this each render threw
+        // "getRoleLabel is not defined" in the console on every step page.
+        getRoleLabel(role) {
+            return getRoleLabel(role);
+        },
 
         moveRecipient(index, direction) {
             const swapWith = direction === 'up' ? index - 1 : index + 1;

@@ -118,10 +118,6 @@
         </div>
     </div>
 
-    @if(session('success'))
-        <div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-emerald-soft, #ecfdf5); color: var(--ds-emerald, #059669);">{{ session('success') }}</div>
-    @endif
-
     {{-- AT-402 — advertises the SEPARATE Authorisation decision queue to
          RO/CO users only (RentalApplicationController::index()'s own
          docblock explains why this stays a distinct screen/route rather

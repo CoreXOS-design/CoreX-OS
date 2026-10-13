@@ -818,8 +818,9 @@ function rentalApplicationForm() {
                 for (const section of this.progressSections) {
                     if (section.getBoundingClientRect().top <= threshold) current = section;
                 }
-                const index = this.progressSections.indexOf(current) + 1;
-                this.currentSectionLabel = `Section ${index} of ${this.progressSections.length} — ${current.dataset.progressSection}`;
+                // Name only, never "Section 1 of 7": this is ONE page you scroll, not seven steps, and the count
+                // changes with the optional sections (e.g. the credit-check consent), so a number read like a wizard.
+                this.currentSectionLabel = `You are on: ${current.dataset.progressSection}`;
             };
 
             let ticking = false;

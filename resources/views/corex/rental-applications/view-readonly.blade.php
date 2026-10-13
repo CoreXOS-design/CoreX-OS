@@ -82,16 +82,6 @@
         </x-slot>
     </x-sticky-action-bar>
 
-    @if(session('success'))
-        <div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-emerald-soft, #ecfdf5); color: var(--ds-emerald, #059669);">{{ session('success') }}</div>
-    @endif
-    @if(session('warning'))
-        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 14%, transparent); color: var(--ds-amber, #b45309);">{{ session('warning') }}</div>
-    @endif
-    @if(session('error'))
-        <div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626);">{{ session('error') }}</div>
-    @endif
-
     <div class="rounded-md p-3 text-xs" style="background: var(--surface-2, #f9fafb); border: 1px solid var(--border); color: var(--text-secondary);">
         This is a faithful, read-only rendering of the application the applicant submitted and signed. It cannot be
         edited from here or by any other route on this record — that is deliberate: a signed application a third

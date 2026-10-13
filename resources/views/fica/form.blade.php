@@ -13,6 +13,11 @@
         [x-cloak] { display: none !important; }
 
         .fica-card { background: #fff; border: 1px solid #e2e8f0; padding: 2rem; margin-bottom: 1.5rem; }
+        /* Section numbers are automatic: a CSS counter counts only the sections actually shown for this entity type
+           (hidden ones generate no box, so they are skipped) — hand-typed numbers left a gap (no 3) for a person. */
+        #ficaForm { counter-reset: ficasec; }
+        .fica-section-title { counter-increment: ficasec; }
+        .fica-section-title::before { content: counter(ficasec) ". "; }
         .fica-section-title { font-size: 1.125rem; font-weight: 700; color: var(--text-primary, #111827); margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #0d9488; }
         .fica-subsection-title { font-size: 0.9375rem; font-weight: 700; color: var(--text-primary, #111827); margin: 1.25rem 0 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #e2e8f0; }
         .fica-label { display: block; font-weight: 600; font-size: 0.875rem; color: #334155; margin-bottom: 0.25rem; }
@@ -100,7 +105,7 @@
 
             {{-- ═══════════ SECTION 1 — ENTITY TYPE ═══════════ --}}
             <div class="fica-card">
-                <h2 class="fica-section-title">1. Entity Type</h2>
+                <h2 class="fica-section-title">Entity Type</h2>
                 <p class="fica-hint" style="margin-top: -0.75rem; margin-bottom: 1rem;">Select the type of entity completing this FICA form. All subsequent sections adapt based on this selection.</p>
                 <div style="display: grid; gap: 0.625rem;">
                     <label class="fica-radio-label"><input type="radio" name="entity_type" value="natural" required x-model="entityType"> Natural Person (Individual)</label>
@@ -112,7 +117,7 @@
 
             {{-- ═══════════ SECTION 2 — PERSON COMPLETING THE FORM ═══════════ --}}
             <div class="fica-card" x-show="entityType" x-cloak x-transition>
-                <h2 class="fica-section-title">2. Person Completing This Form</h2>
+                <h2 class="fica-section-title">Person Completing This Form</h2>
                 <p class="fica-hint" style="margin-top: -0.75rem; margin-bottom: 1rem;" x-show="entityType === 'natural'">Your personal details as the client.</p>
                 <p class="fica-hint" style="margin-top: -0.75rem; margin-bottom: 1rem;" x-show="entityType !== 'natural'" x-cloak>Details of the person acting on behalf of the entity.</p>
 
@@ -155,7 +160,7 @@
 
             {{-- ═══════════ SECTION 3A — COMPANY / CC ═══════════ --}}
             <div class="fica-card" x-show="entityType === 'company'" x-cloak x-transition>
-                <h2 class="fica-section-title">3. Company / Close Corporation Details</h2>
+                <h2 class="fica-section-title">Company / Close Corporation Details</h2>
 
                 <div class="fica-grid">
                     <div>
@@ -250,7 +255,7 @@
 
             {{-- ═══════════ SECTION 3B — TRUST ═══════════ --}}
             <div class="fica-card" x-show="entityType === 'trust'" x-cloak x-transition>
-                <h2 class="fica-section-title">3. Trust Details</h2>
+                <h2 class="fica-section-title">Trust Details</h2>
 
                 <div class="fica-grid">
                     <div>
@@ -370,7 +375,7 @@
 
             {{-- ═══════════ SECTION 3C — PARTNERSHIP ═══════════ --}}
             <div class="fica-card" x-show="entityType === 'partnership'" x-cloak x-transition>
-                <h2 class="fica-section-title">3. Partnership Details</h2>
+                <h2 class="fica-section-title">Partnership Details</h2>
 
                 <div class="fica-grid">
                     <div class="fica-grid-full">
@@ -452,7 +457,7 @@
 
             {{-- ═══════════ SECTION 4 — PRINCIPAL (Natural Person ONLY) ═══════════ --}}
             <div class="fica-card" x-show="entityType === 'natural'" x-cloak x-transition>
-                <h2 class="fica-section-title">4. Principal</h2>
+                <h2 class="fica-section-title">Principal</h2>
                 <div style="margin-bottom: 1rem;">
                     <label class="fica-label">Are you dealing with us on behalf of another person? <span class="req">*</span></label>
                     <div class="fica-radio-group">
@@ -506,7 +511,7 @@
 
             {{-- ═══════════ SECTION 5 — REPRESENTATIVE (Natural Person ONLY) ═══════════ --}}
             <div class="fica-card" x-show="entityType === 'natural'" x-cloak x-transition>
-                <h2 class="fica-section-title">5. Representative</h2>
+                <h2 class="fica-section-title">Representative</h2>
                 <div style="margin-bottom: 1rem;">
                     <label class="fica-label">Will someone else deal with us on your behalf going forward? <span class="req">*</span></label>
                     <div class="fica-radio-group">
@@ -535,7 +540,7 @@
 
             {{-- ═══════════ SECTION 6 — SERVICE & PAYMENT ═══════════ --}}
             <div class="fica-card" x-show="entityType" x-cloak x-transition>
-                <h2 class="fica-section-title"><span x-text="entityType === 'natural' ? '6' : '4'"></span>. Service & Payment</h2>
+                <h2 class="fica-section-title">Service & Payment</h2>
 
                 <div style="margin-bottom: 1.25rem;">
                     <label class="fica-label">Purpose of Transaction <span class="req">*</span></label>
@@ -575,7 +580,7 @@
 
             {{-- ═══════════ SECTION 7 — POLITICALLY EXPOSED PERSON ═══════════ --}}
             <div class="fica-card" x-show="entityType" x-cloak x-transition>
-                <h2 class="fica-section-title"><span x-text="entityType === 'natural' ? '7' : '5'"></span>. Politically Exposed Person (PEP)</h2>
+                <h2 class="fica-section-title">Politically Exposed Person (PEP)</h2>
 
                 {{-- a) Foreign PEP --}}
                 <div style="margin-bottom: 1.25rem;">
@@ -650,7 +655,7 @@
 
             {{-- ═══════════ SECTION 8 — DOCUMENT UPLOADS ═══════════ --}}
             <div class="fica-card" x-show="entityType" x-cloak x-transition>
-                <h2 class="fica-section-title"><span x-text="entityType === 'natural' ? '8' : '6'"></span>. Document Uploads</h2>
+                <h2 class="fica-section-title">Document Uploads</h2>
                 <p class="fica-hint" style="margin-top: -0.75rem; margin-bottom: 0.5rem;">PDF, JPG, PNG, or HEIC. Maximum 10MB per file.</p>
                 <p class="fica-hint" style="margin-bottom: 1rem; color: #64748b; font-style: italic;">Upload if available — your agent may already have these on file.</p>
 
@@ -695,7 +700,7 @@
 
             {{-- ═══════════ SECTION 9 — DECLARATION & SIGNATURE ═══════════ --}}
             <div class="fica-card" x-show="entityType" x-cloak x-transition>
-                <h2 class="fica-section-title"><span x-text="entityType === 'natural' ? '9' : '7'"></span>. Declaration & Signature</h2>
+                <h2 class="fica-section-title">Declaration & Signature</h2>
 
                 <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 1rem; margin-bottom: 1.5rem; font-size: 0.875rem; color: #334155; line-height: 1.7;">
                     I hereby declare that the information provided above is true, correct and complete. I understand that providing false or misleading information may constitute a criminal offence under the Financial Intelligence Centre Act (Act 38 of 2001) as amended.
