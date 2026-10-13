@@ -25,13 +25,12 @@
     $errs = $errors->getBag('outcome');
 @endphp
 
-<div class="w-full space-y-5" x-data="rtsOutcomeForm(@js($formConfig))">
+<div class="w-full space-y-5 rts-page" x-data="rtsOutcomeForm(@js($formConfig))">
 
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex items-center justify-between flex-wrap gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Road to Sold outcomes</h1>
-                <p class="text-xs mt-1" style="color: var(--text-muted);">The choices an agent sees after phoning an owner.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
                 <a href="{{ route('road-to-sold.index') }}" class="corex-btn-outline corex-btn-xs">Back to Road to Sold</a>
@@ -44,6 +43,7 @@
         <div class="rounded-md px-4 py-3 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">{{ session('status') }}</div>
     @endif
 
+    @include('road-to-sold._controls')
     <form method="GET" class="flex items-end gap-3 flex-wrap">
         <div>
             <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-q">Search name</label>
@@ -126,9 +126,6 @@
                         <div class="text-base font-semibold" style="color: var(--text-primary);">
                             @if($q !== '' || $status !== 'all') No outcomes match this search. @else No outcomes yet. @endif
                         </div>
-                        <p class="text-xs mt-1" style="color: var(--text-muted);">
-                            @if($q !== '' || $status !== 'all') Clear the search or choose "All outcomes". @else Add the first outcome with the Add outcome button. @endif
-                        </p>
                     </td>
                 </tr>
             @endforelse

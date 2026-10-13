@@ -348,4 +348,44 @@ class OutcomeService
             ->where('tracked_property_id', $trackedPropertyId)
             ->orderByDesc('occurred_at')->orderByDesc('id')->limit($limit)->get();
     }
+
+    /**
+     * Recent outcomes for a page of properties, as the viewer is allowed to see them (own / branch / agency),
+     * newest first, at most $perProperty each. One query. Keyed by tracked_property_id; plain arrays for the page.
+     *
+     * @param  array<int,int>  $trackedPropertyIds
+     * @return array<int,array<int,array<string,mixed>>>
+     */
+    public function historyForPage(User $viewer, array $trackedPropertyIds, string $track = 'sales', int $perProperty = 10): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $trackedPropertyIds))));
+        $agencyId = (int) ($viewer->effectiveAgencyId() ?: 0);
+        if ($agencyId <= 0 || $ids === []) {
+            return [];
+        }
+
+        $out = [];
+        RtsContactOutcome::query()->visibleTo($viewer)->with('agent:id,name')
+            ->where('agency_id', $agencyId)->where('track', $track)
+            ->whereIn('tracked_property_id', $ids)
+            ->orderByDesc('occurred_at')->orderByDesc('id')
+            ->get()
+            ->each(function (RtsContactOutcome $o) use (&$out, $perProperty) {
+                $k = (int) $o->tracked_property_id;
+                if (count($out[$k] ?? []) >= $perProperty) {
+                    return;
+                }
+                $out[$k][] = [
+                    'when'      => $o->occurred_at?->format('j M Y H:i'),
+                    'by'        => $o->agent?->name,
+                    'label'     => $o->outcome_label,
+                    'kind'      => $o->kind,
+                    'note'      => $o->note,
+                    'valuation' => (bool) $o->valuation_booked,
+                    'next'      => $o->next_action_at?->format('j M Y'),
+                ];
+            });
+
+        return $out;
+    }
 }
