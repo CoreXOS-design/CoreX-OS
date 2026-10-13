@@ -152,8 +152,7 @@
     {{-- AT-452 round 2 (item I) - the agent went ahead; the owner was told, not asked. --}}
     @if($faultReport->isArrangedByAgent())
         <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-blue, #2563eb) 8%, var(--surface)); border: 1px solid var(--ds-blue, #2563eb);" data-arranged-by-agent>
-            <strong>The owner was told on {{ $faultReport->arranged_by_agent_at?->format('j M Y H:i') }}.</strong>
-            {{ $faultReport->arrangedText() }} They are informed, not asked &mdash; they can send you a question from their portal, and you are told when they do. If the amount goes over the limit the owner's approval is asked for on the work order as usual.
+            {{ app(\App\Services\Rentals\RentalAuthorisationService::class)->arrangedLineForAgent($faultReport) ?? ('The owner was told on ' . $faultReport->arranged_by_agent_at?->format('j M Y H:i') . '.') }}
         </div>
     @endif
 
@@ -362,7 +361,7 @@
         @if($faultReport->approvals->count() > 1)
             <ul class="space-y-1 text-xs" style="color: var(--text-muted);">
                 @foreach($faultReport->approvals as $approval)
-                    <li>{{ ucfirst($approval->decision) }} &middot; {{ ucfirst(str_replace('_', ' ', $approval->evidence_type)) }} &middot; {{ $approval->decided_at?->format('Y-m-d') }}</li>
+                    <li>{{ ucfirst($approval->decision) }} &middot; {{ ucfirst(\App\Models\RentalApproval::evidenceLabel($approval->evidence_type)) }} &middot; {{ $approval->decided_at?->format('Y-m-d') }}</li>
                 @endforeach
             </ul>
         @endif

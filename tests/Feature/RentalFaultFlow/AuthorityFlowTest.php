@@ -185,7 +185,7 @@ final class AuthorityFlowTest extends TestCase
         $this->assertSame(RentalAuthorisation::BASIS_AGENT_NO_CALLOUT_FEE, $row->basis);
         $this->assertSame($this->agent->id, $row->by_user_id);
         $this->assertSame('Free Visit Plumbing', $row->inspector_label);
-        $this->assertSame('under_review', $row->stage, 'at what stage it was given');
+        $this->assertSame(RentalFaultReport::statusWord('under_review'), $row->stage, 'where the job stood, in the screen\'s own words (never the raw status)');
         $this->assertNotNull($row->told_at);
         $this->assertNotNull($row->owner_told_at, 'the owner was told');
         $this->assertSame(RentalFaultReport::ARRANGED_INSPECT_NO_FEE, $f->arranged_basis);
@@ -226,7 +226,7 @@ final class AuthorityFlowTest extends TestCase
         $this->assertEquals(750.0, (float) $row->callout_fee);
         $this->assertEquals(1000.0, (float) $row->limit_amount);
         $this->assertSame(RentalFaultReport::ARRANGED_INSPECT_CALLOUT, $f->fresh()->arranged_basis);
-        Mail::assertQueued(RentalAuthorisationToOwnerMail::class, fn ($m) => str_contains($m->sentence, 'under your call-out permission of R1 000.00. The call-out fee is R750.00.'));
+        Mail::assertQueued(RentalAuthorisationToOwnerMail::class, fn ($m) => str_contains($m->sentence, 'under your call-out permission of R1,000.00. The call-out fee is R750.00.'));
 
         // over the permission: refused
         $g = $this->fault();
@@ -307,7 +307,7 @@ final class AuthorityFlowTest extends TestCase
         $this->assertSame('authorised', $row->outcome);
         $this->assertSame($this->landlord->id, $row->by_contact_id);
         $this->assertSame($this->landlord->id, $row->owner_contact_id);
-        $this->assertSame('awaiting_approval', $row->stage);
+        $this->assertSame(RentalFaultReport::statusWord('awaiting_approval'), $row->stage);
         $this->assertNull($row->by_user_id);
         $this->assertTrue($f->fresh()->hasInspectionAuthority());
         // the owner's own press is NOT presented as "your agent recorded" - they pressed it
@@ -629,5 +629,33 @@ final class AuthorityFlowTest extends TestCase
         $this->assertSame(1, $count);
         $f->fresh()->saveOwnerVersion(array_merge($words, ['owner_title' => 'Kitchen tap leaking badly']), $this->agent);
         $this->assertSame(2, $f->fresh()->updates()->where('update_type', \App\Models\RentalFaultReportUpdate::TYPE_OWNER_VERSION_SAVED)->count(), 'a real change is logged');
+    }
+
+    public function test_the_banner_after_send_to_inspect_is_written_for_the_agent_and_a_phone_decision_never_says_verbal_note(): void
+    {
+        $f = $this->fault();
+        $p = $this->supplier('Free Visit Plumbing', 'no');
+        $this->inspect($f, $p)->assertRedirect();
+        $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $f->fresh()))->assertOk()->getContent();
+        $text = html_entity_decode(strip_tags((string) preg_replace('#<(style|script).*?</\\1>#si', '', $html)));
+        $this->assertMatchesRegularExpression('/The owner was told on \d{1,2} \w{3} \d{4} \d\d:\d\d: Free Visit Plumbing is going to look and quote, no call-out fee\. The owner can stop or query this from their link; you are told if they do\./', $text);
+        $this->assertStringNotContainsString('They are informed, not asked', $text);
+        $this->assertStringNotContainsString('so the visit costs you nothing', $text, 'the owner\'s email sentence is not pasted onto the agent\'s screen');
+        // the record says where the job stood in plain words, not "under_review"
+        $this->assertStringContainsString('job was:', $text);
+        $this->assertDoesNotMatchRegularExpression('/job was: (under_review|reported|ordered)/', $text);
+
+        // a decision recorded as a phone call is called a phone call everywhere on the staff page
+        $g = $this->fault();
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.owner-decision.store', $g), [
+            'owner_contact_id' => $this->landlord->id, 'decision' => 'authorise', 'told_via' => 'phone_call', 'told_at' => '2026-10-13T06:20', 'note' => 'Owner phoned',
+        ])->assertSessionHasNoErrors();
+        $page = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $g->fresh()))->assertOk()->getContent();
+        $this->assertStringNotContainsString('verbal note', strtolower($page));
+        $this->assertStringContainsString('Captured by the agent (phone call)', $page);
+        // and the time typed is the time shown (06:20 stored as 06:20, not two hours early)
+        $row = RentalAuthorisation::withoutGlobalScopes()->where('rental_fault_report_id', $g->id)->where('point', 'inspect')->latest('id')->first();
+        $this->assertSame('06:20', $row->fresh()->told_at->format('H:i'));
+        $this->assertStringContainsString('13 Oct 2026 06:20', app(RentalAuthorisationService::class)->sentenceFor($row->fresh()->load('byUser')));
     }
 }

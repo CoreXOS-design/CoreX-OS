@@ -128,13 +128,14 @@ class ContractorSecureLinkTest extends TestCase
         $agency = $this->makeAgency();
         $agent = User::factory()->create(['agency_id' => $agency->id, 'role' => 'admin']);
         $workOrder = $this->makeWorkOrder($agency, $agent);
+        $workOrder->forceFill(['contractor_response' => 'accepted'])->save();   // they accepted the job first (cc4's walk fix)
 
         $issued = app(RentalSecureAccessTokenService::class)->issueFor($workOrder, $agent);
 
         $this->post('/secure/work-orders/' . $issued['raw_token'] . '/mark-done')
             ->assertRedirect();
 
-        $this->get('/secure/work-orders/' . $issued['raw_token'])->assertSee('no longer available');
+        $this->get('/secure/work-orders/' . $issued['raw_token'])->assertSee('This job is finished');   // cc4's walk fix: a finished job's link says so
     }
 
     public function test_contractor_submitted_quote_is_tagged_in_history_with_no_user_actor(): void

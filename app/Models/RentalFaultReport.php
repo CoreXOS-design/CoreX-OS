@@ -836,7 +836,7 @@ class RentalFaultReport extends Model
             'by' => $by,
             'how' => $viaLink
                 ? 'Decided by the owner on the portal link'
-                : 'Captured by the agent (' . str_replace('_', ' ', $d->evidence_type) . ')',
+                : 'Captured by the agent (' . RentalApproval::evidenceLabel($d->evidence_type) . ')',
             'via_link' => $viaLink,
             'at' => $d->decided_at ?? $d->created_at,
             'reason' => $d->decision === RentalApproval::DECISION_DECLINED ? $d->evidence_text : null,
