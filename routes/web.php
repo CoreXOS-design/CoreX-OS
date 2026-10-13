@@ -6135,6 +6135,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/outcomes', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'recordOutcome'])->name('outcomes.record');
             Route::post('/add-to-day', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'addToDay'])->name('add-to-day');
             Route::get('/drilldown', [\App\Http\Controllers\RoadToSold\ReportController::class, 'drilldown'])->name('drilldown');
+            Route::get('/report', [\App\Http\Controllers\RoadToSold\ReportController::class, 'index'])->name('report');
+            Route::get('/report/print', [\App\Http\Controllers\RoadToSold\ReportController::class, 'print'])->name('report.print');
+            Route::get('/report/pdf', [\App\Http\Controllers\RoadToSold\ReportController::class, 'pdf'])->name('report.pdf');
+            Route::get('/report/xlsx', [\App\Http\Controllers\RoadToSold\ReportController::class, 'xlsx'])->name('report.xlsx');
 
             Route::prefix('settings/outcomes')
                 ->middleware('permission:road_to_sold.manage_settings')
