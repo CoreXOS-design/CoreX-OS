@@ -321,12 +321,11 @@ class MarketIntelligenceController extends Controller
 
         // Address presence toggle (pull-all). Default (absent / 'all') shows every
         // row, addressed or not. 'with_address' restricts to rows carrying a real
-        // street address. Legacy rows may still hold the old "Address not available"
-        // placeholder — treat that as no address so the filter is honest.
+        // street address. The rule lives in ONE place — ProspectingListing::scopeWithAddress()
+        // (real captured text, OR a street name on the tracked property, which is where an
+        // address corrected via TrackedPropertyController::editAddress lands).
         if ($request->input('address_filter') === 'with_address') {
-            $query->whereNotNull('address')
-                  ->where('address', '<>', '')
-                  ->where('address', '<>', 'Address not available');
+            $query->withAddress();
         }
 
         // Source ticks (P24 / PP) — Work tab. Canonical column, directly on

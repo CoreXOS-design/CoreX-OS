@@ -132,6 +132,81 @@ class ProspectingListing extends Model
         return $query->whereIn('portal_status', self::OFF_MARKET_STATUSES);
     }
 
+    /** The legacy text old captures stored when the tile showed no street address. */
+    public const ADDRESS_PLACEHOLDER = 'Address not available';
+
+    /**
+     * THE one "has an address" rule for MIC listings (Road to Sold, piece 1).
+     *
+     * A listing has an address when EITHER
+     *   (a) its own captured `address` text is real (not null, '' or the legacy placeholder), OR
+     *   (b) the tracked property it sits on has a street name.
+     *
+     * (b) is what makes an address an agent corrected through
+     * TrackedPropertyController::editAddress count: that edit writes the tracked property's
+     * address history and the observer refreshes tracked_properties.street_name, but it never
+     * touched prospecting_listings.address — so the Work tab filter (which only read the listing
+     * text) kept calling a corrected listing "no address". It also lets a cross-portal twin
+     * (P24 + PP advert of one property) share the address one of them carries.
+     *
+     * tracked_properties.street_name is the cache column, not tracked_property_addresses: that
+     * history table holds a primary row for only a handful of properties, the cache is filled for
+     * all of them. Every place that asks "has an address" must call this — never re-spell the
+     * three-way text test.
+     *
+     * @param  string  $table  the listing table name/alias in the surrounding query
+     */
+    public function scopeWithAddress($query, string $table = 'prospecting_listings')
+    {
+        return $query->where(function ($q) use ($table) {
+            $q->where(function ($t) use ($table) {
+                $t->whereNotNull("{$table}.address")
+                  ->where("{$table}.address", '<>', '')
+                  ->where("{$table}.address", '<>', self::ADDRESS_PLACEHOLDER);
+            })->orWhereExists(static::trackedStreetExists($table));
+        });
+    }
+
+    /** Exact inverse of scopeWithAddress(). */
+    public function scopeWithoutAddress($query, string $table = 'prospecting_listings')
+    {
+        return $query->where(function ($t) use ($table) {
+            $t->whereNull("{$table}.address")
+              ->orWhere("{$table}.address", '')
+              ->orWhere("{$table}.address", self::ADDRESS_PLACEHOLDER);
+        })->whereNotExists(static::trackedStreetExists($table));
+    }
+
+    /** Instance form of the same rule, for code that already holds a listing. */
+    public function hasAddress(): bool
+    {
+        $text = trim((string) $this->address);
+        if ($text !== '' && $text !== self::ADDRESS_PLACEHOLDER) {
+            return true;
+        }
+        if (! $this->tracked_property_id) {
+            return false;
+        }
+
+        return \Illuminate\Support\Facades\DB::table('tracked_properties')
+            ->where('id', $this->tracked_property_id)
+            ->whereNull('deleted_at')
+            ->whereNotNull('street_name')->where('street_name', '<>', '')
+            ->exists();
+    }
+
+    private static function trackedStreetExists(string $table): \Closure
+    {
+        return function ($s) use ($table) {
+            $s->select(\Illuminate\Support\Facades\DB::raw(1))
+                ->from('tracked_properties as tp_addr')
+                ->whereColumn('tp_addr.id', "{$table}.tracked_property_id")
+                ->whereNull('tp_addr.deleted_at')
+                ->whereNotNull('tp_addr.street_name')
+                ->where('tp_addr.street_name', '<>', '');
+        };
+    }
+
     /**
      * AT-380 — role-driven visibility scope for the Market Intelligence
      * canvassing pool. Honours the per-role Data Scope set in Role Manager
