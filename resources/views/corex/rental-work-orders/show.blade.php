@@ -171,7 +171,9 @@
             @endif
             @if($workOrder->completed_at)
                 <div><span style="color: var(--text-muted);">Completed:</span> {{ $workOrder->completed_at->format('Y-m-d') }}</div>
-                <div><span style="color: var(--text-muted);">Paid by:</span> {{ ucfirst(str_replace('_', ' ', $workOrder->paid_by)) }}</div>
+                @unless($workOrder->reported_fault_report_id)
+                    <div><span style="color: var(--text-muted);">Paid by:</span> {{ ucfirst(str_replace('_', ' ', $workOrder->paid_by)) }}</div>
+                @endunless
                 @if($workOrder->cost_amount)
                     <div><span style="color: var(--text-muted);">Cost:</span> R{{ number_format((float) $workOrder->cost_amount, 2) }}</div>
                 @endif
@@ -643,6 +645,10 @@
         @permission('rental_work_orders.complete')
         <form id="complete-work-order-form" method="POST" action="{{ route('corex.rental-work-orders.complete', $workOrder) }}" enctype="multipart/form-data" class="hidden space-y-3 pt-2">
             @csrf
+            @if($workOrder->reported_fault_report_id)
+                {{-- section 22.13: a job from a fault has ONE place for who pays - the "Who pays" block. The old settle-the-bill field is not asked again; it follows the ruling (owner / tenant), else stays "not yet paid". --}}
+                <input type="hidden" name="paid_by" value="{{ in_array($workOrder->who_pays, ['owner', 'tenant'], true) ? $workOrder->who_pays : 'not_yet_paid' }}">
+            @else
             <div>
                 <label class="text-xs font-medium">Paid by</label>
                 <select name="paid_by" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
@@ -652,6 +658,7 @@
                     <option value="not_yet_paid">Not yet paid</option>
                 </select>
             </div>
+            @endif
             <div>
                 <label class="text-xs font-medium">Cost (R, optional)</label>
                 {{-- Inline one-line form on purpose: a block-style php tag here would pair with the earlier one-line tag and swallow the page between. --}}
