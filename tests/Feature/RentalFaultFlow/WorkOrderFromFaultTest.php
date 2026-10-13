@@ -568,8 +568,7 @@ final class WorkOrderFromFaultTest extends TestCase
 
         $this->assertSame('Quote Giver Plumbing', $wo->fresh()->contractorLabel());
         $html = $this->actingAs($this->agent)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
-        $this->assertMatchesRegularExpression('/Supplier:<\/span>\s*Quote Giver Plumbing/', $html, 'no supplier is appointed yet, so the chosen quote\'s supplier names the contractor');
-        $this->assertStringNotContainsString('Supplier:</span> —', $html);
+        $this->assertMatchesRegularExpression('/Contractor<\/dt>\s*<dd>\s*Quote Giver Plumbing \(from the selected quote\)/', $html, 'no supplier is appointed yet, so the chosen quote\'s supplier names the contractor');
     }
 
     public function test_the_work_order_screen_shows_only_the_actions_that_fit_its_stage(): void
@@ -583,8 +582,8 @@ final class WorkOrderFromFaultTest extends TestCase
         // just created: capture the quote; nothing for later stages
         $html = $get();
         $this->assertStringContainsString('data-next-step', $html);
-        $this->assertStringContainsString('then approve its cost under', $html);
-        $this->assertStringContainsString("Capture Ramsgate Plumbing's quote", $html);
+        $this->assertStringContainsString('The job has not been sent to Ramsgate Plumbing yet.', $html, 'the Next bar says what is waiting');
+        $this->assertStringContainsString('Send the job to Ramsgate Plumbing', $html);
         $this->assertStringNotContainsString('data-complete-work-order', $html, 'no Complete before it is sent');
         $this->assertStringContainsString('data-complete-later', $html);
         $this->assertStringNotContainsString('data-invoices-panel', $html, 'no supplier invoices before it is sent');
@@ -597,7 +596,7 @@ final class WorkOrderFromFaultTest extends TestCase
         $wo->fresh()->selectQuote($quote, $this->agent);
         $html = $get();
         $this->assertStringContainsString('data-quote-sent-to-owner', $html);
-        $this->assertStringContainsString('for approval.', $html);
+        $this->assertStringContainsString('The owner must approve it', $html);
         $this->assertStringContainsString("Record the owner's decision", $html);
         $this->assertStringContainsString('data-fee-collapse', $html);
 

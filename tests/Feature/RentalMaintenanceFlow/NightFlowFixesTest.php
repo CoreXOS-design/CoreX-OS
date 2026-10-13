@@ -303,7 +303,7 @@ final class NightFlowFixesTest extends TestCase
         $this->assertStringContainsString('data-quote-declined', $html);
         $this->assertStringContainsString('data-quote-declined-badge', $html);
         $this->assertStringContainsString('Far too expensive', $html);
-        $this->assertStringContainsString('capture another quote', $html);
+        $this->assertStringContainsString('Capture another quote', $html);
         $this->assertStringContainsString('cancel the work order', $html);
         $this->assertStringContainsString('closes the fault as', $html);
 
@@ -338,7 +338,7 @@ final class NightFlowFixesTest extends TestCase
         // even before the repair the page already shows the declined state and the way forward
         $html = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
         $this->assertStringContainsString('data-quote-declined', $html);
-        $this->assertStringContainsString('capture another quote', $html);
+        $this->assertStringContainsString('Capture another quote', $html);
         $this->assertStringNotContainsString('>Selected<', $html);
 
         (require database_path('migrations/2026_10_09_120000_backfill_declined_quotes_on_rental_work_orders.php'))->up();

@@ -102,7 +102,6 @@
                     </details>
                     @endpermission
                 </div>
-                <p class="text-xs" style="color: var(--text-muted);">The rest of the job carries on as approved; the crew sees this extra marked "awaiting owner — do not start".</p>
             @endif
         </div>
     @endforeach

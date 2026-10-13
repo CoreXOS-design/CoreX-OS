@@ -297,6 +297,26 @@ final class OwnerContractorWalkFixesTest extends TestCase
             ->assertSee('Upload a quote')->assertSee('Mark job done')->assertSee('What did you find?')->assertSee('Upload after photos');
     }
 
+    public function test_once_a_quote_is_chosen_the_contractor_is_told_where_it_stands_instead_of_being_offered_the_form_again(): void
+    {
+        [$wo, $token, $show] = $this->contractorPage();
+        $quote = $wo->recordQuote(['agency_service_provider_id' => $wo->agency_service_provider_id, 'amount' => 6800, 'quote_date' => now()->toDateString(), 'detail_text' => 'Replace the element'], $this->agent);
+        $wo->forceFill(['owner_approval_status' => RentalWorkOrder::APPROVAL_PENDING])->save();
+        $quote->forceFill(['is_selected' => true])->save();
+
+        $this->get($show)->assertOk()
+            ->assertSee('Your quote of R6,800.00 is with the owner. The agency will tell you when you can go ahead.')
+            ->assertDontSee('Upload a quote')->assertDontSee('Submit quote');
+
+        $wo->forceFill(['owner_approval_status' => RentalWorkOrder::APPROVAL_APPROVED])->save();
+        $this->get($show)->assertOk()->assertSee('Your quote of R6,800.00 has been approved.')->assertDontSee('Submit quote');
+
+        // the owner declined it: the quote is no longer the chosen one, so a new quote can be sent
+        $quote->forceFill(['declined_at' => now(), 'is_selected' => false])->save();
+        $wo->forceFill(['owner_approval_status' => RentalWorkOrder::APPROVAL_DECLINED])->save();
+        $this->get($show)->assertOk()->assertSee('Upload a quote')->assertDontSee('Your quote of R6,800.00');
+    }
+
     public function test_after_declining_there_is_nothing_more_to_do_on_the_page(): void
     {
         [$wo, $token, $show] = $this->contractorPage();

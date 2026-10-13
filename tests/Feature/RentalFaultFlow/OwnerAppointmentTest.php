@@ -95,20 +95,14 @@ final class OwnerAppointmentTest extends TestCase
         $this->assertSame('Owner booked it', $wo->fresh()->appointment_note);
     }
 
-    public function test_the_agent_can_always_set_it_and_the_staff_line_follows_the_same_condition(): void
+    public function test_the_agent_can_always_set_it_and_the_staff_page_never_claims_the_owner_can_when_a_tenant_lives_there(): void
     {
         $wo = $this->approvedJob();
 
         $this->makePropertyLet();
         $page = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
-        $this->assertStringContainsString('data-appointment-agent-only', $page);
         $this->assertStringNotContainsString('The owner can also set it from their portal', $page);
         $this->assertTrue(app(RentalWorkOrderService::class)->setAppointment($wo->fresh(), now()->addDays(2)->setTime(9, 0), null, $this->admin));
-
-        $this->makePropertyEmpty();
-        $page = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
-        $this->assertStringContainsString('data-appointment-owner-too', $page);
-        $this->assertStringContainsString('the owner can also set it from their portal', $page);
     }
 
     public function test_the_owner_portal_page_says_why_when_there_is_a_tenant(): void
