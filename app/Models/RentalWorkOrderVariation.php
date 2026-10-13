@@ -26,6 +26,8 @@ class RentalWorkOrderVariation extends Model
     public const ORIGIN_CREW_LINES = 'crew_lines';
     public const ORIGIN_OFFICE_EDIT = 'office_edit';
     public const ORIGIN_EXTERNAL_QUOTE = 'external_quote';
+    /** Section 22.6: the final cost / invoice came in above what was authorised - the difference goes to the owner. */
+    public const ORIGIN_FINAL_INVOICE = 'final_invoice';
 
     public const VIA_PORTAL = 'portal';
     public const VIA_AGENT_CAPTURE = 'agent_capture';

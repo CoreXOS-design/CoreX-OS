@@ -91,6 +91,7 @@
         'buttonsDisabled' => 'busy',
         'inspectExtraDisabled' => '!picked || ' . (($inspectBlock || ! $d1CanInspect) ? 'true' : 'false'),
         'authoriseExtraDisabled' => (! $d1CanSend || $inspectBlock) ? 'true' : 'false',
+        'thirdButtonView' => 'corex.rental-fault-reports._record-owner-decision',
         'inspectAttrs' => '@click="submitLook(\'inspect\')"',
         'authoriseAttrs' => '@click="submitLook(\'owner\')"',
     ])
@@ -100,7 +101,4 @@
         <p class="text-xs" style="color: var(--text-muted);" data-already-with-owner>Already with the owner &mdash; they have not answered yet. You can still send someone whose visit costs the owner nothing, or record what the owner told you.</p>
     @endif
 
-    <div class="cx-action-row" data-d1-record-row>
-        @include('corex.rental-fault-reports._record-owner-decision')
-    </div>
 </div>

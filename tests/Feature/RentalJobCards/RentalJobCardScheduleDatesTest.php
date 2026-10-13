@@ -65,8 +65,12 @@ final class RentalJobCardScheduleDatesTest extends TestCase
     {
         $card = $this->service->createForProperty($this->property, ['title' => $title], $this->admin);
         // BUILD 2 (§17.6.5) — a job is only scheduled once something authorises it. These tests are about the DATES, so the card carries one
-        // small priced line, comfortably inside this agency's no-approval limit (R100,000), which is all the gate needs.
+        // small priced line, comfortably inside the owner's repair limit (R100,000), and the agent has authorised that cost (section 22.6: a limit alone approves nothing).
         $this->service->addLine($card, ['type' => 'part', 'description' => 'Washer', 'quantity' => 1, 'unit_price' => 100], $this->admin);
+        \App\Models\RentalPropertyFaultSetting::withoutGlobalScopes()->updateOrCreate(['property_id' => $this->property->id], [
+            'agency_id' => $this->agency->id, 'status' => 'confirmed_by_owner', 'repair_limit' => 100000, 'emergency_limit' => null, 'callout_mode' => 'no', 'version' => 1,
+        ]);
+        app(\App\Services\Rentals\RentalAuthorisationService::class)->authoriseCost($card->fresh()->workOrder, $this->admin, []);
 
         return $card->fresh();
     }

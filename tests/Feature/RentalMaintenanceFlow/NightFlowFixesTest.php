@@ -112,14 +112,16 @@ final class NightFlowFixesTest extends TestCase
         $this->getJson(self::L . '/decisions')->assertOk()->assertJsonPath('work_orders.0.id', $wo->id)->assertJsonPath('work_orders.0.selected_quote_amount', 4120);
     }
 
-    public function test_a_quote_within_the_limit_is_approved_on_capture_and_a_second_quote_does_not_steal_the_selection(): void
+    public function test_a_quote_within_the_limit_is_selected_on_capture_but_not_approved_and_a_second_quote_does_not_steal_the_selection(): void
     {
-        $this->property->forceFill(['rental_no_approval_spend_threshold' => 500])->save();
+        $this->ownerLimits(500.0);
         $wo = $this->externalWorkOrder();
 
         $this->postQuote($wo, 300)->assertSessionHasNoErrors();
-        $this->assertSame(RentalWorkOrder::APPROVAL_NOT_REQUIRED, $wo->fresh()->owner_approval_status);
-        $this->assertNotNull($wo->fresh()->approved_amount, 'approved on the spot (basis: the no-approval limit)');
+        $this->assertSame(RentalWorkOrder::APPROVAL_NOT_REQUIRED, $wo->fresh()->owner_approval_status, 'inside the owner\'s repair limit: the owner is not asked');
+        $this->assertNull($wo->fresh()->approved_amount, 'section 22.6: and nothing is approved until the agent authorises it');
+        $this->authoriseCostOf($wo->fresh());
+        $this->assertNotNull($wo->fresh()->approved_amount);
         $first = $wo->quotes()->first();
         $this->assertTrue((bool) $first->is_selected);
 
@@ -388,7 +390,7 @@ final class NightFlowFixesTest extends TestCase
 
         // the office form labels it and the dialog validates it first
         $html = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
-        $this->assertStringContainsString('Reason for declining (required)', $html);
+        $this->assertStringContainsString('Why did the owner decline? What did they say?', $html, 'the "Record the owner\'s decision" popup asks for the reason');
         $this->assertStringContainsString('x-on:click="ask()"', $html);
 
         // the agent records a decline with no reason -> refused, still pending
@@ -443,12 +445,14 @@ final class NightFlowFixesTest extends TestCase
         $this->assertNotNull($wo->fresh()->appointment_at);
     }
 
-    public function test_an_appointment_within_the_limit_is_allowed_straight_after_the_auto_approval(): void
+    public function test_an_appointment_within_the_limit_is_allowed_once_the_agent_has_authorised_the_cost(): void
     {
-        $this->property->forceFill(['rental_no_approval_spend_threshold' => 500])->save();
+        $this->ownerLimits(500.0);
         $wo = $this->externalWorkOrder();
         $at = now()->addDays(2)->setTime(9, 0)->format('Y-m-d\TH:i');
         $this->postQuote($wo, 300);
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.appointment.store', $wo), ['appointment_at' => $at])->assertSessionHasErrors();   // inside the limit is not approved yet
+        $this->authoriseCostOf($wo->fresh());
 
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.appointment.store', $wo), ['appointment_at' => $at])->assertSessionHasNoErrors();
         $this->assertNotNull($wo->fresh()->appointment_at);
@@ -475,7 +479,9 @@ final class NightFlowFixesTest extends TestCase
         $this->assertSame('Appointment set', $wo->fresh()->stageLabel('agent'), 'the office still sees what is stored');
 
         // approved -> both see it
-        $this->postQuote($wo, 300);   // 8 Oct threshold R500 default: auto-approved
+        $this->ownerLimits(500.0);
+        $this->postQuote($wo, 300);   // inside the owner's R500 repair limit ...
+        $this->authoriseCostOf($wo->fresh());   // ... and the agent has authorised it (section 22.6)
         $tenant = $svc->payload($wo->fresh(), RentalWorkOrderClientViewService::AUDIENCE_TENANT);
         $this->assertSame($wo->fresh()->contractorLabel(), $tenant['contractor_name'], 'the contractor is the chosen quote\'s supplier (Q3)');
         $this->assertNotNull($tenant['contractor_name']);

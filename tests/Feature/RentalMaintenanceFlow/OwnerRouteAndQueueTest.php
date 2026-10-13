@@ -152,7 +152,7 @@ final class OwnerRouteAndQueueTest extends TestCase
 
     public function test_c1_work_waiting_on_the_agent_has_a_row_that_opens_the_place_to_act_and_waiting_on_others_is_information(): void
     {
-        $this->property->forceFill(['rental_no_approval_spend_threshold' => 500])->save();
+        $this->ownerLimits(500.0);
         $quote = fn (RentalWorkOrder $wo, float $amount) => $wo->recordQuote(['agency_service_provider_id' => $this->supplier('S' . uniqid())->id, 'amount' => $amount, 'quote_date' => now(), 'detail_text' => 'x'], $this->admin);
 
         $none = $this->externalWorkOrder(['title' => 'WO-none']);
@@ -165,6 +165,9 @@ final class OwnerRouteAndQueueTest extends TestCase
         $withOwner->selectQuote($quote($withOwner, 900), $this->admin);
         $send = $this->externalWorkOrder(['title' => 'WO-send']);
         $send->selectQuote($quote($send, 300), $this->admin);
+        $this->authoriseCostOf($send->fresh());   // section 22.6: inside the limit, authorised by the agent -> ready to send
+        $authorise = $this->externalWorkOrder(['title' => 'WO-authorise']);
+        $authorise->selectQuote($quote($authorise, 300), $this->admin);   // inside the limit, NOT yet authorised
         $noAppt = $this->externalWorkOrder(['title' => 'WO-noappt', 'status' => RentalWorkOrder::STATUS_ORDERED, 'ordered_at' => now()->subDays(2), 'owner_approval_status' => RentalWorkOrder::APPROVAL_APPROVED]);
         $withAppt = $this->externalWorkOrder(['title' => 'WO-appt', 'status' => RentalWorkOrder::STATUS_ORDERED, 'ordered_at' => now(), 'appointment_at' => now()->addDays(2), 'owner_approval_status' => RentalWorkOrder::APPROVAL_APPROVED]);
         $tenantCheck = $this->externalWorkOrder(['title' => 'WO-tenantcheck', 'status' => RentalWorkOrder::STATUS_IN_PROGRESS, 'appointment_at' => now()->subDay(), 'owner_approval_status' => RentalWorkOrder::APPROVAL_APPROVED]);
@@ -185,6 +188,7 @@ final class OwnerRouteAndQueueTest extends TestCase
             'WO-declined' => ['wo_quote_declined', false, 'corex.rental-work-orders.show'],
             'WO-withowner' => ['wo_with_owner', true, 'corex.rental-work-orders.show'],
             'WO-send' => ['wo_send', false, 'corex.rental-work-orders.show'],
+            'WO-authorise' => ['wo_authorise_cost', false, 'corex.rental-work-orders.show'],
             'WO-noappt' => ['wo_set_appointment', false, 'corex.rental-work-orders.show'],
             'WO-tenantcheck' => ['wo_complete', false, 'corex.rental-work-orders.show'],   // T1: reported finished = the AGENT's to check and close, whatever the tenant has said
             'WO-answered' => ['wo_complete', false, 'corex.rental-work-orders.show'],

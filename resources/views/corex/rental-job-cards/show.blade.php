@@ -513,11 +513,13 @@
                                 @endif
                             </div>
                         @endif
-                        <div class="text-xs text-right" style="color: {{ $compareTotal <= $noApprovalThreshold ? 'var(--ds-green)' : 'var(--ds-crimson)' }};">
-                            @if($compareTotal <= $noApprovalThreshold)
-                                Within the landlord's R{{ number_format($noApprovalThreshold, 2) }} no-approval limit (incl VAT)
+                        <div class="text-xs text-right" style="color: {{ $noApprovalThreshold !== null && $compareTotal <= $noApprovalThreshold ? 'var(--ds-green)' : 'var(--ds-crimson)' }};">
+                            @if($noApprovalThreshold === null)
+                                The owner has not set a repair limit &mdash; the owner must approve this (incl VAT)
+                            @elseif($compareTotal <= $noApprovalThreshold)
+                                Inside the owner's repair limit of R{{ number_format($noApprovalThreshold, 2) }} (incl VAT) &mdash; you can authorise it
                             @else
-                                Over the landlord's R{{ number_format($noApprovalThreshold, 2) }} no-approval limit (incl VAT) — owner approval required
+                                Above the owner's repair limit of R{{ number_format($noApprovalThreshold, 2) }} (incl VAT) &mdash; the owner must approve it
                             @endif
                         </div>
                     </div>

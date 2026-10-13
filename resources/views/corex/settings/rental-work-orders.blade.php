@@ -38,18 +38,18 @@
 
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
-                <h3 class="text-sm font-bold" style="color:var(--text-primary);">No-approval spend limit</h3>
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Suggested repair limit</h3>
             </div>
             <div class="p-5 space-y-5">
                 <div>
-                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">No-approval spend limit (R)</label>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Suggested repair limit (R)</label>
                     <input type="number" name="no_approval_spend_threshold" value="{{ old('no_approval_spend_threshold', $noApprovalSpendThreshold) }}"
                            min="0" step="0.01" required
                            class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
                     <p class="text-xs mt-2" style="color: var(--text-muted);">
-                        Default is R{{ number_format($defaultNoApprovalSpendThreshold, 2) }}. Below this, an agent
-                        doesn't need the owner's written approval before proceeding. A specific tenancy's
-                        own threshold can be set higher or lower on the lease itself.
+                        Default is R{{ number_format($defaultNoApprovalSpendThreshold, 2) }}. This is only a SUGGESTION shown when you fill in an owner's
+                        settings. It never lets an agent authorise anything by itself: what an agent may authorise is the OWNER's own repair limit on
+                        the property (confirmed by the owner, or recorded by the agent with proof). No limit set means the owner is asked every time.
                     </p>
                 </div>
                 <div>

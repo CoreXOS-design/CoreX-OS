@@ -17,15 +17,17 @@ final class QuoteBoxApprovalWordingTest extends TestCase
     use BuildsApprovalFixtures;
     use RefreshDatabase;
 
-    public function test_a_job_inside_the_no_approval_limit_is_not_called_approved_by_the_owner(): void
+    public function test_a_job_the_agent_authorised_under_the_owners_limit_is_not_called_approved_by_the_owner(): void
     {
         $this->approvalWorld('Wording');
-        [$card] = $this->internalJob(100.0);   // inside the agency's default R500 limit
+        $this->ownerLimits(500.0);
+        [$card, $wo] = $this->internalJob(100.0);   // inside the owner's R500 repair limit
         $this->sendQuote($card);
+        $this->authoriseCostOf($wo->fresh());
 
         $text = $this->visibleText($this->actingAs($this->admin)->get(route('corex.rental-job-cards.show', $card))->assertOk()->getContent());
 
-        $this->assertStringContainsString("Within the owner's no-approval limit — no quote to the owner is needed.", $text);
+        $this->assertStringContainsString("Authorised by the agent under the owner's repair limit — no quote to the owner is needed.", $text);
         $this->assertStringNotContainsString('The owner has approved this job', $text);
     }
 

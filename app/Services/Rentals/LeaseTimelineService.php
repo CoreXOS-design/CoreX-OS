@@ -440,7 +440,7 @@ class LeaseTimelineService
                 $variation->rental_work_order_id,
             );
             $decidedWords = match ($variation->status) {
-                \App\Models\RentalWorkOrderVariation::STATUS_AUTO_APPROVED => 'Variation auto-approved — within the owner\'s agreed limit',
+                \App\Models\RentalWorkOrderVariation::STATUS_AUTO_APPROVED => 'Extra work passed — within the owner\'s agreed tolerance',
                 \App\Models\RentalWorkOrderVariation::STATUS_APPROVED => 'Variation approved by the owner',
                 \App\Models\RentalWorkOrderVariation::STATUS_DECLINED => 'Variation declined by the owner',
                 \App\Models\RentalWorkOrderVariation::STATUS_WITHDRAWN => 'Variation withdrawn',

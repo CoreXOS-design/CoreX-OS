@@ -147,7 +147,7 @@ final class WorkTermsTest extends TestCase
         ]);
 
         $this->actingAs($this->admin)->get(route('corex.leases.show', $lease))->assertOk()
-            ->assertSee('No-approval spend limit')->assertSee('1,750.00')->assertSee('Extra work approved automatically up to')->assertSee('12 % above the approved amount');
+            ->assertSee("Owner's repair limit", false)->assertSee('1,750.00')->assertSee('Extra work passed without asking, up to')->assertSee('12 % above the approved amount');
     }
 
     // ── ONE place for the repair limit: every reader follows the owner's own settings ──

@@ -50,8 +50,9 @@ trait BuildsCrewLinkFixtures
             'agency_id' => $this->agency->id, 'agent_id' => $this->admin->id, 'branch_id' => $this->branch->id,
             'title' => '12 Crew Street', 'status' => 'active', 'listing_type' => 'rental',
             // §17.6.5 (Build 2) — work is only scheduled / started / completed by the crew once something authorises it. These fixtures are
-            // jobs already under way, so the owner's no-approval limit is set high enough that every fixture job is inside it. Tests about
-            // the approval rules themselves reset it (see BuildsApprovalFixtures::approvalWorld()).
+            // jobs already under way: makeJobCard() marks their work order as cleared before approvals were recorded (the same state the migration gave
+            // in-flight jobs), because since section 22.6 NOTHING is approved by a limit alone. Tests about the approval rules themselves reset the
+            // threshold to null (see BuildsApprovalFixtures::approvalWorld()) and authorise the cost the way an agent does.
             'rental_no_approval_spend_threshold' => 1000000,
         ]);
         $this->crew = RentalCrew::create([
@@ -82,6 +83,11 @@ trait BuildsCrewLinkFixtures
             'status' => RentalJobCard::STATUS_SCHEDULED,
             'scheduled_at' => now()->addDay(),
         ], $overrides))->save();
+
+        // a job already under way (see buildCrewLinkWorld): cleared the way pre-records work is, unless the test is about the approval rules
+        if ($card->status !== RentalJobCard::STATUS_DRAFT && $this->property->fresh()->rental_no_approval_spend_threshold !== null && ($wo = $card->workOrder()->first())) {
+            $wo->forceFill(['approval_basis' => \App\Models\RentalWorkOrder::BASIS_LEGACY_GRANDFATHERED])->save();
+        }
 
         return $card->fresh();
     }

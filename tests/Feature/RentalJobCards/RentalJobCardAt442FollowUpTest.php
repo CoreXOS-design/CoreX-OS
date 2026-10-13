@@ -350,9 +350,13 @@ final class RentalJobCardAt442FollowUpTest extends TestCase
 
     // ── #6 — no-approval limit shown next to the total ───────────────────
 
-    public function test_show_screen_is_handed_the_propertys_no_approval_threshold(): void
+    public function test_show_screen_is_handed_the_owners_repair_limit(): void
     {
-        RentalWorkOrderSetting::create(['agency_id' => $this->agency->id, 'no_approval_spend_threshold' => 2000, 'capture_prices_on_job_cards' => true]);
+        // section 22.6: the limit shown is the OWNER's (their own settings), never the agency default
+        \App\Models\RentalPropertyFaultSetting::withoutGlobalScopes()->updateOrCreate(['property_id' => $this->property->id], [
+            'agency_id' => $this->agency->id, 'status' => 'confirmed_by_owner', 'repair_limit' => 2000, 'emergency_limit' => null, 'callout_mode' => 'no', 'version' => 1,
+        ]);
+        RentalWorkOrderSetting::create(['agency_id' => $this->agency->id, 'no_approval_spend_threshold' => 100, 'capture_prices_on_job_cards' => true]);
         $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);
         app(RentalJobCardService::class)->addLine($jobCard, ['description' => 'Small fix', 'quantity' => 1, 'unit_price' => 350], $this->admin);
 
@@ -360,11 +364,14 @@ final class RentalJobCardAt442FollowUpTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('2,000.00', false);
-        $response->assertSee('Within', false);
+        $response->assertSee("Inside the owner's repair limit", false);
     }
 
     public function test_show_screen_flags_a_total_over_the_threshold(): void
     {
+        \App\Models\RentalPropertyFaultSetting::withoutGlobalScopes()->updateOrCreate(['property_id' => $this->property->id], [
+            'agency_id' => $this->agency->id, 'status' => 'confirmed_by_owner', 'repair_limit' => 100, 'emergency_limit' => null, 'callout_mode' => 'no', 'version' => 1,
+        ]);
         RentalWorkOrderSetting::create(['agency_id' => $this->agency->id, 'no_approval_spend_threshold' => 100, 'capture_prices_on_job_cards' => true]);
         $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);
         app(RentalJobCardService::class)->addLine($jobCard, ['description' => 'Big fix', 'quantity' => 1, 'unit_price' => 350], $this->admin);
@@ -372,7 +379,7 @@ final class RentalJobCardAt442FollowUpTest extends TestCase
         $response = $this->actingAs($this->admin)->get(route('corex.rental-job-cards.show', $jobCard));
 
         $response->assertOk();
-        $response->assertSee('Over', false);
+        $response->assertSee("Above the owner's repair limit", false);
     }
 
     // ── #8 — an owner quote must never be addressed to a tenant ──────────

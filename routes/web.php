@@ -4444,8 +4444,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
     Route::prefix('rental-work-orders')->middleware('permission:rental_work_orders.view')->group(function () {
         // §17.8 — emergency work: the office captures the owner's agreement (no cost attached); void with a reason; attachment download.
-        Route::post('/{rentalWorkOrder}/emergency-approval', [\App\Http\Controllers\CoreX\RentalEmergencyApprovalController::class, 'store'])
-            ->middleware('permission:rental_work_orders.record_emergency_approval')->name('corex.rental-work-orders.emergency-approval.store');
+        // section 22.6 (stage 2): the cost is authorised here (the agent under the owner's repair / emergency limit, or by recording the owner's decision).
+        Route::post('/{rentalWorkOrder}/cost/authorise', [\App\Http\Controllers\CoreX\RentalWorkOrderCostController::class, 'authorise'])
+            ->middleware('permission:rental_work_orders.record_approval')->name('corex.rental-work-orders.cost.authorise');
+        Route::post('/{rentalWorkOrder}/cost/owner-decision', [\App\Http\Controllers\CoreX\RentalWorkOrderCostController::class, 'recordOwnerDecision'])
+            ->middleware('permission:rental_work_orders.record_approval')->name('corex.rental-work-orders.cost.owner-decision');
         Route::post('/{rentalWorkOrder}/emergency-approval/{approval}/void', [\App\Http\Controllers\CoreX\RentalEmergencyApprovalController::class, 'void'])
             ->middleware('permission:rental_work_orders.record_emergency_approval')->name('corex.rental-work-orders.emergency-approval.void');
         Route::get('/{rentalWorkOrder}/emergency-approval/{approval}/attachment', [\App\Http\Controllers\CoreX\RentalEmergencyApprovalController::class, 'attachment'])

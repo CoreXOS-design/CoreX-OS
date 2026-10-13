@@ -47,6 +47,9 @@ class RentalWorkOrder extends Model
     public const BASIS_OWNER_DECISION = 'owner_decision';
     public const BASIS_VARIATION_TOLERANCE = 'variation_tolerance';
     public const BASIS_EMERGENCY = 'emergency_owner_agreed';
+    /** Section 22.6 (stage 2): the agent authorised the cost under the owner's repair limit / emergency limit (the authorisation record carries the rest). */
+    public const BASIS_AGENT_REPAIR_LIMIT = 'agent_repair_limit';
+    public const BASIS_AGENT_EMERGENCY_LIMIT = 'agent_emergency_limit';
     /** Work already under way when §17 was deployed — never blocked by the new guard (§17.6.5). */
     public const BASIS_LEGACY_GRANDFATHERED = 'legacy_grandfathered';
 
@@ -444,9 +447,11 @@ class RentalWorkOrder extends Model
 
         $words = match ($decision?->basis ?? $this->approval_basis) {
             self::BASIS_OWNER_DECISION => 'the owner approved the quote',
-            self::BASIS_NO_APPROVAL_LIMIT => "within the owner's no-approval limit",
+            self::BASIS_NO_APPROVAL_LIMIT => "approved under the owner's old no-approval limit, before costs were authorised one by one",
             self::BASIS_VARIATION_TOLERANCE => "within the owner's agreed tolerance",
             self::BASIS_EMERGENCY => 'emergency work agreed by the owner',
+            self::BASIS_AGENT_REPAIR_LIMIT => "the agent authorised it under the owner's repair limit",
+            self::BASIS_AGENT_EMERGENCY_LIMIT => "the agent authorised it as an emergency under the owner's emergency limit",
             default => 'the owner\'s approval is on file',
         };
 
@@ -457,10 +462,12 @@ class RentalWorkOrder extends Model
     public function approvalBasisLabel(): ?string
     {
         return match ($this->approval_basis) {
-            self::BASIS_NO_APPROVAL_LIMIT => "Within the owner's no-approval limit",
+            self::BASIS_NO_APPROVAL_LIMIT => "Approved under the old no-approval limit (before costs were authorised one by one)",
             self::BASIS_OWNER_DECISION => 'Approved by the owner',
             self::BASIS_VARIATION_TOLERANCE => "Within the owner's agreed tolerance",
             self::BASIS_EMERGENCY => 'Approved as emergency work',
+            self::BASIS_AGENT_REPAIR_LIMIT => "Authorised by the agent under the owner's repair limit",
+            self::BASIS_AGENT_EMERGENCY_LIMIT => "Authorised by the agent under the owner's emergency limit",
             self::BASIS_LEGACY_GRANDFATHERED => 'Already under way before approvals were recorded',
             default => null,
         };
@@ -636,6 +643,10 @@ class RentalWorkOrder extends Model
         // later variations are measured against: the selected quote's OWNER-FACING amount.
         app(\App\Services\Rentals\RentalApprovalGateService::class)->recordOwnerDecision(
             $this, $decision === self::APPROVAL_APPROVED, $recordedBy, (string) $attributes['evidence_type'], $selectedQuote, $approval->decided_at,
+            [
+                'owner_contact_id' => $attributes['owner_contact_id'] ?? null, 'approved_up_to' => $attributes['approved_up_to'] ?? null,
+                'evidence_text' => $attributes['evidence_text'] ?? null, 'evidence_file_path' => $attributes['evidence_file_path'] ?? null,
+            ],
         );
 
         return $approval;

@@ -97,26 +97,28 @@ class RentalApprovalGateService
      */
     public function evaluateQuote(RentalWorkOrder $workOrder, float $ownerFacingAmount, ?User $by, ?RentalWorkOrderQuote $quote = null): GateDecision
     {
-        $terms = $this->termsForWorkOrder($workOrder);
+        // Section 22.6: NOTHING IS APPROVED BY ITSELF. The repair limit only decides WHO may authorise: inside it an agent may (and must press Authorise);
+        // above it - or when the owner has not set one - the owner is asked. Read only through the owner-settings resolver (null = must ask).
         $amount = round($ownerFacingAmount, 2);
+        $limit = $workOrder->property ? RentalOwnerFaultSettings::for($workOrder->property)->repairLimit() : null;
 
-        if ($amount <= $terms->noApprovalLimit) {
+        if ($limit !== null && $amount <= $limit + 0.001) {
             $decision = new GateDecision(
-                authorised: true,
-                decision: RentalApprovalDecision::DECISION_AUTO_APPROVED,
-                basis: RentalWorkOrder::BASIS_NO_APPROVAL_LIMIT,
+                authorised: false,
+                decision: RentalApprovalDecision::DECISION_NEEDS_AGENT,
+                basis: null,
                 termKey: RentalApprovalDecision::TERM_NO_APPROVAL_LIMIT,
-                termValue: $terms->noApprovalLimit,
-                termSource: $terms->limitSource,
+                termValue: $limit,
+                termSource: RentalApprovalDecision::SOURCE_OWNER,
                 amountTested: $amount,
-                limitAmount: $terms->noApprovalLimit,
-                note: 'Auto-approved on ' . $this->when() . ' — ' . $this->money($amount) . " is within the owner's no-approval limit of "
-                    . $this->money($terms->noApprovalLimit) . ' ' . $this->sourceLabel($terms->limitSource),
+                limitAmount: $limit,
+                note: $this->money($amount) . " is inside the owner's repair limit of " . $this->money($limit)
+                    . ' - an agent can authorise it. Nothing is approved until someone presses Authorise.',
             );
             $workOrder->forceFill([
                 'owner_approval_status' => RentalWorkOrder::APPROVAL_NOT_REQUIRED,
-                'approved_amount' => $amount,
-                'approval_basis' => RentalWorkOrder::BASIS_NO_APPROVAL_LIMIT,
+                'approved_amount' => null,
+                'approval_basis' => null,
             ])->save();
         } else {
             $decision = new GateDecision(
@@ -124,12 +126,13 @@ class RentalApprovalGateService
                 decision: RentalApprovalDecision::DECISION_NEEDS_OWNER,
                 basis: null,
                 termKey: RentalApprovalDecision::TERM_NO_APPROVAL_LIMIT,
-                termValue: $terms->noApprovalLimit,
-                termSource: $terms->limitSource,
+                termValue: $limit,
+                termSource: RentalApprovalDecision::SOURCE_OWNER,
                 amountTested: $amount,
-                limitAmount: $terms->noApprovalLimit,
-                note: $this->money($amount) . " is above the owner's no-approval limit of " . $this->money($terms->noApprovalLimit)
-                    . ' ' . $this->sourceLabel($terms->limitSource) . ' — the owner is asked to approve it.',
+                limitAmount: $limit,
+                note: $limit === null
+                    ? $this->money($amount) . " - the owner has not set a repair limit for this property, so the owner is asked to approve it."
+                    : $this->money($amount) . " is above the owner's repair limit of " . $this->money($limit) . ' - the owner is asked to approve it.',
             );
             $workOrder->forceFill([
                 'owner_approval_status' => RentalWorkOrder::APPROVAL_PENDING,
@@ -150,7 +153,7 @@ class RentalApprovalGateService
      * RentalWorkOrder::recordApproval() after it wrote the evidence row. An approval makes the selected quote's
      * owner-facing amount the approved baseline that variations are measured against; a decline clears the baseline.
      */
-    public function recordOwnerDecision(RentalWorkOrder $workOrder, bool $approved, User|Contact $by, string $evidenceType, ?RentalWorkOrderQuote $quote, ?Carbon $decidedAt = null): void
+    public function recordOwnerDecision(RentalWorkOrder $workOrder, bool $approved, User|Contact $by, string $evidenceType, ?RentalWorkOrderQuote $quote, ?Carbon $decidedAt = null, array $extra = []): void
     {
         $decidedAt ??= now();
         $amount = $quote?->ownerFacingAmount();
@@ -183,6 +186,9 @@ class RentalApprovalGateService
             'amount_tested' => $amount ?? 0,
             'note' => $sentence,
         ]);
+
+        // section 22.6: the owner's decision on the cost leaves an authorisation record whichever door it came through
+        app(RentalAuthorisationService::class)->mirrorOwnerQuoteDecision($workOrder, $approved, $by, $evidenceType, $amount, $decidedAt, $extra);
     }
 
     // ───────────────────────── variations ─────────────────────────
@@ -228,21 +234,8 @@ class RentalApprovalGateService
 
         $toleranceCeiling = $terms->variationPct > 0 ? round($baseline * (1 + $terms->variationPct / 100), 2) : null;
 
-        if ($newTotal <= $terms->noApprovalLimit) {
-            $decision = new GateDecision(
-                authorised: true,
-                decision: RentalApprovalDecision::DECISION_AUTO_APPROVED,
-                basis: RentalWorkOrder::BASIS_NO_APPROVAL_LIMIT,
-                termKey: RentalApprovalDecision::TERM_NO_APPROVAL_LIMIT,
-                termValue: $terms->noApprovalLimit,
-                termSource: $terms->limitSource,
-                amountTested: $newTotal,
-                baselineAmount: $baseline,
-                limitAmount: $terms->noApprovalLimit,
-                note: 'Auto-approved on ' . $this->when() . ' — the new total of ' . $this->money($newTotal) . " is within the owner's no-approval limit of "
-                    . $this->money($terms->noApprovalLimit) . ' ' . $this->sourceLabel($terms->limitSource),
-            );
-        } elseif ($toleranceCeiling !== null && $newTotal <= $toleranceCeiling) {
+        // section 22.6: extra money is never approved by the repair limit - only the owner's own agreed tolerance may pass a small overrun
+        if ($toleranceCeiling !== null && $newTotal <= $toleranceCeiling) {
             $decision = new GateDecision(
                 authorised: true,
                 decision: RentalApprovalDecision::DECISION_AUTO_APPROVED,
@@ -257,7 +250,7 @@ class RentalApprovalGateService
                     . ' tolerance (' . $this->money($baseline) . ' + ' . $this->pct($terms->variationPct) . ' = ' . $this->money($toleranceCeiling) . '; ' . $this->sourceLabel($terms->pctSource, false) . ')',
             );
         } else {
-            $ceiling = max($toleranceCeiling ?? $baseline, $terms->noApprovalLimit);
+            $ceiling = $toleranceCeiling ?? $baseline;
             $decision = new GateDecision(
                 authorised: false,
                 decision: RentalApprovalDecision::DECISION_NEEDS_OWNER,
@@ -447,6 +440,46 @@ class RentalApprovalGateService
         if ($variation) {
             $this->announceVariation($variation, $by);
         }
+
+        return $variation;
+    }
+
+    /**
+     * Section 22.6 - the final cost / invoice came in ABOVE what was authorised: the difference goes to the owner as a request for the extra (origin
+     * final_invoice), who is emailed; the close waits for their decision. Idempotent: an open request is revised, never duplicated.
+     */
+    public function raiseFinalInvoiceVariation(RentalWorkOrder $workOrder, float $finalAmount, ?User $by): RentalWorkOrderVariation
+    {
+        $newTotal = round($finalAmount, 2);
+        $baseline = round((float) $workOrder->approved_amount, 2);
+        $extra = round($newTotal - $baseline, 2);
+        $terms = $this->termsForWorkOrder($workOrder);
+        $toleranceCeiling = $terms->variationPct > 0 ? round($baseline * (1 + $terms->variationPct / 100), 2) : null;
+        $decision = new GateDecision(
+            authorised: false, decision: RentalApprovalDecision::DECISION_NEEDS_OWNER, basis: null,
+            termKey: RentalApprovalDecision::TERM_VARIATION_TOLERANCE, termValue: $terms->variationPct, termSource: $terms->pctSource,
+            amountTested: $newTotal, baselineAmount: $baseline, limitAmount: $toleranceCeiling ?? $baseline,
+            note: 'The final cost of ' . $this->money($newTotal) . ' is above what was authorised (' . $this->money($baseline) . ') - the difference of '
+                . $this->money($extra) . ' is sent to the owner to approve.',
+        );
+
+        $variation = DB::transaction(function () use ($workOrder, $by, $decision, $baseline, $newTotal, $extra) {
+            $open = $workOrder->variations()->where('status', RentalWorkOrderVariation::STATUS_AWAITING_OWNER)->lockForUpdate()->first();
+            if ($open) {
+                $open->forceFill(['revision' => (int) $open->revision + 1, 'extra_amount' => $extra, 'new_total' => $newTotal, 'price_change_amount' => $extra, 'baseline_amount' => $baseline])->save();
+                $this->record($workOrder, $decision, $by, variation: $open);
+                $this->logVariation($workOrder, $by, 'variation_raised', 'Request to the owner revised (revision ' . $open->revision . '): final cost ' . $this->money($newTotal));
+
+                return $open->fresh();
+            }
+            $variation = $this->createVariation($workOrder, $workOrder->jobCard, $by, $decision, RentalWorkOrderVariation::STATUS_AWAITING_OWNER,
+                RentalWorkOrderVariation::ORIGIN_FINAL_INVOICE, $baseline, $newTotal, $extra, $extra);
+            $this->record($workOrder, $decision, $by, variation: $variation);
+            $this->logVariation($workOrder, $by, 'variation_raised', 'The final cost of ' . $this->money($newTotal) . ' is ' . $this->money($extra) . ' above what was authorised - sent to the owner.');
+
+            return $variation;
+        });
+        $this->announceVariation($variation, $by);
 
         return $variation;
     }
@@ -675,11 +708,11 @@ class RentalApprovalGateService
     // ───────────────────────── authorisation to proceed ─────────────────────────
 
     /**
-     * §17.6.5 — may work start / be scheduled / be completed by the crew? Authorised when ANY of: an active
-     * emergency approval exists; the owner approved; the in-flight grandfathering applies; or the work order is
-     * `not_required` AND (a quote is selected OR the job's current owner-facing amount is within the no-approval
-     * limit — evaluated now and recorded as an auto-approved decision). NOT authorised when approval is
-     * pending/declined, or when nothing is priced yet and there is no emergency approval.
+     * §17.6.5 + rentals-faults-work-orders.md §22.6 — may work start / be scheduled / be completed by the crew? NOTHING IS APPROVED BY ITSELF: authorised
+     * only when the job is not paused by the owner AND any of: the owner approved (their link, or an agent recorded their decision); the cost has an
+     * authorisation record (the agent under the owner's repair / emergency limit); an approval made before records existed (old emergency agreement,
+     * grandfathered work, the old limit rule); the owner's own contractor; pricing is switched off for the agency. A quote that is merely selected, or a
+     * crew job card that is merely priced, authorises nothing. NOT authorised while the owner is being asked, after a decline, or when nothing is priced.
      *
      * $record = false makes it a pure read (for a screen deciding whether to enable a button) — it then writes nothing.
      */
@@ -720,63 +753,33 @@ class RentalApprovalGateService
             return new GateDecision(false, RentalApprovalDecision::DECISION_BLOCKED, note: 'The owner declined this work.');
         }
 
-        // not_required
-        if ($workOrder->approved_amount !== null && $workOrder->approval_basis === RentalWorkOrder::BASIS_NO_APPROVAL_LIMIT) {
-            return new GateDecision(true, 'no_change', RentalWorkOrder::BASIS_NO_APPROVAL_LIMIT, note: "Within the owner's no-approval limit.");
-        }
-        if ($workOrder->quotes()->where('is_selected', true)->exists()) {
-            return new GateDecision(true, 'no_change', note: 'A quote is selected and needs no approval.');
+        // not_required. Section 22.6: nothing is approved by itself - the cost needs an authorisation record (the agent under the owner's repair /
+        // emergency limit, the owner on their link, or the agent recording what the owner said). Work approved before records existed keeps working.
+        $auth = app(RentalAuthorisationService::class);
+        if ($auth->hasCostAuthority($workOrder)) {
+            $row = $auth->activeFor($workOrder, \App\Models\RentalAuthorisation::POINT_COST);
+
+            return new GateDecision(true, 'no_change', $workOrder->approval_basis, note: $row ? $auth->recordTextFor($row) : 'Approved before authorisation records were kept.');
         }
 
         $card = $workOrder->jobCard;
-        if ($card) {
-            // pricing off for the agency: nothing can ever be priced, so there is no amount for an owner to approve
-            if (! RentalWorkOrderSetting::capturePricesOnJobCardsFor($workOrder->agency_id)) {
-                return new GateDecision(true, 'no_change', note: 'Pricing is switched off for this agency.');
-            }
-            if ($record) {
-                $card->recalcTotal();   // a pure read (a screen asking) never writes
-            }
-            $card->refresh();
-            $amount = round($this->vat->inclusiveTotal($card), 2);
-            if ($amount > 0) {
-                $terms = $this->termsForWorkOrder($workOrder);
-                if ($amount <= $terms->noApprovalLimit) {
-                    $decision = new GateDecision(
-                        authorised: true,
-                        decision: RentalApprovalDecision::DECISION_AUTO_APPROVED,
-                        basis: RentalWorkOrder::BASIS_NO_APPROVAL_LIMIT,
-                        termKey: RentalApprovalDecision::TERM_NO_APPROVAL_LIMIT,
-                        termValue: $terms->noApprovalLimit,
-                        termSource: $terms->limitSource,
-                        amountTested: $amount,
-                        limitAmount: $terms->noApprovalLimit,
-                        note: 'Auto-approved on ' . $this->when() . ' — ' . $this->money($amount) . " is within the owner's no-approval limit of "
-                            . $this->money($terms->noApprovalLimit) . ' ' . $this->sourceLabel($terms->limitSource),
-                    );
-                    if ($record) {
-                        $workOrder->forceFill(['approved_amount' => $amount, 'approval_basis' => RentalWorkOrder::BASIS_NO_APPROVAL_LIMIT])->save();
-                        $this->record($workOrder, $decision, null);
-                    }
-
-                    return $decision;
-                }
-
-                return new GateDecision(false, RentalApprovalDecision::DECISION_BLOCKED, amountTested: $amount, limitAmount: $terms->noApprovalLimit,
-                    note: 'This job (' . $this->money($amount) . ") is above the owner's no-approval limit of " . $this->money($terms->noApprovalLimit)
-                        . ' — send the quote to the owner and wait for the approval before the work starts.');
-            }
+        // pricing off for the agency: nothing can ever be priced, so there is no amount for anyone to authorise
+        if ($card && ! RentalWorkOrderSetting::capturePricesOnJobCardsFor($workOrder->agency_id)) {
+            return new GateDecision(true, 'no_change', note: 'Pricing is switched off for this agency.');
+        }
+        $m = $auth->costMeasure($workOrder);
+        if ($m['amount'] !== null) {
+            return new GateDecision(false, RentalApprovalDecision::DECISION_BLOCKED, amountTested: $m['amount'],
+                note: 'The cost (' . $this->money($m['amount']) . ') has not been authorised yet - authorise it under "Approve the cost" on the work order, or get the owner to.');
         }
 
         return new GateDecision(false, RentalApprovalDecision::DECISION_BLOCKED,
-            note: 'Nothing has been priced or approved for this job yet — price the job and send the quote first, or record the owner\'s emergency approval.');
+            note: 'Nothing has been priced or approved for this job yet - price it (a quote or the crew\'s price) and authorise the cost, or type the amount if it is a small job you already know the price of.');
     }
 
     /**
      * §17.6.5 for a job card: judged through its work order. A card with NO work order (older rows; §17.3 makes sure new
-     * ones always have one) is judged on its own amount against the property's no-approval limit — nothing is recorded
-     * (there is no work order to hang a decision on); a job above the limit must be quoted to the owner first, which
-     * creates the work order.
+     * ones always have one) has nothing to authorise a cost against, so it is refused (unless pricing is off): the office creates the work order first.
      */
     public function authoriseCard(RentalJobCard $card, bool $record = true): GateDecision
     {
@@ -788,25 +791,8 @@ class RentalApprovalGateService
             return new GateDecision(true, 'no_change', note: 'Pricing is switched off for this agency.');
         }
 
-        if ($record) {
-            $card->recalcTotal();
-        }
-        $card->refresh();
-        $amount = round($this->vat->inclusiveTotal($card), 2);
-        $terms = $card->property ? $this->termsFor($card->property) : null;
-        $limit = $terms?->noApprovalLimit ?? RentalWorkOrderSetting::spendThresholdFor($card->agency_id);
-        if ($amount > 0 && $amount <= $limit) {
-            return new GateDecision(true, RentalApprovalDecision::DECISION_AUTO_APPROVED, RentalWorkOrder::BASIS_NO_APPROVAL_LIMIT, amountTested: $amount, limitAmount: $limit,
-                note: $this->money($amount) . " is within the owner's no-approval limit of " . $this->money($limit));
-        }
-        if ($amount > $limit) {
-            return new GateDecision(false, RentalApprovalDecision::DECISION_BLOCKED, amountTested: $amount, limitAmount: $limit,
-                note: 'This job (' . $this->money($amount) . ") is above the owner's no-approval limit of " . $this->money($limit)
-                    . ' — send the quote to the owner and wait for the approval before the work starts.');
-        }
-
         return new GateDecision(false, RentalApprovalDecision::DECISION_BLOCKED,
-            note: 'Nothing has been priced or approved for this job yet — price the job and send the quote first, or record the owner\'s emergency approval.');
+            note: 'This job has no work order, so its cost cannot be authorised - ask the office to create the work order, price it and authorise the cost.');
     }
 
     /** The refusal every guard site throws (the plain-language message of authoriseToProceed()). */

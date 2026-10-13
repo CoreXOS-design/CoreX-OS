@@ -514,6 +514,14 @@ final class WorkOrderFromFaultTest extends TestCase
         $this->assertSame(RentalFaultReport::STATUS_REPORTED, $early->fresh()->status);
     }
 
+    /** The OWNER's repair limit for the fixture property (section 22.6 - the only thing that lets an agent authorise a cost). */
+    private function ownerLimits(?float $repair): void
+    {
+        \App\Models\RentalPropertyFaultSetting::withoutGlobalScopes()->updateOrCreate(['property_id' => $this->property->id], [
+            'agency_id' => $this->agency->id, 'status' => 'confirmed_by_owner', 'repair_limit' => $repair, 'emergency_limit' => null, 'callout_mode' => 'no', 'version' => 1,
+        ]);
+    }
+
     // ── 7. the work order screen: one set of names, one contractor, stage-fitting actions ──
 
     public function test_the_work_order_badge_history_and_header_agree_with_the_real_stage(): void
@@ -524,9 +532,12 @@ final class WorkOrderFromFaultTest extends TestCase
         $wo = $fault->fresh()->workOrder;
 
         $this->assertSame('Created', $wo->stageLabel('agent'));
+        $this->ownerLimits(500.0);
         $quote = $wo->recordQuote(['agency_service_provider_id' => $plumber->id, 'amount' => 300, 'quote_date' => now(), 'detail_text' => 'x'], $this->agent);
         $wo->selectQuote($quote, $this->agent);
-        $this->assertSame('Approved - ready to send', $wo->fresh()->stageLabel('agent'), 'within the limit: approved, ready to send');
+        $this->assertSame('Created', $wo->fresh()->stageLabel('agent'), 'inside the limit is still NOT approved (section 22.6)');
+        app(\App\Services\Rentals\RentalAuthorisationService::class)->authoriseCost($wo->fresh(), $this->agent, []);
+        $this->assertSame('Approved - ready to send', $wo->fresh()->stageLabel('agent'), 'once the agent has authorised it: approved, ready to send');
 
         $wo->fresh()->assignSupplier($plumber->id, null, $this->agent);
         $sent = $wo->fresh();
@@ -571,13 +582,14 @@ final class WorkOrderFromFaultTest extends TestCase
         // just created: capture the quote; nothing for later stages
         $html = $get();
         $this->assertStringContainsString('data-next-step', $html);
-        $this->assertStringContainsString('R500.00 or less', $html);
+        $this->assertStringContainsString('Nothing is approved by itself', $html);
         $this->assertStringContainsString("Capture Ramsgate Plumbing's quote", $html);
         $this->assertStringNotContainsString('data-complete-work-order', $html, 'no Complete before it is sent');
         $this->assertStringContainsString('data-complete-later', $html);
         $this->assertStringNotContainsString('data-invoices-panel', $html, 'no supplier invoices before it is sent');
         $this->assertStringNotContainsString('data-fee-collapse', $html, 'no fee block before there is a quote');
-        $this->assertStringContainsString('data-emergency-collapse', $html, 'the emergency route is there, collapsed');
+        $this->assertStringContainsString('data-cost-emergency', $html, 'section 22.6: the emergency tick lives in "Approve the cost"');
+        $this->assertStringNotContainsString('data-emergency-collapse', $html, 'the old Emergency approval form is gone');
 
         // a quote over the limit: the owner is asked
         $quote = $wo->recordQuote(['agency_service_provider_id' => $plumber->id, 'amount' => 2000, 'quote_date' => now(), 'detail_text' => 'x'], $this->agent);
@@ -585,7 +597,7 @@ final class WorkOrderFromFaultTest extends TestCase
         $html = $get();
         $this->assertStringContainsString('data-quote-sent-to-owner', $html);
         $this->assertStringContainsString('for approval.', $html);
-        $this->assertStringContainsString("Record decision on the owner's behalf", $html);
+        $this->assertStringContainsString("Record the owner's decision", $html);
         $this->assertStringContainsString('data-fee-collapse', $html);
 
         // the owner approved: no Record decision, no emergency panel, still no Complete

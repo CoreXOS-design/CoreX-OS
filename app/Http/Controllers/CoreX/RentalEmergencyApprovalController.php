@@ -14,58 +14,13 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
 /**
- * .ai/specs/rental-work-orders.md §17.8 — emergency work: the owner ALWAYS agrees and the office captures it. There is no
- * override anywhere; this form IS the owner's agreement, recorded with no cost attached (there is no amount field on purpose).
- * Record (who at the owner's end, how, when, why, optional attachment), void with a reason (a mistake is voided and
- * re-recorded, never edited or deleted), and download the attachment (private disk, scoped like the work order itself).
+ * .ai/specs/rental-work-orders.md §17.8 - emergency agreements recorded BEFORE rentals-faults-work-orders.md section 22.6. New emergencies are authorised in
+ * "Approve the cost" (RentalWorkOrderCostController); the old record form is gone. What stays: void with a reason (a mistake is voided, never edited or deleted)
+ * and download the attachment (private disk, scoped like the work order itself).
  */
 class RentalEmergencyApprovalController extends Controller
 {
     use AuthorizesRentalRecordScope;
-
-    public function store(Request $request, RentalApprovalGateService $gate, RentalWorkOrder $rentalWorkOrder): RedirectResponse
-    {
-        $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
-
-        $validated = $request->validate([
-            'approved_by_name' => ['required', 'string', 'max:191'],
-            'owner_contact_id' => ['nullable', 'integer'],
-            'approved_via' => ['required', Rule::in(RentalEmergencyApproval::VIAS)],
-            'approved_at' => ['required', 'date'],
-            'reason' => ['required', 'string', 'max:2000'],
-            'reported_by_crew_name' => ['nullable', 'string', 'max:191'],
-            'notes' => ['nullable', 'string', 'max:2000'],
-            'attachment' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif,pdf', 'max:10240'],
-        ], [
-            'approved_by_name.required' => 'Say who at the owner\'s end agreed to the work.',
-            'approved_via.required' => 'Say how the owner agreed.',
-            'approved_at.required' => 'Say when the owner agreed.',
-            'reason.required' => 'Say why this is emergency work.',
-        ]);
-
-        $tz = $rentalWorkOrder->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
-        $validated['approved_at'] = Carbon::parse($validated['approved_at'], $tz)->setTimezone(config('app.timezone'));
-
-        $path = null;
-        if ($request->hasFile('attachment')) {
-            $path = $request->file('attachment')->store("rental-emergency-approvals/{$rentalWorkOrder->id}", 'local');
-            $validated['attachment_path'] = $path;
-        }
-        unset($validated['attachment']);
-
-        try {
-            $gate->recordEmergency($rentalWorkOrder, $validated, $request->user());
-        } catch (\InvalidArgumentException|\LogicException $e) {
-            if ($path) {
-                Storage::disk('local')->delete($path); // nothing recorded points at it
-            }
-
-            return back()->withErrors(['emergency' => $e->getMessage()])->withInput();
-        }
-
-        return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)
-            ->with('success', 'Emergency approval recorded — the work can go ahead. Costs are captured and settled afterwards.');
-    }
 
     public function void(Request $request, RentalApprovalGateService $gate, RentalWorkOrder $rentalWorkOrder, RentalEmergencyApproval $approval): RedirectResponse
     {

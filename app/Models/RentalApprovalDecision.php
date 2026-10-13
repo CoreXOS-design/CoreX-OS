@@ -33,6 +33,8 @@ class RentalApprovalDecision extends Model
     public const DECISION_DECLINED = 'declined';
     public const DECISION_BLOCKED = 'blocked';
     public const DECISION_EMERGENCY_COVERED = 'emergency_covered';
+    /** Section 22.6: the amount is inside the owner's repair limit, so an agent MAY authorise it - but nothing is approved until someone presses Authorise. */
+    public const DECISION_NEEDS_AGENT = 'needs_agent';
 
     public const TERM_NO_APPROVAL_LIMIT = 'no_approval_limit';
     public const TERM_VARIATION_TOLERANCE = 'variation_tolerance';

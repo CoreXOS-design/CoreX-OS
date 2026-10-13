@@ -27,8 +27,8 @@
             @elseif($jaWorkOrder->approvalBasisLabel())
                 <span class="ds-badge ds-badge-success">{{ $jaWorkOrder->approvalBasisLabel() }}</span>
             @elseif(isset($stage) && $stage['quote']['within'] && $jobCard->acceptedLines()->exists())
-                {{-- J2 (Johan, 9 Oct 2026): within the owner's limit nothing needs asking - say so instead of "not approved". --}}
-                <span class="ds-badge ds-badge-info" data-auto-approval>Approved automatically once the price is confirmed (within the owner's limit)</span>
+                {{-- section 22.6: inside the owner's repair limit nothing needs ASKING the owner - but nothing is approved either until the agent authorises the cost. --}}
+                <span class="ds-badge ds-badge-info" data-cost-to-authorise>Inside the owner's repair limit - the cost still has to be authorised</span>
             @else
                 <span class="ds-badge ds-badge-muted">Not approved yet</span>
             @endif
@@ -42,11 +42,10 @@
         @endif
         @if(!$jaProceed->authorised)
             <p class="text-xs" style="color: var(--ds-crimson);">Work cannot start or be scheduled yet: {{ $jaProceed->note }}
-                @permission('rental_work_orders.record_emergency_approval')
-                    @feature('rental-work-orders')<a href="{{ route('corex.rental-work-orders.show', $jaWorkOrder) }}#emergency-panel" class="underline">Emergency? Record the owner's agreement on the work order.</a>@else Emergency? Record the owner's agreement on the work order. @endfeature
-                @endpermission
+
             </p>
         @endif
     </div>
+    @include('corex.rental-work-orders._cost-decision', ['workOrder' => $jaWorkOrder, 'isOpen' => $isOpen])
     @include('corex.rental-work-orders._variation-panel', ['workOrder' => $jaWorkOrder])
 @endif

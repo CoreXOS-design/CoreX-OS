@@ -74,13 +74,21 @@ final class RentalJobCardRebuildTest extends TestCase
 
     private function faultReport(array $attrs = []): RentalFaultReport
     {
-        return RentalFaultReport::create(array_merge([
+        $fault = RentalFaultReport::create(array_merge([
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id,
             'reported_by_type' => RentalFaultReport::REPORTED_BY_AGENT_NOTICED, 'reported_by_user_id' => $this->admin->id,
             'reported_channel' => RentalFaultReport::CHANNEL_IN_PERSON, 'captured_by_user_id' => $this->admin->id,
             'title' => 'Lounge wall damaged', 'description' => 'Damp patch on lounge wall.', 'status' => RentalFaultReport::STATUS_REPORTED,
             'owner_approval_status' => RentalFaultReport::APPROVAL_NOT_REQUIRED, 'reported_at' => now(), 'created_by_user_id' => $this->admin->id,
         ], $attrs));
+        // Section 22 (nothing is automatic): a work order is only made from a fault someone has authorised. These faults are ones the owner already authorised;
+        // the "no authority, no work order" rule itself is proven in AuthorityFlowTest.
+        \App\Models\RentalAuthorisation::withoutGlobalScopes()->create([
+            'agency_id' => $fault->agency_id, 'rental_fault_report_id' => $fault->id, 'point' => 'inspect', 'outcome' => 'authorised', 'basis' => 'owner_link',
+            'stage' => $fault->status, 'told_via' => 'link', 'told_at' => now(), 'by_user_id' => $this->admin->id,
+        ]);
+
+        return $fault;
     }
 
     private function existingWorkOrder(array $attrs = []): RentalWorkOrder

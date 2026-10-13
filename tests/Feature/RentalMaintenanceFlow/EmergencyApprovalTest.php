@@ -45,20 +45,34 @@ final class EmergencyApprovalTest extends TestCase
         ], $over);
     }
 
-    private function record(RentalWorkOrder $wo, array $over = [])
+    /**
+     * Section 22.6: the screen's "Emergency approval" record form is GONE (a new emergency is authorised in "Approve the cost": the tick, a required reason and the
+     * owner's emergency limit - see AuthorityCostTest). What stays are the agreements already on file - they keep working, can be voided and downloaded - so these
+     * tests create them through the one legacy writer, never through a screen.
+     */
+    private function record(RentalWorkOrder $wo, array $over = []): RentalEmergencyApproval
     {
-        return $this->actingAs($this->admin)->post(route('corex.rental-work-orders.emergency-approval.store', $wo), $this->payload($over));
+        return app(RentalApprovalGateService::class)->recordEmergency($wo, $this->payload($over), $this->admin);
     }
 
-    // ── recording ────────────────────────────────────────────────────
+    // ── recording (legacy writer: old agreements stay readable) ──────
 
-    public function test_recording_the_owners_agreement_authorises_the_work_with_no_cost_attached(): void
+    public function test_there_is_no_screen_that_records_an_emergency_agreement_any_more(): void
+    {
+        $this->assertFalse(\Illuminate\Support\Facades\Route::has('corex.rental-work-orders.emergency-approval.store'));
+        $html = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $this->externalWorkOrder()))->assertOk()->getContent();
+        $this->assertStringNotContainsString("Record owner's emergency approval", $html);
+        $this->assertStringNotContainsString("Record the owner's agreement", $html);
+        $this->assertStringContainsString('This is an emergency', $html, 'the emergency tick lives in "Approve the cost"');
+    }
+
+    public function test_an_agreement_on_file_authorises_the_work_with_no_cost_attached(): void
     {
         Event::fake([RentalEmergencyApprovalRecorded::class]);
         $card = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Burst geyser'], $this->admin);
         $wo = $card->workOrder()->first();
 
-        $this->record($wo, ['owner_contact_id' => $this->landlord->id, 'notes' => 'Owner is overseas, replied by phone'])->assertRedirect()->assertSessionHasNoErrors();
+        $this->record($wo, ['owner_contact_id' => $this->landlord->id, 'notes' => 'Owner is overseas, replied by phone']);
 
         $fresh = $wo->fresh();
         $approval = $fresh->activeEmergencyApproval();
@@ -79,10 +93,7 @@ final class EmergencyApprovalTest extends TestCase
         $this->assertStringContainsString("owner agreed by phone to Mrs Landlordson, recorded by {$this->admin->name}", $row->note);
         $this->assertDatabaseHas('rental_work_order_updates', ['rental_work_order_id' => $wo->id, 'update_type' => 'emergency_approved']);
         Event::assertDispatched(RentalEmergencyApprovalRecorded::class);
-
-        // the work proceeds with nothing priced
-        $card->fresh()->schedule(now()->addHour(), null, $this->admin);
-        $this->assertSame(RentalJobCard::STATUS_SCHEDULED, $card->fresh()->status);
+        $this->assertTrue(app(RentalApprovalGateService::class)->authoriseToProceed($fresh, false)->authorised);
     }
 
     public function test_each_required_field_is_asked_for_in_plain_words(): void
@@ -92,11 +103,14 @@ final class EmergencyApprovalTest extends TestCase
         foreach ([
             'approved_by_name' => 'Say who at the owner',
             'approved_via' => 'Say how the owner agreed',
-            'approved_at' => 'Say when the owner agreed',
             'reason' => 'Say why this is emergency work',
         ] as $field => $message) {
-            $this->record($wo, [$field => ''])->assertSessionHasErrors($field);
-            $this->assertStringContainsString($message, session('errors')->first($field));
+            try {
+                $this->record($wo, [$field => '']);
+                $this->fail("{$field} must be required");
+            } catch (\InvalidArgumentException $e) {
+                $this->assertStringContainsString($message, $e->getMessage());
+            }
         }
         $this->assertNull($wo->fresh()->activeEmergencyApproval());
         $this->assertSame(0, RentalEmergencyApproval::withoutGlobalScopes()->count());
@@ -106,21 +120,33 @@ final class EmergencyApprovalTest extends TestCase
     {
         $wo = $this->externalWorkOrder();
 
-        $this->record($wo, ['approved_at' => now()->addHours(2)->format('Y-m-d\TH:i')])->assertSessionHasErrors('emergency');
+        try {
+            $this->record($wo, ['approved_at' => now()->addHours(2)->format('Y-m-d\TH:i')]);
+            $this->fail('the future is refused');
+        } catch (\InvalidArgumentException) {
+        }
         $this->assertNull($wo->fresh()->activeEmergencyApproval());
 
-        $this->record($wo, ['approved_at' => now()->subDays(2)->format('Y-m-d\TH:i')])->assertSessionHasNoErrors();
+        $this->record($wo, ['approved_at' => now()->subDays(2)->format('Y-m-d\TH:i')]);
         $this->assertNotNull($wo->fresh()->activeEmergencyApproval(), 'the owner may have agreed days before the entry is made');
     }
 
     public function test_only_one_of_this_propertys_owners_can_be_named_and_only_one_record_stands_at_a_time(): void
     {
         $wo = $this->externalWorkOrder();
-        $stranger = $this->linkLandlord('Stranger', 'tenant');   // linked to the property, but a tenant — not an owner
+        $stranger = $this->linkLandlord('Stranger', 'tenant');   // linked to the property, but a tenant - not an owner
 
-        $this->record($wo, ['owner_contact_id' => $stranger->id])->assertSessionHasErrors('emergency');
-        $this->record($wo, ['owner_contact_id' => $this->landlord->id])->assertSessionHasNoErrors();
-        $this->record($wo)->assertSessionHasErrors('emergency');   // a second active record
+        try {
+            $this->record($wo, ['owner_contact_id' => $stranger->id]);
+            $this->fail('a tenant is not an owner');
+        } catch (\InvalidArgumentException) {
+        }
+        $this->record($wo, ['owner_contact_id' => $this->landlord->id]);
+        try {
+            $this->record($wo);   // a second active record
+            $this->fail('only one stands');
+        } catch (\LogicException) {
+        }
 
         $this->assertSame(1, $wo->emergencyApprovals()->count());
     }
@@ -129,9 +155,9 @@ final class EmergencyApprovalTest extends TestCase
     {
         $wo = $this->externalWorkOrder();
 
-        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.emergency-approval.store', $wo), [
+        app(RentalApprovalGateService::class)->recordEmergency($wo, [
             'approved_by_name' => '  Mr Owner  ', 'approved_via' => 'in_person', 'approved_at' => now()->subMinute()->format('Y-m-d\TH:i'), 'reason' => 'Gas smell',
-        ])->assertSessionHasNoErrors();
+        ], $this->admin);
 
         $approval = $wo->fresh()->activeEmergencyApproval();
         $this->assertSame('Mr Owner', $approval->approved_by_name, 'trimmed');
@@ -143,8 +169,9 @@ final class EmergencyApprovalTest extends TestCase
     public function test_an_attachment_is_kept_on_the_private_disk_and_only_downloadable_by_someone_who_can_see_the_work_order(): void
     {
         $wo = $this->externalWorkOrder();
+        $path = UploadedFile::fake()->image('whatsapp.png', 600, 800)->store("rental-emergency-approvals/{$wo->id}", 'local');
 
-        $this->record($wo, ['attachment' => UploadedFile::fake()->image('whatsapp.png', 600, 800)])->assertSessionHasNoErrors();
+        $this->record($wo, ['attachment_path' => $path]);
         $approval = $wo->fresh()->activeEmergencyApproval();
         Storage::disk('local')->assertExists($approval->attachment_path);
         $this->assertStringStartsWith("rental-emergency-approvals/{$wo->id}/", $approval->attachment_path);
@@ -153,23 +180,23 @@ final class EmergencyApprovalTest extends TestCase
 
         $other = $this->externalWorkOrder(['title' => 'Other job']);
         $this->actingAs($this->admin)->get(route('corex.rental-work-orders.emergency-approval.attachment', [$other, $approval]))->assertNotFound();
-        $this->record($other, ['attachment' => UploadedFile::fake()->create('virus.exe', 10)])->assertSessionHasErrors('attachment');
     }
 
-    public function test_a_user_without_the_key_cannot_record_or_void_and_another_agency_cannot_even_find_the_work_order(): void
+    public function test_a_user_without_the_key_cannot_void_and_another_agency_cannot_even_find_the_work_order(): void
     {
         $wo = $this->externalWorkOrder();
+        $approval = $this->record($wo);
         $agent = $this->agentWith(['rental_work_orders.view' => 'all', 'rental_work_orders.record_approval' => 'all']);   // the nearest keys, but not the emergency one
 
-        $this->actingAs($agent)->post(route('corex.rental-work-orders.emergency-approval.store', $wo), $this->payload())->assertForbidden();
-        $this->assertNull($wo->fresh()->activeEmergencyApproval());
+        $this->actingAs($agent)->post(route('corex.rental-work-orders.emergency-approval.void', [$wo, $approval]), ['void_reason' => 'x'])->assertForbidden();
+        $this->assertNotNull($wo->fresh()->activeEmergencyApproval());
 
         $other = Agency::create(['name' => 'Elsewhere', 'slug' => 'elsewhere-' . uniqid()]);
         $branch = Branch::forceCreate(['name' => 'Main', 'agency_id' => $other->id]);
         $stranger = \App\Models\User::factory()->create(['agency_id' => $other->id, 'branch_id' => $branch->id, 'role' => 'admin']);
-        $status = $this->actingAs($stranger)->post(route('corex.rental-work-orders.emergency-approval.store', $wo), $this->payload())->getStatusCode();
+        $status = $this->actingAs($stranger)->post(route('corex.rental-work-orders.emergency-approval.void', [$wo, $approval]), ['void_reason' => 'x'])->getStatusCode();
         $this->assertContains($status, [403, 404], 'another agency must not be able to touch this work order');
-        $this->assertNull($wo->fresh()->activeEmergencyApproval());
+        $this->assertNotNull($wo->fresh()->activeEmergencyApproval());
     }
 
     // ── what emergency approval does to the rest of the flow ─────────
@@ -178,7 +205,7 @@ final class EmergencyApprovalTest extends TestCase
     {
         $wo = $this->externalWorkOrder();
         $supplier = $this->supplier();
-        $this->record($wo)->assertSessionHasNoErrors();
+        $this->record($wo);
 
         $quote = $wo->recordQuote(['agency_service_provider_id' => $supplier->id, 'amount' => 48000, 'quote_date' => now(), 'detail_text' => 'full replacement'], $this->admin);
         $wo->selectQuote($quote, $this->admin);
@@ -196,7 +223,7 @@ final class EmergencyApprovalTest extends TestCase
     {
         $card = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Burst main'], $this->admin);
         $wo = $card->workOrder()->first();
-        $this->record($wo)->assertSessionHasNoErrors();
+        $this->record($wo);
         $this->travel(5)->seconds();
 
         app(RentalJobCardService::class)->addLine($card->fresh(), ['type' => 'part', 'description' => 'New main', 'quantity' => 1, 'unit_price' => 90000], $this->admin);
@@ -209,7 +236,7 @@ final class EmergencyApprovalTest extends TestCase
     public function test_a_mistake_is_voided_with_a_reason_and_the_work_order_goes_back_to_needing_the_owner(): void
     {
         $wo = $this->externalWorkOrder();
-        $this->record($wo)->assertSessionHasNoErrors();
+        $this->record($wo);
         $approval = $wo->fresh()->activeEmergencyApproval();
 
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.emergency-approval.void', [$wo, $approval]), ['void_reason' => ''])->assertSessionHasErrors('void_reason');
@@ -228,16 +255,17 @@ final class EmergencyApprovalTest extends TestCase
         $this->assertSame('Recorded against the wrong property', $voided->void_reason);
         $this->assertDatabaseHas('rental_work_order_updates', ['rental_work_order_id' => $wo->id, 'update_type' => 'emergency_voided']);
 
-        $this->record($wo)->assertSessionHasNoErrors();   // the right one can now be recorded
+        $this->record($wo);   // the right one can now be recorded
         $this->assertSame(2, $wo->emergencyApprovals()->count());
         $this->assertSame(1, $wo->emergencyApprovals()->whereNull('voided_at')->count());
     }
 
     public function test_voiding_re_runs_the_gate_on_the_selected_quote_and_warns_when_work_is_already_under_way(): void
     {
+        $this->ownerLimits(500.0);
         $wo = $this->externalWorkOrder();
         $supplier = $this->supplier();
-        $this->record($wo)->assertSessionHasNoErrors();
+        $this->record($wo);
         $quote = $wo->recordQuote(['agency_service_provider_id' => $supplier->id, 'amount' => 300, 'quote_date' => now(), 'detail_text' => 'quote'], $this->admin);
         $wo->selectQuote($quote, $this->admin);
         $wo->fresh()->assignSupplier($supplier->id, 'plumbing', $this->admin);   // work under way
@@ -248,9 +276,9 @@ final class EmergencyApprovalTest extends TestCase
         $response->assertSessionHas('warning');
         $this->assertStringContainsString('already under way', session('warning'));
         $fresh = $wo->fresh();
-        $this->assertSame(RentalWorkOrder::APPROVAL_NOT_REQUIRED, $fresh->owner_approval_status, 'R300 is inside the R500 limit, so the quote is auto-approved again');
-        $this->assertSame('300.00', $fresh->approved_amount);
-        $this->assertSame(RentalWorkOrder::BASIS_NO_APPROVAL_LIMIT, $fresh->approval_basis);
+        $this->assertSame(RentalWorkOrder::APPROVAL_NOT_REQUIRED, $fresh->owner_approval_status, 'R300 is inside the owner\'s R500 limit: the owner is not asked');
+        $this->assertNull($fresh->approved_amount, 'but section 22.6: it is NOT approved again by itself - the agent has to authorise it');
+        $this->assertNull($fresh->approval_basis);
     }
 
     // ── what the owner and the crew see ──────────────────────────────
@@ -258,7 +286,7 @@ final class EmergencyApprovalTest extends TestCase
     public function test_the_owner_gets_a_final_statement_flagged_as_emergency_when_the_work_order_closes(): void
     {
         $wo = $this->externalWorkOrder();
-        $this->record($wo)->assertSessionHasNoErrors();
+        $this->record($wo);
 
         $wo->fresh()->complete($this->admin, ['paid_by' => RentalWorkOrder::PAID_BY_OWNER, 'cost_amount' => 7342.5, 'completion_notes' => 'Geyser replaced']);
 
@@ -277,7 +305,7 @@ final class EmergencyApprovalTest extends TestCase
     {
         $card = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Burst main'], $this->admin);
         $wo = $card->workOrder()->first();
-        $this->record($wo, ['owner_contact_id' => $this->landlord->id])->assertSessionHasNoErrors();
+        $this->record($wo, ['owner_contact_id' => $this->landlord->id]);
         $issued = app(\App\Services\Rentals\RentalSecureAccessTokenService::class)->issueForJobCard($card->fresh(), $this->admin);
 
         $html = $this->get('/secure/job-cards/' . $issued['raw_token'])->assertOk()->assertSee('Approved to proceed (emergency)')->getContent();
@@ -287,14 +315,14 @@ final class EmergencyApprovalTest extends TestCase
         $this->assertStringNotContainsString('Burst geyser flooding the ceiling', $html);
     }
 
-    public function test_the_work_order_screen_shows_the_panel_and_the_record_then_the_void_form(): void
+    public function test_the_work_order_screen_shows_an_agreement_on_file_with_its_void_form_and_no_record_form(): void
     {
         $wo = $this->externalWorkOrder();
 
         $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))
-            ->assertOk()->assertSee("Record owner's emergency approval", false)->assertSee('Emergency approval');
+            ->assertOk()->assertDontSee("Record owner's emergency approval", false)->assertSee('Approve the cost');
 
-        $this->record($wo)->assertSessionHasNoErrors();
+        $this->record($wo);
         $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))
             ->assertOk()->assertSee('Approved as emergency work — owner agreed')->assertSee('Void this approval')->assertSee('Mrs Landlordson')
             ->assertDontSee("Record owner's emergency approval", false);
@@ -304,7 +332,7 @@ final class EmergencyApprovalTest extends TestCase
     {
         $card = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Burst main'], $this->admin);
         $wo = $card->workOrder()->first();
-        $this->record($wo)->assertSessionHasNoErrors();
+        $this->record($wo);
         app(RentalJobCardService::class)->addLine($card->fresh(), ['type' => 'part', 'description' => 'New main', 'quantity' => 1, 'unit_price' => 900], $this->admin);
 
         $this->assertStringContainsString('Approved as emergency work on', (string) $wo->fresh()->emergencyBanner());

@@ -180,6 +180,11 @@ final class RentalWorkOrderAuditFixesTest extends TestCase
         $workOrder = $this->workOrder();
         $quote = $workOrder->recordQuote(['agency_service_provider_id' => $quoted->id, 'amount' => 100, 'quote_date' => now()], $this->admin);
         $workOrder->selectQuote($quote, $this->admin);
+        // section 22.6: inside the owner's repair limit, but nothing is approved until the agent authorises it
+        \App\Models\RentalPropertyFaultSetting::withoutGlobalScopes()->updateOrCreate(['property_id' => $workOrder->property_id], [
+            'agency_id' => $workOrder->agency_id, 'status' => 'confirmed_by_owner', 'repair_limit' => 500, 'emergency_limit' => null, 'callout_mode' => 'no', 'version' => 1,
+        ]);
+        app(\App\Services\Rentals\RentalAuthorisationService::class)->authoriseCost($workOrder->fresh(), $this->admin, []);
 
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.assign-supplier', $workOrder), ['agency_service_provider_id' => $other->id])
             ->assertSessionHasErrors('rental_work_order');
