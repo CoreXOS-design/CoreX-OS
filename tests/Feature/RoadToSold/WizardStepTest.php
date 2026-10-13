@@ -280,4 +280,18 @@ final class WizardStepTest extends TestCase
         $fields = $this->browserFormFields($capeAdmin, 'road_to_sold');
         $this->assertSame('30', (string) $fields['hold_days']);
     }
+
+    public function test_the_minimum_for_a_working_area_is_in_the_step_and_areas_are_said_to_come_from_stock_and_mic(): void
+    {
+        $this->actingAs($this->admin)->get(route('corex.agency-setup.step', ['step' => 'road_to_sold']))->assertOk()
+            ->assertSee('A suburb counts as a working area from')
+            ->assertSee('are not chosen here');
+
+        $fields = $this->browserFormFields($this->admin, 'road_to_sold');
+        $this->assertSame('1', (string) $fields['min_area_properties']);
+        $this->postStep(array_merge($fields, ['min_area_properties' => '3']))->assertSessionHasNoErrors();
+        SettingsService::forget();
+        $this->assertSame(3, SettingsService::forAgency($this->agency->id)->minAreaProperties());
+        $this->assertTrue(\App\Models\RoadToSold\RtsSetting::query()->where('agency_id', $this->agency->id)->exists());
+    }
 }

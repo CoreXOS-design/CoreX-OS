@@ -644,6 +644,7 @@ class AgencySetupWizardController extends Controller
                         'half_day_leave_halves_target' => $rts->halfDayLeaveHalvesTarget(),
                         'lock_agents_to_areas'         => $rts->lockAgentsToAreas(),
                         'area_refresh_warn_days'       => $rts->areaRefreshWarnDays(),
+                        'min_area_properties'          => $rts->minAreaProperties(),
                         'refresh_portal_p24'           => in_array('p24', $rts->refreshPortals(), true),
                         'refresh_portal_pp'            => in_array('pp', $rts->refreshPortals(), true),
                         'missed_items_mode'            => $rts->missedItemsMode(),

@@ -14,6 +14,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Tests\Feature\RoadToSold\Concerns\RtsFixtures;
+use Tests\Feature\RoadToSold\Concerns\SeedsDerivedAreas;
 use Tests\TestCase;
 
 /**
@@ -23,7 +24,7 @@ use Tests\TestCase;
  */
 final class LaneOneIntegrationTest extends TestCase
 {
-    use RefreshDatabase, RtsFixtures;
+    use RefreshDatabase, RtsFixtures, SeedsDerivedAreas;
 
     private int $uvongoId;
     private int $ramsgateId;
@@ -44,10 +45,8 @@ final class LaneOneIntegrationTest extends TestCase
         ]);
         $this->uvongoId = $mk('Uvongo', 900101);
         $this->ramsgateId = $mk('Ramsgate', 900103);
-        DB::table('towns')->insert([
-            'agency_id' => $this->agency->id, 'name' => 'Margate', 'slug' => 'margate', 'p24_city_id' => $city,
-            'display_order' => 1, 'created_at' => now(), 'updated_at' => now(),
-        ]);
+        $this->putInPool($this->agency->id, $this->uvongoId);
+        $this->putInPool($this->agency->id, $this->ramsgateId);
     }
 
     private function settings(array $attrs): void

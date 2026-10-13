@@ -5,6 +5,7 @@ namespace App\Http\Controllers\RoadToSold;
 use App\Http\Controllers\Concerns\EnforcesRecordVisibility;
 use App\Http\Controllers\Controller;
 use App\Models\RoadToSold\RtsAgentArea;
+use App\Models\RoadToSold\RtsHiddenArea;
 use App\Models\RoadToSold\RtsSetting;
 use App\Models\User;
 use App\Services\RoadToSold\AreaService;
@@ -59,11 +60,18 @@ class AreasController extends Controller
             : $this->agentsView($request, $viewer, $agencyId, $warnDays);
 
         return view('road-to-sold.settings.areas', $data + [
+            // Johan, 13 Oct 2026: the working areas are derived from stock + Market Intelligence; this is what an empty agency is told.
+            'poolEmpty'   => ! $this->areas->poolQuery($agencyId, $this->track())->exists(),
+            'hiddenCount' => $this->areas->hiddenCount($agencyId, $this->track()),
+            'canHide'     => $viewer->hasPermission('road_to_sold.manage_settings'),
+            'minArea'     => SettingsService::forAgency($agencyId, $this->track())->minAreaProperties(),
+            'micUrl'      => url('/corex/market-intelligence'),
+            'autoImportUrl' => $viewer->hasPermission('access_settings') ? route('admin.minion.setup') : null,
             'mode'     => $mode,
             'warnDays' => $warnDays,
             'portals'  => SettingsService::forAgency($agencyId, $this->track())->refreshPortals(),
             'tabs'     => SettingsController::tabsFor($viewer, 'areas'),
-            'towns'    => $this->areas->towns($agencyId),
+            'towns'    => $this->areas->towns($agencyId, $this->track()),
             'branches' => VisibleAgents::for($viewer)->pluck('branch.name', 'branch_id')->filter()->sort(),
             'lockOn'   => SettingsService::forAgency($agencyId, $this->track())->lockAgentsToAreas(),
         ]);
@@ -94,9 +102,9 @@ class AreasController extends Controller
         $remove = array_values(array_unique(array_map('intval', $data['remove'] ?? [])));
 
         if ($add !== []) {
-            $valid = $this->areas->idsInPool($agencyId, $add);
+            $valid = $this->areas->idsInPool($agencyId, $add, $this->track());
             if (count($valid) !== count($add)) {
-                return back()->withErrors(['add' => 'Some of those suburbs are not part of your agency\'s Prospecting Setup, so nothing was added. Add the town in Prospecting Setup first.']);
+                return back()->withErrors(['add' => 'Some of those suburbs are not in your stock or Market Intelligence data (or have been hidden), so nothing was added.']);
             }
         }
 
@@ -184,10 +192,10 @@ class AreasController extends Controller
 
         $suburbIds = $areaRows->pluck('p24_suburb_id')->unique()->values()->all();
         $meta = $this->suburbMeta($agencyId, $suburbIds);
-        $poolIds = array_flip($this->areas->idsInPool($agencyId, $suburbIds));
-        $captured = $this->areas->lastCaptured($agencyId, array_values(array_intersect($suburbIds, array_keys($poolIds))));
+        $poolIds = array_flip($this->areas->idsInPool($agencyId, $suburbIds, $this->track()));
+        $captured = $this->areas->lastCaptured($agencyId, array_values(array_intersect($suburbIds, array_keys($poolIds))), $this->track());
 
-        $townFilterCity = $townId > 0 ? (int) DB::table('towns')->where('id', $townId)->where('agency_id', $agencyId)->value('p24_city_id') : 0;
+        $townFilterCity = max(0, $townId); // a town is its Property24 town id
 
         $byUser = $areaRows->groupBy('user_id');
         $rows = $agents->map(function (User $u) use ($byUser, $meta, $poolIds, $captured, $warnDays, $portals) {
@@ -255,9 +263,9 @@ class AreasController extends Controller
         if ($addFor > 0 && $agents->has($addFor)) {
             $suburbQ = trim((string) $request->query('suburb_q', ''));
             $pickerTown = (int) $request->query('picker_town', 0);
-            $pickerCity = $pickerTown > 0 ? (int) DB::table('towns')->where('id', $pickerTown)->where('agency_id', $agencyId)->value('p24_city_id') : 0;
+            $pickerCity = max(0, $pickerTown);
             $already = RtsAgentArea::query()->where('track', $this->track())->where('user_id', $addFor)->pluck('p24_suburb_id')->all();
-            $pq = $this->areas->poolQuery($agencyId)
+            $pq = $this->areas->poolQuery($agencyId, $this->track())
                 ->when($suburbQ !== '', fn ($b) => $b->where('s.name', 'like', '%' . str_replace(['%', '_'], ['\\%', '\\_'], $suburbQ) . '%'))
                 ->when($pickerCity > 0, fn ($b) => $b->where('s.p24_city_id', $pickerCity))
                 ->when($already !== [], fn ($b) => $b->whereNotIn('s.id', $already))
@@ -269,6 +277,7 @@ class AreasController extends Controller
                 'overflow' => $found->count() > self::PICKER_LIMIT,
                 'suburb_q' => $suburbQ,
                 'town'     => $pickerTown,
+                'counts'   => $this->areas->derived($agencyId),
             ];
         }
 
@@ -283,29 +292,49 @@ class AreasController extends Controller
 
     private function suburbsView(Request $request, User $viewer, int $agencyId, int $warnDays): array
     {
-        $portals = SettingsService::forAgency($agencyId, $this->track())->refreshPortals();
+        $track    = $this->track();
+        $portals  = SettingsService::forAgency($agencyId, $track)->refreshPortals();
         $q        = trim((string) $request->query('q', ''));
-        $townId   = (int) $request->query('town_id', 0);
+        $townId   = max(0, (int) $request->query('town_id', 0)); // a town is its Property24 town id
         $unassigned = $request->boolean('unassigned');
         $staleOnly  = $request->boolean('stale');
-        $sort     = in_array($request->query('sort'), ['name', 'stale', 'agents'], true) ? $request->query('sort') : 'name';
+        $status   = $request->query('status') === 'hidden' ? 'hidden' : 'active';
+        $source   = in_array($request->query('source'), ['stock', 'mic'], true) ? $request->query('source') : 'all';
+        $sort     = in_array($request->query('sort'), ['name', 'stale', 'agents', 'stock', 'mic'], true) ? $request->query('sort') : 'name';
 
-        $townCity = $townId > 0 ? (int) DB::table('towns')->where('id', $townId)->where('agency_id', $agencyId)->value('p24_city_id') : 0;
-        $pool = $this->areas->poolQuery($agencyId)
-            ->when($townCity > 0, fn ($b) => $b->where('s.p24_city_id', $townCity))
+        // What an administrator has hidden (suburbs and whole towns), for the "Hidden" view and its Restore buttons.
+        $hiddenRows = collect();
+        if ($status === 'hidden') {
+            $hiddenRows = RtsHiddenArea::query()->where('track', $track)->orderByDesc('id')->get()->map(function (RtsHiddenArea $h) {
+                if ($h->kind === RtsHiddenArea::KIND_TOWN) {
+                    $name = (string) (DB::table('p24_cities')->where('id', $h->p24_city_id)->value('name') ?? 'Unknown town');
+
+                    return ['id' => $h->id, 'kind' => 'town', 'name' => $name, 'town' => null, 'at' => $h->created_at];
+                }
+                $s = DB::table('p24_suburbs as s')->leftJoin('p24_cities as c', 'c.id', '=', 's.p24_city_id')->where('s.id', $h->p24_suburb_id)->first(['s.name', DB::raw('c.name as town_name')]);
+
+                return ['id' => $h->id, 'kind' => 'suburb', 'name' => (string) ($s->name ?? 'Unknown suburb'), 'town' => $s->town_name ?? null, 'at' => $h->created_at];
+            });
+        }
+
+        $derived = $this->areas->derived($agencyId);
+        $pool = $status === 'hidden' ? collect() : $this->areas->poolQuery($agencyId, $track)
+            ->when($townId > 0, fn ($b) => $b->where('s.p24_city_id', $townId))
             ->orderBy('s.name')->get();
 
         $agents = VisibleAgents::for($viewer);
-        $assigned = RtsAgentArea::query()->visibleTo($viewer)->where('track', $this->track())
+        $assigned = RtsAgentArea::query()->visibleTo($viewer)->where('track', $track)
             ->whereIn('user_id', $agents->keys()->all())->get()->groupBy('p24_suburb_id');
-        $captured = $this->areas->lastCaptured($agencyId);
+        $captured = $status === 'hidden' ? [] : $this->areas->lastCaptured($agencyId, $pool->pluck('id')->map(fn ($i) => (int) $i)->all(), $track);
 
-        $rows = $pool->map(function ($s) use ($assigned, $captured, $agents, $warnDays, $portals) {
+        $rows = $pool->map(function ($s) use ($assigned, $captured, $agents, $warnDays, $portals, $derived) {
             $cap  = $captured[(int) $s->id] ?? ['p24' => null, 'pp' => null];
             $who  = ($assigned->get((int) $s->id) ?? collect())->map(fn ($a) => $agents->get($a->user_id)?->name)->filter()->sort()->values();
+            $d    = $derived[(int) $s->id] ?? ['own' => 0, 'mic' => 0];
 
             return [
-                'id' => (int) $s->id, 'name' => $s->name, 'town' => $s->town_name,
+                'id' => (int) $s->id, 'name' => $s->name, 'town' => $s->town_name, 'city_id' => $s->p24_city_id ? (int) $s->p24_city_id : null,
+                'own' => (int) $d['own'], 'mic' => (int) $d['mic'],
                 'agents' => $who, 'p24' => $cap['p24'], 'pp' => $cap['pp'],
                 'stale_portals' => $stale = $this->areas->portalsNeedingRefresh($cap, $warnDays, $portals),
                 'needs_refresh' => $stale !== [],
@@ -325,21 +354,59 @@ class AreasController extends Controller
         if ($staleOnly) {
             $rows = $rows->filter(fn ($r) => $r['needs_refresh']);
         }
+        if ($source === 'stock') {
+            $rows = $rows->filter(fn ($r) => $r['own'] > 0);
+        } elseif ($source === 'mic') {
+            $rows = $rows->filter(fn ($r) => $r['own'] === 0 && $r['mic'] > 0);
+        }
 
         $rows = match ($sort) {
             'stale'  => $rows->sortBy('newest'),
             'agents' => $rows->sortByDesc(fn ($r) => $r['agents']->count()),
+            'stock'  => $rows->sortByDesc(fn ($r) => $r['own'] * 1000000 + $r['mic']),
+            'mic'    => $rows->sortByDesc(fn ($r) => $r['mic'] * 1000000 + $r['own']),
             default  => $rows->sortBy(fn ($r) => mb_strtolower($r['name'])),
         };
 
         $page = $this->paginate($rows->values(), self::SUBURB_PAGE_SIZE, $request);
+        $townName = $townId > 0 ? ($this->areas->towns($agencyId, $track)->firstWhere('id', $townId)?->name) : null;
 
         return [
-            'suburbRows' => $page, 'rows' => null, 'picker' => null,
-            'filters' => ['q' => $q, 'status' => 'active', 'branchId' => 0, 'townId' => $townId, 'noAreas' => false,
+            'suburbRows' => $page, 'rows' => null, 'picker' => null, 'hiddenRows' => $hiddenRows, 'townName' => $townName,
+            'filters' => ['q' => $q, 'status' => $status, 'source' => $source, 'branchId' => 0, 'townId' => $townId, 'noAreas' => false,
                 'staleOnly' => $staleOnly, 'sort' => $sort, 'unassigned' => $unassigned],
-            'emptyFiltered' => $page->total() === 0 && ($q !== '' || $townId > 0 || $unassigned || $staleOnly),
+            'emptyFiltered' => $page->total() === 0 && ($q !== '' || $townId > 0 || $unassigned || $staleOnly || $source !== 'all'),
         ];
+    }
+
+    // ── hide / show a suburb or a whole town (soft; Road to Sold only) ─────────
+
+    public function hide(Request $request): RedirectResponse
+    {
+        $viewer   = $request->user();
+        $agencyId = (int) ($viewer->effectiveAgencyId() ?: 0);
+        abort_unless($agencyId > 0, 404);
+
+        $v = $request->validate(['kind' => ['required', 'in:suburb,town'], 'id' => ['required', 'integer', 'min:1']]);
+        $exists = $v['kind'] === 'town'
+            ? DB::table('p24_cities')->where('id', $v['id'])->exists()
+            : DB::table('p24_suburbs')->where('id', $v['id'])->whereNull('deleted_at')->exists();
+        abort_unless($exists, 404);
+
+        $this->areas->hide($agencyId, $this->track(), $v['kind'], (int) $v['id'], $viewer->id);
+
+        return redirect()->route(Routing::base() . 'areas.index', ['view' => 'suburbs'])
+            ->with('success', ($v['kind'] === 'town' ? 'The town' : 'The suburb') . ' is hidden from Road to Sold. Nothing was deleted - choose Hidden under Show to bring it back.');
+    }
+
+    public function showAgain(Request $request, int $hidden): RedirectResponse
+    {
+        $viewer   = $request->user();
+        $agencyId = (int) ($viewer->effectiveAgencyId() ?: 0);
+        $row = RtsHiddenArea::query()->where('agency_id', $agencyId)->where('track', $this->track())->findOrFail($hidden);
+        $row->delete(); // soft: the row stays as the record that it was hidden
+
+        return redirect()->route(Routing::base() . 'areas.index', ['view' => 'suburbs', 'status' => 'hidden'])->with('success', 'It is back in Road to Sold.');
     }
 
     // ── helpers ───────────────────────────────────────────────────────────
@@ -350,13 +417,10 @@ class AreasController extends Controller
         if ($ids === []) {
             return [];
         }
-        $towns = DB::table('towns')->where('agency_id', $agencyId)->whereNull('deleted_at')->whereNotNull('p24_city_id')
-            ->orderBy('display_order')->orderBy('id')->get(['name', 'p24_city_id'])->unique('p24_city_id')->pluck('name', 'p24_city_id');
-
         $out = [];
-        foreach (DB::table('p24_suburbs')->whereIn('id', $ids)->get(['id', 'name', 'p24_city_id']) as $s) {
+        foreach (DB::table('p24_suburbs as s')->leftJoin('p24_cities as c', 'c.id', '=', 's.p24_city_id')->whereIn('s.id', $ids)->get(['s.id', 's.name', 's.p24_city_id', DB::raw('c.name as town_name')]) as $s) {
             $out[(int) $s->id] = ['name' => (string) $s->name, 'city_id' => $s->p24_city_id ? (int) $s->p24_city_id : null,
-                'town' => $towns->get($s->p24_city_id)];
+                'town' => $s->town_name];
         }
 
         return $out;

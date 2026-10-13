@@ -33,6 +33,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Tests\Feature\RoadToSold\Concerns\RtsFixtures;
+use Tests\Feature\RoadToSold\Concerns\SeedsDerivedAreas;
 use Tests\TestCase;
 
 /**
@@ -55,7 +56,7 @@ use Tests\TestCase;
  */
 final class AgentWeekScenarioTest extends TestCase
 {
-    use RefreshDatabase, RtsFixtures;
+    use RefreshDatabase, RtsFixtures, SeedsDerivedAreas;
 
     private const FRI_BEFORE = '2026-10-09';
     private const MON = '2026-10-12';
@@ -945,10 +946,9 @@ final class AgentWeekScenarioTest extends TestCase
                 'name' => $name, 'slug' => strtolower($name), 'p24_id' => $p24, 'p24_city_id' => $city, 'created_at' => now(), 'updated_at' => now(),
             ]);
         }
-        DB::table('towns')->insert([
-            'agency_id' => $this->agency->id, 'name' => 'Margate', 'slug' => 'margate', 'p24_city_id' => $city,
-            'display_order' => 1, 'created_at' => now(), 'updated_at' => now(),
-        ]);
+        foreach (['Uvongo', 'Manaba', 'Ramsgate'] as $name) {
+            $this->putInPool($this->agency->id, $sub[$name]);
+        }
         foreach ([[$this->anna, 'Uvongo'], [$this->ben, 'Uvongo'], [$this->cara, 'Manaba']] as [$u, $s]) {
             RtsAgentArea::create([
                 'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'track' => 'sales',

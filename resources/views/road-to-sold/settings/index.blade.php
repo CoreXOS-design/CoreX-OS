@@ -86,6 +86,13 @@
                            class="w-28 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                     <span class="text-xs ml-2" style="color:var(--text-muted);">days (standard: {{ $defaults['area_refresh_warn_days'] }})</span>
                 </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="min_area_properties">A suburb is a working area from</label>
+                    <input id="min_area_properties" type="number" min="1" max="1000" name="min_area_properties"
+                           value="{{ old('min_area_properties', $settings->minAreaProperties()) }}"
+                           class="w-28 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    <span class="text-xs ml-2" style="color:var(--text-muted);">properties (your stock plus Market Intelligence adverts; standard: {{ $defaults['min_area_properties'] }})</span>
+                </div>
             </div>
         </div>
 

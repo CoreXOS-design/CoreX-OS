@@ -24,6 +24,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\NullOutput;
+use Tests\Feature\RoadToSold\Concerns\SeedsDerivedAreas;
 use Tests\TestCase;
 
 /**
@@ -36,6 +37,7 @@ use Tests\TestCase;
 final class AuditGapsTest extends TestCase
 {
     use RefreshDatabase;
+    use SeedsDerivedAreas;
 
     private Agency $agency;
     private Branch $branch;
@@ -77,11 +79,8 @@ final class AuditGapsTest extends TestCase
         $this->sub['uvongo_port']    = $this->suburb('Uvongo', $this->cityPort, 910102);
         $this->sub['manaba']         = $this->suburb('Manaba', $this->cityMargate, 910103);
 
-        foreach ([['Margate', $this->cityMargate, 1], ['Port Shepstone', $this->cityPort, 2]] as [$n, $city, $order]) {
-            DB::table('towns')->insert([
-                'agency_id' => $this->agency->id, 'name' => $n, 'slug' => Str::slug($n), 'p24_city_id' => $city,
-                'display_order' => $order, 'created_at' => now(), 'updated_at' => now(),
-            ]);
+        foreach (['uvongo_margate', 'uvongo_port', 'manaba'] as $k) {
+            $this->putInPool($this->agency->id, $this->sub[$k]);
         }
     }
 

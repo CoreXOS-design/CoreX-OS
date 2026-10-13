@@ -104,6 +104,12 @@ class SettingsService
         return (int) $this->scalar('area_refresh_warn_days');
     }
 
+    /** A suburb is a working area when the agency's own stock plus its Market Intelligence adverts there reach this many. */
+    public function minAreaProperties(): int
+    {
+        return max(1, (int) $this->scalar('min_area_properties'));
+    }
+
     /** @return string[] the portals this agency captures from ('p24', 'pp'); only these ask for a refresh. At least one. */
     public function refreshPortals(): array
     {
