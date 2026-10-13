@@ -369,3 +369,75 @@ Decoupling: lane 2 depends on four small contracts — `BuilderSettings`-style r
 * **Q6 (business):** Inside a selection, does the agent's **area** or the **address** come first? *Built:* area first, then with-address. Flip is one comparator.
 * **Q7 (business):** Two agents who share a suburb, on a day when neither has worked a property yet, can be handed the same property (the hold only starts after an outcome is captured). *Built:* only rule (4) of the brief; no cross-agent de-duplication of the same day's lists. Do you want one?
 * **Q8 (process):** Strict agency-order fill means selection 1 can use the whole day's target on its own. *Built as written.* A per-selection share would be a setting; not built.
+
+---
+
+## 10. Lane 3 (cc3) — outcomes, holds, the page, the summary bar, the report
+
+Governing ticket AT-454. Section 1 is the rulebook. **Canonical property key = `tracked_properties.id`** (conductor ruling 13 Oct): holds, the call log, the "never suggest" marker and every read here key on `tracked_property_id`; `property_id` / `prospecting_listing_id` ride alongside for display and links. Owners with no contact record keep history on the property only.
+
+### 10.1 Data model (all: `agency_id` NOT NULL + `BelongsToAgency`, `track` default `'sales'`, soft deletes)
+
+| Table | Purpose | Notes |
+|---|---|---|
+| `rts_outcome_definitions` | The agency's outcome list | `key` (stable, stored; the seeded eight keep theirs when renamed), `label`, `kind` attempt\|conversation, `next_action` (`return_after_days`\|`return_on_picked_date`\|`return_on_expiry_else_picked`\|`move_to_list`\|`never_again`\|`calendar_appointment`), `delay_days`, `list_tag`, `counts_as_no_answer`, `records_do_not_contact`, `is_active`, `is_system`, `sort_order`. Unique `(agency_id, track, key)` ignores soft deletes → **create after archive restores** the trashed row. Seeded lazily per agency+track by `OutcomeDefinitionService::ensureDefaults()` (never for agency id 0). |
+| `rts_contact_outcomes` | The call log | One row per captured outcome: `user_id` (the agent), `tracked_property_id`, `property_id`, `prospecting_listing_id`, `list_item_id`, `contact_id` (owner, when known), `outcome_key/label/kind` **copied** (history survives a rename/archive), `note`, `valuation_booked`, `calendar_event_id`, `next_action`, `next_action_at`, `list_tag`, `no_answer_streak`, `dropped`, `is_current`, `occurred_at`. `is_current` = newest outcome per (tracked property, track). |
+| `rts_holds` | Who is working a property | One row per (agency, track, tracked property); `user_id`, `started_at`, `expires_at`, `released_at`. A new outcome re-uses the row (restores a trashed one) and restarts it. |
+| `rts_property_flags` | `never_suggest` marker | Set by a "Do not contact" outcome so a property with no owner contact is still excluded for every agent. |
+
+### 10.2 Capture rules (`RoadToSold\OutcomeService::record()` — one transaction)
+1. **Hold:** another agent's active hold refuses the capture with "X is working this property until D" — except an outcome flagged `records_do_not_contact`, which is always recordable.
+2. **Next action:** `return_after_days` → today + delay; `return_on_picked_date` → agent's date (required, today or later); `return_on_expiry_else_picked` → the mandate end date when CoreX knows it (**no stored expiry exists for other agencies' mandates today, so the agent always picks the date** — the single hook is `OutcomeService::knownExpiryDate()`), else the picked date; `move_to_list` → the outcome's list tag, no date; `never_again` → no date; `calendar_appointment` → creates the appointment.
+3. **Valuation booked** is offered on every *conversation* outcome (never on an attempt, never on "never again"). It needs a date-and-time, creates a `property_evaluation` calendar event through `CalendarEventCreator` (owner contact linked when known), sets `valuation_booked`, and — because the appointment is the follow-up — the property leaves the call list (`next_action = calendar_appointment`) whatever outcome it was booked from. *Decision (mine, within the brief):* the brief seeds "Valuation booked" as its own outcome **and** says it is offered on every conversation outcome; both are built.
+4. **No answer run:** `counts_as_no_answer` outcomes count consecutively for this agent on this property; any other outcome (or another agent's) resets the run. At `SettingsService::noAnswerDropAfter()` the row is `dropped` (never a follow-up again) and shows on the manager's report. The agent's hold on the property continues until it lapses.
+5. **Owner contact side** (only when the tracked property has an owner contact): a `ContactNote` ("Road to Sold - <outcome>: <note>") is written — that is the history on the contact, visible in the contact's existing Notes tab; **conversations call `Contact::markContacted()`** (moves last-contacted, fires `ContactContactedByAgent` — intended, conductor ruling), attempts do not. A plain note never moves last-contacted (unchanged rule).
+6. **Do not contact:** `Contact::setConsent('channel_call', declined, 'verbal', …)` → `recomputeChannelConsent()` derives `opt_out_call` (never written directly) **and** `HoldService::markNeverSuggest()` (so no-owner properties are excluded too). No hold is created.
+7. **Hold** (not for do-not-contact): `holdDays()` from the occurrence.
+8. After commit, `rts_list_items.status` is set `worked` for the `list_item_id` if given (lane 2 owns the table; this is the only write lane 3 makes to it).
+
+### 10.3 Interfaces other lanes call
+* `HoldService::isHeldByOther(int $trackedPropertyId, User $u, string $track='sales'): bool`, `heldByOtherIds(array, User, track): int[]`, `ownHeldIds(array, User, track): int[]`, `excludedIdsFor(User, array, track): int[]` (held by another ∪ never-suggest). Every query filters `agency_id` explicitly (the overnight build has no signed-in user, where `AgencyScope` is skipped).
+* `OutcomeService::followUpsDue(User, date, track): Collection<RtsContactOutcome>`, `currentFor(agencyId, ids, track)`, `historyForProperty(agencyId, id, track)`.
+* **For lane 2's contracts:** `App\Services\RoadToSold\Adapters\HoldSuggestionGuard implements SuggestionGuard` and `…\OutcomeFollowUpSource implements FollowUpSource` are the real answers (bind them when `HoldService` exists).
+
+### 10.4 Outcome settings screen (`road-to-sold.settings.outcomes.index` etc., `road_to_sold.manage_settings`)
+Agency-wide list. **Search:** outcome name. **Filter:** All / switched on / switched off / archived. **Sort:** order shown to agents (default), name, attempt-or-conversation. Pagination 50. Add, edit (name, counts as, what happens next, days, list name, counts toward no-answer run, stops calls), switch on/off, move up/down (only in default sort, no search), archive (confirm), restore. Real empty states for "no match" vs "none yet". Scoping: `BelongsToAgency` + route binding (another agency's id → 404); gated by `road_to_sold.manage_settings`.
+Wizard (rule 10a): the outcome list is configured here, not in the wizard step — **Johan's call** whether the wizard should also walk through it; recorded as "Deliberately NOT in the wizard" until he says (the wizard step already carries hold days and the no-answer count, lane 1).
+
+### 10.5 The page — `GET /road-to-sold` (`road-to-sold.index`), permission `access_road_to_sold`
+Sidebar link "Road to Sold" (Real Estate group, `@feature('road-to-sold')`). Server-rendered Blade; Alpine only for the popup and filters.
+* **Viewing whose list:** the viewer's own list by default; a viewer whose breadth is branch/all can pick an agent from those in scope (`?agent=`). A user outside scope → 404. All reads go through `RtsListItem::scopeVisibleTo()` / `RtsContactOutcome::scopeVisibleTo()` (own = `dataIdentityIds()`).
+* **Show:** Today's list (default) · No answer · Wrong number · No owner. *Today's list* and *No owner* read `rts_list_items` for the day; *No answer* and *Wrong number* read the agent's **current** outcomes across all days (so a property can be found when the owner phones back).
+* **Columns:** Address (street, suburb) · Price · Days on market · Listing agency · Why suggested · Owner + phone (or **Find the owner**) · Last outcome (label, date, who) · **Contacted client** (one button, same size on every row).
+* **Search (named):** address, suburb, owner name, owner phone. **Filters:** selection (the nine + follow-up), status (Open default · Worked · Missed · All), Show (above). **Sort:** list order (default), address, price, days on market, last outcome date. Pagination 50 (the day's list is short; the other views are not).
+* **Empty states:** no list built yet / not a working day / no match for this filter — each says what to do.
+* **Find the owner:** one link to the existing owner-capture screen for the tracked property (`seller-outreach.entry.from-tracked-property`), which carries the CMA Info (title-deed) link, the TVA ingest and the manual contact link — the three existing owner paths live on that one screen.
+* **Contacted client popup:** outcome list (active only, agency order); date picker only for outcomes that need one; "Valuation booked" tick (conversations) → date-and-time; note; Save. Errors re-open the popup with the message.
+* **Add to my day:** selection + count → `ListBuilderService::addToDay()` (lane 2).
+* **Blocks under the list (not counted against the target), each own-scoped and correct (not the Today-page queries):** buyer follow-ups (`contacts.agent_id` in the agent's identity — **not** `created_by_user_id` — stale beyond the agency's buyer-warm/cold days, newest risk score only, no hard-coded 14 days); lead follow-ups (`LeadResponseService::results()` waiting/overdue for the agent); expiring mandates (`MandateExpiryPolicy` window for the agent's own listings).
+
+### 10.6 Summary bar and report — designed after pieces 1–3 land (this section is extended then)
+Steps `calls_made`, `conversations`, `valuations_booked`, `valuations_done`, `mandates_signed`, `listings_live`, each switchable by the agency (`SettingsService::summaryStepEnabled`). Should-be-by-today = `WorkdayService::monthTargetToDate()` for calls; the other steps take their target from the same ratio (open question Q9). Colour from `SettingsService::statusForPct()`. Click → the rows behind it (drill-down modal contract). Report: `PeriodResolver` + `last_30_days` preset, `PeriodComparison`, `_period-selector`, `<x-performance-delta>`, the drill modal envelope, print/PDF/XLSX.
+
+### 10.7 Input space (prevent or absorb)
+| Input | Rule |
+|---|---|
+| Outcome name blank / > 120 | Prevent, plain message |
+| Days blank / 0 / non-number for "after days" | Prevent |
+| List name blank for "move to list" | Prevent |
+| Archive then add the same name | Absorb: the archived row is restored |
+| Capture with a switched-off / archived / other agency's outcome | Refuse: "not available any more" |
+| Capture on another agency's property | Refuse: "could not be found" |
+| Picked date blank / unreadable / in the past | Prevent, plain message |
+| Valuation booked without a date-and-time / on an attempt | Prevent / ignored |
+| Note blank | Absorb; > 5000 refuse |
+| Property held by another agent | Refuse with who and until when (do-not-contact excepted) |
+| Owner has no contact record | Absorb: history on the property only |
+| Do not contact, no owner contact | Absorb: marker only |
+| Same outcome captured twice quickly | Two honest rows; streak and hold behave |
+| Agency id 0 / no signed-in user | Defaults, nothing written, nothing crosses agencies |
+
+### 10.8 Open questions (lane 3 → conductor; each has a default so building is not blocked)
+* **Q9 (business):** The summary bar needs a *monthly target per step*; the brief gives weekday targets for calls only. *Built:* Conversations/Valuations booked/Valuations done/Mandates signed/Listings live use the agency-level fraction "calls to date ÷ calls for the month" applied to a per-step monthly target set on the Road to Sold settings page (needs a settings field from lane 1) — **until Johan names the step targets the bar shows actual only for those steps.**
+* **Q10 (data):** Other agencies' mandate **end dates** are not stored anywhere, so "expiry date if known else agent-picked" is always agent-picked today.
+* **Q11 (process):** lane 3 lands on `origin/QA1` itself (conductor, 13 Oct) although Standard −1l says only cc1 does; acted on the conductor's word.
