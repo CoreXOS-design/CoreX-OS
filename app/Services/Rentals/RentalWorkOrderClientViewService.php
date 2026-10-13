@@ -309,7 +309,9 @@ class RentalWorkOrderClientViewService
             // the appointment box on the owner's card: only once the job is approved (the server refuses it before) and only until the work has started
             $workStarted = $reportedFinished || in_array($workOrder->status, [RentalWorkOrder::STATUS_IN_PROGRESS, RentalWorkOrder::STATUS_DISPUTED], true);
             $payload['owner_work_started'] = $workStarted;
-            $payload['owner_can_appoint'] = ! $workStarted && ! in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true) && $this->jobApproved($workOrder);
+            // Johan, 14 Oct 2026: the owner may set it only when nobody lives in the property; with a tenant they only SEE it (the server refuses it too)
+            $payload['owner_tenant_in_property'] = app(RentalWorkOrderService::class)->propertyHasTenant($workOrder);
+            $payload['owner_can_appoint'] = ! $workStarted && ! $payload['owner_tenant_in_property'] && ! in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true) && $this->jobApproved($workOrder);
             // §17.31 — supplier invoices the agent has chosen to share. LANDLORD only: the tenant payload never carries this key.
             $payload['invoices'] = app(RentalWorkOrderInvoiceService::class)->ownerPayload($workOrder);
         }

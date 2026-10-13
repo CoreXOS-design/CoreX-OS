@@ -474,6 +474,8 @@ class ClientLandlordRentalsController extends Controller
             ])->values(),
             'photos' => $photos->map(fn ($p) => ['id' => $p->id] + app(\App\Services\Images\PortalImageService::class)->urls($p->storage_path))->values(),
             'term_text' => (string) $variation->term_text,
+            // spec 22.17 - when the CONTRACTOR asked for the extra, their own words (amount and reason)
+            'reason' => $variation->origin === \App\Models\RentalWorkOrderVariation::ORIGIN_CONTRACTOR ? (string) $variation->note : null,
         ];
     }
 

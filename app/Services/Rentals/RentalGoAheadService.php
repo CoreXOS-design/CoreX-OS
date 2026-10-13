@@ -75,6 +75,49 @@ class RentalGoAheadService
         return null;
     }
 
+    /** Spec 22.17: has the cost been authorised (by anyone, on any basis, old work included) - the page then opens the "finish the job" cards. */
+    public function jobOpenForWork(RentalWorkOrder $wo): bool
+    {
+        return ! in_array($wo->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true)
+            && $wo->assignment_type === RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER
+            && $this->auth()->hasCostAuthority($wo);
+    }
+
+    /**
+     * The most this contractor may invoice: what the owner authorised, less the agency's own fee on the selected quote (the contractor's figure, never the selling
+     * price). Null when nothing was authorised in money (old / grandfathered work) - there is then nothing to hold the invoice to.
+     */
+    public function contractorCeiling(RentalWorkOrder $wo): ?float
+    {
+        if (! $wo->hasApprovedBaseline()) {
+            return null;
+        }
+        $quote = $this->selectedQuote($wo);
+        $fee = $quote && $quote->fee_amount !== null ? (float) $quote->fee_amount : 0.0;
+
+        return round((float) $wo->approved_amount - $fee, 2);
+    }
+
+    /**
+     * THE HARD LOCK on an invoice (Johan, 13 Oct 2026): the invoices already filed plus this one may not come to even one cent more than was authorised. Null =
+     * fine; otherwise the plain refusal to show the contractor.
+     */
+    public function invoiceLockMessage(RentalWorkOrder $wo, float $amount, ?int $exceptInvoiceId = null): ?string
+    {
+        $ceiling = $this->contractorCeiling($wo);
+        if ($ceiling === null) {
+            return null;
+        }
+        $filed = (float) $wo->invoices()->when($exceptInvoiceId, fn ($q) => $q->where('id', '!=', $exceptInvoiceId))->sum('amount');
+        $total = round($filed + $amount, 2);
+        if (self::cents($total) <= self::cents($ceiling)) {
+            return null;
+        }
+
+        return 'This invoice cannot be accepted: with it, your invoices come to ' . self::rand($total) . ', which is above the ' . self::rand($ceiling)
+            . ' the owner authorised. No amount above the authorised amount can be accepted. If the extra work was really needed, use "Ask for extra money" first and wait for the owner\'s answer.';
+    }
+
     /**
      * Does this authorisation cover what the contractor is to be told to do? Null = yes; otherwise the plain reason it does not (not an error - nothing is sent).
      */

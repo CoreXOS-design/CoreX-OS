@@ -363,10 +363,26 @@ class RentalWorkOrderService
      *
      * @throws \LogicException the work order is finished or cancelled
      */
+    /**
+     * Johan, 14 Oct 2026 (spec 22.16): is there a tenant in the property? True when the work order's lease, or any other lease on the same property, is active.
+     * The OWNER may set the repair appointment only when this is false (an empty property); with a tenant the agent arranges it and the owner only sees it.
+     */
+    public function propertyHasTenant(RentalWorkOrder $workOrder): bool
+    {
+        return \App\Models\Lease::withoutGlobalScopes()->where('agency_id', $workOrder->agency_id)->whereNull('deleted_at')
+            ->where('status', \App\Models\Lease::STATUS_ACTIVE)
+            ->where(fn ($q) => $q->where('property_id', $workOrder->property_id)->when($workOrder->lease_id, fn ($q2) => $q2->orWhere('id', $workOrder->lease_id)))
+            ->exists();
+    }
+
     public function setAppointment(RentalWorkOrder $workOrder, \DateTimeInterface $at, ?string $note, User|\App\Models\Contact $by, ?string $viaNote = null): bool
     {
         if (in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true)) {
             throw new \LogicException('This work order is already closed - an appointment can no longer be set.');
+        }
+        // an owner (a contact, never staff) may book the repair only in an empty property: with a tenant living there the agent arranges it with them
+        if ($by instanceof \App\Models\Contact && $this->propertyHasTenant($workOrder)) {
+            throw new \LogicException('Your tenant lives in the property, so your agent arranges the appointment with them. You can see it here once it is set.');
         }
         // Johan, 9 Oct 2026: an appointment (and the email to the tenant naming the contractor) only once the job is approved - within the owner's
         // no-approval limit, approved by the owner, an emergency, or the owner's own contractor. Before that the contractor may not even have a price.

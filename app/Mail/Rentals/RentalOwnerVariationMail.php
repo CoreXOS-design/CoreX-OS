@@ -55,6 +55,7 @@ class RentalOwnerVariationMail extends RentalMaintenanceMail
             'newTotal' => number_format((float) $this->variation->new_total, 2),
             'isUpdate' => $this->isUpdate,
             'termText' => (string) $this->variation->term_text,
+            'reason' => $this->variation->origin === \App\Models\RentalWorkOrderVariation::ORIGIN_CONTRACTOR ? (string) $this->variation->note : '',
             'portalUrl' => $this->recipient
                 ? \App\Support\PortalLink::forContact($this->recipient, \App\Support\PortalLink::VIEW_OWNER, ['wo' => $this->workOrder->id])
                 : \App\Support\PortalLink::unaddressed(\App\Support\PortalLink::VIEW_OWNER, ['wo' => $this->workOrder->id]),
