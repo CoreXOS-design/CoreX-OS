@@ -1050,6 +1050,16 @@
                 @endpermission
                 @endfeature
 
+                {{-- AT-454 — Road to Sold settings (the main Road to Sold page link is added beside this by the page's own lane). --}}
+                @feature('road-to-sold')
+                @if(\Illuminate\Support\Facades\Route::has('road-to-sold.settings.index')
+                    && (auth()->user()?->hasPermission('road_to_sold.manage_settings')
+                        || auth()->user()?->hasPermission('road_to_sold.manage_areas')
+                        || auth()->user()?->hasPermission('road_to_sold.manage_targets')))
+                <a href="{{ route('road-to-sold.settings.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.settings.*') ? 'active' : '' }}">Road to Sold settings</a>
+                @endif
+                @endfeature
+
                 {{-- AT-76 — Buyer Pipeline lives in Real Estate (was under Dashboard/Command Center). Route unchanged. --}}
                 {{-- AT-401 — command-center.buyers* also covers a buyer's own detail
                      page (command-center.buyers.show), the MAIN path out of the

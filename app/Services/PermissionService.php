@@ -353,6 +353,7 @@ class PermissionService
         'communications'          => ['own', false, 'their own threads, threads they take part in, and threads shared with them'],
         'market_intelligence'     => ['own', true,  'the code reads this as "own", but the screen then shows the whole branch pool'],
         'rental_command_centre'   => ['own', false, 'their own rentals'],
+        'road_to_sold'            => ['own', false, 'their own Road to Sold list, areas and targets'],
         'rental_reports'          => ['own', false, 'their own rentals'],
         'rental_applications'     => ['own', true,  'their own applications on a record, but the main list screen is refused'],
         'deals_v2'                => ['own', true,  'their own deals in lists; opening a deal is refused'],

@@ -72,7 +72,8 @@
         $listing->property_type ?? null,
         $listing->agency_name ? \Illuminate\Support\Str::limit($listing->agency_name, 20) : null,
         $listing->portal_ref ?? null,
-        $listing->first_seen_at ? $listing->first_seen_at->format('j M') : null,
+        // AT-454 — the portal's real listed date when we have it, else the day CoreX first saw the advert.
+        $listing->listedOn()?->format('j M'),
     ]);
 
     // Common chip style helpers

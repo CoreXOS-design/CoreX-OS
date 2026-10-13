@@ -67,6 +67,9 @@ class ProspectingListing extends Model
         'off_market_at',
         // MIC SUBURB RECONCILE (cc2) — the capture session that last saw this listing
         'last_search_id',
+        // AT-454 — the advert's REAL listed date (portal's own), separate from first_seen_at
+        'listed_date',
+        'listed_date_source',
     ];
 
     protected $casts = [
@@ -84,7 +87,11 @@ class ProspectingListing extends Model
         'portal_status_changed_at' => 'datetime',
         'off_market_at'            => 'datetime',
         'last_search_id'           => 'integer',
+        'listed_date'              => 'date',
     ];
+
+    public const LISTED_DATE_SOURCE_PORTAL = 'portal';
+    public const LISTED_DATE_SOURCE_AGENT  = 'agent';
 
     // ── Portal lifecycle status (MIC SOLD / OFF-MARKET + REF-TRACKING) ──
     public const PORTAL_STATUS_ACTIVE      = 'active';
@@ -114,22 +121,154 @@ class ProspectingListing extends Model
     }
 
     /**
-     * Days the listing was (or has been) on-market — from first sighting to its
-     * off-market date, or to now if still live. NULL when we never saw it first.
+     * When this advert went on the market, as best we know: the portal's real listed date when we
+     * have one (captured, or corrected by an agent), else the day CoreX first captured it.
+     * AT-454 — the ONE definition behind "days on market", "new on market" and "long on market".
+     */
+    public function listedOn(): ?\Illuminate\Support\Carbon
+    {
+        if ($this->listed_date) {
+            return $this->listed_date->copy()->startOfDay();
+        }
+
+        return $this->first_seen_at?->copy()->startOfDay();
+    }
+
+    /** True when listedOn() is the portal's real date, false when it is only our first sighting. */
+    public function hasRealListedDate(): bool
+    {
+        return $this->listed_date !== null;
+    }
+
+    /**
+     * Days the listing was (or has been) on-market — from its listed date (else first sighting) to
+     * its off-market date, or to now if still live. NULL when we never saw it first.
      */
     public function daysOnMarket(): ?int
     {
-        if (! $this->first_seen_at) {
+        $start = $this->listedOn();
+        if (! $start) {
             return null;
         }
         $end = $this->off_market_at ?? now();
-        return $this->first_seen_at->diffInDays($end);
+        return (int) $start->diffInDays($end->copy()->startOfDay());
+    }
+
+    /**
+     * Listed within the last $days days — "new on market". By the real listed date when we have one
+     * (calendar-day compare, today included), else by first sighting EXACTLY as the old
+     * `new_today` preset compared it (a timestamp against now − $days), so rows without a real
+     * date behave as they always did.
+     */
+    public function scopeListedWithinDays($query, int $days, string $table = 'prospecting_listings')
+    {
+        $days = max(0, $days);
+
+        return $query->where(function ($q) use ($days, $table) {
+            $q->where(fn ($w) => $w->whereNotNull("{$table}.listed_date")
+                    ->where("{$table}.listed_date", '>=', now()->subDays($days)->toDateString()))
+              ->orWhere(fn ($w) => $w->whereNull("{$table}.listed_date")
+                    ->where("{$table}.first_seen_at", '>=', now()->subDays($days)));
+        });
+    }
+
+    /** Listed MORE than $days days ago — "long on market". Same two-way definition as above. */
+    public function scopeListedBeforeDays($query, int $days, string $table = 'prospecting_listings')
+    {
+        $days = max(0, $days);
+
+        return $query->where(function ($q) use ($days, $table) {
+            $q->where(fn ($w) => $w->whereNotNull("{$table}.listed_date")
+                    ->where("{$table}.listed_date", '<', now()->subDays($days)->toDateString()))
+              ->orWhere(fn ($w) => $w->whereNull("{$table}.listed_date")
+                    ->where("{$table}.first_seen_at", '<', now()->subDays($days)));
+        });
+    }
+
+    public function dateCorrections()
+    {
+        return $this->hasMany(ProspectingListingDateCorrection::class, 'prospecting_listing_id');
     }
 
     /** Rows whose last portal-reported status is off-market. */
     public function scopeOffMarket($query)
     {
         return $query->whereIn('portal_status', self::OFF_MARKET_STATUSES);
+    }
+
+    /** The legacy text old captures stored when the tile showed no street address. */
+    public const ADDRESS_PLACEHOLDER = 'Address not available';
+
+    /**
+     * THE one "has an address" rule for MIC listings (Road to Sold, piece 1).
+     *
+     * A listing has an address when EITHER
+     *   (a) its own captured `address` text is real (not null, '' or the legacy placeholder), OR
+     *   (b) the tracked property it sits on has a street name.
+     *
+     * (b) is what makes an address an agent corrected through
+     * TrackedPropertyController::editAddress count: that edit writes the tracked property's
+     * address history and the observer refreshes tracked_properties.street_name, but it never
+     * touched prospecting_listings.address — so the Work tab filter (which only read the listing
+     * text) kept calling a corrected listing "no address". It also lets a cross-portal twin
+     * (P24 + PP advert of one property) share the address one of them carries.
+     *
+     * tracked_properties.street_name is the cache column, not tracked_property_addresses: that
+     * history table holds a primary row for only a handful of properties, the cache is filled for
+     * all of them. Every place that asks "has an address" must call this — never re-spell the
+     * three-way text test.
+     *
+     * @param  string  $table  the listing table name/alias in the surrounding query
+     */
+    public function scopeWithAddress($query, string $table = 'prospecting_listings')
+    {
+        return $query->where(function ($q) use ($table) {
+            $q->where(function ($t) use ($table) {
+                $t->whereNotNull("{$table}.address")
+                  ->where("{$table}.address", '<>', '')
+                  ->where("{$table}.address", '<>', self::ADDRESS_PLACEHOLDER);
+            })->orWhereExists(static::trackedStreetExists($table));
+        });
+    }
+
+    /** Exact inverse of scopeWithAddress(). */
+    public function scopeWithoutAddress($query, string $table = 'prospecting_listings')
+    {
+        return $query->where(function ($t) use ($table) {
+            $t->whereNull("{$table}.address")
+              ->orWhere("{$table}.address", '')
+              ->orWhere("{$table}.address", self::ADDRESS_PLACEHOLDER);
+        })->whereNotExists(static::trackedStreetExists($table));
+    }
+
+    /** Instance form of the same rule, for code that already holds a listing. */
+    public function hasAddress(): bool
+    {
+        $text = trim((string) $this->address);
+        if ($text !== '' && $text !== self::ADDRESS_PLACEHOLDER) {
+            return true;
+        }
+        if (! $this->tracked_property_id) {
+            return false;
+        }
+
+        return \Illuminate\Support\Facades\DB::table('tracked_properties')
+            ->where('id', $this->tracked_property_id)
+            ->whereNull('deleted_at')
+            ->whereNotNull('street_name')->where('street_name', '<>', '')
+            ->exists();
+    }
+
+    private static function trackedStreetExists(string $table): \Closure
+    {
+        return function ($s) use ($table) {
+            $s->select(\Illuminate\Support\Facades\DB::raw(1))
+                ->from('tracked_properties as tp_addr')
+                ->whereColumn('tp_addr.id', "{$table}.tracked_property_id")
+                ->whereNull('tp_addr.deleted_at')
+                ->whereNotNull('tp_addr.street_name')
+                ->where('tp_addr.street_name', '<>', '');
+        };
     }
 
     /**

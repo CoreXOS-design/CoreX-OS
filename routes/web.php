@@ -7634,6 +7634,13 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
             [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'matchTooltip'])
             ->name('match-tooltip');
 
+        // AT-454 — correct a listing's listed date (reason required, history kept).
+        Route::put('/listing/{listing}/listed-date',
+            [\App\Http\Controllers\CoreX\ProspectingListingListedDateController::class, 'update'])
+            ->whereNumber('listing')
+            ->middleware('permission:mic.listed_date.correct')
+            ->name('listing.listed-date.update');
+
         // Phase F — CMA report import pipeline. Every route gated by
         // permission:mic.upload_reports (Laravel 11 — middleware is at the
         // route level, not the controller constructor).
@@ -7842,3 +7849,20 @@ Route::middleware(['auth', 'permission:access_settings'])
 Route::get('/tools/cma/evaluation/public/{certificate}', [\App\Http\Controllers\Tools\EvaluationCertificateController::class, 'publicView'])
     ->middleware('signed')
     ->name('tools.cma.evaluation.public');
+
+// AT-454 — Road to Sold settings (.ai/specs/road-to-sold.md section 5).
+// The hub is open to anyone who can manage settings, areas or targets; each tab re-checks its own key.
+Route::middleware(['auth', 'feature:road-to-sold'])
+    ->prefix('road-to-sold/settings')
+    ->name('road-to-sold.settings.')
+    ->group(function () {
+        Route::get('/', [\App\Http\Controllers\RoadToSold\SettingsController::class, 'index'])
+            ->middleware('permission:road_to_sold.manage_settings,road_to_sold.manage_areas,road_to_sold.manage_targets')
+            ->name('index');
+        Route::put('/general', [\App\Http\Controllers\RoadToSold\SettingsController::class, 'update'])
+            ->middleware('permission:road_to_sold.manage_settings')
+            ->name('general.update');
+        Route::post('/general/reset', [\App\Http\Controllers\RoadToSold\SettingsController::class, 'reset'])
+            ->middleware('permission:road_to_sold.manage_settings')
+            ->name('general.reset');
+    });

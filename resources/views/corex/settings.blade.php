@@ -141,6 +141,10 @@
                     $can('rental_catalogue.manage') && feature('rental-catalogue')
                         ? ['key'=>'rental-catalogue-items', 'label'=>'Parts & Labour Catalogue', 'type'=>'link', 'href'=>route('corex.rental-catalogue-items.index'), 'keywords'=>'job card labour part catalogue price unit maintenance']
                         : null,
+                    // AT-454 — Road to Sold: areas, targets and the rules of the daily call list.
+                    (($can('road_to_sold.manage_settings') || $can('road_to_sold.manage_areas') || $can('road_to_sold.manage_targets')) && feature('road-to-sold'))
+                        ? ['key'=>'road-to-sold-settings', 'label'=>'Road to Sold', 'type'=>'link', 'href'=>route('road-to-sold.settings.index'), 'keywords'=>'road to sold daily call list stock target weekday areas suburbs agents phone prospecting no answer hold']
+                        : null,
                     $can('rental_details.manage_settings')
                         ? ['key'=>'rental-details-settings', 'label'=>'Rental Details', 'type'=>'link', 'href'=>route('corex.settings.rental-details.edit'), 'keywords'=>'rental tab custom fields lets assist price type lease type advert block description']
                         : null,

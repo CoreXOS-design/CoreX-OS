@@ -388,7 +388,38 @@
                         @if($listing->first_seen_at)
                             <div style="font-size: 0.625rem; color: var(--text-muted); margin-top: 2px;">
                                 First seen {{ \Carbon\Carbon::parse($listing->first_seen_at)->diffForHumans() }}
+                                @if($listing->listed_date)
+                                    · Listed {{ \Carbon\Carbon::parse($listing->listed_date)->format('j M Y') }}
+                                    ({{ $listing->listed_date_source === 'agent' ? 'set by an agent' : 'from the portal' }})
+                                @else
+                                    · Listed date not known
+                                @endif
                             </div>
+                        @endif
+                        @if(auth()->user()?->hasPermission('mic.listed_date.correct'))
+                            <details style="margin-top: 4px;">
+                                <summary style="font-size: 0.6875rem; color: var(--brand-icon); cursor: pointer;">Correct listed date</summary>
+                                <form method="POST" action="{{ route('market-intelligence.listing.listed-date.update', $listing->id) }}"
+                                      style="display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; margin-top: 6px;">
+                                    @csrf
+                                    @method('PUT')
+                                    <label style="font-size: 0.6875rem; color: var(--text-secondary);">
+                                        Date the advert went live
+                                        <input type="date" name="listed_date" required max="{{ now()->toDateString() }}"
+                                               value="{{ $listing->listed_date ? \Carbon\Carbon::parse($listing->listed_date)->toDateString() : '' }}"
+                                               style="display: block; padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text-primary);">
+                                    </label>
+                                    <label style="font-size: 0.6875rem; color: var(--text-secondary); flex: 1; min-width: 180px;">
+                                        Why are you changing it?
+                                        <input type="text" name="reason" required minlength="5" maxlength="2000"
+                                               style="display: block; width: 100%; padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text-primary);">
+                                    </label>
+                                    <button type="submit"
+                                            style="padding: 5px 10px; font-size: 0.6875rem; font-weight: 600; border: 0; border-radius: 4px; background: var(--brand-button); color: #fff; cursor: pointer;">
+                                        Save date
+                                    </button>
+                                </form>
+                            </details>
                         @endif
                     </div>
                 @endforeach
