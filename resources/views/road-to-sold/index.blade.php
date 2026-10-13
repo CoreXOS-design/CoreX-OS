@@ -225,6 +225,40 @@
     @endif
     {{ $rowsPage->links() }}
 
+    {{-- Other work, not counted against today's target --}}
+    @php
+        $feedBlocks = [
+            ['key' => 'buyers',   'title' => 'Buyers to follow up', 'empty' => 'No buyers are waiting for contact.',      'all' => route('command-center.buyers.pipeline')],
+            ['key' => 'leads',    'title' => 'Enquiries waiting',   'empty' => 'No enquiries are waiting for a response.', 'all' => null],
+            ['key' => 'mandates', 'title' => 'Mandates ending soon', 'empty' => 'No mandates end soon.',                      'all' => route('corex.properties.index')],
+        ];
+    @endphp
+    @if(! empty($feeds))
+    <div class="grid gap-4" style="grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));">
+        @foreach($feedBlocks as $fb)
+            @php $feed = $feeds[$fb['key']] ?? ['count' => 0, 'items' => []]; @endphp
+            <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="flex items-center justify-between px-4 py-3" style="border-bottom: 1px solid var(--border);">
+                    <h2 class="text-xs font-bold uppercase tracking-widest" style="color: var(--text-muted);">{{ $fb['title'] }}</h2>
+                    <span class="text-xs font-semibold" style="color: var(--text-primary);">{{ $feed['count'] }}</span>
+                </div>
+                @forelse($feed['items'] as $it)
+                    <div class="px-4 py-2 text-xs" style="border-top: 1px solid var(--border);">
+                        @if($it['url'])<a href="{{ $it['url'] }}" class="font-semibold" style="color: var(--text-primary);">{{ $it['title'] }}</a>
+                        @else<span class="font-semibold" style="color: var(--text-primary);">{{ $it['title'] }}</span>@endif
+                        <div style="color: var(--text-muted);">{{ $it['sub'] }}</div>
+                    </div>
+                @empty
+                    <div class="px-4 py-6 text-xs text-center" style="color: var(--text-muted);">{{ $fb['empty'] }}</div>
+                @endforelse
+                @if($fb['all'] && $feed['count'] > count($feed['items']))
+                    <div class="px-4 py-2 text-xs" style="border-top: 1px solid var(--border);"><a href="{{ $fb['all'] }}" style="color: var(--text-primary);">See all {{ $feed['count'] }}</a></div>
+                @endif
+            </div>
+        @endforeach
+    </div>
+    @endif
+
     {{-- Contacted client popup --}}
     <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @keydown.escape.window="open = false">
         <form method="POST" action="{{ route('road-to-sold.outcomes.record') }}" class="w-full max-w-lg rounded-md p-5 space-y-4 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border); max-height: 90vh;">

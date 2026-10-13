@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\RoadToSold\RtsListItem;
 use App\Models\RoadToSold\RtsOutcomeDefinition as Def;
 use App\Services\RoadToSold\CallListService;
+use App\Services\RoadToSold\FeedService;
 use App\Services\RoadToSold\OutcomeDefinitionService;
 use App\Services\RoadToSold\OutcomeService;
 use App\Services\RoadToSold\RoadToSoldException;
@@ -24,6 +25,7 @@ class RoadToSoldController extends Controller
         private readonly CallListService $list,
         private readonly OutcomeService $outcomes,
         private readonly OutcomeDefinitionService $definitions,
+        private readonly FeedService $feeds,
     ) {
     }
 
@@ -52,6 +54,13 @@ class RoadToSoldController extends Controller
             'page'      => (int) $request->query('page', 1),
         ]);
 
+        $agentUser = \App\Models\User::query()->find($agentId);
+        $feeds = $agentUser ? [
+            'buyers'    => $this->feeds->buyerFollowUps($agentUser),
+            'leads'     => $this->feeds->leadFollowUps($agentUser),
+            'mandates'  => $this->feeds->expiringMandates($agentUser),
+        ] : [];
+
         $outcomes = $this->definitions->list($agencyId)->map(fn (Def $d) => [
             'id'              => $d->id,
             'label'           => $d->label,
@@ -66,6 +75,7 @@ class RoadToSoldController extends Controller
         ])->values()->all();
 
         return view('road-to-sold.index', $data + [
+            'feeds'          => $feeds,
             'outcomeChoices' => $outcomes,
             'agents'         => $agents,
             'agentId'        => $agentId,
