@@ -413,7 +413,7 @@ by oversight — do not reinstate them without asking:
   as the existing per-user `show_on_website` / `exclude_from_p24` switches, which are not in the wizard
   either. Recorded here so the omission is on the record rather than unnoticed (CLAUDE.md 10a).
 
-- **Road to Sold - the nine call-list sources (order, on/off), their limits and look-back windows, the colour lines and the on-track bar's steps** (2026-10-13, AT-454; **Johan's call on 13 Oct: "main settings in the wizard, selection order and colour limits on the settings page only"**). Expert knobs an agency tunes once it has seen the list working; they sit on Settings -> Road to Sold with standard defaults that work. Also not wizard controls: each agent's own suburbs and own weekday numbers - those are per-person records with their own screens, not an agency setting. Spec `road-to-sold.md` §4/§8.
+- **Road to Sold - the nine call-list sources (order, on/off), their limits and look-back windows, the colour lines and the on-track bar's steps** (and, added 13 Oct by the audit: the add-to-day maximum, the hot-pocket weights, which buyer match levels / buyer states count, which statuses count as on the market) (2026-10-13, AT-454; **Johan's call on 13 Oct: "main settings in the wizard, selection order and colour limits on the settings page only"**). Expert knobs an agency tunes once it has seen the list working; they sit on Settings -> Road to Sold with standard defaults that work. Also not wizard controls: each agent's own suburbs and own weekday numbers - those are per-person records with their own screens, not an agency setting. Spec `road-to-sold.md` §4/§8.
 
 ### 5.2 Commission step — the mentor programme is optional (2026-07-11)
 

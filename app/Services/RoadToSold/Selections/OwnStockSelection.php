@@ -14,8 +14,8 @@ use Illuminate\Support\Facades\DB;
  * "scoping": an agent who owns no stock simply gets nothing from it.
  *
  * The canonical property key is the tracked property (conductor ruling): looked up through
- * tracked_properties.promoted_to_property_id; null when the property was never tracked, with the
- * property id carried so the row still links.
+ * tracked_properties.promoted_to_property_id, and created through match-or-create when the property was
+ * never tracked, so holds and do-not-contact always see the row; the property id rides along for links.
  */
 abstract class OwnStockSelection implements Selection
 {
@@ -73,15 +73,25 @@ abstract class OwnStockSelection implements Selection
     {
         $rows = collect($rows)->values();
         $tracked = $this->trackedIdsFor($rows->pluck('id')->map(fn ($v) => (int) $v)->all(), $ctx->agencyId);
-        $trackedIds = array_values($tracked);
-        $blocked = array_flip($ctx->guard->blockedFor($ctx->user, $trackedIds, $ctx->track));
-        $held = array_flip($ctx->guard->ownHeld($ctx->user, $trackedIds, $ctx->track));
         $excluded = array_flip($ctx->excludeTrackedIds);
 
-        $out = [];
+        // Holds and do-not-contact are keyed on the tracked property, so every row needs one: an own property
+        // never tracked yet gets one here (match-or-create); if that fails the property is not suggested.
+        $keyed = [];
         foreach ($rows as $row) {
-            $tid = $tracked[(int) $row->id] ?? null;
-            if ($tid !== null && (isset($blocked[$tid]) || isset($held[$tid]) || isset($excluded[$tid]))) {
+            $tid = $tracked[(int) $row->id] ?? $ctx->resolver()->forProperty((int) $row->id, $ctx->agencyId, $ctx->user->id);
+            if ($tid === null) {
+                continue;
+            }
+            $keyed[] = [$row, (int) $tid];
+        }
+        $trackedIds = array_values(array_unique(array_column($keyed, 1)));
+        $blocked = array_flip($ctx->guard->blockedFor($ctx->user, $trackedIds, $ctx->track));
+        $held = array_flip($ctx->guard->ownHeld($ctx->user, $trackedIds, $ctx->track));
+
+        $out = [];
+        foreach ($keyed as [$row, $tid]) {
+            if (isset($blocked[$tid]) || isset($held[$tid]) || isset($excluded[$tid])) {
                 continue;
             }
             $out[] = new Candidate(

@@ -100,6 +100,7 @@ class RoadToSoldController extends Controller
             ],
             'canManageOutcomes' => $viewer->hasPermission('road_to_sold.manage_settings'),
             'canAddToDay'       => $viewingOwn,
+            'addMax'            => \App\Services\RoadToSold\SettingsService::forUser($viewer)->addToDayMax(),
             'addChoices'        => collect(\App\Services\RoadToSold\SettingsService::forUser($viewer)->selections())
                 ->where('enabled', true)->pluck('label', 'key')->all(),
         ]);
@@ -117,7 +118,9 @@ class RoadToSoldController extends Controller
                 app(ListBuilderService::class)->buildFor($viewer, $date);
             }
         } catch (Throwable $e) {
+            // Never a silently empty page: log it, and tell the agent their list could not be built.
             report($e);
+            session()->now('rts_error', 'We could not build your call list just now, so this list may be empty or short. Please try again in a minute or tell your manager.');
         }
     }
 
@@ -168,15 +171,16 @@ class RoadToSoldController extends Controller
     /** "Add to my day" - extra properties from one selection, reported apart from the target (lane 2 builds them). */
     public function addToDay(Request $request): RedirectResponse
     {
+        $max = \App\Services\RoadToSold\SettingsService::forUser($request->user())->addToDayMax();
         $data = $request->validate([
             'selection' => ['required', 'string', 'max:40'],
-            'count'     => ['required', 'integer', 'min:1', 'max:100'],
+            'count'     => ['required', 'integer', 'min:1', 'max:' . $max],
         ], [
             'selection.required' => 'Pick which selection to add from.',
-            'count.required'     => 'Enter how many to add (1 to 100).',
-            'count.integer'      => 'Enter how many to add as a whole number from 1 to 100.',
-            'count.min'          => 'Enter how many to add (1 to 100).',
-            'count.max'          => 'You can add up to 100 at a time.',
+            'count.required'     => "Enter how many to add (1 to {$max}).",
+            'count.integer'      => "Enter how many to add as a whole number from 1 to {$max}.",
+            'count.min'          => "Enter how many to add (1 to {$max}).",
+            'count.max'          => "You can add up to {$max} at a time.",
         ]);
 
         try {

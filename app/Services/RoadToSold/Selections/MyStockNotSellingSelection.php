@@ -17,13 +17,12 @@ use Illuminate\Support\Facades\DB;
  *   enquiries       the larger of the portal's own lead count and the enquiries CoreX received
  *                   (property_portal_metrics.total_leads / portal_leads) over the look-back
  *
- * A property with NO portal statistics in the window is skipped: "low views" cannot be claimed
- * without numbers (it may not be on a portal at all). Longest on the market first.
+ * A property with NO portal statistics in the window has had no views and no portal leads there, so it
+ * counts as zero and qualifies (enquiries CoreX itself received still count). Which statuses are "on the
+ * market" is an agency setting. Longest on the market first.
  */
 final class MyStockNotSellingSelection extends OwnStockSelection
 {
-    private const ON_MARKET = ['active', 'for_sale', 'on_show'];
-
     public function key(): string
     {
         return 'my_stock_not_selling';
@@ -41,7 +40,7 @@ final class MyStockNotSellingSelection extends OwnStockSelection
         }
 
         $props = Property::withoutGlobalScopes()
-            ->whereIn('id', $this->ownProperties($ctx)->whereIn('p.status', self::ON_MARKET)->pluck('p.id'))
+            ->whereIn('id', $this->ownProperties($ctx)->whereIn('p.status', $ctx->settings->onMarketStatuses)->pluck('p.id'))
             ->get();
         if ($props->isEmpty()) {
             return [];
@@ -70,11 +69,12 @@ final class MyStockNotSellingSelection extends OwnStockSelection
         foreach ($props as $p) {
             $m = $metrics[$p->id] ?? null;
             $days = $dom[$p->id] ?? null;
-            if ($m === null || $days === null || $days < $ctx->settings->stuckStockMinDaysOnMarket) {
+            if ($days === null || $days < $ctx->settings->stuckStockMinDaysOnMarket) {
                 continue;
             }
-            $views = (int) $m->views;
-            $leads = max((int) $m->leads, (int) ($received[$p->id] ?? 0));
+            // no statistics in the window = nothing recorded = zero views and zero portal leads
+            $views = $m ? (int) $m->views : 0;
+            $leads = max($m ? (int) $m->leads : 0, (int) ($received[$p->id] ?? 0));
             if ($views > $ctx->settings->stuckStockMaxViews || $leads > $ctx->settings->stuckStockMaxLeads) {
                 continue;
             }

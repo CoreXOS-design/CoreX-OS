@@ -15,6 +15,8 @@ use App\Services\RoadToSold\Contracts\WorkCalendar;
 use App\Services\RoadToSold\Selections\Candidate;
 use App\Services\RoadToSold\Selections\SelectionContext;
 use App\Services\RoadToSold\Support\BuilderSettings;
+use App\Services\RoadToSold\Support\OtherAgentStock;
+use App\Services\RoadToSold\Support\TrackedPropertyResolver;
 use Carbon\CarbonInterface;
 use Closure;
 use Illuminate\Support\Carbon;
@@ -42,14 +44,15 @@ use InvalidArgumentException;
  */
 class ListBuilderService
 {
-    public const MAX_ADD = 100;
-
     private SelectionRegistry $registry;
     private WorkCalendar $calendar;
     private AreaProvider $areas;
     private SuggestionGuard $guard;
     private FollowUpSource $followUps;
     private Closure $settingsResolver;
+    /** The "never another agent's stock" check for the agent being built; set at the start of every operation. */
+    private ?OtherAgentStock $stock = null;
+    private ?TrackedPropertyResolver $resolver = null;
 
     /** @param Closure|null $settingsResolver fn(User, string $track): BuilderSettings */
     public function __construct(
@@ -106,6 +109,7 @@ class ListBuilderService
         }
         $target = $this->calendar->targetFor($user, $day, $track);
         $settings = ($this->settingsResolver)($user, $track);
+        $this->stock = new OtherAgentStock($agencyId, $user->dataIdentityIds());
 
         // A cheap guard so a page opened ten times does not run the selection queries ten times
         // when the pool is simply short today.
@@ -128,6 +132,8 @@ class ListBuilderService
                 }
                 $selection = $this->registry->get($key);
                 if ($selection === null) {
+                    // An enabled source with no code behind it is a setup fault: say so, loudly, and carry on with the rest.
+                    Log::error('Road to Sold: an enabled selection has no implementation (skipped)', ['selection' => $key, 'user_id' => $user->id]);
                     continue;
                 }
                 $candidates = $selection->candidates($this->context($user, $agencyId, $day, $track, $settings), $remaining);
@@ -155,6 +161,7 @@ class ListBuilderService
             if ($f->trackedPropertyId !== null && isset($blocked[$f->trackedPropertyId])) {
                 continue; // do-not-contact (or taken by someone else) since the follow-up was set
             }
+            // insert() also refuses a property that has become another agent's stock since the follow-up was set.
             $this->insert($user, $agencyId, $day, $track, new Candidate(
                 trackedPropertyId: $f->trackedPropertyId,
                 prospectingListingId: $f->prospectingListingId,
@@ -175,7 +182,7 @@ class ListBuilderService
 
     private function context(User $user, int $agencyId, Carbon $day, string $track, BuilderSettings $settings): SelectionContext
     {
-        $items = RtsListItem::query()->forDay($user, $day, $track)->get(['tracked_property_id', 'prospecting_listing_id', 'property_id']);
+        $items = RtsListItem::query()->forDay($user, $day, $track)->get(['tracked_property_id', 'prospecting_listing_id', 'property_id', 'selection']);
 
         return new SelectionContext(
             user: $user,
@@ -191,6 +198,9 @@ class ListBuilderService
             excludeTrackedIds: $items->pluck('tracked_property_id')->filter()->map(fn ($v) => (int) $v)->values()->all(),
             excludeListingIds: $items->pluck('prospecting_listing_id')->filter()->map(fn ($v) => (int) $v)->values()->all(),
             excludePropertyIds: $items->pluck('property_id')->filter()->map(fn ($v) => (int) $v)->values()->all(),
+            countsBySelection: $items->countBy('selection')->map(fn ($n) => (int) $n)->all(),
+            otherStock: $this->stock,
+            resolver: $this->resolver ??= new TrackedPropertyResolver(),
         );
     }
 
@@ -202,6 +212,27 @@ class ListBuilderService
     {
         if (! $c->trackedPropertyId && ! $c->prospectingListingId && ! $c->propertyId) {
             return null; // nothing identifies the property — never write an unidentifiable row
+        }
+
+        // The last gate on EVERY path (auto, follow-up, rollover, added): never another agent's stock.
+        $this->stock ??= new OtherAgentStock($agencyId, $user->dataIdentityIds());
+        if ($this->stock->candidateOwnedByAnother($c)) {
+            return null;
+        }
+
+        // Every row carries a tracked property, so holds / do-not-contact / outcomes always see it.
+        if (! $c->trackedPropertyId) {
+            $resolver = $this->resolver ??= new TrackedPropertyResolver();
+            $tid = $c->prospectingListingId
+                ? $resolver->forListing((int) $c->prospectingListingId, $agencyId, $user->id)
+                : $resolver->forProperty((int) $c->propertyId, $agencyId, $user->id);
+            if ($tid === null) {
+                return null; // could not be given a tracked property: not placed (logged by the resolver)
+            }
+            $c = new Candidate($tid, $c->prospectingListingId, $c->propertyId, $c->selection, $c->reason, $c->hasAddress, $c->inArea);
+            if ($this->stock->candidateOwnedByAnother($c)) {
+                return null;
+            }
         }
 
         $base = RtsListItem::query()->forDay($user, $day, $track);
@@ -262,14 +293,14 @@ class ListBuilderService
      */
     public function addToDay(User $user, string $selection, int $count, CarbonInterface|string|null $date = null, string $track = RtsListItem::TRACK_SALES): Collection
     {
-        if ($count < 1 || $count > self::MAX_ADD) {
-            throw new InvalidArgumentException('Choose a number between 1 and ' . self::MAX_ADD . '.');
-        }
         $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
         if ($agencyId <= 0) {
             throw new InvalidArgumentException('You need to be working in an agency to add to your day.');
         }
         $settings = ($this->settingsResolver)($user, $track);
+        if ($count < 1 || $count > $settings->addToDayMax) {
+            throw new InvalidArgumentException('Choose a number between 1 and ' . $settings->addToDayMax . '.');
+        }
         $sel = $this->registry->get($selection);
         if ($sel === null || ! $settings->selectionEnabled($selection)) {
             throw new InvalidArgumentException('That selection is not switched on for your agency.');
@@ -279,6 +310,7 @@ class ListBuilderService
         $lock = Cache::lock("rts-build:{$agencyId}:{$user->id}:{$track}:{$day->toDateString()}", 120);
 
         return $lock->block(15, function () use ($user, $agencyId, $day, $track, $settings, $sel, $count) {
+            $this->stock = new OtherAgentStock($agencyId, $user->dataIdentityIds());
             $added = collect();
             foreach ($sel->candidates($this->context($user, $agencyId, $day, $track, $settings), $count) as $candidate) {
                 if ($item = $this->insert($user, $agencyId, $day, $track, $candidate, RtsListItem::ORIGIN_ADDED)) {
@@ -327,11 +359,13 @@ class ListBuilderService
                 : $this->calendar->nextWorkday($user, $today, $track);
         }
 
+        $this->stock = new OtherAgentStock($agencyId, $user->dataIdentityIds());
+
         DB::transaction(function () use ($open, $user, $agencyId, $track, $settings, $target, &$result) {
             foreach ($open as $item) {
                 $rolls = $settings->rollsOver && $target !== null && $item->origin === RtsListItem::ORIGIN_AUTO;
                 if ($rolls) {
-                    $this->insert($user, $agencyId, $target, $track, new Candidate(
+                    $candidate = new Candidate(
                         trackedPropertyId: $item->tracked_property_id,
                         prospectingListingId: $item->prospecting_listing_id,
                         propertyId: $item->property_id,
@@ -339,7 +373,14 @@ class ListBuilderService
                         reason: 'Carried over from ' . $item->list_date->format('j M') . ': ' . ($item->reason ?? ''),
                         hasAddress: true,
                         inArea: true,
-                    ), RtsListItem::ORIGIN_ROLLOVER, $item->id);
+                    );
+                    // It has become another agent's stock since it was listed: it is not carried, only closed.
+                    if ($this->stock->candidateOwnedByAnother($candidate)) {
+                        $item->forceFill(['status' => RtsListItem::STATUS_MISSED, 'status_changed_at' => now()])->save();
+                        $result['missed']++;
+                        continue;
+                    }
+                    $this->insert($user, $agencyId, $target, $track, $candidate, RtsListItem::ORIGIN_ROLLOVER, $item->id);
                     // Rolled whether or not a copy was needed: if the property is already on that day's
                     // list (a follow-up, say) it is covered there.
                     $item->forceFill(['status' => RtsListItem::STATUS_ROLLED, 'status_changed_at' => now()])->save();

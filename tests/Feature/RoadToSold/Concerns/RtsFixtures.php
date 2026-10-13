@@ -56,6 +56,7 @@ trait RtsFixtures
         array $excludeListings = [],
         array $excludeProperties = [],
         ?Carbon $date = null,
+        string $track = 'sales',
     ): SelectionContext {
         $user ??= $this->agent;
 
@@ -63,7 +64,7 @@ trait RtsFixtures
             user: $user,
             agencyId: (int) $user->agency_id,
             date: $date ?? Carbon::parse('2026-10-14'),
-            track: 'sales',
+            track: $track,
             settings: (new BuilderSettings())->with($settings),
             guard: $guard ?? new NullSuggestionGuard(),
             areaSuburbIds: $areaIds,

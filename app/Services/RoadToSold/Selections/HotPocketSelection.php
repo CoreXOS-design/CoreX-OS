@@ -32,9 +32,14 @@ final class HotPocketSelection extends MicPoolSelection
     /** @return array<string,array> */
     private function pockets(SelectionContext $ctx): array
     {
-        $memo = $ctx->agencyId . '|' . $ctx->track . '|' . $ctx->date->toDateString() . '|' . $ctx->settings->hotPocketLookbackDays;
+        $st = $ctx->settings;
+        $memo = implode('|', [
+            $ctx->agencyId, $ctx->track, $ctx->date->toDateString(), $st->hotPocketLookbackDays,
+            $st->hotPocketWeightBuyers, $st->hotPocketWeightLeads, $st->hotPocketWeightSales,
+            implode(',', $st->buyerMatchTiers), implode(',', $st->buyerActiveStates),
+        ]);
         if ($this->pocketsFor !== $memo) {
-            $this->pockets = $this->service->rank($ctx->agencyId, $ctx->track, $ctx->date, $ctx->settings->hotPocketLookbackDays);
+            $this->pockets = $this->service->rank($ctx->agencyId, $ctx->track, $ctx->date, $ctx->settings->hotPocketLookbackDays, $ctx->settings);
             $this->pocketsFor = $memo;
         }
 

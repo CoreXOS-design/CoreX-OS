@@ -95,9 +95,13 @@ class RtsListItem extends Model
     {
         $userId = $user instanceof User ? $user->id : $user;
 
+        // A range on the date column (not whereDate()): a function on the column would not use the day index.
+        $day = Carbon::parse($date)->startOfDay();
+
         return $query->where('rts_list_items.user_id', $userId)
             ->where('rts_list_items.track', $track)
-            ->whereDate('rts_list_items.list_date', Carbon::parse($date)->toDateString());
+            ->where('rts_list_items.list_date', '>=', $day->toDateString())
+            ->where('rts_list_items.list_date', '<', $day->copy()->addDay()->toDateString());
     }
 
     public function scopeOpen($query)

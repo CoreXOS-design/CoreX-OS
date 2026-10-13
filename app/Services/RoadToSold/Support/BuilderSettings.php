@@ -3,15 +3,15 @@
 namespace App\Services\RoadToSold\Support;
 
 use App\Models\User;
+use App\Services\RoadToSold\SettingsService;
 
 /**
  * The settings the list builder reads, as one plain value object.
  *
- * Lane 1 owns the real settings (RoadToSold\SettingsService, table rts_settings); this class reads
- * them through that service when it exists and falls back to the documented defaults when it does
- * not, so lane 2 never blocks on lane 1 and never hard-codes a value the agency can change.
- * The three look-back windows are not in lane 1's list yet — they are read if the service has the
- * getter and default otherwise (spec §9.7).
+ * Lane 1 owns the real settings (RoadToSold\SettingsService, table rts_settings) and this class reads
+ * them straight from it - there is no fallback: a settings failure is an error the caller sees, never a
+ * quiet drop to different numbers. The constructor defaults exist for tests and one-off overrides only
+ * and equal the settings' standard values.
  */
 final class BuilderSettings
 {
@@ -34,6 +34,16 @@ final class BuilderSettings
         public readonly int $hotPocketLookbackDays = 180,
         public readonly int $priceDropLookbackDays = 30,
         public readonly int $stuckStockLookbackDays = 30,
+        public readonly int $addToDayMax = 100,
+        public readonly int $hotPocketWeightBuyers = 1,
+        public readonly int $hotPocketWeightLeads = 1,
+        public readonly int $hotPocketWeightSales = 1,
+        /** @var string[] */
+        public readonly array $buyerMatchTiers = ['perfect', 'strong'],
+        /** @var string[] */
+        public readonly array $buyerActiveStates = ['new', 'warm'],
+        /** @var string[] */
+        public readonly array $onMarketStatuses = ['active', 'for_sale', 'on_show'],
     ) {
     }
 
@@ -44,27 +54,28 @@ final class BuilderSettings
 
     public static function forUser(User $user, string $track = 'sales'): self
     {
-        $class = '\\App\\Services\\RoadToSold\\SettingsService';
-        if (! class_exists($class)) {
-            return new self();
-        }
-
-        $s = $class::forUser($user, $track);
-        $opt = static fn (string $method, int $default): int => method_exists($s, $method) ? (int) $s->{$method}() : $default;
+        $s = SettingsService::forUser($user, $track);
 
         return new self(
-            lockAgentsToAreas: (bool) $s->lockAgentsToAreas(),
-            rollsOver: (bool) $s->rollsOver(),
-            enabledSelectionKeys: array_values((array) $s->enabledSelectionKeys()),
-            newOnMarketDays: (int) $s->newOnMarketDays(),
-            longOnMarketDays: (int) $s->longOnMarketDays(),
-            ownerKnownQuantity: (int) $s->ownerKnownQuantity(),
-            stuckStockMinDaysOnMarket: (int) $s->stuckStockMinDaysOnMarket(),
-            stuckStockMaxViews: (int) $s->stuckStockMaxViews(),
-            stuckStockMaxLeads: (int) $s->stuckStockMaxLeads(),
-            hotPocketLookbackDays: $opt('hotPocketLookbackDays', 180),
-            priceDropLookbackDays: $opt('priceDropLookbackDays', 30),
-            stuckStockLookbackDays: $opt('stuckStockLookbackDays', 30),
+            lockAgentsToAreas: $s->lockAgentsToAreas(),
+            rollsOver: $s->rollsOver(),
+            enabledSelectionKeys: array_values($s->enabledSelectionKeys()),
+            newOnMarketDays: $s->newOnMarketDays(),
+            longOnMarketDays: $s->longOnMarketDays(),
+            ownerKnownQuantity: $s->ownerKnownQuantity(),
+            stuckStockMinDaysOnMarket: $s->stuckStockMinDaysOnMarket(),
+            stuckStockMaxViews: $s->stuckStockMaxViews(),
+            stuckStockMaxLeads: $s->stuckStockMaxLeads(),
+            hotPocketLookbackDays: $s->hotPocketLookbackDays(),
+            priceDropLookbackDays: $s->priceDropLookbackDays(),
+            stuckStockLookbackDays: $s->stuckStockLookbackDays(),
+            addToDayMax: $s->addToDayMax(),
+            hotPocketWeightBuyers: $s->hotPocketWeightBuyers(),
+            hotPocketWeightLeads: $s->hotPocketWeightLeads(),
+            hotPocketWeightSales: $s->hotPocketWeightSales(),
+            buyerMatchTiers: $s->buyerMatchTiers(),
+            buyerActiveStates: $s->buyerActiveStates(),
+            onMarketStatuses: $s->onMarketStatuses(),
         );
     }
 
