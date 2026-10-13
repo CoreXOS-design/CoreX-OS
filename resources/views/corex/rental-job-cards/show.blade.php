@@ -63,6 +63,7 @@
     @endif
 
     <x-rental-context-bar :property="$displayProperty" :lease="$displayLease" current="work_orders" />
+    @include('partials.paused-by-owner-banner', ['pauseSubject' => $jobCard])
 
     <div class="flex items-center justify-between">
         <div>

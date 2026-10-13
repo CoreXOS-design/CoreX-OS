@@ -559,6 +559,9 @@ class RentalWorkOrder extends Model
         if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true)) {
             throw new \LogicException('This work order is already closed.');
         }
+        if ($recordedBy instanceof User) {   // section 22.7 - an agent cannot approve while the owner has it on hold (the owner's own press is not blocked)
+            app(\App\Services\Rentals\RentalOwnerHoldService::class)->assertNotOnHold($this);
+        }
 
         $decision = $attributes['decision'];
         // Q4 (Johan, 9 Oct 2026): a decline always carries the reason - from the owner on the portal, from the agent recording it, same as on a fault.
@@ -869,6 +872,7 @@ class RentalWorkOrder extends Model
      */
     private function assertApprovalAllows(string $action, ?float $cost = null): void
     {
+        app(\App\Services\Rentals\RentalOwnerHoldService::class)->assertNotOnHold($this);   // section 22.7 - paused by the owner
         if (in_array($this->owner_approval_status, [self::APPROVAL_PENDING, self::APPROVAL_DECLINED], true)) {
             throw new \LogicException("Cannot {$action} while owner approval is pending or declined.");
         }

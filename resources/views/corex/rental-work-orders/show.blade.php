@@ -27,6 +27,8 @@
         </div>
     @endif
 
+    @include('partials.paused-by-owner-banner', ['pauseSubject' => $workOrder])
+
     <div class="flex items-center justify-between">
         <div>
             <h1 class="text-lg font-semibold">{{ $workOrder->title }}</h1>

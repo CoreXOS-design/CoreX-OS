@@ -58,6 +58,10 @@ Route::post('/buyer/portal/{token}/respond', [\App\Http\Controllers\BuyerPortalC
 Route::match(['get', 'post'], '/owner/fault-settings/{property}/{contact}/dispute', [\App\Http\Controllers\RentalFaultSettingsDisputeController::class, 'handle'])
     ->middleware(['signed', 'throttle:20,1'])->whereNumber(['property', 'contact'])->name('rentals.fault-settings.dispute');
 
+// ── "Stop this" / "Query this" (public, SIGNED link in the owner's email) - rentals-faults-work-orders.md section 22.7. GET only asks; the POST (the owner's own press) records.
+Route::match(['get', 'post'], '/owner/job/{kind}/{id}/{contact}/{action}', [\App\Http\Controllers\RentalOwnerNoticeController::class, 'handle'])
+    ->middleware(['signed', 'throttle:20,1'])->whereNumber(['id', 'contact'])->whereIn('kind', ['fault', 'work-order'])->whereIn('action', ['stop', 'query'])->name('rentals.owner-notice');
+
 // ── Contractor Secure Link (public, no auth) — AT-445, .ai/specs/rental-portal-access.md §4/§9 ──
 Route::prefix('secure/work-orders/{token}')->middleware('throttle:30,1')->group(function () {
     Route::get('/', [\App\Http\Controllers\ContractorSecureLinkController::class, 'show'])->name('rentals.secure-link.show');
@@ -4230,6 +4234,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_fault_reports.send_to_owner')->name('corex.rental-fault-reports.send-to-owner-to-authorise');
         Route::post('/{rentalFaultReport}/owner-decision', [\App\Http\Controllers\CoreX\RentalFaultAuthorityController::class, 'recordOwnerDecision'])
             ->middleware('permission:rental_fault_reports.record_approval')->name('corex.rental-fault-reports.owner-decision.store');
+        // Section 22.7 (stage 3): Resume = a fresh authority (the same popup as "Record the owner's decision"); answer the owner's "Query this" question.
+        Route::post('/{rentalFaultReport}/resume', [\App\Http\Controllers\CoreX\RentalFaultAuthorityController::class, 'resume'])
+            ->middleware('permission:rental_fault_reports.record_approval')->name('corex.rental-fault-reports.resume');
+        Route::post('/{rentalFaultReport}/owner-questions/{query}/answer', [\App\Http\Controllers\CoreX\RentalFaultAuthorityController::class, 'answerQuery'])
+            ->middleware('permission:rental_fault_reports.send_to_owner')->whereNumber('query')->name('corex.rental-fault-reports.owner-query.answer');
         Route::post('/{rentalFaultReport}/tenant-confirmation', [\App\Http\Controllers\CoreX\RentalFaultAuthorityController::class, 'confirmWithTenant'])
             ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.tenant-confirmation');
         Route::post('/{rentalFaultReport}/repair-anyway', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'repairAnyway'])

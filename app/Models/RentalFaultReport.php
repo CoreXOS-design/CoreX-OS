@@ -443,6 +443,7 @@ class RentalFaultReport extends Model
      */
     public function requestApproval(User $by): void
     {
+        app(\App\Services\Rentals\RentalOwnerHoldService::class)->assertNotOnHold($this);   // section 22.7 - nothing is sent while the owner has it on hold
         // Fault flow F2: this IS "send to the owner". The agent has reviewed it and prepared what the owner will
         // see (saveOwnerVersion()); only now does the owner see it - in the portal, and by email.
         if (in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
@@ -1150,6 +1151,9 @@ class RentalFaultReport extends Model
      */
     public function workOrderBlockReason(bool $authorityGivenNow = false): ?string
     {
+        if ($held = app(\App\Services\Rentals\RentalOwnerHoldService::class)->holdReason($this)) {   // section 22.7 - paused by the owner
+            return $held;
+        }
         if ($this->hasLiveWorkOrder()) {
             return 'A work order has already been created for this fault report.';
         }

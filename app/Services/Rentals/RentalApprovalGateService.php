@@ -685,6 +685,10 @@ class RentalApprovalGateService
      */
     public function authoriseToProceed(RentalWorkOrder $workOrder, bool $record = true): GateDecision
     {
+        // section 22.7 - PAUSED BY OWNER beats every other basis (emergency, grandfathered, owner's own contractor): nothing starts, is scheduled or sent
+        if ($held = app(RentalOwnerHoldService::class)->holdReason($workOrder)) {
+            return new GateDecision(false, RentalApprovalDecision::DECISION_BLOCKED, note: $held);
+        }
         // W3 (8 Oct 2026): the owner's OWN contractor - the owner decided on the fault, arranges and pays the contractor; the
         // agency prices, quotes and authorises nothing, so there is nothing for this gate to hold back.
         if ($workOrder->isOwnerContractor()) {

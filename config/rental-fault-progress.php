@@ -34,6 +34,8 @@ return [
     'wait_declined' => ['tenant' => 'Being arranged', 'owner' => 'You declined the quote - your agent will get another', 'agent' => 'Owner declined the quote - get another quote'],
     'wait_send' => ['tenant' => 'Being arranged with the contractor', 'owner' => 'Approved - your agent is sending it to the contractor', 'agent' => 'Approved - send it to the contractor'],
     'appointment_set' => ['tenant' => 'Appointment set', 'owner' => 'Appointment set', 'agent' => 'Appointment set'],
+    // section 22.7 - the owner pressed "Stop this": the job is paused until the owner says go ahead. The tenant is never told why.
+    'on_hold' => ['tenant' => 'On hold', 'owner' => 'On hold - you stopped this', 'agent' => 'PAUSED BY OWNER'],
     'in_progress' => ['tenant' => 'Work in progress', 'owner' => 'Work in progress', 'agent' => 'Work in progress'],
     // T1: the work is reported finished (crew / contractor / owner) and the agent has not closed it yet - the same words as the work order card.
     'reported_finished' => ['tenant' => 'Work reported finished', 'owner' => 'Reported finished', 'agent' => 'Reported finished - check and close'],

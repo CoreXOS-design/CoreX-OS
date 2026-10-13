@@ -126,6 +126,9 @@
         </div>
     @endif
 
+    {{-- section 22.7 - PAUSED BY OWNER (with Resume) and the owner's questions (with Answer) --}}
+    @include('corex.rental-fault-reports._owner-hold-and-questions')
+
     {{-- "Reported before" (F-OWNER): for a tenant-resolved fault it is the banner here; for every other fault it is the last block of the tenant picture below. --}}
     @if($reportedBefore && $faultReport->isTenantSelfResolved())
         <div class="rounded-md px-4 py-2 text-xs" style="background: var(--surface-2); border: 1px solid var(--border);" data-reported-before>

@@ -258,6 +258,8 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::get('/fault-reports/{faultReport}', [ClientLandlordRentalsController::class, 'faultReportShow'])->whereNumber('faultReport')->name('fault-reports.show');
             Route::post('/fault-reports/{faultReport}/repair-request', [ClientLandlordRentalsController::class, 'faultReportRepairRequest'])->whereNumber('faultReport')->name('fault-reports.repair-request');
             Route::post('/fault-reports/{faultReport}/query', [ClientLandlordRentalsController::class, 'faultReportQuery'])->whereNumber('faultReport')->name('fault-reports.query');
+            Route::post('/fault-reports/{faultReport}/stop', [ClientLandlordRentalsController::class, 'faultReportStop'])->whereNumber('faultReport')->name('fault-reports.stop');
+            Route::post('/fault-reports/{faultReport}/resume', [ClientLandlordRentalsController::class, 'faultReportResume'])->whereNumber('faultReport')->name('fault-reports.resume');
             Route::post('/fault-reports/{faultReport}/decision', [ClientLandlordRentalsController::class, 'faultReportDecision'])->name('fault-reports.decision');
             Route::get('/work-orders', [ClientLandlordRentalsController::class, 'workOrders'])->name('work-orders.index');
             Route::post('/work-orders/{workOrder}/decision', [ClientLandlordRentalsController::class, 'workOrderDecision'])->name('work-orders.decision');

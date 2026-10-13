@@ -191,9 +191,9 @@ final class OwnerCommentTest extends TestCase
         $verbs = $routes->flatMap(fn ($r) => $r->methods())->unique()->values()->all();
         $this->assertEmpty(array_intersect(['PUT', 'PATCH', 'DELETE'], $verbs), 'the owner has no edit or delete route on a fault report');
 
-        // the owner's complete list of WRITE routes on fault reports: a new one must be looked at on purpose
+        // the owner's complete list of WRITE routes on fault reports: a new one must be looked at on purpose (section 22.7 added stop + resume: both only pause / un-pause, neither edits the report)
         $writes = $routes->filter(fn ($r) => in_array('POST', $r->methods(), true))->map(fn ($r) => $r->getName())->sort()->values()->all();
-        $this->assertSame(['client.rentals.landlord.fault-reports.decision', 'client.rentals.landlord.fault-reports.query', 'client.rentals.landlord.fault-reports.repair-request'], array_values(array_filter($writes, fn ($n) => $n !== 'client.rentals.landlord.properties.fault-reports.store')));
+        $this->assertSame(['client.rentals.landlord.fault-reports.decision', 'client.rentals.landlord.fault-reports.query', 'client.rentals.landlord.fault-reports.repair-request', 'client.rentals.landlord.fault-reports.resume', 'client.rentals.landlord.fault-reports.stop'], array_values(array_filter($writes, fn ($n) => $n !== 'client.rentals.landlord.properties.fault-reports.store')));
     }
 
     // ───────────────────────── the decision form ─────────────────────────

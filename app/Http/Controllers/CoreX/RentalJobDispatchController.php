@@ -146,6 +146,9 @@ class RentalJobDispatchController extends Controller
     /** @param array{rows:array, sent:bool, not_sent:bool} $result */
     private function flash(array $result, string $okText, ?string $badText = null): array
     {
+        if (! empty($result['held'])) {
+            return ['warning' => $result['held']];
+        }
         if ($result['sent']) {
             return ['success' => $okText . ' The contractor has been emailed.'];
         }

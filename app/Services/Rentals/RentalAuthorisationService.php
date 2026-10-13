@@ -160,6 +160,9 @@ class RentalAuthorisationService
     /** The plain reason an agent cannot record the owner's Decision 1 here, or null when they can. */
     public function recordBlockReason(RentalFaultReport $fault): ?string
     {
+        if ($held = app(RentalOwnerHoldService::class)->holdReason($fault)) {   // section 22.7 - while paused, the way forward is Resume
+            return $held . ' Use Resume to record the owner\'s go-ahead.';
+        }
         if ($this->ownersFor($fault)->isEmpty()) {
             return 'No owner is on file for this property, so there is no one to record a decision for. Add the owner to the property first.';
         }
@@ -337,6 +340,35 @@ class RentalAuthorisationService
         ]);
         $this->supersede($previous, $row, $fault, $by);
         $fault->recordHistory(RentalFaultReportUpdate::TYPE_AUTHORISATION_RECORDED, $by, $this->recordTextFor($row->load(['byUser', 'ownerContact'])));
+
+        return $row;
+    }
+
+    // ───────────────────────── stage 3: a fresh authority after "Stop this" (added for RentalOwnerHoldService) ─────────────────────────
+
+    /** The time an owner said it, in the agency's timezone -> UTC, never in the future (the validation `recordOwnerDecision` uses; public for the hold service). */
+    public function toldAt(RentalFaultReport|RentalWorkOrder $subject, mixed $value): Carbon
+    {
+        return $this->parseToldAt($subject, $value);
+    }
+
+    /**
+     * A NEW authorisation record that resumes a job the owner stopped: the owner's own "Go ahead after all" (basis owner_link) or an agent recording what the
+     * owner told them (basis owner_instruction). It supersedes the standing record of the same point; both stay in the history. Changes nothing else - the job
+     * is resumed by closing the hold ({@see RentalOwnerHoldService::resumeByOwner()} / resumeByAgent()).
+     */
+    public function recordFreshAuthority(RentalFaultReport|RentalWorkOrder $subject, string $point, string $basis, ?User $by, Contact $owner, ?string $proofPath, string $via, Carbon $toldAt, ?string $note): RentalAuthorisation
+    {
+        $isFault = $subject instanceof RentalFaultReport;
+        $previous = $this->activeFor($subject, $point);
+        $viaLink = $basis === RentalAuthorisation::BASIS_OWNER_LINK;
+        $row = RentalAuthorisation::withoutGlobalScopes()->create([
+            'agency_id' => $subject->agency_id, 'rental_fault_report_id' => $isFault ? $subject->id : null, 'rental_work_order_id' => $isFault ? null : $subject->id,
+            'point' => $point, 'outcome' => RentalAuthorisation::OUTCOME_AUTHORISED, 'basis' => $basis, 'stage' => $subject->status,
+            'owner_contact_id' => $owner->id, 'by_contact_id' => $viaLink ? $owner->id : null, 'by_user_id' => $viaLink ? null : $by?->id,
+            'told_via' => $via, 'told_at' => $toldAt, 'note' => $note ? trim($note) : null, 'proof_path' => $proofPath, 'owner_told_at' => $viaLink ? now() : null,
+        ]);
+        $this->supersede($previous, $row, $subject, $by);
 
         return $row;
     }

@@ -91,6 +91,9 @@ class FaultInspectionService
     /** The ways a fault cannot have someone sent to look at it right now (null = it can). */
     public function blockReason(RentalFaultReport $fault): ?string
     {
+        if ($held = app(RentalOwnerHoldService::class)->holdReason($fault)) {   // section 22.7 - paused by the owner
+            return $held;
+        }
         if ($fault->isTenantSelfResolved()) {
             return 'The tenant closed this themselves - there is nothing to inspect.';
         }
