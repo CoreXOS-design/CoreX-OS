@@ -96,7 +96,7 @@
     .wo-panel-body .wo-embedded-title { display: none; }
     .wo-btnrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .wo-btnrow .corex-btn-primary, .wo-btnrow .corex-btn-outline, .wo-next .corex-btn-primary, .wo-next .corex-btn-outline, .wo-foot .corex-btn-outline { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; }
-    .wo-appt-form { display: grid; grid-template-columns: minmax(280px, 1.5fr) minmax(200px, 1fr) auto; gap: 12px; align-items: end; }
+    .wo-appt-form { display: grid; grid-template-columns: minmax(400px, 2fr) minmax(180px, 1fr) auto; gap: 12px; align-items: end; }
     @media (max-width: 760px) { .wo-appt-form { grid-template-columns: 1fr; } }
     .wo-foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-top: 4px; }
     @media (max-width: 900px) { .wo-cards { grid-template-columns: 1fr; } }

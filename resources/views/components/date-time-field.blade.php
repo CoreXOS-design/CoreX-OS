@@ -34,9 +34,9 @@
 <style>
     .cx-dt { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .cx-dt-ctl { height: 38px; box-sizing: border-box; padding: 0 10px; font-size: 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface, #fff); color: var(--text-primary); }
-    .cx-dt-date { flex: 1 1 150px; min-width: 140px; }
-    .cx-dt-time { flex: 0 0 120px; }
-    .cx-dt-other { flex: 0 0 84px; }
+    .cx-dt-date { flex: 1 1 130px; min-width: 130px; }
+    .cx-dt-time { flex: 0 0 112px; }
+    .cx-dt-other { flex: 0 0 76px; }
     .cx-dt-other[x-cloak] { display: none; }
 </style>
 @endonce
