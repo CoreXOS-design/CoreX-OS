@@ -279,7 +279,8 @@
         'corex.outreach-summary.*',  // AT-91 — WhatsApp Outreach Summary lives in Real Estate
         'corex.outreach-queue.*',    // AT-117/AT-120 — Outreach Queue lives in Real Estate
         'corex.deeds-capture.*',     // Deeds Capture lives in Real Estate
-        'corex.address-review.*'     // Address Review (unreadable addresses) lives beside it
+        'corex.address-review.*',    // Address Review (unreadable addresses) lives beside it
+        'road-to-sold.*'             // AT-454 - Road to Sold lives in Real Estate
     ) && !request()->routeIs('market-intelligence.suburb-report*')) {
         // Suburb Report (2026-08-25) moved into the Reports panel, not Market
         // Intelligence — excluded here so it falls through to the reports
@@ -1013,6 +1014,15 @@
                 {{-- AT-91 — WhatsApp Outreach Summary board (agents × outreach states). --}}
                 @if(\Illuminate\Support\Facades\Route::has('corex.outreach-summary.index'))
                 <a href="{{ route('corex.outreach-summary.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.outreach-summary.*') ? 'active' : '' }}">WhatsApp Outreach</a>
+                @endif
+                @endpermission
+                @endfeature
+
+                {{-- AT-454 - Road to Sold: the agent's daily call list. --}}
+                @feature('road-to-sold')
+                @permission('access_road_to_sold')
+                @if(\Illuminate\Support\Facades\Route::has('road-to-sold.index'))
+                <a href="{{ route('road-to-sold.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.*') ? 'active' : '' }}">Road to Sold</a>
                 @endif
                 @endpermission
                 @endfeature

@@ -6124,6 +6124,31 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/{outreachQueue}/cancel', [\App\Http\Controllers\CoreX\OutreachQueueController::class, 'cancel'])->name('cancel');
         });
 
+    // AT-454 - Road to Sold: the agent's daily call list, the outcome list, the report.
+    // Spec: .ai/specs/road-to-sold.md. Page gated by access_road_to_sold; outcome settings by
+    // road_to_sold.manage_settings; breadth (own/branch/agency) is enforced in the query layer.
+    Route::prefix('road-to-sold')
+        ->middleware(['permission:access_road_to_sold', 'agency.required', 'feature:road-to-sold'])
+        ->name('road-to-sold.')
+        ->group(function () {
+            Route::get('/', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'index'])->name('index');
+            Route::post('/outcomes', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'recordOutcome'])->name('outcomes.record');
+
+            Route::prefix('settings/outcomes')
+                ->middleware('permission:road_to_sold.manage_settings')
+                ->name('settings.outcomes.')
+                ->group(function () {
+                    $c = \App\Http\Controllers\RoadToSold\OutcomeSettingsController::class;
+                    Route::get('/', [$c, 'index'])->name('index');
+                    Route::post('/', [$c, 'store'])->name('store');
+                    Route::put('/{definition}', [$c, 'update'])->name('update');
+                    Route::post('/{definition}/toggle', [$c, 'toggle'])->name('toggle');
+                    Route::post('/{definition}/move', [$c, 'move'])->name('move');
+                    Route::delete('/{definition}', [$c, 'archive'])->name('archive');
+                    Route::post('/{definition}/restore', [$c, 'restore'])->withTrashed()->name('restore');
+                });
+        });
+
     // AT-118 — Communications Access inbox (approvers: owning agents + grant_access holders).
     // Any comms-capable user may open it; the controller shows only the requests they may authorise.
     Route::get('/comms-access/inbox', [\App\Http\Controllers\Communications\CommsAccessRequestController::class, 'inbox'])
