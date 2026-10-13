@@ -156,14 +156,15 @@ class FaultInspectionService
         $row = null;
         $result = app(RentalWorkOrderService::class)->createFromFaultDecision($fault, $by, $choice, function (RentalFaultReport $locked) use (&$row, $by, $eval, $label, $supplierId) {
             $row = $this->authorisations->recordAgentInspection($locked, $by, (string) $eval['basis'], $label, $supplierId, $eval['fee'], $eval['allowance']);
+            // 14 Oct 2026 (cc5's walk of QA1, fault chain on lease 106): the fault is marked "arranged by the agent" BEFORE the work order exists. The
+            // tenant is told the moment the work order is raised (recordWorkOrderRaised), and that mail is written from the fault as it is at that
+            // instant - stamped afterwards, it read "Owner approved" although the owner was never asked.
+            $locked->forceFill([
+                'arranged_by_agent_at' => now(), 'arranged_by_user_id' => $by->id,
+                'arranged_basis' => $eval['basis'] === RentalAuthorisation::BASIS_AGENT_CALLOUT_SETTING ? RentalFaultReport::ARRANGED_INSPECT_CALLOUT : RentalFaultReport::ARRANGED_INSPECT_NO_FEE,
+                'arranged_limit_amount' => $eval['allowance'],
+            ])->save();
         });
-
-        $fresh = RentalFaultReport::withoutGlobalScopes()->findOrFail($fault->id);
-        $fresh->forceFill([
-            'arranged_by_agent_at' => now(), 'arranged_by_user_id' => $by->id,
-            'arranged_basis' => $eval['basis'] === RentalAuthorisation::BASIS_AGENT_CALLOUT_SETTING ? RentalFaultReport::ARRANGED_INSPECT_CALLOUT : RentalFaultReport::ARRANGED_INSPECT_NO_FEE,
-            'arranged_limit_amount' => $eval['allowance'],
-        ])->save();
 
         // the owner is told at once: who, why, the fee
         $this->authorisations->tellOwner($row);

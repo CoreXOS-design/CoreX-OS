@@ -70,8 +70,10 @@ class RentalFaultProgressService
         // 3 - sent to the owner (or the owner's answer was taken without a send, e.g. by phone).
         // Item I (AT-452 round 2): a fault the agent ARRANGED without asking (inside the no-approval limit, or an emergency) tells the owner, it does not
         // ask: steps 3 and 4 read "told / arranged" instead of "sent for approval / approved". Same keys, so the tenant notices behave exactly as before.
-        $arranged = $fault->isArrangedByAgent();
         $ownerAsked = $fault->sent_to_owner_at !== null;
+        // A work order exists but NO owner step ever did (the owner was not asked and nothing records their decision): the agent went ahead. That is never
+        // "Owner approved" - not even for the instant between the work order being raised and the fault being marked as arranged (13 Oct walk, lease 106).
+        $arranged = $fault->isArrangedByAgent() || (! $decision && ! $ownerAsked && $wo !== null);
         // an agent wrote down what the owner told them (phone / WhatsApp / email): the owner was never SENT anything, so there is no "sent to owner" step
         $capturedByAgent = $decision && $decision->evidence_type !== RentalApproval::EVIDENCE_PORTAL && ! $ownerAsked;
         // nothing has happened yet that says which way it will go (the agent sends someone directly, or asks the owner): ONE neutral step, not two owner steps
@@ -80,7 +82,7 @@ class RentalFaultProgressService
         if ($routeUnknown) {
             $push('sent_to_owner', 'route_pending', null);
         } elseif (! $capturedByAgent) {
-            $push('sent_to_owner', $arranged ? 'informed' : 'sent_to_owner', $arranged ? $fault->arranged_by_agent_at : $sentAt);
+            $push('sent_to_owner', $arranged ? 'informed' : 'sent_to_owner', $arranged ? ($fault->arranged_by_agent_at ?? $wo?->created_at) : $sentAt);
         }
 
         // 4 - the owner's decision; a work order raised without one means the agent proceeded (approval not required).
@@ -90,11 +92,12 @@ class RentalFaultProgressService
         } elseif ($declined) {
             $push('owner_decided', 'not_approved', $decidedAt);
         } elseif ($arranged) {
-            $push('owner_decided', match ($fault->arranged_basis) {
-                RentalFaultReport::ARRANGED_EMERGENCY => 'arranged_emergency',
-                RentalFaultReport::ARRANGED_INSPECT_NO_FEE, RentalFaultReport::ARRANGED_INSPECT_CALLOUT => 'arranged_inspect',   // section 22: someone sent to look and quote
+            $push('owner_decided', match (true) {
+                $fault->arranged_basis === RentalFaultReport::ARRANGED_EMERGENCY,
+                in_array($wo?->approval_basis, [RentalWorkOrder::BASIS_EMERGENCY, RentalWorkOrder::BASIS_AGENT_EMERGENCY_LIMIT], true) && $fault->arranged_basis === null => 'arranged_emergency',
+                in_array($fault->arranged_basis, [RentalFaultReport::ARRANGED_INSPECT_NO_FEE, RentalFaultReport::ARRANGED_INSPECT_CALLOUT], true) => 'arranged_inspect',   // section 22: someone sent to look and quote
                 default => 'arranged_limit',
-            }, $fault->arranged_by_agent_at);
+            }, $fault->arranged_by_agent_at ?? $wo?->created_at);
         } else {
             // section 22: a decision an AGENT recorded on the owner's instruction is not "You approved" - say what it was
             $captured = $decision && $decision->evidence_type !== RentalApproval::EVIDENCE_PORTAL;

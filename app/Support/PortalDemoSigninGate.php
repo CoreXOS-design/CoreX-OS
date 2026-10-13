@@ -30,7 +30,13 @@ final class PortalDemoSigninGate
 
         // Every emailed portal link signs its tab straight in on QA (no code, no password), for any contact on any lease - including ones made live
         // during a demo. Same gate: this route does not exist anywhere else.
+        //
+        // NO `web` group on this one (registerRoutes() is called from routes/web.php, which wraps it in `web`): EnsureFrontendRequestsAreStateful
+        // runs its own session stack, and a second one on top used to read the browser's session cookie a second time as if it were an
+        // unknown session, start a NEW empty session and overwrite the cookie - signing a STAFF user in the same browser out the moment
+        // an owner/tenant link was opened. Every other /api/v1/client-auth route is in the `api` group, which has no session stack.
         Route::middleware([\Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class, 'throttle:30,1'])
+            ->withoutMiddleware('web')
             ->post('/api/v1/client-auth/qa-link-signin', [\App\Http\Controllers\Api\V1\ClientAuthController::class, 'qaLinkSignin'])
             ->name('client-auth.qa-link-signin');
     }
