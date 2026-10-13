@@ -104,6 +104,7 @@ Namespace `App\Services\RoadToSold\`. Every method takes/returns plain PHP types
 | `statusForPct(float $pct)` | `'green'`\|`'amber'`\|`'red'` | green ≥ 90, red < 70, else amber | lane 3 |
 | `defaultWeekdayTargets()` | `array<int,int>` keyed 1..7 (ISO, 1=Mon … 7=Sun) | `[1=>5,2=>5,3=>5,4=>5,5=>5,6=>0,7=>0]` | `WorkdayService` |
 | `holidayCountry()` | 2-letter code present in `public_holidays` | `'ZA'` | `WorkdayService` (audit C: was hard-coded) |
+| `refreshPortals()` | subset of `['p24','pp']`, at least one | `['p24','pp']` | lane 1 Areas screens (the "portals we capture from" setting; column `refresh_portals`, migration `2026_10_29_100400`) |
 | `buyerMatchTiers()` / `activeBuyerStates()` / `takenStatuses()` / `onMarketStatuses()` / `addToDayMax()` / `scanPageSize()` / `scanMaxPages()` / `hotPocketWeightBuyers()` / `…Leads()` / `…Sales()` | lists / ints | see §9.11 | lane 2 (audit G) |
 
 Stable keys (do not rename — they are stored):
@@ -137,7 +138,7 @@ Sources: `PublicHolidayService::isPublicHoliday` (global table `public_holidays`
 | `agentsWithoutAreas(int $agencyId, string $track='sales'): Collection` | Active selling users in the agency with zero areas (drives the settings warning when lock is ON). |
 | `lastCaptured(int $agencyId, ?array $suburbIds=null): array<int,array{p24:?Carbon,pp:?Carbon}>` | **Built.** Batch form (two small queries for the whole pool). Labelled "last captured" in the UI. |
 | `suburbNamesLowerTrimFor(User, track): string[]` | **Built.** Suburb names as `lower(trim())` — the form MIC joins against `prospecting_listings.suburb`. |
-| `portalsNeedingRefresh(array $captured, int $warnDays): string[]` | **Built (audit A).** `['p24']`, `['pp']`, both or none: each portal prompts on its own — a fresh P24 capture does not hide a missing Private Property one. |
+| `portalsNeedingRefresh(array $captured, int $warnDays, ?array $portals = null): string[]` | **Built (audit A).** `['p24']`, `['pp']`, both or none: each portal prompts on its own — a fresh P24 capture does not hide a missing Private Property one. Only the portals the agency captures from (`SettingsService::refreshPortals()`, default both) are checked; an agency without Private Property is never asked to refresh it, and the Areas screens drop that portal's column and wording. |
 | `needsRefresh(array $captured, int $warnDays): bool` | **Built.** True when at least one portal needs a refresh (never = true). |
 | `suburbMatchesFor(User, track): array` / `AreaService::matchSql(array $matches, 'tp', 'pl'): [sql, bindings]` | **Built (audit B).** The agent's areas with city/town and `unique_in_pool`, and the ONE area-membership test (§5.7). Lane 2's `AreaMatchProvider` hands them to the selections. `suburbNamesNormalisedFor` / `suburbNamesLowerTrimFor` remain for stub providers but production matching no longer uses bare names. |
 | `poolQuery(int $agencyId)` / `idsInPool(int $agencyId, int[] $ids): int[]` / `towns(int $agencyId)` | **Built.** The pool as a query builder (`s.id, s.name, s.p24_city_id, town_name`); membership check; the agency's towns that map to a P24 city. |

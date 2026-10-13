@@ -127,6 +127,15 @@ class SettingsController extends Controller
             $request->merge(['default_targets' => $week]);
         }
 
+        // The two portal toggles become the settings page's refresh_portals[] list, only when the step carried
+        // both (a step that never rendered them must not touch the setting). Both off is refused by the saver.
+        if ($request->has('refresh_portal_p24') && $request->has('refresh_portal_pp')) {
+            $request->merge(['refresh_portals' => array_values(array_filter([
+                $request->boolean('refresh_portal_p24') ? 'p24' : null,
+                $request->boolean('refresh_portal_pp') ? 'pp' : null,
+            ]))]);
+        }
+
         $this->saveFor($request, $agencyId, (int) $user->id);
     }
 
@@ -464,6 +473,7 @@ class SettingsController extends Controller
         'hot_pocket_weight_buyers' => 'Hottest pockets - weight of buyers',
         'hot_pocket_weight_leads'  => 'Hottest pockets - weight of leads',
         'hot_pocket_weight_sales'  => 'Hottest pockets - weight of sales',
+        'refresh_portals'         => 'Portals we capture from',
         'buyer_match_tiers'       => 'Buyer matches that count',
         'active_buyer_states'     => 'Buyers that count as active',
         'on_market_statuses'      => 'Statuses that mean on the market',

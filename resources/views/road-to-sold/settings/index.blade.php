@@ -68,6 +68,18 @@
                     </span>
                 </label>
                 <div>
+                    <div class="text-xs font-semibold mb-1" style="color:var(--text-muted);">Portals we capture from</div>
+                    <input type="hidden" name="refresh_portals[]" value="">
+                    <div class="flex flex-wrap gap-x-5 gap-y-1">
+                        @foreach($listChoices['refresh_portals'] as $value => $choiceLabel)
+                            <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);">
+                                <input type="checkbox" name="refresh_portals[]" value="{{ $value }}" @checked(in_array($value, (array) old('refresh_portals', $settings->refreshPortals()), true))>
+                                <span>{{ $choiceLabel }}</span>
+                            </label>
+                        @endforeach
+                    </div>
+                </div>
+                <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="area_refresh_warn_days">Ask for a refresh when nothing was captured for an area in</label>
                     <input id="area_refresh_warn_days" type="number" min="1" max="365" name="area_refresh_warn_days"
                            value="{{ old('area_refresh_warn_days', $settings->areaRefreshWarnDays()) }}"
@@ -188,7 +200,7 @@
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     @foreach([
                         ['add_to_day_max', 'Add to my day: most at once', $settings->addToDayMax(), 1, 500, 'properties'],
-                        ['scan_page_size', 'Properties read per window (the list keeps reading until it is full)', $settings->scanPageSize(), 10, 2000, 'properties'],
+                        ['scan_page_size', 'Properties read per window', $settings->scanPageSize(), 10, 2000, 'properties'],
                         ['hot_pocket_weight_buyers', 'Hottest pockets: weight of a buyer', $settings->hotPocketWeightBuyers(), 0, 100, 'points'],
                         ['hot_pocket_weight_leads', 'Hottest pockets: weight of a lead', $settings->hotPocketWeightLeads(), 0, 100, 'points'],
                         ['hot_pocket_weight_sales', 'Hottest pockets: weight of a sale', $settings->hotPocketWeightSales(), 0, 100, 'points'],

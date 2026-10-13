@@ -47,7 +47,7 @@ class RtsSetting extends Model
         'no_answer_drop_after', 'hold_days',
         'summary_steps', 'summary_green_from_pct', 'summary_red_below_pct',
         'default_weekday_targets', 'updated_by_user_id',
-        'buyer_match_tiers', 'active_buyer_states', 'on_market_statuses',
+        'refresh_portals', 'buyer_match_tiers', 'active_buyer_states', 'on_market_statuses',
         'add_to_day_max', 'scan_page_size',
         'hot_pocket_weight_buyers', 'hot_pocket_weight_leads', 'hot_pocket_weight_sales',
     ];
@@ -72,6 +72,7 @@ class RtsSetting extends Model
         'selections'                   => 'array',
         'summary_steps'                => 'array',
         'default_weekday_targets'      => 'array',
+        'refresh_portals'              => 'array',
         'buyer_match_tiers'            => 'array',
         'active_buyer_states'          => 'array',
         'on_market_statuses'           => 'array',
@@ -114,6 +115,7 @@ class RtsSetting extends Model
      * NULL in the column = this default. Choices below are the vocabularies those columns really hold.
      */
     public const LIST_DEFAULTS = [
+        'refresh_portals'     => ['p24', 'pp'],
         'buyer_match_tiers'   => ['perfect', 'strong'],
         'active_buyer_states' => ['new', 'warm'],
         'on_market_statuses'  => ['active', 'for_sale', 'on_show'],
@@ -128,6 +130,7 @@ class RtsSetting extends Model
         ];
 
         return [
+            'refresh_portals'     => ['p24' => 'Property24', 'pp' => 'Private Property'],
             'buyer_match_tiers'   => ['perfect' => 'Perfect', 'strong' => 'Strong', 'approximate' => 'Approximate'],
             'active_buyer_states' => ['new' => 'New', 'warm' => 'Warm', 'cold' => 'Cold'],
             'on_market_statuses'  => $statuses,
