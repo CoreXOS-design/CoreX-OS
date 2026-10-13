@@ -632,7 +632,7 @@ class RentalWorkOrderService
      * the contractor's contact(s), replacing the plain supplier mail. Returns true when a mail went out; false when the
      * contractor has no email on file (the work order is still assigned — the agent sends the printout).
      */
-    public function sendContractorWorkOrder(RentalWorkOrder $workOrder, User $by): bool
+    public function sendContractorWorkOrder(RentalWorkOrder $workOrder, ?User $by, bool $auto = false, ?string $authorisedLine = null): bool
     {
         $provider = $workOrder->supplier()->with('serviceContacts')->first();
         if (! $provider) {
@@ -645,18 +645,39 @@ class RentalWorkOrderService
         }
 
         $pdfService = app(RentalDocumentPdfService::class);
+        $sender = $this->senderFor($workOrder, $by);
+        // section 22.15 - the go-ahead carries the explicit wording and the contractor's private link (done / photos / invoice / extra money are asked for there)
+        $goAhead = app(RentalGoAheadService::class);
+        $words = $goAhead->wordsFor($workOrder);
+        $url = $expires = null;
+        try {
+            $issued = app(RentalSecureAccessTokenService::class)->issueFor($workOrder, $sender ?? $by ?? User::withoutGlobalScopes()->where('agency_id', $workOrder->agency_id)->orderBy('id')->firstOrFail());
+            $url = route('rentals.secure-link.show', $issued['raw_token']);
+            $expires = $issued['token']->expires_at?->format('j M Y');
+        } catch (\Throwable $e) {
+            Log::warning('Go-ahead: could not make the contractor link', ['work_order' => $workOrder->id, 'error' => $e->getMessage()]);
+        }
         $mail = new RentalContractorWorkOrderMail(
             $workOrder,
             (string) ($contact?->name ?: $provider->name),
             $pdfService->workOrderContractorPdf($workOrder)->output(),
             $pdfService->workOrderContractorFilename($workOrder),
             $workOrder->ownerApprovalLine(),
-            $this->senderFor($workOrder, $by),
+            $sender,
+            $words,
+            $url,
+            $expires,
         );
         $sent = $this->dispatchMail($email, $mail);
+        if ($authorisedLine === null && $words !== null) {
+            $row = app(RentalAuthorisationService::class)->activeFor($workOrder, \App\Models\RentalAuthorisation::POINT_COST);
+            $authorisedLine = $row ? app(RentalAuthorisationService::class)->recordTextFor($row->loadMissing(['byUser', 'ownerContact'])) : null;
+        }
         $workOrder->updates()->create([
-            'agency_id' => $workOrder->agency_id, 'update_type' => 'work_order_sent', 'created_by_user_id' => $by->id,
-            'note' => $sent ? 'Work order emailed to ' . ($provider->name ?: 'the contractor') . ' — ' . $workOrder->ownerApprovalLine() : 'Work order could not be emailed to the contractor',
+            'agency_id' => $workOrder->agency_id, 'update_type' => 'work_order_sent', 'created_by_user_id' => $by?->id,
+            'note' => $sent
+                ? ($auto ? 'Go-ahead sent automatically to ' : 'Go-ahead emailed to ') . ($provider->name ?: 'the contractor') . ' (with the job link) — ' . ($authorisedLine ?: $workOrder->ownerApprovalLine())
+                : 'Work order could not be emailed to the contractor',
         ]);
 
         return $sent;

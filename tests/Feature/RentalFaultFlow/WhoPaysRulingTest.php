@@ -126,6 +126,27 @@ final class WhoPaysRulingTest extends TestCase
         $this->assertSame('tenant', $row->default_payer);
     }
 
+    public function test_the_catalogue_migration_seeds_types_only_and_a_new_agency_gets_types_and_defaults(): void
+    {
+        // the old catalogue migration (2026_09_29_183000) runs before the causes table exists: it must call the types-only seeder
+        $other = Agency::create(['name' => 'Fresh Agency', 'slug' => 'fr-' . uniqid()]);
+        RentalFaultType::withoutGlobalScopes()->where('agency_id', $other->id)->get()->each->forceDelete();
+        RentalFaultTypeCause::withoutGlobalScopes()->where('agency_id', $other->id)->forceDelete();
+
+        RentalFaultType::seedDefaultTypesFor($other->id);
+        $this->assertSame(count(RentalFaultType::DEFAULTS), RentalFaultType::withoutGlobalScopes()->where('agency_id', $other->id)->count());
+        $this->assertSame(0, RentalFaultTypeCause::withoutGlobalScopes()->where('agency_id', $other->id)->count(), 'types only - no cause rows');
+
+        // the run-time seeder adds the "who normally pays" defaults (also to types that already exist) and is idempotent
+        RentalFaultType::seedDefaultsFor($other->id);
+        $drain = RentalFaultType::withoutGlobalScopes()->where('agency_id', $other->id)->where('name', 'Blocked drain / toilet')->firstOrFail();
+        $labels = RentalFaultTypeCause::withoutGlobalScopes()->where('rental_fault_type_id', $drain->id)->pluck('default_payer', 'label')->all();
+        $this->assertSame('tenant', $labels['Foreign object in the drain']);
+        $before = RentalFaultTypeCause::withoutGlobalScopes()->where('agency_id', $other->id)->count();
+        RentalFaultType::seedDefaultsFor($other->id);
+        $this->assertSame($before, RentalFaultTypeCause::withoutGlobalScopes()->where('agency_id', $other->id)->count());
+    }
+
     public function test_the_fault_type_screen_creates_edits_archives_and_restores_with_no_hard_delete(): void
     {
         $url = route('corex.rental-fault-types.causes.store', $this->type);
