@@ -323,6 +323,36 @@ final class AreasTest extends TestCase
             ->assertOk()->assertSee('Manaba')->assertDontSee('Retha Kelly');
     }
 
+    public function test_a_stale_suburb_offers_refresh_now_only_to_someone_who_can_open_the_capture_page(): void
+    {
+        // Nothing was ever captured for Uvongo, so it needs a refresh.
+        $url = route('road-to-sold.settings.areas.index', ['view' => 'suburbs', 'q' => 'Uvongo']);
+
+        $this->actingAs($this->admin)->get($url)->assertOk()
+            ->assertDontSee('Refresh now')->assertSee('Needs a refresh');
+
+        RolePermission::create(['role' => 'admin', 'permission_key' => 'access_settings', 'scope' => null, 'agency_id' => $this->agency->id]);
+        PermissionService::clearCache();
+
+        $this->actingAs($this->admin)->get($url)->assertOk()
+            ->assertSee('Refresh now')->assertSee(route('admin.minion.setup'), false);
+    }
+
+    public function test_the_areas_screen_carries_data_and_controls_only_and_its_buttons_share_one_size(): void
+    {
+        $this->assign($this->agentNorth, $this->sub['uvongo']);
+        RolePermission::create(['role' => 'admin', 'permission_key' => 'access_settings', 'scope' => null, 'agency_id' => $this->agency->id]);
+        PermissionService::clearCache();
+
+        foreach (['agents', 'suburbs'] as $view) {
+            $this->actingAs($this->admin)->get(route('road-to-sold.settings.areas.index', ['view' => $view, 'add_for' => $this->agentNorth->id]))
+                ->assertOk()
+                ->assertSee('cx-equal-btns', false)
+                ->assertDontSee('Several agents can share a suburb')
+                ->assertDontSee('Refreshing an area is a manual job');
+        }
+    }
+
     // ── service ───────────────────────────────────────────────────────────
 
     public function test_suburb_ids_names_and_has_areas_for_a_user(): void

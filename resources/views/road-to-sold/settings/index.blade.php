@@ -109,7 +109,6 @@
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">Where the call list comes from</h3>
-                <p class="text-xs mt-1" style="color:var(--text-muted);">Follow-ups come first, then these sources top to bottom until the target is met.</p>
             </div>
             <ul class="divide-y" id="rts-selections" style="border-color:var(--border);">
                 @foreach($settings->selections() as $i => $sel)

@@ -16,7 +16,7 @@
     $exportUrl = fn (string $name) => route($name) . ($exportQuery ? '?' . $exportQuery : '');
 @endphp
 
-<div class="w-full space-y-4" x-data="buyersReport({ drilldownBase: @js($drilldownBase) })">
+<div class="w-full space-y-4 rts-page" x-data="buyersReport({ drilldownBase: @js($drilldownBase) })">
 
     <div class="rounded-md px-6 py-4 corex-page-banner">
         <div class="flex items-center justify-between flex-wrap gap-3">
@@ -49,6 +49,7 @@
         </div>
     @endif
 
+    @include('road-to-sold._controls')
     {{-- Filters --}}
     <form method="GET" class="flex items-end gap-3 flex-wrap">
         @foreach(['period', 'start', 'end', 'compare', 'compare_start', 'compare_end'] as $keep)
@@ -110,9 +111,6 @@
                         <div class="text-base font-semibold" style="color: var(--text-primary);">
                             @if($filters['q'] !== '' || $filters['branch_id'] !== '') No agents match this search. @else There are no agents to report on yet. @endif
                         </div>
-                        <p class="text-xs mt-1" style="color: var(--text-muted);">
-                            @if($filters['q'] !== '' || $filters['branch_id'] !== '') Clear the search to see everyone you can view. @else Give agents the Road to Sold permission in Role Manager. @endif
-                        </p>
                     </td>
                 </tr>
             @endforelse
