@@ -32,6 +32,7 @@ class RtsListItem extends Model
 
     public const TRACK_SALES   = 'sales';
     public const TRACK_RENTALS = 'rentals';
+    public const TRACKS        = [self::TRACK_SALES, self::TRACK_RENTALS];
 
     public const ORIGIN_AUTO      = 'auto';
     public const ORIGIN_FOLLOW_UP = 'follow_up';

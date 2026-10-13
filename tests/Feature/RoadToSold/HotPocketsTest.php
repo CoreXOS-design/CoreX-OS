@@ -164,4 +164,96 @@ final class HotPocketsTest extends TestCase
         $this->assertSame($mgAddr, $c[0]->prospectingListingId, 'the agent\'s own suburb leads');
         $this->assertSame([$uvAddr, $uvNoAddr], array_slice($this->listingIds($c), 1));
     }
+
+    // ── same name, two towns: by suburb id / town + name, never by bare name ──
+
+    /** @return array{margate:int,port:int,sub:array<string,int>} two towns that both have an "Uvongo" */
+    private function twoTowns(): array
+    {
+        $country  = DB::table('p24_countries')->insertGetId(['p24_id' => 9301, 'name' => 'South Africa']);
+        $province = DB::table('p24_provinces')->insertGetId(['p24_id' => 9301, 'p24_country_id' => $country, 'name' => 'KwaZulu-Natal']);
+        $margate  = DB::table('p24_cities')->insertGetId(['p24_id' => 9311, 'p24_province_id' => $province, 'name' => 'Margate']);
+        $port     = DB::table('p24_cities')->insertGetId(['p24_id' => 9312, 'p24_province_id' => $province, 'name' => 'Port Shepstone']);
+        $sub = [];
+        foreach ([['um', 'Uvongo', $margate, 930101], ['up', 'Uvongo', $port, 930102], ['mn', 'Manaba', $margate, 930103]] as [$k, $n, $city, $p24]) {
+            $sub[$k] = (int) DB::table('p24_suburbs')->insertGetId([
+                'name' => $n, 'slug' => strtolower($n) . '-' . $p24, 'p24_id' => $p24, 'p24_city_id' => $city, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+        foreach ([['Margate', $margate, 1], ['Port Shepstone', $port, 2]] as [$n, $city, $order]) {
+            DB::table('towns')->insert([
+                'agency_id' => $this->agency->id, 'name' => $n, 'slug' => strtolower(str_replace(' ', '-', $n)), 'p24_city_id' => $city,
+                'display_order' => $order, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        return ['margate' => $margate, 'port' => $port, 'sub' => $sub];
+    }
+
+    public function test_two_suburbs_of_one_name_in_two_towns_are_two_pockets(): void
+    {
+        $t = $this->twoTowns();
+        $inMargate = $this->property($this->agent->id, ['suburb' => 'Uvongo', 'p24_suburb_id' => $t['sub']['um'], 'p24_city_id' => $t['margate']]);
+        $inPort    = $this->property($this->agent->id, ['suburb' => 'Uvongo', 'p24_suburb_id' => $t['sub']['up'], 'p24_city_id' => $t['port']]);
+        foreach ([1, 2] as $_) { $this->lead($inMargate); }
+        $this->lead($inPort);
+
+        $r = $this->svc->rank($this->agency->id, 'sales', $this->asOf, 180);
+
+        $this->assertSame(['s' . $t['sub']['um'], 's' . $t['sub']['up']], array_keys($r));
+        $this->assertSame(2, $r['s' . $t['sub']['um']]['leads']);
+        $this->assertSame(1, $r['s' . $t['sub']['up']]['leads']);
+        $this->assertSame('2 leads in Uvongo (Margate)', $this->svc->describe($r['s' . $t['sub']['um']]));
+        $this->assertSame('1 lead in Uvongo (Port Shepstone)', $this->svc->describe($r['s' . $t['sub']['up']]));
+    }
+
+    public function test_a_row_with_no_suburb_id_joins_the_pocket_of_its_unique_name_and_a_shared_name_needs_its_town(): void
+    {
+        $t = $this->twoTowns();
+        $withId = $this->property($this->agent->id, ['suburb' => 'Manaba', 'p24_suburb_id' => $t['sub']['mn'], 'p24_city_id' => $t['margate']]);
+        $noId   = $this->property($this->agent->id, ['suburb' => 'Manaba']);                    // no id, unique name -> same pocket
+        $this->lead($withId); $this->lead($noId);
+        $shared = $this->property($this->agent->id, ['suburb' => 'Uvongo', 'town' => 'Port Shepstone']);   // no id, town says which
+        $lost   = $this->property($this->agent->id, ['suburb' => 'Uvongo']);                    // no id, no town: ambiguous, its own pocket
+        $this->lead($shared); $this->lead($lost);
+
+        $r = $this->svc->rank($this->agency->id, 'sales', $this->asOf, 180);
+
+        $this->assertSame(2, $r['s' . $t['sub']['mn']]['leads'], 'both Manaba rows are one pocket');
+        $this->assertSame(1, $r['s' . $t['sub']['up']]['leads'], 'the town decides which Uvongo');
+        $this->assertArrayNotHasKey('s' . $t['sub']['um'], $r);
+        $this->assertSame(1, $r['uvongo|']['leads'], 'an ambiguous name with no town is never guessed into a town');
+    }
+
+    public function test_the_selection_offers_only_the_pocket_that_is_hot_not_its_namesake_in_another_town(): void
+    {
+        $t = $this->twoTowns();
+        $hotProp = $this->property($this->agent->id, ['suburb' => 'Uvongo', 'p24_suburb_id' => $t['sub']['um'], 'p24_city_id' => $t['margate']]);
+        foreach ([1, 2] as $_) { $this->lead($hotProp); }
+
+        // the tracked-property observer derives suburb ids itself, so set them directly
+        $tpWith = function (?int $sub, ?int $city, ?string $town) {
+            $tp = $this->tp(['suburb' => 'Uvongo']);
+            DB::table('tracked_properties')->where('id', $tp->id)->update(['p24_suburb_id' => $sub, 'p24_city_id' => $city, 'town' => $town]);
+
+            return $tp;
+        };
+        $tpMargate = fn () => $tpWith($t['sub']['um'], $t['margate'], null);
+        $tpPort    = fn () => $tpWith($t['sub']['up'], $t['port'], null);
+        $hot       = $this->listing(['suburb' => 'Uvongo'], $tpMargate());
+        $namesake  = $this->listing(['suburb' => 'Uvongo'], $tpPort());
+        $noIdPort  = $this->listing(['suburb' => 'Uvongo'], $tpWith(null, $t['port'], 'Port Shepstone'));
+        $noIdHot   = $this->listing(['suburb' => 'Uvongo'], $tpWith(null, $t['margate'], 'Margate'));
+        $noIdBare  = $this->listing(['suburb' => 'Uvongo'], $tpWith(null, null, null));
+
+        $c = (new HotPocketSelection($this->svc))->candidates($this->ctx(), 50);
+
+        $ids = $this->listingIds($c);
+        $this->assertContains($hot, $ids);
+        $this->assertNotContains($namesake, $ids, 'the Uvongo in the other town is not hot');
+        $this->assertNotContains($noIdPort, $ids);
+        $this->assertNotContains($noIdBare, $ids, 'a bare name that two towns share is never guessed');
+        $this->assertContains($noIdHot, $ids, 'no suburb id, but the town agrees');
+        $this->assertStringContainsString('2 leads in Uvongo', $c[0]->reason);
+    }
 }

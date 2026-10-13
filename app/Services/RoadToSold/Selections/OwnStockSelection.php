@@ -3,6 +3,7 @@
 namespace App\Services\RoadToSold\Selections;
 
 use Illuminate\Database\Query\Builder;
+use App\Services\RoadToSold\Support\TrackedPropertyResolver;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -49,7 +50,7 @@ abstract class OwnStockSelection implements Selection
             return [];
         }
 
-        return DB::table('tracked_properties')
+        $map = DB::table('tracked_properties')
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
             ->whereNotIn('status', ['archived', 'duplicate'])
@@ -59,6 +60,23 @@ abstract class OwnStockSelection implements Selection
             ->pluck('tracked_id', 'promoted_to_property_id')
             ->map(fn ($v) => (int) $v)
             ->all();
+
+        // A property never promoted but already given a tracked property by an earlier build (match-or-create's
+        // external reference): found again here, so it is not matched afresh on every build.
+        $missing = array_values(array_diff($propertyIds, array_keys($map)));
+        if ($missing !== []) {
+            $refs = DB::table('tracked_property_external_refs as r')
+                ->join('tracked_properties as t', 't.id', '=', 'r.tracked_property_id')
+                ->where('r.agency_id', $agencyId)->where('r.source_type', TrackedPropertyResolver::PROPERTY_SOURCE)->whereNull('r.deleted_at')
+                ->whereNull('t.deleted_at')->whereNotIn('t.status', ['archived', 'duplicate'])
+                ->whereIn('r.source_ref', array_map(fn ($id) => TrackedPropertyResolver::PROPERTY_REF_PREFIX . $id, $missing))
+                ->get(['r.source_ref', 'r.tracked_property_id']);
+            foreach ($refs as $r) {
+                $map[(int) substr($r->source_ref, strlen(TrackedPropertyResolver::PROPERTY_REF_PREFIX))] = (int) $r->tracked_property_id;
+            }
+        }
+
+        return $map;
     }
 
     /**

@@ -14,10 +14,7 @@ use Illuminate\Support\Facades\DB;
  */
 abstract class MicPoolSelection implements Selection
 {
-    /** Each further window doubles, up to this many rows (the scan itself never stops short of the pool's end). */
-    private const MAX_PAGE = 3200;
-
-    /** Rows in the first window: the agency's "properties read per page" setting. Overridable so a test can prove the scan keeps going. */
+    /** Rows in the first read and in each streamed batch: the agency's "properties read per page" setting. Overridable so a test can prove the scan keeps going. */
     protected function firstPage(SelectionContext $ctx): int
     {
         return max(1, $ctx->settings->scanPageSize);
@@ -63,20 +60,12 @@ abstract class MicPoolSelection implements Selection
 
         $out = [];
         $seen = [];
-        $offset = 0;
         $size = max(1, $this->firstPage($ctx));
         $stock = $ctx->otherStock();
         $excluded = array_flip($ctx->excludeTrackedIds);
 
-        // Keep reading windows until the day is filled or the pool is exhausted - never a fixed cut-off that
-        // could leave a day short while eligible properties remain further down the ranking.
-        while (count($out) < $limit) {
-            $rows = $this->pool($ctx)->offset($offset)->limit($size)->get();
-            if ($rows->isEmpty()) {
-                break;
-            }
-            $offset += $rows->count();
-
+        // Look at one batch of ranked rows; true once the day is filled.
+        $take = function (\Illuminate\Support\Collection $rows) use ($ctx, $limit, $stock, $excluded, &$out, &$seen): bool {
             $trackedIds = $rows->pluck('tracked_property_id')->filter()->map(fn ($v) => (int) $v)->unique()->values()->all();
             $blocked = array_flip($ctx->guard->blockedFor($ctx->user, $trackedIds, $ctx->track, $ctx->date));
             $held = $this->skipOwnHeld() ? array_flip($ctx->guard->ownHeld($ctx->user, $trackedIds, $ctx->track)) : [];
@@ -125,14 +114,26 @@ abstract class MicPoolSelection implements Selection
                 $seen[$c->dedupeKey()] = true;
                 $out[] = $c;
                 if (count($out) >= $limit) {
-                    break 2;
+                    return true;
                 }
             }
 
-            if ($rows->count() < $size) {
+            return false;
+        };
+
+        // The first batch is a cheap LIMIT read - nearly every day is filled from it. Only when it is not, the rest
+        // of the ranked pool is streamed from ONE more query (never a fixed cut-off, and never a re-sort per page:
+        // re-running the sort with a growing OFFSET cost ~0.7 s per page on 34,000 adverts).
+        $first = $this->pool($ctx)->limit($size)->get();
+        if ($take($first) || $first->count() < $size) {
+            return $out;
+        }
+        $rest = $this->pool($ctx)->offset($size)->limit(PHP_INT_MAX);
+        // bigger batches for the stream: fewer guard look-ups (two queries each) over a long tail
+        foreach ($rest->cursor()->chunk(max($size, 2000)) as $chunk) {
+            if ($take(collect($chunk->all()))) {
                 break;
             }
-            $size = min($size * 2, self::MAX_PAGE);
         }
 
         return $out;
@@ -187,6 +188,7 @@ abstract class MicPoolSelection implements Selection
                 'pl.id as listing_id', 'pl.tracked_property_id', 'pl.matched_property_id', 'pl.price',
                 'pl.address', 'pl.suburb', 'pl.listed_date', 'pl.first_seen_at', 'pl.portal_source',
                 'pl.portal_ref', 'pl.normalized_address', 'tp.promoted_to_property_id',
+                'tp.p24_suburb_id as tp_suburb_id', 'tp.p24_city_id as tp_city_id', 'tp.town as tp_town',
             ])
             ->selectRaw(ProspectingListing::hasAddressSql('pl', 'tp') . ' as has_address')
             ->selectRaw($areaSql . ' as in_area', $areaBindings);

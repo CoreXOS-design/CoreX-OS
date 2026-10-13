@@ -90,6 +90,14 @@ class ListBuilderService
         return $ownerId === (int) $user->id ? $user : (User::withoutGlobalScopes()->find($ownerId) ?? $user);
     }
 
+    /** A track nobody has built (a typo) is an error, not a quiet empty list. */
+    private function assertTrack(string $track): void
+    {
+        if (! in_array($track, RtsListItem::TRACKS, true)) {
+            throw new InvalidArgumentException("Unknown Road to Sold track '{$track}'.");
+        }
+    }
+
     // ── build ────────────────────────────────────────────────────────────
 
     /**
@@ -100,6 +108,7 @@ class ListBuilderService
      */
     public function buildFor(User $user, CarbonInterface|string $date, string $track = RtsListItem::TRACK_SALES): Collection
     {
+        $this->assertTrack($track);
         $user = $this->listOwner($user);
         $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
         $day = Carbon::parse($date)->startOfDay();
@@ -318,6 +327,7 @@ class ListBuilderService
      */
     public function addToDay(User $user, string $selection, int $count, CarbonInterface|string|null $date = null, string $track = RtsListItem::TRACK_SALES): Collection
     {
+        $this->assertTrack($track);
         $user = $this->listOwner($user);
         $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
         if ($agencyId <= 0) {
@@ -361,6 +371,7 @@ class ListBuilderService
      */
     public function closePastDays(User $user, CarbonInterface|string $today, string $track = RtsListItem::TRACK_SALES): array
     {
+        $this->assertTrack($track);
         $user = $this->listOwner($user);
         $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
         $today = Carbon::parse($today)->startOfDay();

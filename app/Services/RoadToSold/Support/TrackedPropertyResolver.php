@@ -16,6 +16,10 @@ use Illuminate\Support\Facades\Log;
  */
 final class TrackedPropertyResolver
 {
+    /** match-or-create source type / reference prefix for an agency's own CoreX property */
+    public const PROPERTY_SOURCE = 'agency_stock';
+    public const PROPERTY_REF_PREFIX = 'property:';
+
     public function forListing(int $listingId, int $agencyId, ?int $actorUserId = null): ?int
     {
         try {
@@ -95,7 +99,7 @@ final class TrackedPropertyResolver
                     'erf_size_m2'             => $p->erf_size_m2,
                     'last_known_asking_price' => $p->price,
                 ], fn ($v) => $v !== null && $v !== ''),
-                source: ['type' => 'agency_stock', 'ref' => 'property:' . $propertyId, 'payload' => ['property_id' => $propertyId]],
+                source: ['type' => self::PROPERTY_SOURCE, 'ref' => self::PROPERTY_REF_PREFIX . $propertyId, 'payload' => ['property_id' => $propertyId]],
                 actorUserId: $actorUserId,
             );
 
