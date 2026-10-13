@@ -778,6 +778,8 @@ async function portalFetch(url, options = {}) {
     if (window.__portalContact) headers['X-Portal-Contact'] = String(window.__portalContact);
     // which login THIS page believes it is acting as: if the browser's session has become somebody else's (another tab signed in), the server refuses
     if (window.__portalExpect) headers['X-Portal-Expect'] = String(window.__portalExpect);
+    // a QA demo tab is fixed to ONE side for its whole life; the server refuses a call that belongs to the other side (EnsurePortalRole)
+    if (window.__portalRole) headers['X-Portal-Role'] = String(window.__portalRole);
     if (!(options.body instanceof FormData) && options.body) {
         headers['Content-Type'] = 'application/json';
     }
@@ -801,6 +803,7 @@ async function portalUpload(url, form, key, onProgress) {
         xhr.setRequestHeader('X-XSRF-TOKEN', getCookie('XSRF-TOKEN'));
         if (window.__portalContact) xhr.setRequestHeader('X-Portal-Contact', String(window.__portalContact));
         if (window.__portalExpect) xhr.setRequestHeader('X-Portal-Expect', String(window.__portalExpect));
+        if (window.__portalRole) xhr.setRequestHeader('X-Portal-Role', String(window.__portalRole));
         if (key) xhr.setRequestHeader('X-Submission-Key', key);
         if (xhr.upload && onProgress) {
             xhr.upload.onprogress = (e) => { if (e.lengthComputable && e.total > 0) onProgress(Math.min(99, Math.round(e.loaded / e.total * 100))); };
@@ -838,6 +841,7 @@ function rentalsPortal() {
         linkContactId: @json($linkedContactId ?? null),   // the contact the link was written for, from the signed reference
         roles: [],
         activeRole: null,
+        demoTab: false,   // opened from the QA demo sign-in link: fixed to one side for the life of the tab
         login: { step: 'email', email: '', password: '', code: '', newPassword: '', newPasswordConfirm: '', error: null, mustSetPassword: false },
         tenantTab: 'home',
         landlordTab: 'home',
@@ -884,6 +888,19 @@ function rentalsPortal() {
             const linked = String(@json($linkedEmail ?? null) || new URLSearchParams(window.location.search).get('email') || '').trim();
             if (linked && linked.length <= 255 && /^[^\s@]+@[^\s@]+$/.test(linked)) { this.login.email = linked; this.linkEmail = linked; }
             window.__portalContact = this.linkContactId || null;
+            // QA DEMO TAB (never on Staging/live: only the QA-only demo sign-in link adds ?demo=1). Owner and tenant are two tabs of one browser on one
+            // login, so the side must belong to the TAB, not to anything the other tab can overwrite: it comes from this tab's own URL (?as=) and
+            // sessionStorage (per tab), never localStorage, and is sent on every portal call so the server refuses a call from the wrong side.
+            try {
+                const dq = new URLSearchParams(window.location.search);
+                if (dq.get('demo') === '1') sessionStorage.setItem('portal.demo', '1');
+                this.demoTab = sessionStorage.getItem('portal.demo') === '1';
+                if (this.demoTab) {
+                    const asRole = { owner: 'owner', tenant: 'tenant' }[dq.get('as')] || sessionStorage.getItem('portal.demo.role') || null;
+                    if (asRole) sessionStorage.setItem('portal.demo.role', asRole);
+                    window.__portalRole = asRole;
+                }
+            } catch (e) { this.demoTab = false; window.__portalRole = null; }
             window.__portalOnSessionChanged = () => { this.sessionChanged = true; };
             // coming back to this tab: has the browser's login changed under it while it sat in the background?
             if (typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') this.recheckSession(); });
@@ -951,8 +968,8 @@ function rentalsPortal() {
             if (!d) return '';
             return (u.length <= 2 ? u[0] + '*' : u[0] + '*'.repeat(Math.min(6, u.length - 2)) + u[u.length - 1]) + '@' + d;
         },
-        rememberedRole() { try { return window.localStorage.getItem('portal.role.' + ((this.me && this.me.client && this.me.client.id) || '')) || null; } catch (e) { return null; } },
-        rememberRole(role) { try { window.localStorage.setItem('portal.role.' + ((this.me && this.me.client && this.me.client.id) || ''), role); } catch (e) { /* private window: the choice just is not remembered */ } },
+        rememberedRole() { try { if (this.demoTab) return window.sessionStorage.getItem('portal.demo.role') === 'owner' ? 'landlord' : (window.sessionStorage.getItem('portal.demo.role') === 'tenant' ? 'tenant' : null); return window.localStorage.getItem('portal.role.' + ((this.me && this.me.client && this.me.client.id) || '')) || null; } catch (e) { return null; } },
+        rememberRole(role) { try { if (this.demoTab) return; window.localStorage.setItem('portal.role.' + ((this.me && this.me.client && this.me.client.id) || ''), role); } catch (e) { /* private window: the choice just is not remembered */ } },
 
         async loadBranding() {
             const r = await portalFetch('/api/v1/client/rentals/branding');
@@ -962,9 +979,11 @@ function rentalsPortal() {
         async detectRoles() {
             this.loadBranding();
             const roles = [];
-            const leases = await portalFetch('/api/v1/client/rentals/leases');
+            // a demo tab asks only about ITS OWN side (the server would refuse the other side's calls), so it is never offered the other view
+            const only = window.__portalRole || null;
+            const leases = only === 'owner' ? { ok: false } : await portalFetch('/api/v1/client/rentals/leases');
             if (leases.ok && leases.data.leases && leases.data.leases.length) roles.push('tenant');
-            const props = await portalFetch('/api/v1/client/rentals/landlord/properties');
+            const props = only === 'tenant' ? { ok: false } : await portalFetch('/api/v1/client/rentals/landlord/properties');
             if (props.ok && props.data.properties && props.data.properties.length) roles.push('landlord');
             this.roles = roles;
             if (leases.ok && leases.data.leases) this.tenantLeases = leases.data.leases;
