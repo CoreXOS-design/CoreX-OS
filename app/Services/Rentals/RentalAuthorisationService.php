@@ -468,7 +468,7 @@ class RentalAuthorisationService
                 ? "The owner does not agree with the fault-handling settings on this property, so the owner must authorise this first."
                 : "The owner has not told us what you may authorise without asking (the {$limitWord}), so the owner must authorise this first."];
         }
-        if ($amount <= $limit + 0.001) {
+        if (round($amount * 100) <= round($limit * 100)) {
             return array_merge($base, ['agent_can' => true,
                 'basis' => $emergency ? RentalAuthorisation::BASIS_AGENT_EMERGENCY_LIMIT : RentalAuthorisation::BASIS_AGENT_REPAIR_LIMIT,
                 'line' => $this->rand($amount) . " is inside the owner's {$limitWord} of " . $this->rand($limit) . '. You can authorise it. The owner will be told.']);
@@ -615,7 +615,7 @@ class RentalAuthorisationService
                 throw new \InvalidArgumentException('Say the amount the owner approved up to.');
             }
             $measure = $this->costMeasure($wo)['amount'];
-            if ($measure !== null && $upTo + 0.001 < $measure) {
+            if ($measure !== null && round($upTo * 100) < round($measure * 100)) {
                 throw new \InvalidArgumentException('The owner approved up to ' . $this->rand($upTo) . ', which is less than the ' . $this->rand($measure) . ' being asked. Get a lower quote, or record that the owner declined.');
             }
         }

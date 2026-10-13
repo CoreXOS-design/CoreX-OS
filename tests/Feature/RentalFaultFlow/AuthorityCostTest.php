@@ -346,7 +346,7 @@ final class AuthorityCostTest extends TestCase
     public function test_a_final_cost_above_what_was_authorised_sends_the_difference_to_the_owner_and_holds_the_close(): void
     {
         $this->ownerLimits(1500.0);
-        $this->setting(['variation_tolerance_percent' => 0, 'completion_requires_photo' => false]);
+        $this->setting(['completion_requires_photo' => false]);
         $wo = $this->quoted(1000.0);
         $this->authoriseCostOf($wo);
         $wo = $wo->fresh();
@@ -386,12 +386,44 @@ final class AuthorityCostTest extends TestCase
     public function test_extra_work_is_never_approved_by_the_repair_limit(): void
     {
         $this->ownerLimits(5000.0);
-        $this->setting(['variation_tolerance_percent' => 0]);
         $wo = $this->quoted(1000.0);
         $this->authoriseCostOf($wo);
         $d = $this->gate->evaluateVariation($wo->fresh(), 1200.0, $this->admin, false);
         $this->assertFalse($d->authorised, 'R1200 is inside the R5000 limit, yet extra money goes to the owner');
         $this->assertSame('needs_owner', $d->decision);
+    }
+
+    public function test_there_is_no_tolerance_exactly_the_limit_passes_and_one_cent_over_goes_to_the_owner(): void
+    {
+        $this->ownerLimits(1000.0, 3000.0);
+
+        // repair limit: R1,000.00 can be authorised by the agent, R1,000.01 cannot - the owner is asked first
+        $this->assertTrue($this->auth->costEvaluation($this->quoted(1000.00), null, false)['agent_can']);
+        $over = $this->auth->costEvaluation($this->quoted(1000.01), null, false);
+        $this->assertFalse($over['agent_can']);
+        $this->assertStringContainsString('The owner must authorise this first.', $over['line']);
+
+        // emergency limit: the same rule
+        $this->assertTrue($this->auth->costEvaluation($this->quoted(3000.00), null, true)['agent_can']);
+        $this->assertFalse($this->auth->costEvaluation($this->quoted(3000.01), null, true)['agent_can']);
+
+        // the gate agrees: one cent over the repair limit is pending and the owner is asked
+        $wo = $this->externalWorkOrder();
+        $this->assertSame('needs_agent', $this->gate->evaluateQuote($wo, 1000.00, $this->admin)->decision);
+        $this->assertSame('needs_owner', $this->gate->evaluateQuote($wo, 1000.01, $this->admin)->decision);
+
+        // an agent cannot authorise R1,000.01 under a R1,000 limit
+        $this->expectException(\LogicException::class);
+        $this->authoriseCostOf($this->quoted(1000.01));
+    }
+
+    public function test_the_owner_approved_up_to_amount_is_also_a_hard_lock_for_the_amount_being_asked(): void
+    {
+        $this->ownerLimits(500.0);
+        $wo = $this->quoted(1200.00);
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('less than the');
+        $this->auth->recordOwnerCostDecision($this->admin, $wo, ['owner_contact_id' => $this->landlord->id, 'decision' => 'approved', 'approved_up_to' => 1199.99, 'told_via' => 'email', 'note' => 'R1,199.99 only']);
     }
 
     public function test_while_the_owner_has_paused_the_job_no_cost_can_be_authorised_or_recorded(): void

@@ -5063,10 +5063,6 @@
                     </div>
                 </form>
 
-                {{-- BUILD 2 (.ai/specs/rental-work-orders.md §17.6.2) — "Work terms agreed with the owner": the no-approval limit and the
-                     variation tolerance, with who/when and a history. Its own form and its own permission. --}}
-                @include('corex.properties._rental-work-terms')
-
                 {{-- rentals-faults-work-orders.md section 22 - "How the owner wants faults handled": the OWNER's own limits, with evidence, confirm and dispute. --}}
                 @include('corex.properties._rental-owner-fault-settings')
 

@@ -166,6 +166,11 @@ final class AuthorityFlowTest extends TestCase
         $this->assertTrue($svc->evaluate($this->property, 'Sam', 'yes', 750.0)['allowed']);
         $this->assertSame(RentalAuthorisation::BASIS_AGENT_CALLOUT_SETTING, $svc->evaluate($this->property, 'Sam', 'yes', 1000.0)['basis']);
         $this->assertFalse($svc->evaluate($this->property, 'Sam', 'yes', 1001.0)['allowed']);
+        // no tolerance: one cent over the owner's call-out permission is over (Johan, 13 Oct 2026: a hard lock)
+        $this->assertTrue($svc->evaluate($this->property, 'Sam', 'yes', 1000.00)['allowed']);
+        $over = $svc->evaluate($this->property, 'Sam', 'yes', 1000.01);
+        $this->assertFalse($over['allowed']);
+        $this->assertStringContainsString('The owner must authorise this first.', $over['line']);
         $this->assertFalse($svc->evaluate($this->property, 'Sam', 'unknown', null)['allowed'], 'even with a permission, a fee that is not known cannot be covered');
     }
 

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Tests\Feature\RentalMaintenanceFlow;
 
-use App\Mail\Rentals\RentalOwnerVariationAutoMail;
 use App\Mail\Rentals\RentalOwnerVariationMail;
 use App\Models\Agency;
 use App\Models\Branch;
@@ -27,8 +26,8 @@ use Tests\Feature\RentalMaintenanceFlow\Concerns\BuildsApprovalFixtures;
 use Tests\TestCase;
 
 /**
- * .ai/specs/rental-work-orders.md §17.7 — variations: extra work after the owner approved an amount. Within the owner's terms it is
- * auto-approved, logged and the owner is told; beyond them it waits for the owner (the main job carries on, the extra waits);
+ * .ai/specs/rental-work-orders.md §17.7 + rentals-faults-work-orders.md §22.6 — variations: extra work after an amount was authorised. The amount
+ * is a HARD LOCK - even R0.01 over it waits for the owner (the main job carries on, the extra waits; there is no tolerance any more);
  * the owner decides in the portal or the office captures the reply; a decision must carry the revision the owner saw (stale → 409);
  * a decline takes the lines out; a total that falls back withdraws the request; nothing is ever deleted.
  */
@@ -44,7 +43,7 @@ final class VariationFlowTest extends TestCase
     {
         parent::setUp();
         $this->approvalWorld('Variation');
-        $this->property->forceFill(['rental_variation_tolerance_percent' => 10])->save();
+        $this->property->forceFill(['rental_variation_tolerance_percent' => 10])->save();   // the old work term: stored, never read - the amount is a hard lock
         [$card] = $this->internalJob(1000.0);
         $wo = $this->sendQuote($card);
         $wo->recordApproval($this->admin, ['decision' => 'approved', 'evidence_type' => 'email', 'evidence_text' => 'Owner approved R1,000']);
@@ -82,44 +81,34 @@ final class VariationFlowTest extends TestCase
         return CrewApprovalBlock::for($this->card->fresh(), $ctx);
     }
 
-    // ── within the owner's terms ─────────────────────────────────────
+    // ── the amount is a hard lock ─────────────────────────────────────
 
-    public function test_an_extra_within_the_tolerance_is_auto_approved_logged_and_the_owner_is_told(): void
+    public function test_even_a_small_extra_is_never_passed_it_waits_for_the_owner_and_the_owner_is_asked(): void
     {
-        $line = $this->addExtra('Isolator valve', 80.0);
+        $line = $this->addExtra('Isolator valve', 80.0);   // 8 % - the old 10 % tolerance would have passed it
 
         $variation = $this->wo->fresh()->variations()->sole();
-        $this->assertSame(RentalWorkOrderVariation::STATUS_AUTO_APPROVED, $variation->status);
+        $this->assertSame(RentalWorkOrderVariation::STATUS_AWAITING_OWNER, $variation->status);
         $this->assertSame('1000.00', $variation->baseline_amount);
         $this->assertSame('80.00', $variation->extra_amount);
         $this->assertSame('1080.00', $variation->new_total);
-        $this->assertSame('variation_tolerance', $variation->term_basis);
-        $this->assertSame('1000.00', $this->wo->fresh()->approved_amount, 'an auto-approved extra never moves the approved amount');
+        $this->assertSame('1000.00', $this->wo->fresh()->approved_amount, 'the approved amount never moves until the owner decides');
         $this->assertSame($variation->id, $line->fresh()->rental_work_order_variation_id);
-        $this->assertSame(RentalJobCardLine::OFFICE_ACCEPTED, $line->fresh()->office_status);
-        $this->assertNull($this->openVariation());
+        $this->assertNotNull($this->openVariation());
 
         $row = RentalApprovalDecision::withoutGlobalScopes()->where('rental_work_order_variation_id', $variation->id)->sole();
-        $this->assertSame('auto_approved', $row->decision);
-        $this->assertSame('variation_tolerance', $row->term_key);
-
-        $mail = $this->sent(RentalOwnerVariationAutoMail::class);
-        $this->assertCount(1, $mail, 'the owner is told about every auto-approved extra');
-        $html = $mail[0]->render();
-        $this->assertStringContainsString('Isolator valve', $html);
-        $this->assertStringContainsString('R1,080.00', $html);
-        $this->assertStringContainsString('10 % tolerance you agreed', $html);
-        $this->assertSame([], $this->sent(RentalOwnerVariationMail::class));
+        $this->assertSame('needs_owner', $row->decision);
+        $this->assertCount(1, $this->sent(RentalOwnerVariationMail::class), 'the owner is asked, by the normal request-for-extra email');
     }
 
-    public function test_the_owner_is_not_emailed_about_an_auto_approved_extra_when_the_agency_switches_that_off(): void
+    public function test_one_cent_over_the_authorised_amount_is_a_request_for_the_extra(): void
     {
-        $this->setting(['notify_landlord_on_auto_variation' => false]);
+        $this->addExtra('A single washer', 0.01);
 
-        $this->addExtra('Isolator valve', 80.0);
-
-        $this->assertSame(RentalWorkOrderVariation::STATUS_AUTO_APPROVED, $this->wo->fresh()->variations()->sole()->status);
-        $this->assertSame([], $this->sent());
+        $open = $this->openVariation();
+        $this->assertNotNull($open, 'R1,000.01 is above R1,000.00 - there is no tolerance');
+        $this->assertSame('0.01', $open->extra_amount);
+        $this->assertSame('1000.01', $open->new_total);
     }
 
     public function test_pressing_the_same_total_again_does_not_raise_a_second_variation(): void
@@ -130,7 +119,6 @@ final class VariationFlowTest extends TestCase
         app(RentalJobCardService::class)->updateLine($this->card->fresh(), $line->fresh(), ['unit_price' => 80], $this->admin);
 
         $this->assertSame(1, $this->wo->fresh()->variations()->count(), 'nothing changed in the total');
-        $this->assertCount(1, $this->sent(RentalOwnerVariationAutoMail::class));
     }
 
     public function test_a_decrease_never_needs_approval(): void
@@ -139,13 +127,12 @@ final class VariationFlowTest extends TestCase
 
         app(RentalJobCardService::class)->archiveLine($this->card->fresh(), $line->fresh(), $this->admin);
 
-        $this->assertNull($this->openVariation());
-        $this->assertSame(1, $this->wo->fresh()->variations()->count(), 'the earlier auto-approved step stays as history');
+        $this->assertNull($this->openVariation(), 'the total fell back to the authorised amount: the request is withdrawn');
     }
 
-    // ── beyond the owner's terms ─────────────────────────────────────
+    // ── a bigger extra: the same rule, with the full email ───────────────
 
-    public function test_an_extra_beyond_the_tolerance_waits_for_the_owner_and_the_owner_is_asked(): void
+    public function test_a_bigger_extra_waits_for_the_owner_and_the_owner_gets_the_variation_notice(): void
     {
         $line = $this->addExtra('Replace the whole manifold', 300.0, ['unit' => 'each']);
 

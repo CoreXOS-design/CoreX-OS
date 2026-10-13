@@ -167,12 +167,10 @@ final class MaintenanceFlowFoundationTest extends TestCase
 
         $this->assertSame(0.0, RentalWorkOrderSetting::defaultPartsMarkupPercentFor($id));
         $this->assertSame(0.0, RentalWorkOrderSetting::defaultLabourMarkupPercentFor($id));
-        $this->assertSame(0.0, RentalWorkOrderSetting::variationTolerancePercentFor($id));
         $this->assertSame(RentalWorkOrderSetting::DEFAULT_QUOTE_ESTIMATE_TERM, RentalWorkOrderSetting::quoteEstimateTermFor($id));
         $this->assertSame(5, RentalWorkOrderSetting::completionResponseWindowDaysFor($id));
         $this->assertTrue(RentalWorkOrderSetting::tenantCompletionCheckEnabledFor($id));
         $this->assertTrue(RentalWorkOrderSetting::notifyLandlordOnDisputeFor($id));
-        $this->assertTrue(RentalWorkOrderSetting::notifyLandlordOnAutoVariationFor($id));
         $this->assertSame('percent', RentalWorkOrderSetting::externalQuoteMarkupTypeFor($id));
         $this->assertSame(0.0, RentalWorkOrderSetting::externalQuoteMarkupValueFor($id));
         $this->assertFalse(RentalWorkOrderSetting::disputeNotifyCrewImmediatelyFor($id));
@@ -198,12 +196,10 @@ final class MaintenanceFlowFoundationTest extends TestCase
 
         $this->assertSame(20.0, RentalWorkOrderSetting::defaultPartsMarkupPercentFor($id));
         $this->assertSame(35.5, RentalWorkOrderSetting::defaultLabourMarkupPercentFor($id));
-        $this->assertSame(10.0, RentalWorkOrderSetting::variationTolerancePercentFor($id));
         $this->assertSame('Our own wording.', RentalWorkOrderSetting::quoteEstimateTermFor($id));
         $this->assertSame(9, RentalWorkOrderSetting::completionResponseWindowDaysFor($id));
         $this->assertFalse(RentalWorkOrderSetting::tenantCompletionCheckEnabledFor($id));
         $this->assertFalse(RentalWorkOrderSetting::notifyLandlordOnDisputeFor($id));
-        $this->assertFalse(RentalWorkOrderSetting::notifyLandlordOnAutoVariationFor($id));
         $this->assertSame('amount', RentalWorkOrderSetting::externalQuoteMarkupTypeFor($id));
         $this->assertSame(150.0, RentalWorkOrderSetting::externalQuoteMarkupValueFor($id));
         $this->assertTrue(RentalWorkOrderSetting::disputeNotifyCrewImmediatelyFor($id));
@@ -236,36 +232,18 @@ final class MaintenanceFlowFoundationTest extends TestCase
         $terms = $gate->termsFor($property);
         $this->assertSame(500.0, $terms->noApprovalLimit);
         $this->assertSame(WorkTerms::SOURCE_CONSTANT, $terms->limitSource);
-        $this->assertSame(0.0, $terms->variationPct);
-        $this->assertSame(WorkTerms::SOURCE_CONSTANT, $terms->pctSource);
 
         RentalWorkOrderSetting::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'no_approval_spend_threshold' => 800, 'variation_tolerance_percent' => 5]);
         $terms = $gate->termsFor($property->fresh());
         $this->assertSame(800.0, $terms->noApprovalLimit);
         $this->assertSame(WorkTerms::SOURCE_AGENCY_DEFAULT, $terms->limitSource);
-        $this->assertSame(5.0, $terms->variationPct);
-        $this->assertSame(WorkTerms::SOURCE_AGENCY_DEFAULT, $terms->pctSource);
 
         $property->forceFill(['rental_no_approval_spend_threshold' => 1200, 'rental_variation_tolerance_percent' => 12.5])->save();
         $terms = $gate->termsFor($property->fresh());
         $this->assertSame(1200.0, $terms->noApprovalLimit);
         $this->assertSame(WorkTerms::SOURCE_PROPERTY, $terms->limitSource);
-        $this->assertSame(12.5, $terms->variationPct);
-        $this->assertSame(WorkTerms::SOURCE_PROPERTY, $terms->pctSource);
-        $this->assertSame(12.5, RentalWorkOrderSetting::variationToleranceFor($property->fresh()));
         // the existing resolver is untouched and agrees with term (i)
         $this->assertSame(1200.0, RentalWorkOrderSetting::thresholdFor($property->fresh()));
-    }
-
-    public function test_a_property_with_a_zero_tolerance_override_is_not_treated_as_inherit(): void
-    {
-        RentalWorkOrderSetting::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'variation_tolerance_percent' => 15]);
-        $this->property->forceFill(['rental_variation_tolerance_percent' => 0])->save();
-
-        $terms = app(RentalApprovalGateService::class)->termsFor($this->property->fresh());
-
-        $this->assertSame(0.0, $terms->variationPct);   // the owner agreed "never" — 0 is a value, not "blank"
-        $this->assertSame(WorkTerms::SOURCE_PROPERTY, $terms->pctSource);
     }
 
     // ── service shells: signatures final, behaviour inert ───────────────

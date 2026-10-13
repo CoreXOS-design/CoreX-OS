@@ -48,7 +48,7 @@ class RentalJobCardPricingController extends Controller
                 }
             }
             // BUILD 2 (§17.6.3) — a card-level markup can raise the owner-facing total of an APPROVED job; the gate decides whether that is a
-            // variation (within the owner's terms it is auto-approved, beyond them the owner is asked). Inert while nothing is approved yet.
+            // variation (any increase above the authorised amount goes to the owner, section 22.6). Inert while nothing is approved yet.
             app(\App\Services\Rentals\RentalApprovalGateService::class)->assessAfterLineChange($rentalJobCard->refresh(), $request->user());
         } catch (\LogicException|\InvalidArgumentException $e) {
             return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->withErrors(['pricing' => $e->getMessage()]);

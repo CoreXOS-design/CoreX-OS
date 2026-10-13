@@ -8,7 +8,6 @@ use App\Mail\Rentals\RentalContractorWorkOrderMail;
 use App\Mail\Rentals\RentalMaintenanceMail;
 use App\Mail\Rentals\RentalOwnerFinalStatementMail;
 use App\Mail\Rentals\RentalOwnerQuoteMail;
-use App\Mail\Rentals\RentalOwnerVariationAutoMail;
 use App\Mail\Rentals\RentalOwnerVariationMail;
 use App\Mail\Rentals\RentalWorkOrderOwnerMail;
 use App\Mail\Rentals\RentalWorkOrderSupplierMail;
@@ -36,12 +35,11 @@ final class OwnerMailsAgencyMailboxTest extends TestCase
     {
         parent::setUp();
         $this->approvalWorld('Mailbox');
-        $this->property->forceFill(['rental_variation_tolerance_percent' => 10])->save();
     }
 
     public function test_the_whole_flow_uses_the_dispatcher_and_never_a_plain_mailable(): void
     {
-        // internal job: quote → owner approves → auto extra → big extra → close
+        // internal job: quote → owner approves → extra (R50, asked) → big extra → close
         [$card, $wo] = $this->internalJob(1000.0);
         $wo = $this->sendQuote($card);
         $wo->recordApproval($this->admin, ['decision' => 'approved', 'evidence_type' => 'email', 'evidence_text' => 'ok']);
@@ -60,7 +58,7 @@ final class OwnerMailsAgencyMailboxTest extends TestCase
         $ext->fresh()->complete($this->admin, ['paid_by' => 'owner', 'cost_amount' => 2000]);
 
         $classes = array_map(fn ($m) => $m::class, $this->sent());
-        foreach ([RentalOwnerQuoteMail::class, RentalOwnerVariationAutoMail::class, RentalOwnerVariationMail::class, RentalContractorWorkOrderMail::class, RentalOwnerFinalStatementMail::class] as $expected) {
+        foreach ([RentalOwnerQuoteMail::class, RentalOwnerVariationMail::class, RentalContractorWorkOrderMail::class, RentalOwnerFinalStatementMail::class] as $expected) {
             $this->assertContains($expected, $classes, "{$expected} must go through the dispatcher");
         }
         Mail::assertNothingSent();

@@ -27,8 +27,8 @@ class RentalCloseGuards
     }
 
     /**
-     * §17.9.4 — a final cost above the owner-approved amount is tested by the gate: within the owner's terms →
-     * auto-approved and logged; otherwise the close is refused in plain words. Emergency work (no baseline, settled
+     * §17.9.4 / §22.6 - the authorised amount is a HARD LOCK: a final cost even R0.01 above it is never passed (no tolerance, no limit); the difference
+     * goes to the owner and the close is refused in plain words until they have decided. Emergency work (no baseline, settled
      * afterwards), work with no approved amount (older rows — RentalWorkOrder's own threshold check still applies) and
      * a final cost at or under the approved amount are never refused. A variation still waiting on the owner blocks
      * the close too: the extra has not been approved.
@@ -50,12 +50,9 @@ class RentalCloseGuards
             return;
         }
 
-        $decision = $gate->evaluateVariation($workOrder, $finalAmount, $by);
-        if (! $decision->authorised) {
-            // section 22.6: the difference goes to the owner (they are emailed); the job closes once they have decided
-            $variation = $gate->raiseFinalInvoiceVariation($workOrder, $finalAmount, $by);
-            throw new \LogicException('The final cost of R' . number_format($finalAmount, 2) . ' is R' . number_format((float) $variation->extra_amount, 2)
-                . ' above what was authorised (R' . number_format($baseline, 2) . '). The difference has been sent to the owner - close this job once the owner has decided.');
-        }
+        // the difference goes to the owner (they are emailed); the job closes once they have decided
+        $variation = $gate->raiseFinalInvoiceVariation($workOrder, $finalAmount, $by);
+        throw new \LogicException('The final cost of R' . number_format($finalAmount, 2) . ' is R' . number_format((float) $variation->extra_amount, 2)
+            . ' above what was authorised (R' . number_format($baseline, 2) . '). The difference has been sent to the owner - close this job once the owner has decided.');
     }
 }

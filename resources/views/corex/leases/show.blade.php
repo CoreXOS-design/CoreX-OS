@@ -547,11 +547,6 @@
                         {{ $lhSettings->repairLimit() !== null ? 'R' . number_format($lhSettings->repairLimit(), 2) : 'not set - the owner decides' }}
                         <span style="color: var(--text-muted);">({{ match ($lhSettings->status()) { 'confirmed_by_owner' => 'Confirmed by owner', 'captured_by_agent' => 'Recorded by agent, not confirmed by the owner yet', 'disputed' => 'The owner does not agree', default => 'Not set yet' } }}; emergencies: {{ $lhSettings->emergencyLimit() !== null ? 'R' . number_format($lhSettings->emergencyLimit(), 2) : 'not set' }})</span>
                     </div>
-                    {{-- BUILD 2 (§17.6.2) — the lease hub shows both of the owner's work terms (read-only; edited on the property's Rental tab). --}}
-                    <div>
-                        <span style="color: var(--text-muted);">Extra work passed without asking, up to:</span>
-                        {{ rtrim(rtrim(number_format(\App\Models\RentalWorkOrderSetting::variationToleranceFor($lease->property), 2, '.', ''), '0'), '.') ?: '0' }} % above the approved amount
-                    </div>
                 @endif
                 <div>
                     <span style="color: var(--text-muted);">Landlord(s):</span>

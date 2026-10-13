@@ -3,7 +3,7 @@
 namespace App\Services\Rentals;
 
 /**
- * .ai/specs/rental-work-orders.md §17.6.1 — the two work terms in force for ONE
+ * .ai/specs/rental-work-orders.md §17.6.1 — the work term in force for ONE
  * rental property, with where each value came from (so every decision can cite
  * its term, §17.6.4). Pure value object.
  */
@@ -17,9 +17,7 @@ final class WorkTerms
         /** Term (i): work up to this owner-facing amount (per JOB, never per line) needs no owner authorisation. */
         public readonly float $noApprovalLimit,
         public readonly string $limitSource,
-        /** Term (ii): an increase of up to this % above the approved amount is auto-approved. 0 = never. */
-        public readonly float $variationPct,
-        public readonly string $pctSource,
     ) {
+        // (the old term (ii), a variation tolerance %, is gone: section 22.6 - the authorised amount is a hard lock, so nothing is read for it any more)
     }
 }
