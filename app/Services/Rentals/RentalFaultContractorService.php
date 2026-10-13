@@ -78,14 +78,22 @@ class RentalFaultContractorService
         $labels = AgencyServiceType::withoutGlobalScopes()->where('agency_id', $agencyId)->pluck('label', 'code');
         $jobs = app(RentalContractorJobService::class);
 
-        $all = $rows->map(function ($p) use ($category, $ticked, $trades, $labels, $jobs) {
+        // a supplier with no ticked service types yet but an old fixed trade (plumber / electrician ...) still suits when that trade IS the matching service type
+        $legacyOk = [];
+        foreach ($codes as $c) {
+            $legacy = AgencyServiceProvider::legacySpecialtyForType($c, $labels[$c] ?? null);
+            if ($legacy !== 'other') {
+                $legacyOk[$legacy] = true;
+            }
+        }
+        $all = $rows->map(function ($p) use ($category, $ticked, $trades, $labels, $jobs, $legacyOk) {
             $contact = $jobs->contactFor($p);
 
             return [
                 'id' => (int) $p->id, 'name' => (string) $p->name, 'phone' => $p->phone ?: null,
                 'email' => $contact['email'], 'mobile' => $contact['phone'], 'has_contact' => $contact['has_contact'],
                 'trades' => ($trades[$p->id] ?? collect())->map(fn ($t) => $labels[$t->service_type] ?? $t->service_type)->unique()->implode(', '),
-                'suits' => $category === '' ? true : $ticked->contains((int) $p->id),
+                'suits' => $category === '' ? true : ($ticked->contains((int) $p->id) || (! isset($trades[$p->id]) && isset($legacyOk[(string) $p->specialty]))),
                 // .ai/specs/rentals-faults-work-orders.md §20 - the call-out fee, as the picker shows it (the supplier's own methods are the only source)
                 'callout' => $p->calloutFeeSuffix(), 'callout_status' => $p->calloutFeeStatus(), 'callout_amount' => $p->calloutFeeAmount(), 'callout_notice' => $p->calloutFeeNotice(),
             ];

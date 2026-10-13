@@ -173,6 +173,24 @@ class AgencyServiceProvider extends Model
      * service types: these two roles never rename/archive, so they are plain booleans, not pivot
      * codes. The legacy single `specialty` enum stays the primary classifier and is untouched.
      */
+    /**
+     * The ONE bridge between an agency's service types (Settings -> Service types: the source of truth for a contractor's trade) and the legacy `specialty`
+     * enum the property-sales side still reads (deal pipelines, DR work orders). A service type code/label -> the nearest legacy value; anything else is "other".
+     * Never used to DECIDE a rental match - that reads the supplier's ticked service types - only to keep `specialty` filled in for the old pickers.
+     */
+    public static function legacySpecialtyForType(?string $code, ?string $label = null): string
+    {
+        $hay = strtolower(trim((string) $code . ' ' . (string) $label));
+        return match (true) {
+            str_contains($hay, 'plumb') => 'plumber',
+            str_contains($hay, 'fence') => 'electric_fence',
+            str_contains($hay, 'beetle'), str_contains($hay, 'entomolog') => 'entomologist',
+            (bool) preg_match('/\bgas\b/', $hay) => 'gas',
+            str_contains($hay, 'electr'), (bool) preg_match('/\bcoc\b/', $hay) => 'electrician',
+            default => 'other',
+        };
+    }
+
     public const ATTORNEY_CAPABILITY_COLUMNS = [
         'transfer_attorney' => 'is_transfer_attorney',
         'bond_attorney'     => 'is_bond_attorney',
