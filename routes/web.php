@@ -6133,6 +6133,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->group(function () {
             Route::get('/', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'index'])->name('index');
             Route::post('/outcomes', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'recordOutcome'])->name('outcomes.record');
+            Route::post('/add-to-day', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'addToDay'])->name('add-to-day');
 
             Route::prefix('settings/outcomes')
                 ->middleware('permission:road_to_sold.manage_settings')
