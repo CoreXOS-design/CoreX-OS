@@ -555,7 +555,7 @@ class ClientLandlordRentalsController extends Controller
             'decision' => $summary ? [
                 'decision' => $summary['decision'],
                 'by' => $summary['by'],
-                'how' => $summary['how'],
+                'how' => null,   // the owner is never told "decided by the owner on the portal link" / "captured by the agent (verbal note)"
                 'via_link' => $summary['via_link'],
                 'at' => $summary['at']?->toIso8601String(),
                 'reason' => $summary['reason'],
@@ -841,7 +841,7 @@ class ClientLandlordRentalsController extends Controller
 
         $data = $request->validate([
             'decision' => 'required|in:approve,decline,approve_agency_appoints,approve_owner_handles',
-            'handled_by' => 'nullable|in:own,list,agency',
+            'handled_by' => 'nullable|in:own,list,agency,proposed',
             'contractor_name' => 'nullable|string|max:191',
             'contractor_phone' => 'nullable|string|max:40',
             'agency_service_provider_id' => 'nullable|integer',
@@ -865,12 +865,25 @@ class ClientLandlordRentalsController extends Controller
             $decision = RentalFaultReport::APPROVAL_DECLINED;
             $route = null;
         } else {
-            if (! in_array($handledBy, ['own', 'list', 'agency'], true)) {
+            // "Yes, send <name>": the contractor (or our own team) the agent suggested when the fault was sent for the owner's go-ahead
+            if ($handledBy === 'proposed') {
+                if ($fault->proposed_assignment === \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER && $fault->proposed_supplier_id) {
+                    $handledBy = 'suggested_supplier';
+                    $data['agency_service_provider_id'] = (int) $fault->proposed_supplier_id;
+                } elseif ($fault->proposed_assignment) {
+                    $handledBy = 'agency';   // our own team: the agency arranges it
+                } else {
+                    return response()->json(['message' => 'Your agent has not suggested anyone for this one - please choose who should look and quote.'], 422);
+                }
+            }
+            if (! in_array($handledBy, ['own', 'list', 'agency', 'suggested_supplier'], true)) {
                 return response()->json(['message' => 'Please say who should handle the repair.'], 422);
             }
             $decision = RentalFaultReport::APPROVAL_APPROVED;
             $route = $handledBy === 'own' ? RentalFaultReport::ROUTE_OWNER_HANDLES : RentalFaultReport::ROUTE_AGENCY_APPOINTS;
-            if ($handledBy === 'list') {
+            if ($handledBy === 'suggested_supplier') {
+                $handledBy = 'list';   // recorded exactly like a pick from the list - the agent chose this contractor, so it need not be on the type-of-work list
+            } elseif ($handledBy === 'list') {
                 $supplierId = (int) ($data['agency_service_provider_id'] ?? 0);
                 if ($supplierId <= 0 || ! app(RentalFaultContractorService::class)->isOption($fault, $supplierId)) {
                     return response()->json(['message' => 'Please choose a contractor from the list.'], 422);
@@ -937,7 +950,7 @@ class ClientLandlordRentalsController extends Controller
             'note' => 'nullable|string|max:500',
         ]);
         $tz = $order->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
-        $at = \Illuminate\Support\Carbon::parse($data['appointment_at'], $tz)->utc();
+        $at = \App\Support\AppDate::parse($data['appointment_at'], $tz);   // stored in the app timezone (->utc() saved 10:00 as 08:00)
 
         try {
             app(\App\Services\Rentals\RentalWorkOrderService::class)->setAppointment($order, $at, $data['note'] ?? null, $contact);

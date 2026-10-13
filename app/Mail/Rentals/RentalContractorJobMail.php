@@ -53,6 +53,7 @@ class RentalContractorJobMail extends RentalMaintenanceMail
         return [
             'calloutFee' => $fee !== null ? \App\Models\DealV2\AgencyServiceProvider::formatRand($fee) : null,
             'calloutNote' => $supplier?->calloutFeeNote(),
+            'lookAndQuote' => app(\App\Services\Rentals\RentalWhoPaysService::class)->isFaultJob($this->workOrder),
             'contractorName' => $this->contractorName ?: 'there',
             'title' => $this->workOrder->title,
             'description' => $this->workOrder->description,

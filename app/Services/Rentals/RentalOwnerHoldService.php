@@ -267,7 +267,7 @@ class RentalOwnerHoldService
                 ->reject(fn ($r) => $emails->contains(fn ($e) => $e->recipient_kind === $r->recipient_kind && $e->recipient_name === $r->recipient_name));
             $told = [];
             foreach ($emails as $r) {
-                Mail::to($r->destination)->send(new RentalJobOnHoldMail($r->recipient_name ?: 'there', $wo->property?->buildDisplayAddress() ?: ('Property #' . $wo->property_id), $this->jobTitle($fault, $wo), $wo->agency?->trading_name ?: ($wo->agency?->name ?: '')));
+                Mail::to($r->destination)->send(new RentalJobOnHoldMail($r->recipient_name ?: 'there', $wo->property?->buildDisplayAddress() ?: ('Property #' . $wo->property_id), $this->jobTitle($fault, $wo), \App\Models\Agency::displayNameFor($wo->agency, '')));
                 $told[] = $r->recipient_name ?: $r->destination;
             }
             $notes = [];

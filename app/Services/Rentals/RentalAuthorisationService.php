@@ -73,7 +73,7 @@ class RentalAuthorisationService
         $subject = $this->subjectOf($row);
         $tz = $subject ? $this->tz($subject) : (config('app.timezone') ?: 'Africa/Johannesburg');
 
-        return ($row->told_at ?? $row->created_at)?->copy()->setTimezone($tz)->format('j M Y H:i') ?? '';
+        return \App\Support\AppDate::dateTime($row->told_at ?? $row->created_at, $tz);
     }
 
     /** The sentence the OWNER reads (portal and email) - exactly the wording ruled for each basis. */
@@ -282,11 +282,8 @@ class RentalAuthorisationService
 
     private function parseToldAt(RentalFaultReport|RentalWorkOrder $subject, mixed $value): Carbon
     {
-        try {
-            $at = ! empty($value) ? Carbon::parse((string) $value, $this->tz($subject))->utc() : now();
-        } catch (\Throwable) {
-            throw new \InvalidArgumentException('That date and time is not valid.');
-        }
+        // stored in the APP timezone (the column is read back in it) - ->utc() stored 05:43 as 03:43 and the owner was shown a time two hours early
+        $at = ! empty($value) ? \App\Support\AppDate::parse($value, $this->tz($subject)) : now();
         if ($at->gt(now()->addMinutes(5))) {
             throw new \InvalidArgumentException('The time the owner told you cannot be in the future.');
         }
@@ -349,18 +346,7 @@ class RentalAuthorisationService
     /** The time an owner said it, in the agency's timezone -> UTC, never in the future (the validation `recordOwnerDecision` uses; public for the hold service). */
     public function toldAt(RentalFaultReport|RentalWorkOrder $subject, mixed $value): Carbon
     {
-        try {
-            $at = ! empty($value) ? Carbon::parse((string) $value, $this->tz($subject)) : now();
-        } catch (\Throwable) {
-            throw new \InvalidArgumentException('That date and time is not valid.');
-        }
-        // the column is READ BACK in the app timezone, so it is stored in the app timezone (->utc() stored 03:43 for 05:43 and showed the owner a time two hours early)
-        $at = $at->copy()->setTimezone(config('app.timezone') ?: 'UTC');
-        if ($at->gt(now()->addMinutes(5))) {
-            throw new \InvalidArgumentException('The time the owner told you cannot be in the future.');
-        }
-
-        return $at;
+        return $this->parseToldAt($subject, $value);
     }
 
     /**
@@ -434,7 +420,7 @@ class RentalAuthorisationService
         $base = ['amount' => $amount, 'source' => $source, 'label' => $label, 'kind' => $kind, 'limit' => $limit, 'agent_can' => false, 'basis' => null];
 
         if ($amount === null) {
-            return $base + ['line' => 'Nothing is priced yet. Select a quote, price the job card, or type the amount if it is a small job you already know the price of.'];
+            return $base + ['line' => 'Nothing is priced yet - select a quote or type an amount.'];
         }
         if ($limit === null) {
             $disputed = $settings && $settings->status() === 'disputed';

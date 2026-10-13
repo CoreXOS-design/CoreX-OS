@@ -71,12 +71,23 @@ class RentalFaultProgressService
         // Item I (AT-452 round 2): a fault the agent ARRANGED without asking (inside the no-approval limit, or an emergency) tells the owner, it does not
         // ask: steps 3 and 4 read "told / arranged" instead of "sent for approval / approved". Same keys, so the tenant notices behave exactly as before.
         $arranged = $fault->isArrangedByAgent();
+        $ownerAsked = $fault->sent_to_owner_at !== null;
+        // an agent wrote down what the owner told them (phone / WhatsApp / email): the owner was never SENT anything, so there is no "sent to owner" step
+        $capturedByAgent = $decision && $decision->evidence_type !== RentalApproval::EVIDENCE_PORTAL && ! $ownerAsked;
+        // nothing has happened yet that says which way it will go (the agent sends someone directly, or asks the owner): ONE neutral step, not two owner steps
+        $routeUnknown = ! $arranged && ! $ownerAsked && ! $decision && ! $wo;
         $sentAt = $fault->sent_to_owner_at ?? ($decision ? ($decision->decided_at ?? $decision->created_at) : null) ?? $wo?->created_at;
-        $push('sent_to_owner', $arranged ? 'informed' : 'sent_to_owner', $arranged ? $fault->arranged_by_agent_at : $sentAt);
+        if ($routeUnknown) {
+            $push('sent_to_owner', 'route_pending', null);
+        } elseif (! $capturedByAgent) {
+            $push('sent_to_owner', $arranged ? 'informed' : 'sent_to_owner', $arranged ? $fault->arranged_by_agent_at : $sentAt);
+        }
 
         // 4 - the owner's decision; a work order raised without one means the agent proceeded (approval not required).
         $decidedAt = $decision ? ($decision->decided_at ?? $decision->created_at) : $wo?->created_at;
-        if ($declined) {
+        if ($routeUnknown) {
+            // (no owner step yet - see above)
+        } elseif ($declined) {
             $push('owner_decided', 'not_approved', $decidedAt);
         } elseif ($arranged) {
             $push('owner_decided', match ($fault->arranged_basis) {
@@ -87,7 +98,8 @@ class RentalFaultProgressService
         } else {
             // section 22: a decision an AGENT recorded on the owner's instruction is not "You approved" - say what it was
             $captured = $decision && $decision->evidence_type !== RentalApproval::EVIDENCE_PORTAL;
-            $push('owner_decided', $captured ? 'owner_instructed' : 'owner_approved', $decidedAt);
+            // before the owner has answered the step reads as a question ("Your decision"), never as an answer ("You approved")
+            $push('owner_decided', $decidedAt === null ? 'owner_decision_pending' : ($captured ? 'owner_instructed' : 'owner_approved'), $decidedAt);
         }
 
         $ended = null;

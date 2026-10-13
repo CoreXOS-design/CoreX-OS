@@ -200,7 +200,7 @@ class RentalFaultAuthorityController extends Controller
         }
         $tz = $rentalFaultReport->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
         try {
-            $at = \Illuminate\Support\Carbon::parse($v['at'], $tz)->utc();
+            $at = \App\Support\AppDate::parse($v['at'], $tz);   // stored in the app timezone (->utc() showed the time two hours early)
         } catch (\Throwable) {
             return redirect($this->back($rentalFaultReport))->withErrors(['tenant_confirmation' => 'That date and time is not valid.'])->withInput();
         }

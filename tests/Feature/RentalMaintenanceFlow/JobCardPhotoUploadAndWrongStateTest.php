@@ -132,26 +132,29 @@ final class JobCardPhotoUploadAndWrongStateTest extends TestCase
         $this->assertSame(0, RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_job_card_id', $card->id)->count());
     }
 
-    // ── B1. the approval line follows the state ───────────────────────────────────────
+    // ── B1. the "Approve the cost" box follows the state (section 22.6: it replaced the old "Approval / Why was this approved?" section) ──
 
-    public function test_the_approval_line_is_worded_for_the_state_of_the_job(): void
+    public function test_the_cost_box_is_worded_for_the_state_of_the_job(): void
     {
         $this->approvalWorld('Approval Words');
-        [$card] = $this->internalJob(1000.0);          // over the default R500 limit
-        $wo = $this->sendQuote($card);                  // → waiting for the owner
+        [$card] = $this->internalJob(1000.0);          // no owner limit set: the owner must decide
+        $wo = $this->sendQuote($card);                  // -> waiting for the owner
 
         $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $wo->fresh()->owner_approval_status);
         foreach ([route('corex.rental-work-orders.show', $wo), route('corex.rental-job-cards.show', $card)] as $url) {
             $text = $this->visibleText($this->actingAs($this->admin)->get($url)->assertOk()->getContent());
-            $this->assertStringContainsString("Why is the owner's approval needed?", $text, $url);
+            $this->assertStringContainsString('Approve the cost', $text, $url);
+            $this->assertStringContainsString('Waiting for the owner', $text, $url);
+            $this->assertStringNotContainsString('Cost authorised', $text, $url);
             $this->assertStringNotContainsString('Why was this approved?', $text, $url);
         }
 
         $wo->recordApproval($this->admin, ['decision' => 'approved', 'evidence_type' => 'email', 'evidence_text' => 'ok by email']);
         foreach ([route('corex.rental-work-orders.show', $wo), route('corex.rental-job-cards.show', $card)] as $url) {
             $text = $this->visibleText($this->actingAs($this->admin)->get($url)->assertOk()->getContent());
-            $this->assertStringContainsString('Why was this approved?', $text, $url);
-            $this->assertStringNotContainsString("Why is the owner's approval needed?", $text, $url);
+            $this->assertStringContainsString('Cost authorised', $text, $url);
+            $this->assertStringContainsString('on the instruction of', $text, $url, 'the record says who, on what basis');
+            $this->assertStringNotContainsString('Waiting for the owner', $text, $url);
         }
     }
 
@@ -162,13 +165,13 @@ final class JobCardPhotoUploadAndWrongStateTest extends TestCase
         $wo = $this->sendQuote($card);
         $wo->recordApproval($this->admin, ['decision' => 'declined', 'evidence_type' => 'email', 'evidence_text' => 'too dear']);
         $text = $this->visibleText($this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent());
-        $this->assertStringContainsString('Why was this declined?', $text);
-        $this->assertStringNotContainsString('Why was this approved?', $text);
+        $this->assertStringContainsString('Owner declined', $text);
+        $this->assertStringNotContainsString('Cost authorised', $text);
 
         $external = $this->externalWorkOrder();
         $text = $this->visibleText($this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $external))->assertOk()->getContent());
-        $this->assertStringContainsString('Approval decision:', $text);
-        $this->assertStringNotContainsString('Why was this approved?', $text);
+        $this->assertStringContainsString('Not authorised yet', $text);
+        $this->assertStringNotContainsString('Cost authorised', $text);
     }
 
     // ── B2. the crew link and "Mark work completed" ───────────────────────────────────

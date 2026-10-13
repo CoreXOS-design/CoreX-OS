@@ -453,7 +453,7 @@ final class OwnerStopQueryTest extends TestCase
         $token = app(\App\Services\Rentals\RentalSecureAccessTokenService::class)->issueFor($wo, $this->agent)['raw_token'];
         $show = route('rentals.secure-link.show', $token);
 
-        $this->get($show)->assertOk()->assertDontSee('data-on-hold', false)->assertSee('Can you take this job?')->assertSee('Mark job done');
+        $this->get($show)->assertOk()->assertDontSee('data-on-hold', false)->assertSee('Can you take this job?')->assertSee('Upload a quote');
 
         $this->holds()->stop($f, $this->landlord, 'PRIVATE OWNER WORDS about the plumber', 'link');
 

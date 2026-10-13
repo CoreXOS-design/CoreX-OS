@@ -132,7 +132,7 @@ class OwnerFaultScreenTest extends TestCase
                 && (self::queryOf($m->portalUrl)['as'] ?? null) === 'owner';
         });
         $html = (new RentalLandlordDecisionNeededMail($fault->fresh(), 'Lenny', $this->landlord->email))->render();
-        $this->assertStringContainsString('Review and decide', $html);
+        $this->assertStringContainsString('Open it and answer', $html);   // a FAULT mail (a work-order quote mail keeps "Review and decide")
         $this->assertStringContainsString('fault=' . $fault->id, $html);
     }
 
@@ -301,7 +301,8 @@ class OwnerFaultScreenTest extends TestCase
         $p = $this->progress($fault);
         $this->assertSame('sent_to_agent', $p['current']);
         $this->assertSame('Sent to your agent', $p['current_label']);
-        $this->assertSame(['done', 'todo', 'todo', 'todo', 'todo', 'todo', 'todo', 'todo'], array_column($p['steps'], 'state'));
+        // 13 Oct 2026 walk: before anything says which way it goes there is ONE neutral step (not two owner steps) - 7 steps, not 8
+        $this->assertSame(['done', 'todo', 'todo', 'todo', 'todo', 'todo', 'todo'], array_column($p['steps'], 'state'));
         $this->assertNotNull($p['steps'][0]['at'], 'every reached step shows its date');
         $this->assertNull($p['steps'][1]['at']);
 

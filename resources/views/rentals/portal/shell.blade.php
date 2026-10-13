@@ -338,7 +338,7 @@
                                         <p class="muted" x-text="w.who_label + (w.contractor_name ? ' — ' + w.contractor_name : '')"></p>
                                         <p class="muted" x-show="w.contractor_callout" x-text="w.contractor_callout" data-owner-callout></p>
                                         <p class="muted" x-show="w.completed_at" x-text="w.completed_at ? 'Completed ' + w.completed_at.substring(0,10) : ''"></p>
-                                        <p x-show="!w.completed_at && w.appointment_at"><strong x-text="w.appointment_at ? 'Appointment: ' + new Date(w.appointment_at).toLocaleString([], {dateStyle:'full', timeStyle:'short'}) : ''"></strong><span class="muted" x-show="w.appointment_note" x-text="w.appointment_note ? ' — ' + w.appointment_note : ''"></span></p>
+                                        <p x-show="!w.completed_at && w.appointment_at"><strong x-text="w.appointment_at ? 'Appointment: ' + fmtDateTime(w.appointment_at, true) : ''"></strong><span class="muted" x-show="w.appointment_note" x-text="w.appointment_note ? ' — ' + w.appointment_note : ''"></span></p>
                                         <div class="photo-grid" x-show="w.photos.length">
                                             <template x-for="ph in w.photos" :key="ph.id">
                                                 <a :href="ph.url" target="_blank" rel="noopener"><img :src="ph.thumb_url || ph.url" :alt="ph.photo_type + ' photo'" loading="lazy" decoding="async"></a>
@@ -491,7 +491,7 @@
                                         <p class="muted" x-text="w.who_label + (w.contractor_name ? ' — ' + w.contractor_name : '')"></p>
                                         <p class="muted" x-show="w.contractor_callout" x-text="w.contractor_callout" data-owner-callout></p>
                                         <p class="muted" x-show="w.completed_at" x-text="w.completed_at ? 'Completed ' + w.completed_at.substring(0,10) : ''"></p>
-                                        <p x-show="!w.completed_at && w.appointment_at"><strong x-text="w.appointment_at ? 'Appointment: ' + new Date(w.appointment_at).toLocaleString([], {dateStyle:'full', timeStyle:'short'}) : ''"></strong><span class="muted" x-show="w.appointment_note" x-text="w.appointment_note ? ' — ' + w.appointment_note : ''"></span></p>
+                                        <p x-show="!w.completed_at && w.appointment_at"><strong x-text="w.appointment_at ? 'Appointment: ' + fmtDateTime(w.appointment_at, true) : ''"></strong><span class="muted" x-show="w.appointment_note" x-text="w.appointment_note ? ' — ' + w.appointment_note : ''"></span></p>
                                         <a class="link" href="#" x-show="w.rental_fault_report_id" @click.prevent="landlordTab='faults'; loadLandlordFaults(); openFault(w.rental_fault_report_id)">See the fault →</a>
                                         <p class="muted" x-show="w.contractor_phone" x-text="w.contractor_phone ? 'Contractor phone: ' + w.contractor_phone : ''"></p>
                                         <p class="muted" x-show="w.owner_facing_amount !== null && w.owner_facing_amount !== undefined && w.owner_approval_status !== 'pending'" x-text="'Amount: ' + money(w.owner_facing_amount)" data-wo-amount></p>
@@ -790,7 +790,8 @@ async function portalUpload(url, form, key, onProgress) {
 }
 
 // One date formatter for the page: creating a new Intl formatter on every call was the biggest cost of rendering a fault's progress line.
-const DAY_FORMAT = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+const SA_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const SA_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 function rentalsPortal() {
     return {
@@ -824,7 +825,7 @@ function rentalsPortal() {
         landlordProperties: [], propertyDetail: null,
         landlordFaults: [],
         faultDetail: null,
-        faultForm: { decision: '', handled_by: '', contractor_name: '', contractor_phone: '', agency_service_provider_id: '', note: '', error: null, busy: false },
+        faultForm: { decision: '', handled_by: '', contractor_name: '', contractor_phone: '', agency_service_provider_id: '', note: '', error: null, busy: false, other: false },
         apptDraft: {},
         // BUILD 3 — the portal's Jobs are work orders (§17.3.5); the "is this finished?" answer form (§17.10.4).
         workOrders: [], declineOpen: {}, declineNote: {}, declineError: {}, answerForm: null, answerBusy: false, answerError: null, answerKeys: {},
@@ -1137,10 +1138,18 @@ function rentalsPortal() {
             this.overview.decisions_waiting = r.data.decisions_waiting || 0;
             this.overview.loaded = true;
         },
+        // South African format everywhere a person reads a date: "13 Oct 2026" / "13 Oct 2026 05:37" (24-hour) - one pair of helpers (server twin: App\Support\AppDate)
         fmtDay(d) {
             if (!d) return '—';
             const x = new Date(String(d).substring(0, 10) + 'T00:00:00');
-            return isNaN(x) ? d : DAY_FORMAT.format(x);
+            return isNaN(x) ? d : x.getDate() + ' ' + SA_MONTHS[x.getMonth()] + ' ' + x.getFullYear();
+        },
+        fmtDateTime(d, weekday) {
+            if (!d) return '—';
+            const x = new Date(d);
+            if (isNaN(x)) return d;
+            const p2 = (n) => String(n).padStart(2, '0');
+            return (weekday ? SA_DAYS[x.getDay()] + ' ' : '') + x.getDate() + ' ' + SA_MONTHS[x.getMonth()] + ' ' + x.getFullYear() + (weekday ? ',' : '') + ' ' + p2(x.getHours()) + ':' + p2(x.getMinutes());
         },
         // §22 — the Home FAQ: a question opens its answer underneath it.
         isFaqOpen(propertyId, key) { return !!this.faqOpen[propertyId + ':' + key]; },
@@ -1440,7 +1449,7 @@ function rentalsPortal() {
             window.CorexPhotoViewer.open({ photos: JSON.parse(JSON.stringify(list)), index: index || 0, editable: false, returnFocus: ev && ev.currentTarget ? ev.currentTarget : null });
         },
         async openFault(id) {
-            this.faultForm = { decision: '', handled_by: '', contractor_name: '', contractor_phone: '', agency_service_provider_id: '', note: '', error: null, busy: false };
+            this.faultForm = { decision: '', handled_by: '', contractor_name: '', contractor_phone: '', agency_service_provider_id: '', note: '', error: null, busy: false, other: false };
             if (this.repairForm && this.repairForm.open && this.faultDetail && this.faultDetail.id !== id) { this.repairForm = { open: false, comment: '', busy: false, error: null }; }
             const r = await portalFetch('/api/v1/client/rentals/landlord/fault-reports/' + id);
             if (r.ok) {
@@ -1448,6 +1457,17 @@ function rentalsPortal() {
                 this.$nextTick(() => { const el = document.querySelector('[data-fault-detail]'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
             } else this.say(r.data?.message || 'Could not open this.');
         },
+        // "Yes, send <name>": the one press that accepts exactly who the agent suggested (their comment is optional)
+        async sendProposed() {
+            const f = this.faultForm;
+            if (f.busy) return;
+            f.error = null; f.busy = true;
+            const r = await portalFetch('/api/v1/client/rentals/landlord/fault-reports/' + this.faultDetail.id + '/decision', { method: 'POST', body: JSON.stringify({ decision: 'approve', handled_by: 'proposed', note: f.note }) });
+            f.busy = false;
+            if (r.ok) { const id = this.faultDetail.id; await this.openFault(id); this.loadDecisions(); this.loadLandlordFaults(); this.loadWorkOrders(); }
+            else f.error = r.data?.message || 'Could not record your decision.';
+        },
+        chooseOther(decision) { this.faultForm.other = true; this.faultForm.decision = decision; this.faultForm.error = null; },
         async submitFaultDecision() {
             const f = this.faultForm;
             f.error = null;

@@ -59,6 +59,11 @@ final class RentalWorkOrderLifecycleTest extends TestCase
 
     private function workOrder(array $attrs = []): RentalWorkOrder
     {
+        // section 22.6: a job that is already out with the contractor / under way was authorised before the test starts
+        if (in_array($attrs['status'] ?? null, [RentalWorkOrder::STATUS_ORDERED, RentalWorkOrder::STATUS_IN_PROGRESS], true)) {
+            $attrs += ['approval_basis' => RentalWorkOrder::BASIS_LEGACY_GRANDFATHERED];
+        }
+
         return RentalWorkOrder::create(array_merge([
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id,
             'reported_by_type' => RentalWorkOrder::REPORTED_BY_AGENT_NOTICED, 'reported_by_user_id' => $this->admin->id,

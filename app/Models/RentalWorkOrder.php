@@ -1061,6 +1061,8 @@ class RentalWorkOrder extends Model
 
         $cost = $attributes['cost_amount'] ?? $this->cost_amount;
         $this->assertApprovalAllows('completing this work order', $cost !== null ? (float) $cost : null);
+        // section 22.6: work that nobody authorised cannot be finished either - not by the office, not by the contractor's link (cc4's walk of QA1, item 1)
+        app(\App\Services\Rentals\RentalApprovalGateService::class)->assertAuthorised($this);
         // §17.21.1 — the ONE close hook for "final cost vs the approved amount" (Build 2 fills it; inert in the foundation).
         app(\App\Services\Rentals\RentalCloseGuards::class)->assertFinalCostWithinApproval($this, $cost !== null ? (float) $cost : null, $by);
 

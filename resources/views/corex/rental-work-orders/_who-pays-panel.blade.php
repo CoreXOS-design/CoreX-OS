@@ -46,7 +46,7 @@
             <div class="text-xs font-semibold" style="color: var(--text-muted);">What the tenant says they checked</div>
             @forelse($wpChecks as $c)
                 <div class="flex items-start gap-2">
-                    <span aria-hidden="true">{{ $c['ticked'] ? '&#10003;' : '&#9744;' }}</span>
+                    <span aria-hidden="true">{{ $c['ticked'] ? '☑' : '☐' }}</span>
                     <span>{{ $c['text'] }}<span class="sr-only">{{ $c['ticked'] ? ' (ticked)' : ' (not ticked)' }}</span>
                         @if($c['default_label'])<span class="ds-badge ds-badge-muted" title="If this was the cause, who normally pays">Normally: {{ $c['default_label'] }}</span>@endif
                     </span>
@@ -58,7 +58,7 @@
         @if($wpConfirm)
         <div class="space-y-1">
             <div class="text-xs font-semibold" style="color: var(--text-muted);">Confirmed with the tenant</div>
-            <div>By {{ $wpConfirm['via_label'] }}, {{ $wpConfirm['at']?->copy()->setTimezone($wpTz)->format('j M Y H:i') }}{{ $wpConfirm['by'] ? ' &mdash; ' . $wpConfirm['by'] : '' }}</div>
+            <div>By {{ $wpConfirm['via_label'] }}, {{ $wpConfirm['at']?->copy()->setTimezone($wpTz)->format('j M Y H:i') }}{{ $wpConfirm['by'] ? ' — ' . $wpConfirm['by'] : '' }}</div>
             @if($wpConfirm['note'])<div style="color: var(--text-muted);">{{ $wpConfirm['note'] }}</div>@endif
         </div>
         @endif

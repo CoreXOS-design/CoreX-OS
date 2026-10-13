@@ -884,13 +884,25 @@ test('the page shows the "someone else signed in" card instead of the portal, an
 test('fmtDay is defined ONCE and reads a date the way it is written, whatever the browser time zone', () => {
   assert.equal((scriptRaw.match(/\n\s+fmtDay\s*\(/g) || []).length, 1, 'two fmtDay in one Alpine object: the later silently wins (it once showed the day before for a date-only value)');
   const { p } = boot();
-  const want = (y, m, d) => new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(y, m - 1, d));
+  // South African format (13 Oct 2026) - the same words every email and the staff screens use (App\Support\AppDate)
+  const want = (y, m, d) => `${d} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m - 1]} ${y}`;
   assert.equal(p.fmtDay('2026-10-08'), want(2026, 10, 8), 'a date-only value (lease start, inspection day)');
   assert.equal(p.fmtDay('2026-10-08T23:42:31+02:00'), want(2026, 10, 8), 'a late-evening moment stays on the day it was written');
   assert.equal(p.fmtDay('2026-05-31T00:00:00.000000Z'), want(2026, 5, 31));
   assert.equal(p.fmtDay(null), '—', 'an open end date reads as a dash, not blank');
   assert.equal(p.fmtDay(''), '—');
   assert.equal(p.fmtDay('not a date'), 'not a date', 'garbage is shown, never "Invalid Date"');
+});
+
+test('fmtDateTime reads a moment the South African way: 13 Oct 2026 05:37 (24-hour), never 10/13/2026, 5:37:10 AM', () => {
+  const { p } = boot();
+  const d = new Date(2026, 9, 13, 5, 37, 10);   // local time, whatever the machine's zone
+  assert.equal(p.fmtDateTime(d.toISOString()), '13 Oct 2026 05:37');
+  assert.equal(p.fmtDateTime(new Date(2026, 9, 14, 15, 5).toISOString(), true), 'Wed 14 Oct 2026, 15:05', 'with the weekday (an appointment)');
+  assert.equal(p.fmtDateTime(null), '—');
+  assert.equal(p.fmtDateTime('not a date'), 'not a date');
+  const views = ['shell', '_fault-detail', '_documents', '_progress', '_home', '_owner-notice-actions'].map((f) => fs.readFileSync(path.join(here, '../../resources/views/rentals/portal/' + f + '.blade.php'), 'utf8')).join('\n');
+  assert.ok(!/new Date\([^)]*\)\.toLocale(Date|Time)?String\(\)/.test(views), 'no date on the portal is printed in the browser\'s own (US) format');
 });
 
 test('every picture in the portal pages is a server-made thumbnail, opened full-size on click, and loads lazily', () => {
@@ -941,7 +953,7 @@ test('the viewer is included once, before the page script, and no portal fault p
 test('the owner decision screen has the five sections in order, each with a heading and a divider, and no new helper paragraphs', () => {
   const src = fs.readFileSync(path.join(here, '../../resources/views/rentals/portal/_fault-detail.blade.php'), 'utf8');
   const order = [...src.matchAll(/data-fault-section="([\w-]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(order, ['self-resolved', 'arranged', 'authorisation', 'progress', 'reported', 'photos', 'agent', 'decision']);   // self-resolved only shows for a fault the tenant fixed themselves
+  assert.deepEqual(order, ['self-resolved', 'arranged', 'authorisation', 'who-pays', 'progress', 'reported', 'photos', 'agent', 'decision']);   // self-resolved only shows for a fault the tenant fixed themselves
   const heads = [...src.matchAll(/<h3[^>]*>([^<]*)<\/h3>/g)].map((m) => m[1]);
   assert.deepEqual(heads, ['Resolved without a repair', 'What the tenant reported', 'Arranged by your agent', '', 'Progress', '', 'Photos', 'What your agent says', 'Your decision']);   // the second is bound: What the tenant reported / What you reported
   assert.match(src, /'What the tenant reported'/);

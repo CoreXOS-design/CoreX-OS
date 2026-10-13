@@ -925,6 +925,15 @@ class Agency extends Model
      *
      * @return array{name:string, logoUrl:?string, colors:array{sidebar:string,icon:string,default:string,button:string}}
      */
+    /**
+     * The name a customer reads (contractor, owner, tenant): the agency's own name. `trading_name` is only the "trading as" extra and may be
+     * half-filled ("Johan and Elize Properties T/A"), so it is never used on its own. The same name `publicBrandingFor()` gives the portal.
+     */
+    public static function displayNameFor(?self $agency, string $fallback = 'Your agency'): string
+    {
+        return trim((string) $agency?->name) !== '' ? trim((string) $agency->name) : (trim((string) $agency?->trading_name) !== '' ? trim((string) $agency->trading_name) : $fallback);
+    }
+
     public static function publicBrandingFor(int $agencyId): array
     {
         $a = static::withoutGlobalScopes()->find($agencyId);

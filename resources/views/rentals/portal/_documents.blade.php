@@ -31,7 +31,7 @@
                 <strong x-text="d.name"></strong>
                 <span class="badge" x-text="d.subtype ? (d.subtype + ' · ' + d.type) : d.type"></span>
             </div>
-            <div class="muted" x-text="[d.belongs_to.lease_label, d.date ? new Date(d.date).toLocaleDateString(undefined, {day:'numeric', month:'short', year:'numeric'}) : null].filter(Boolean).join(' · ')"></div>
+            <div class="muted" x-text="[d.belongs_to.lease_label, d.date ? fmtDay(d.date) : null].filter(Boolean).join(' · ')"></div>
             <div style="display:flex; gap:14px; margin-top:6px;">
                 <a class="link" :href="d.view_url" target="_blank" rel="noopener">View</a>
                 <a class="link" :href="d.download_url">Download</a>

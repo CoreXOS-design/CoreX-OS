@@ -20,6 +20,10 @@ return [
     'arranged_limit' => ['tenant' => 'Repair arranged', 'owner' => 'Arranged by your agent under your repair limit', 'agent' => 'Went ahead under the owner\'s repair limit'],
     'arranged_inspect' => ['tenant' => 'Someone is coming to look', 'owner' => 'Your agent sent someone to look and quote', 'agent' => 'Sent to look and quote on your authority'],
     'arranged_emergency' => ['tenant' => 'Repair arranged', 'owner' => 'Arranged by your agent as an emergency', 'agent' => 'Went ahead as an emergency'],
+    // the agent has not yet chosen between sending someone directly and asking the owner - one neutral step, no owner steps promised
+    'route_pending' => ['tenant' => 'Your agent is arranging who comes to look', 'owner' => 'Your agent is arranging who looks - or will ask you', 'agent' => 'Choose who goes to look'],
+    // the owner has been asked and has not answered: a question, not "You approved"
+    'owner_decision_pending' => ['tenant' => 'Waiting for the owner', 'owner' => 'Your decision', 'agent' => 'Waiting for the owner'],
     'owner_instructed' => ['tenant' => 'Owner approved', 'owner' => 'Recorded on your instruction', 'agent' => 'Owner approved (recorded by an agent)'],
     'owner_approved' => ['tenant' => 'Owner approved', 'owner' => 'You approved', 'agent' => 'Owner approved'],
     // The tenant NEVER sees the owner's reason or the agent's notes - only this neutral line.

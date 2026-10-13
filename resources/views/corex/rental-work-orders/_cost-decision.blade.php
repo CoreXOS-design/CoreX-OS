@@ -3,7 +3,8 @@
     only puts an AMOUNT in front of someone. The work cannot start until the cost has an authorisation record. Two equal buttons:
       "Authorise R___ within the repair limit" (or the emergency limit, when "This is an emergency" is ticked and a reason is written) - only when the amount is inside the limit the owner set;
       "Record the owner's decision" - the owner told you (phone, WhatsApp, email) that they approve up to an amount, or decline.
-    Above the limit, or with no limit set, the owner decides first (their link, or the agent recording their words). Replaces the old "Emergency approval" form.
+    Above the limit, or with no limit set, the owner decides first (their link, or the agent recording their words). Replaces the old "Emergency approval" form AND the old
+    separate "Approval" section: ONE section - status, the owner's limits, the amount, the buttons, and below them the records (who, basis, when).
     Expects: $workOrder, $isOpen. (The rest is read here when the page did not pass it - the job card page includes this too.)
 --}}
 @php
@@ -25,6 +26,8 @@
     $cdNeedsDecision = $isOpen && ! $cdAuthorised && ! $cdLegacy && $costBlock === null;
     $cdMeasure = $costMeasure['amount'];
     $cdEmActive = $workOrder->activeEmergencyApproval();
+    $cdOpenVariation = $workOrder->openVariation();
+    $cdAutoCount = $workOrder->variations()->where('status', \App\Models\RentalWorkOrderVariation::STATUS_AUTO_APPROVED)->count();
     $cdOwnerSettings = $workOrder->property ? \App\Services\Rentals\RentalOwnerFaultSettings::for($workOrder->property) : null;
 @endphp
 <div id="cost-decision" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-cost-decision>
@@ -44,28 +47,40 @@
         @else
             <span class="ds-badge ds-badge-muted" data-cost-status="none">Not authorised yet</span>
         @endif
+        @if($cdOpenVariation)<span class="ds-badge ds-badge-warning">Extra work waiting for the owner</span>@endif
+        @if($cdAutoCount > 0)<span class="ds-badge ds-badge-info">{{ $cdAutoCount }} {{ $cdAutoCount > 1 ? 'extras' : 'extra' }} passed within the agreed tolerance</span>@endif
     </div>
 
     @error('cost_decision')<div class="text-xs" style="color: var(--ds-crimson);" data-cost-error>{{ $message }}</div>@enderror
 
     @if($cdAuthorised)
-        <div class="text-sm space-y-1" data-cost-authorised>
-            <div>{{ $cdSvc->recordTextFor($costActive) }}@if($costActive->amount_up_to !== null) <strong>Authorised up to R{{ number_format((float) $costActive->amount_up_to, 2) }}.</strong>@endif</div>
-            @if($costActive->is_emergency)<div class="text-xs"><span style="color: var(--text-muted);">Emergency:</span> {{ $costActive->emergency_reason }}</div>@endif
-            <div class="text-xs" style="color: var(--text-muted);">Anything above this amount goes to the owner as a request for the extra.@if($costActive->owner_told_at) The owner was told on {{ $costActive->owner_told_at->copy()->setTimezone($cdTz)->format('j M Y H:i') }}.@endif</div>
-        </div>
+        <p class="text-sm" data-cost-authorised>Authorised up to <strong>R{{ number_format((float) $costActive->amount_up_to, 2) }}</strong>. Anything above this goes to the owner as a request for the extra.@if($costActive->owner_told_at) The owner was told on {{ $costActive->owner_told_at->copy()->setTimezone($cdTz)->format('j M Y H:i') }}.@endif</p>
     @elseif($cdLegacy || $cdEmActive)
         <p class="text-sm" data-cost-legacy>This cost was approved before authorisation records were kept: {{ $workOrder->approvalBasisLabel() ?? 'approved' }}@if($workOrder->approved_amount !== null) &mdash; R{{ number_format((float) $workOrder->approved_amount, 2) }}@endif.</p>
     @endif
 
     {{-- the limits an agent may authorise under are the OWNER's own, read only through RentalOwnerFaultSettings, with who said so --}}
     @if($cdOwnerSettings)
-        <p class="text-xs" style="color: var(--text-muted);" data-cost-owner-limits>
-            The owner's limits:
-            repairs up to <strong>{{ $cdOwnerSettings->repairLimit() !== null ? 'R' . number_format($cdOwnerSettings->repairLimit(), 2, '.', ' ') : 'not set - the owner decides' }}</strong>,
-            emergencies up to <strong>{{ $cdOwnerSettings->emergencyLimit() !== null ? 'R' . number_format($cdOwnerSettings->emergencyLimit(), 2, '.', ' ') : 'not set - the owner decides' }}</strong>
-            &middot; {{ match ($cdOwnerSettings->status()) { 'confirmed_by_owner' => 'Confirmed by owner', 'captured_by_agent' => 'Recorded by agent' . ($cdOwnerSettings->capturedBy() ? ' (' . $cdOwnerSettings->capturedBy() . ')' : '') . ' - the owner has not confirmed it yet', 'disputed' => 'The owner does not agree with these', default => 'Not set yet' } }}.
-        </p>
+        @php
+            $cdRepair = $cdOwnerSettings->repairLimit();
+            $cdEmerg = $cdOwnerSettings->emergencyLimit();
+            $cdStatusLine = match ($cdOwnerSettings->status()) {
+                'confirmed_by_owner' => 'Confirmed by the owner',
+                'captured_by_agent' => 'Recorded by ' . ($cdOwnerSettings->capturedBy() ?: 'an agent') . ' - not yet confirmed by the owner',
+                'disputed' => 'The owner does not agree with these',
+                default => 'Not set yet',
+            };
+        @endphp
+        <div class="text-sm" data-cost-owner-limits>
+            <div class="grid gap-x-3 gap-y-0.5" style="grid-template-columns: max-content 1fr;">
+                <span style="color: var(--text-muted);">Repairs you may authorise:</span>
+                <span data-limit-repair>{{ $cdRepair !== null ? 'up to R' . number_format($cdRepair, 2, '.', ' ') : 'not set - ask the owner' }}</span>
+                <span style="color: var(--text-muted);">Emergency repairs you may authorise:</span>
+                <span data-limit-emergency>{{ $cdEmerg !== null ? 'up to R' . number_format($cdEmerg, 2, '.', ' ') : 'not set - ask the owner' }}</span>
+            </div>
+            <div class="text-xs mt-1" style="color: var(--text-muted);" data-limit-status>{{ $cdStatusLine }}
+                @if($workOrder->property_id) &middot; <a class="underline" href="{{ route('corex.properties.show', ['property' => $workOrder->property_id, 'tab' => 'rental']) }}#owner-fault-settings-panel" data-owner-fault-settings-link>Owner's fault settings</a>@endif</div>
+        </div>
     @endif
 
     @if($costBlock !== null && ! $cdAuthorised && ! $cdLegacy)
@@ -73,9 +88,6 @@
     @endif
 
     @if($cdNeedsDecision)
-        @if($cdPending)
-            <p class="text-sm" data-cost-pending>{{ $costRepair['line'] }} It has been sent to the owner. Record their answer here if they tell you.</p>
-        @endif
         <div x-data="{
                 measure: @js($cdMeasure), source: @js($costMeasure['source']), label: @js($costMeasure['label']),
                 repair: @js($costRepair['limit']), emerg: @js($costEmergency['limit']),
@@ -88,7 +100,7 @@
                 get word() { return this.emergency ? 'emergency limit' : 'repair limit'; },
                 get can() { return this.amount !== null && this.limit !== null && this.amount <= this.limit + 0.001 && (!this.emergency || this.reason.trim() !== ''); },
                 get line() {
-                    if (this.amount === null) { return 'Nothing is priced yet. Select a quote, price the job card, or type the amount if it is a small job you already know the price of.'; }
+                    if (this.amount === null) { return 'Nothing is priced yet - select a quote or type an amount.'; }
                     if (this.limit === null) { return 'The owner has not told us what you may authorise without asking (the ' + this.word + '), so the owner must authorise this first.'; }
                     if (this.amount > this.limit + 0.001) { return this.money(this.amount) + ' is above the owner\'s ' + this.word + ' of ' + this.money(this.limit) + '. The owner must authorise this first.'; }
                     if (this.emergency && this.reason.trim() === '') { return 'Write why this is an emergency - it is required.'; }
@@ -107,7 +119,7 @@
                 <template x-if="measure !== null"><span><span style="color: var(--text-muted);" x-text="label + ':'"></span> <strong x-text="money(measure)"></strong> <span class="text-xs" style="color: var(--text-muted);">(what the owner pays, VAT included)</span></span></template>
                 <template x-if="measure === null">
                     <span class="flex flex-wrap items-center gap-2">
-                        <label class="text-xs font-medium" for="cost-typed">No quote or crew price yet &mdash; for a small job you already know the price of, type the amount (R):</label>
+                        <label class="text-xs font-medium" for="cost-typed">Or type the amount for a small job (R):</label>
                         <input id="cost-typed" type="number" step="0.01" min="0.01" x-model="typed" class="rounded-md px-3 py-1 text-sm" style="border: 1px solid var(--border); width: 9rem;" data-cost-typed>
                     </span>
                 </template>

@@ -351,7 +351,7 @@ final class MaintenanceFlowFoundationTest extends TestCase
     public function test_closing_a_work_order_fires_the_closed_event_once_with_the_actor(): void
     {
         Event::fake([RentalWorkOrderClosed::class]);
-        $wo = $this->workOrder();
+        $wo = $this->workOrder(['approval_basis' => RentalWorkOrder::BASIS_LEGACY_GRANDFATHERED]);   // section 22.6: closing needs the cost authorised first
 
         $wo->complete($this->admin, ['paid_by' => RentalWorkOrder::PAID_BY_OWNER, 'cost_amount' => 100]);
 

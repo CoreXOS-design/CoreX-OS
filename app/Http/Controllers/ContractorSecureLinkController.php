@@ -71,10 +71,11 @@ class ContractorSecureLinkController extends Controller
             'photos' => $photos,
             'response' => $workOrder->contractor_response,
             'responseLabel' => $jobs::responseLabel($workOrder->contractor_response),
-            'agencyName' => $workOrder->agency?->trading_name ?: ($workOrder->agency?->name ?: 'The agency'),
+            'agencyName' => \App\Models\Agency::displayNameFor($workOrder->agency, 'The agency'),
             'accessNotes' => trim((string) ($workOrder->property?->access_notes ?? '')) ?: null,
             // section 22.7 - the owner stopped it: "On hold - do not attend" and nothing to answer, quote, photograph or mark done (the owner's reason is never shown here)
             'onHold' => app(\App\Services\Rentals\RentalOwnerHoldService::class)->activeFor($workOrder) !== null,
+            'lookAndQuote' => app(\App\Services\Rentals\RentalWhoPaysService::class)->isFaultJob($workOrder),
         ]);
     }
 
@@ -152,6 +153,9 @@ class ContractorSecureLinkController extends Controller
         if ($held = $this->onHold($record)) {
             return back()->withErrors(['work_order' => $held]);
         }
+        if (! in_array($record->workOrder->contractor_response, [\App\Services\Rentals\RentalContractorJobService::RESPONSE_ACCEPTED, \App\Services\Rentals\RentalContractorJobService::RESPONSE_QUOTE], true)) {
+            return back()->withErrors(['work_order' => 'Please accept the job first.']);
+        }
 
         $data = $request->validate([
             'photo' => 'required|file|mimes:jpg,jpeg,png,webp,heic,heif|max:51200',
@@ -172,6 +176,13 @@ class ContractorSecureLinkController extends Controller
         }
         if ($held = $this->onHold($record)) {
             return back()->withErrors(['work_order' => $held]);
+        }
+        if (! in_array($record->workOrder->contractor_response, [\App\Services\Rentals\RentalContractorJobService::RESPONSE_ACCEPTED, \App\Services\Rentals\RentalContractorJobService::RESPONSE_QUOTE], true)) {
+            return back()->withErrors(['work_order' => 'Please accept the job first.']);
+        }
+        // section 22.6: nothing is finished before its cost is authorised - in the contractor's words, never the office's (cc4's walk of QA1, item 1)
+        if (! app(\App\Services\Rentals\RentalApprovalGateService::class)->authoriseToProceed($record->workOrder, false)->authorised) {
+            return back()->withErrors(['work_order' => 'This job has not been authorised yet - the agency will tell you when you can go ahead. Send your quote and wait for their answer.']);
         }
 
         // spec section 22.13.2 - a job that came from a fault is not done until the contractor says what was found and what caused it
