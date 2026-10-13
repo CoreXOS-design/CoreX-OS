@@ -94,7 +94,7 @@
     @endif
 
     <details data-file-invoice @if($errors->has('invoice') || $errors->has('document') || $liveInvoices->isEmpty()) open @endif>
-        <summary class="corex-btn-outline text-xs cursor-pointer" style="display:inline-flex; align-items:center; min-height:34px; list-style:none;">File an invoice</summary>
+        <summary class="corex-btn-outline text-xs cursor-pointer" style="{{ $liveInvoices->isEmpty() && ! $errors->has('invoice') ? 'display:none;' : 'display:inline-flex; align-items:center; min-height:34px; list-style:none;' }}">File an invoice</summary>
     <form method="POST" action="{{ route('corex.rental-work-orders.invoices.store', $workOrder) }}" enctype="multipart/form-data" class="space-y-3 pt-3" data-invoice-upload-form>
         @csrf
         <div class="wo-grid-4">

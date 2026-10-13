@@ -1100,7 +1100,11 @@ class RentalWorkOrder extends Model
         if ($this->status !== self::STATUS_COMPLETED || ! $this->reported_fault_report_id) {
             return;
         }
-        RentalFaultReport::withoutGlobalScopes()->find($this->reported_fault_report_id)?->resolveFromCompletedWorkOrder($this, $by);
+        $fault = RentalFaultReport::withoutGlobalScopes()->find($this->reported_fault_report_id);
+        // the ONE place every completion route ends up (office form, job card close, crew link, contractor link): the fault closes here or the reason is logged - never silently
+        if ($fault && ! $fault->resolveFromCompletedWorkOrder($this, $by) && ! in_array($fault->fresh()->status, [RentalFaultReport::STATUS_RESOLVED, RentalFaultReport::STATUS_CANCELLED], true)) {
+            \Illuminate\Support\Facades\Log::warning('Work order completed but its fault was not resolved', ['work_order' => $this->id, 'fault' => $fault->id, 'fault_status' => $fault->status, 'fault_work_order' => $fault->rental_work_order_id]);
+        }
     }
 
     /**

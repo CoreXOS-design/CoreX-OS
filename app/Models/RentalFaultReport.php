@@ -1097,9 +1097,17 @@ class RentalFaultReport extends Model
      */
     public function resolveFromCompletedWorkOrder(RentalWorkOrder $workOrder, ?User $by = null): bool
     {
-        if ((int) $this->rental_work_order_id !== (int) $workOrder->id || $workOrder->status !== RentalWorkOrder::STATUS_COMPLETED
-            || in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
+        if ($workOrder->status !== RentalWorkOrder::STATUS_COMPLETED || in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
             return false;
+        }
+        // The link is two-way (fault.rental_work_order_id <-> work_order.reported_fault_report_id). A completed work order that points at this fault always closes it, unless the fault
+        // is pointed at a DIFFERENT, still-live work order (then that one decides). A one-sided or stale link (empty, or a cancelled / archived work order) is healed, never skipped silently.
+        if ((int) $this->rental_work_order_id !== (int) $workOrder->id) {
+            $other = $this->rental_work_order_id ? RentalWorkOrder::withoutGlobalScopes()->withTrashed()->find($this->rental_work_order_id) : null;
+            if ($other && ! $other->trashed() && $other->status !== RentalWorkOrder::STATUS_CANCELLED) {
+                return false;
+            }
+            $this->forceFill(['rental_work_order_id' => $workOrder->id])->save();
         }
         try {
             $this->setOutcome([
