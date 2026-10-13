@@ -518,8 +518,19 @@ class SupplierDirectoryController extends Controller
     {
         // rentals-faults-work-orders.md section 21.1 - a caretaker / insurer / owner's team / body corporate has no trade: it is always saved as "Other".
         $kind = (string) $request->input('kind', '');
-        if ($kind !== '' && $kind !== AgencyServiceProvider::KIND_CONTRACTOR) {
+        if ($kind === 'bond_originator') {
+            $request->merge(['specialty' => 'bond_originator']);
+        } elseif ($kind === 'attorney_conveyancer') {
+            // an attorney keeps a real trade (Transfer / Bond attorney, Conveyancer) so the deal pickers still find it
+            $request->merge(['specialty' => in_array($request->input('specialty'), AgencyServiceProvider::ATTORNEY_SPECIALTIES, true) ? $request->input('specialty') : 'conveyancer']);
+        } elseif ($kind !== '' && $kind !== AgencyServiceProvider::KIND_CONTRACTOR) {
             $request->merge(['specialty' => 'other']);
+        } else {
+            // a plain Contractor whose trade is an attorney / bond originator is saved with the matching kind
+            $derived = AgencyServiceProvider::kindFor((string) $request->input('specialty', ''), $kind);
+            if ($derived !== AgencyServiceProvider::KIND_CONTRACTOR) {
+                $request->merge(['kind' => $derived]);
+            }
         }
 
         $data = $request->validate(array_merge([

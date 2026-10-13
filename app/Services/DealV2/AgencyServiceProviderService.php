@@ -50,6 +50,8 @@ class AgencyServiceProviderService
         $specialty = $data['specialty'] ?? 'other';
         // rentals-faults-work-orders.md section 21.1 - a caretaker and a contractor with the same name are two suppliers, never merged.
         $kind = array_key_exists($data['kind'] ?? '', AgencyServiceProvider::KINDS) ? $data['kind'] : AgencyServiceProvider::KIND_CONTRACTOR;
+        // 13 Oct 2026 - an attorney / bond originator trade carries its own kind, so the duplicate check below matches the rows the data fix re-kinded
+        $kind = AgencyServiceProvider::kindFor($specialty, $kind);
         $name = trim((string) ($data['name'] ?? ''));
         $email = isset($data['email']) ? strtolower(trim((string) $data['email'])) : null;
 

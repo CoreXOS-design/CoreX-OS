@@ -10,10 +10,11 @@
     $saveLabel = $saveLabel ?? 'Save to directory';
     $popup = $popup ?? false;
 @endphp
-        {{-- rentals-faults-work-orders.md section 21.1 - the KIND of supplier (default Contractor). Only a Contractor has a trade; any other kind is saved as trade "Other". --}}
+        {{-- rentals-faults-work-orders.md section 21.1 - the KIND of supplier (default Contractor). Only a Contractor and an Attorney / conveyancer pick a trade; a Bond originator is saved as trade "Bond originator", any other kind as trade "Other". --}}
         @php
             $kindOptions = \App\Models\DealV2\AgencyServiceProvider::KINDS;
-            $kindSync = "var t=document.getElementById('{$idp}-specialty'); if(t){ var c=t.closest('div'); var on=document.getElementById('{$idp}-kind').value==='contractor'; c.style.display=on?'':'none'; t.disabled=!on; }";
+            // Contractor: any trade. Attorney / conveyancer: only the three attorney trades. Bond originator and every other kind: no trade to pick.
+            $kindSync = "var t=document.getElementById('{$idp}-specialty'); if(t){ var k=document.getElementById('{$idp}-kind').value; var c=t.closest('div'); var att=['transfer_attorney','bond_attorney','conveyancer']; var on=(k==='contractor'||k==='attorney_conveyancer'); c.style.display=on?'':'none'; t.disabled=!on; for(var i=0;i<t.options.length;i++){ var o=t.options[i]; var ok=(k!=='attorney_conveyancer')||att.indexOf(o.value)>-1; o.hidden=!ok; o.disabled=!ok; } if(k==='attorney_conveyancer'&&att.indexOf(t.value)<0){ t.value='transfer_attorney'; } }";
         @endphp
         <form method="POST" action="{{ route('deals-v2.suppliers.store') }}" class="grid grid-cols-1 md:grid-cols-3 gap-4" id="{{ $idp }}-form" onreset="setTimeout(function(){ {{ $kindSync }} }, 0)" {!! $formAttrs !!}>
             @csrf
