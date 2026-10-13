@@ -35,27 +35,15 @@ LIFECYCLE LEDGER - route-2-agency-contractor
 7.4    PASS    cc6  agent prepares the owner's version and sends it - owner and tenant mails queued, line moves
 7.5    PASS    cc6  the owner sees it on the Faults screen with the agent's version, never the tenant's raw words
 8.1    PASS    cc6  the owner approves and picks the agency's contractor from the list
-9.0    FAIL    cc6  agent raises the work order for the contractor - waiting for a quote and the owner, not yet sent
-         -> Failed asserting that two strings are identical.  (test RentalLifecycleAgencyContractorTest.php:49)
-9.1    BLOCKED cc6  a R1,500 quote is captured and selected - over the limit, so the owner is asked (owner quote mail)
-         -> needs step 9.0 (agent raises the work order for the contractor - waiting for a quote and the owner, not yet sent)
-9.2    BLOCKED cc6  the owner sees the quote waiting; the tenant sees no price anywhere
-         -> needs step 9.1 (a R1,500 quote is captured and selected - over the limit, so the owner is asked (owner quote mail))
-9.3    BLOCKED cc6  the work order cannot be sent to the contractor before the owner authorises it
-         -> needs step 9.1 (a R1,500 quote is captured and selected - over the limit, so the owner is asked (owner quote mail))
-9.4    BLOCKED cc6  the owner authorises the quote on the portal
-         -> needs step 9.1 (a R1,500 quote is captured and selected - over the limit, so the owner is asked (owner quote mail))
-9.5    BLOCKED cc6  the agent sends the work order to the contractor - ordered, contractor mailed, line moves
-         -> needs step 9.4 (the owner authorises the quote on the portal)
-9.a    BLOCKED cc6  appointment set - tenant notified, progress line shows it
-         -> needs step 9.5 (the agent sends the work order to the contractor - ordered, contractor mailed, line moves)
-9.b    BLOCKED cc6  work started - line shows work in progress for tenant and owner
-         -> needs step 9.a (appointment set - tenant notified, progress line shows it)
-9.c    BLOCKED cc6  work reported complete - the tenant is asked (optionally) to check; nothing is held ("Work reported finished" until the agent closes)
-         -> needs step 9.b (work started - line shows work in progress for tenant and owner)
-9.d    BLOCKED cc6  the tenant confirms the repair is fixed on the portal (optional)
-         -> needs step 9.c (work reported complete - the tenant is asked (optionally) to check; nothing is held ("Work reported finished" until the agent closes))
-9.e    BLOCKED cc6  the job is closed with who-pays; the tenant's line reads completed
-         -> needs step 9.d (the tenant confirms the repair is fixed on the portal (optional))
-9.f    BLOCKED cc6  the agent records the outcome - the fault is resolved
-         -> needs step 9.e (the job is closed with who-pays; the tenant's line reads completed)
+9.0    PASS    cc6  agent raises the work order for the contractor - the job goes out at once (the contractor is told the moment they are appointed); no cost is approved
+9.1    PASS    cc6  a R1,500 quote is captured and selected - over the limit, so the owner is asked (owner quote mail)
+9.2    PASS    cc6  the owner sees the quote waiting; the tenant sees no price anywhere
+9.3    PASS    cc6  the work cannot start before the owner authorises the cost
+9.4    PASS    cc6  the owner authorises the quote on the portal
+9.5    PASS    cc6  with the cost authorised the job is cleared to go ahead - the contractor was told when appointed and hears the go-ahead by itself, once
+9.a    PASS    cc6  appointment set - tenant notified, progress line shows it
+9.b    PASS    cc6  work started - line shows work in progress for tenant and owner
+9.c    PASS    cc6  work reported complete - the tenant is asked (optionally) to check; nothing is held ("Work reported finished" until the agent closes)
+9.d    PASS    cc6  the tenant confirms the repair is fixed on the portal (optional)
+9.e    PASS    cc6  the job is closed with who-pays; the tenant's line reads completed
+9.f    PASS    cc6  the agent records the outcome - the fault is resolved

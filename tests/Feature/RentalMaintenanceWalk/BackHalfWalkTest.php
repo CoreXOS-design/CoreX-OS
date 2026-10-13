@@ -168,7 +168,9 @@ final class BackHalfWalkTest extends TestCase
         $this->assertSame(RentalWorkOrder::STATUS_ORDERED, $wo->fresh()->status);
         $this->assertSame('Sent to contractor for scheduling', $this->tenantLine($fault)['current_label']);
         $this->assertSame('sent_to_contractor', $this->ownerLine($fault)['current']);
-        $this->assertCount(1, $jobMessages(), 'still the one job message');
+        // AT-452 22.15: the contractor is told when appointed AND hears the go-ahead by itself the moment the cost is authorised (once)
+        $this->assertCount(2, $jobMessages(), 'the job message, and the go-ahead');
+        $this->assertSame(1, $jobMessages()->where('reason', 'go_ahead')->count());
 
         // 6 - the appointment is set (agent), then changed.
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.appointment.store', $wo), [

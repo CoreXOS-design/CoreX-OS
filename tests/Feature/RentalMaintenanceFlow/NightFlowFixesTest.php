@@ -523,8 +523,8 @@ final class NightFlowFixesTest extends TestCase
 
         $wo->fresh()->recordApproval($this->landlord, ['decision' => 'approved', 'evidence_type' => \App\Models\RentalApproval::EVIDENCE_PORTAL]);
         $t = $line('tenant');
-        $this->assertSame('Being arranged with the contractor', $t['sent_to_contractor']['detail']);
-        $this->assertSame('todo', $t['sent_to_contractor']['state'], 'approved is not sent');
+        // AT-452 22.15: the go-ahead goes out by itself the moment the owner's approval covers the quote, so the job IS sent now
+        $this->assertSame('done', $t['sent_to_contractor']['state'], 'approved = the go-ahead went to the contractor');
         $this->assertSame('done', $t['appointment_set']['state'], 'now the appointment is real');
     }
 

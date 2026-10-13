@@ -32,6 +32,7 @@ class RentalJobDispatch extends Model
     public const REASON_REASSIGNED = 'reassigned';
     public const REASON_RESEND = 'resend';
     public const REASON_CREW_AUTO = 'crew_auto';
+    public const REASON_GO_AHEAD = 'go_ahead';   // section 22.15 - sent by itself the moment the cost was authorised
 
     protected $fillable = [
         'agency_id', 'rental_work_order_id', 'rental_job_card_id', 'recipient_kind', 'agency_service_provider_id', 'rental_crew_id',

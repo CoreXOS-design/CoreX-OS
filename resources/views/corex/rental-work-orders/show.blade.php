@@ -585,7 +585,7 @@
                     <input type="hidden" name="agency_service_provider_id" value="{{ $selectedQuote->agency_service_provider_id }}">
                     <span class="text-xs">Go-ahead to: <strong>{{ $selectedQuote->supplier?->name ?? 'Unknown supplier' }}</strong></span>
                     <button type="submit" class="corex-btn-primary text-xs" @disabled(!$proceed->authorised)
-                            @if(!$proceed->authorised) title="{{ $proceed->note }}" @endif>{{ $workOrder->status === \App\Models\RentalWorkOrder::STATUS_REPORTED ? 'Send work order to contractor' : 'Resend work order to contractor' }}</button>
+                            @if(!$proceed->authorised) title="{{ $proceed->note }}" @endif>{{ $workOrder->status === \App\Models\RentalWorkOrder::STATUS_REPORTED ? 'Send work order to contractor' : 'Send the go-ahead again' }}</button>
                 </form>
                 @if(!$proceed->authorised)
                     <p class="text-xs" style="color: var(--ds-crimson);">{{ $proceed->note }}</p>
