@@ -70,6 +70,9 @@ class OutcomeService
             if (! $appointmentAt) {
                 throw new RoadToSoldException('Pick the date and time of the valuation.');
             }
+            if ($appointmentAt->lt(now()->startOfMinute())) {
+                throw new RoadToSoldException('The valuation cannot be booked in the past. Pick a date and time from now on.');
+            }
         }
 
         $outcome = DB::transaction(function () use ($actor, $agencyId, $agentId, $trackedPropertyId, $def, $input, $track, $note, $occurredAt, $wantsValuation, $appointmentAt, $settings) {
@@ -132,6 +135,8 @@ class OutcomeService
                 'branch_id'              => $actor->effectiveBranchId(),
                 'track'                  => $track,
                 'user_id'                => $agentId,
+                // the assistant who made the call for the agent (null = the agent did): the outcome is the agent's, the call was theirs
+                'recorded_by_user_id'    => (int) $actor->id !== $agentId ? (int) $actor->id : null,
                 'tracked_property_id'    => $tp->id,
                 'property_id'            => $input['property_id'] ?? ($tp->promoted_to_property_id ?: null),
                 'prospecting_listing_id' => $input['prospecting_listing_id'] ?? null,
@@ -160,7 +165,7 @@ class OutcomeService
             }
 
             if ($contact) {
-                $this->writeContactSide($contact, $def, $outcome, $note, $agentId, $occurredAt);
+                $this->writeContactSide($contact, $def, $outcome, $note, $agentId, $occurredAt, (int) $actor->id !== $agentId ? $actor->name : null);
             }
 
             return $outcome;
@@ -239,9 +244,9 @@ class OutcomeService
     }
 
     /** History on the owner contact (visible in the contact's existing Notes tab) + last contacted. */
-    private function writeContactSide(Contact $contact, Def $def, RtsContactOutcome $outcome, string $note, int $agentId, Carbon $at): void
+    private function writeContactSide(Contact $contact, Def $def, RtsContactOutcome $outcome, string $note, int $agentId, Carbon $at, ?string $madeBy = null): void
     {
-        $body = 'Road to Sold - ' . $def->label . ($note !== '' ? ': ' . $note : '');
+        $body = 'Road to Sold - ' . $def->label . ($note !== '' ? ': ' . $note : '') . ($madeBy ? ' (call made by ' . $madeBy . ')' : '');
         ContactNote::create([
             'contact_id' => $contact->id,
             'user_id'    => $agentId,
@@ -343,7 +348,7 @@ class OutcomeService
             return collect();
         }
 
-        return RtsContactOutcome::query()->with('agent:id,name')
+        return RtsContactOutcome::query()->with(['agent:id,name', 'recordedBy:id,name'])
             ->where('agency_id', $agencyId)->where('track', $track)
             ->where('tracked_property_id', $trackedPropertyId)
             ->orderByDesc('occurred_at')->orderByDesc('id')->limit($limit)->get();
@@ -365,7 +370,7 @@ class OutcomeService
         }
 
         $out = [];
-        RtsContactOutcome::query()->visibleTo($viewer)->with('agent:id,name')
+        RtsContactOutcome::query()->visibleTo($viewer)->with(['agent:id,name', 'recordedBy:id,name'])
             ->where('agency_id', $agencyId)->where('track', $track)
             ->whereIn('tracked_property_id', $ids)
             ->orderByDesc('occurred_at')->orderByDesc('id')
@@ -378,6 +383,7 @@ class OutcomeService
                 $out[$k][] = [
                     'when'      => $o->occurred_at?->format('j M Y H:i'),
                     'by'        => $o->agent?->name,
+                    'made_by'   => $o->recordedBy?->name,   // the assistant who made the call for the agent (null = the agent)
                     'label'     => $o->outcome_label,
                     'kind'      => $o->kind,
                     'note'      => $o->note,

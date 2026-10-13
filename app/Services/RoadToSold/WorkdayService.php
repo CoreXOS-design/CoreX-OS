@@ -13,7 +13,8 @@ use Carbon\CarbonInterface;
  * AT-454 — which days an agent owes a target, and how much.
  * Contract: .ai/specs/road-to-sold.md §2.2. Lanes 2 and 3 code against these methods.
  *
- * A day carries NO target when it is a public holiday (PublicHolidayService), when the agent is on
+ * A day carries NO target when it is a public holiday (PublicHolidayService, in the country the agency chose
+ * under Road to Sold settings - default ZA), when the agent is on
  * approved whole-day leave (leave_applications status approved/taken), or when the agent's weekday
  * number is 0. Approved HALF-day leave keeps the full target unless the agency switched
  * "half-day leave halves the target" on, in which case that day's target is halved (rounded to the
@@ -29,6 +30,9 @@ class WorkdayService
 
     /** @var array<string,array<string,bool>> "YYYY-MM|CC" => [Y-m-d => true] */
     private array $holidayMemo = [];
+
+    /** @var array<int,User> list-owner id => user (assistants only) */
+    private array $ownerMemo = [];
 
     /** @var array<string,array<string,string>> "userId|YYYY-MM" => [Y-m-d => 'full'|'half'] */
     private array $leaveMemo = [];
@@ -51,9 +55,10 @@ class WorkdayService
 
     public function targetFor(User $user, CarbonInterface|string $date, string $track = RtsSetting::TRACK_SALES): int
     {
-        $day = $this->day($date);
+        $user = $this->listOwner($user);
+        $day  = $this->day($date);
 
-        if ($this->isPublicHoliday($day)) {
+        if ($this->isPublicHoliday($day, SettingsService::forUser($user, $track)->holidayCountry())) {
             return 0;
         }
 
@@ -116,12 +121,29 @@ class WorkdayService
         return $total;
     }
 
+    /**
+     * Spec 11.1: a target, a holiday and leave belong to the LIST OWNER - the agent an assistant acts for.
+     * The page and the builder already hand over the owner; this makes a direct call with an assistant agree.
+     */
+    private function listOwner(User $user): User
+    {
+        if (! $user->is_assistant) {
+            return $user;
+        }
+        $ownerId = (int) $user->ownershipUserId();
+        if ($ownerId === (int) $user->id) {
+            return $user;
+        }
+
+        return $this->ownerMemo[$ownerId] ??= (User::query()->withoutGlobalScopes()->find($ownerId) ?? $user);
+    }
+
     private function day(CarbonInterface|string $date): Carbon
     {
         return ($date instanceof CarbonInterface ? Carbon::instance($date) : Carbon::parse($date))->startOfDay();
     }
 
-    private function isPublicHoliday(Carbon $day, string $country = 'ZA'): bool
+    private function isPublicHoliday(Carbon $day, string $country): bool
     {
         $key = $day->format('Y-m') . '|' . $country;
         if (! isset($this->holidayMemo[$key])) {

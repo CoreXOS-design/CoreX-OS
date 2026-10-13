@@ -8,6 +8,7 @@ use App\Services\RoadToSold\Adapters\LaneAreaProvider;
 use App\Services\RoadToSold\Adapters\LaneWorkCalendar;
 use App\Services\RoadToSold\Adapters\LaneFollowUpSource;
 use App\Services\RoadToSold\Adapters\LaneSuggestionGuard;
+use App\Services\RoadToSold\Contracts\AreaMatchProvider;
 use App\Services\RoadToSold\Contracts\AreaProvider;
 use App\Services\RoadToSold\Contracts\FollowUpSource;
 use App\Services\RoadToSold\Contracts\SuggestionGuard;
@@ -71,6 +72,24 @@ class ListBuilderService
         $this->settingsResolver = $settingsResolver ?? fn (User $u, string $track) => BuilderSettings::forUser($u, $track);
     }
 
+    // ── whose list ───────────────────────────────────────────────────────
+
+    /**
+     * THE assistant rule (conductor 13 Oct): an assistant works the list of the agent they act for. Every entry point below turns whoever is
+     * asking into the LIST OWNER first - the agent (User::ownershipUserId(), which honours a multi-agent assistant's "Acting for" choice) - so the
+     * page's build, the page's read, the nightly build, add-to-day, roll-over and "worked" all use the same user id. A normal user is their own
+     * list owner. Spec: road-to-sold.md section "Assistants".
+     */
+    public function listOwner(User $user): User
+    {
+        if (! $user->is_assistant || ! $user->isAssistant()) {
+            return $user;
+        }
+        $ownerId = (int) $user->ownershipUserId();
+
+        return $ownerId === (int) $user->id ? $user : (User::withoutGlobalScopes()->find($ownerId) ?? $user);
+    }
+
     // ── build ────────────────────────────────────────────────────────────
 
     /**
@@ -81,6 +100,7 @@ class ListBuilderService
      */
     public function buildFor(User $user, CarbonInterface|string $date, string $track = RtsListItem::TRACK_SALES): Collection
     {
+        $user = $this->listOwner($user);
         $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
         $day = Carbon::parse($date)->startOfDay();
         if ($agencyId <= 0) {
@@ -99,6 +119,8 @@ class ListBuilderService
     /** The stored list for the day, in order (no building). */
     public function listFor(User $user, CarbonInterface|string $date, string $track = RtsListItem::TRACK_SALES): Collection
     {
+        $user = $this->listOwner($user);
+
         return RtsListItem::query()->forDay($user, $date, $track)->orderBy('position')->orderBy('id')->get();
     }
 
@@ -155,7 +177,7 @@ class ListBuilderService
             return;
         }
         $tracked = array_values(array_filter(array_map(fn ($f) => $f->trackedPropertyId, $due)));
-        $blocked = array_flip($this->guard->blockedFor($user, $tracked, $track));
+        $blocked = array_flip($this->guard->blockedFor($user, $tracked, $track, $day));
 
         foreach ($due as $f) {
             if ($f->trackedPropertyId !== null && isset($blocked[$f->trackedPropertyId])) {
@@ -183,6 +205,8 @@ class ListBuilderService
     private function context(User $user, int $agencyId, Carbon $day, string $track, BuilderSettings $settings): SelectionContext
     {
         $items = RtsListItem::query()->forDay($user, $day, $track)->get(['tracked_property_id', 'prospecting_listing_id', 'property_id', 'selection']);
+        // Areas by suburb id + town when the provider can say so (never by bare name: two towns share names).
+        $matches = $this->areas instanceof AreaMatchProvider ? $this->areas->suburbMatchesFor($user, $track) : [];
 
         return new SelectionContext(
             user: $user,
@@ -192,12 +216,13 @@ class ListBuilderService
             settings: $settings,
             guard: $this->guard,
             areaSuburbIds: $this->areas->suburbIdsFor($user, $track),
-            areaSuburbNames: $this->areas->suburbNamesNormalisedFor($user, $track),
-            areaSuburbNamesLower: $this->areas->suburbNamesLowerTrimFor($user, $track),
+            areaSuburbNames: $matches === [] ? $this->areas->suburbNamesNormalisedFor($user, $track) : [],
+            areaSuburbNamesLower: $matches === [] ? $this->areas->suburbNamesLowerTrimFor($user, $track) : [],
             identityIds: $user->dataIdentityIds(),
             excludeTrackedIds: $items->pluck('tracked_property_id')->filter()->map(fn ($v) => (int) $v)->values()->all(),
             excludeListingIds: $items->pluck('prospecting_listing_id')->filter()->map(fn ($v) => (int) $v)->values()->all(),
             excludePropertyIds: $items->pluck('property_id')->filter()->map(fn ($v) => (int) $v)->values()->all(),
+            areaMatches: $matches,
             countsBySelection: $items->countBy('selection')->map(fn ($n) => (int) $n)->all(),
             otherStock: $this->stock,
             resolver: $this->resolver ??= new TrackedPropertyResolver(),
@@ -293,6 +318,7 @@ class ListBuilderService
      */
     public function addToDay(User $user, string $selection, int $count, CarbonInterface|string|null $date = null, string $track = RtsListItem::TRACK_SALES): Collection
     {
+        $user = $this->listOwner($user);
         $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
         if ($agencyId <= 0) {
             throw new InvalidArgumentException('You need to be working in an agency to add to your day.');
@@ -335,6 +361,7 @@ class ListBuilderService
      */
     public function closePastDays(User $user, CarbonInterface|string $today, string $track = RtsListItem::TRACK_SALES): array
     {
+        $user = $this->listOwner($user);
         $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
         $today = Carbon::parse($today)->startOfDay();
         $result = ['missed' => 0, 'rolled' => 0];
@@ -407,6 +434,7 @@ class ListBuilderService
         if (! $trackedPropertyId && ! $prospectingListingId && ! $propertyId) {
             return 0;
         }
+        $user = $this->listOwner($user);
 
         return RtsListItem::query()->forDay($user, $date, $track)->open()
             ->where(function ($q) use ($trackedPropertyId, $prospectingListingId, $propertyId) {

@@ -11,7 +11,7 @@
     $q       = $filters['q'] ?? '';
     $status  = $filters['status'] ?? 'active';
     $sortNow = $filters['sort'] ?? 'name';
-    $tabUrl  = fn (array $extra = []) => route('road-to-sold.settings.areas.index', array_filter(array_merge(
+    $tabUrl  = fn (array $extra = []) => route($rb . 'areas.index', array_filter(array_merge(
         ['view' => $mode, 'q' => $q ?: null, 'town_id' => ($filters['townId'] ?? 0) ?: null, 'branch_id' => ($filters['branchId'] ?? 0) ?: null,
          'status' => $status === 'removed' ? 'removed' : null, 'sort' => $sortNow === 'name' ? null : $sortNow,
          'no_areas' => !empty($filters['noAreas']) ? 1 : null, 'stale' => !empty($filters['staleOnly']) ? 1 : null,
@@ -19,6 +19,7 @@
         $extra
     ), fn ($v) => $v !== null && $v !== ''));
     $fmt = fn ($d) => $d ? $d->diffForHumans() : 'never';
+    $portalWords = fn (array $p) => collect($p)->map(fn ($x) => $x === 'pp' ? 'PP' : 'P24')->implode(' and ');
 @endphp
 
 @section('corex-content')
@@ -45,14 +46,14 @@
 
     {{-- View switch --}}
     <div class="flex flex-wrap gap-2">
-        <a href="{{ route('road-to-sold.settings.areas.index', ['view' => 'agents']) }}" class="px-3 py-1.5 rounded-md text-sm font-semibold"
+        <a href="{{ route($rb . 'areas.index', ['view' => 'agents']) }}" class="px-3 py-1.5 rounded-md text-sm font-semibold"
            style="{{ $mode === 'agents' ? 'background:var(--brand-icon, #0ea5e9); color:#fff;' : 'background:var(--surface); border:1px solid var(--border); color:var(--text-primary);' }}">Agents and their suburbs</a>
-        <a href="{{ route('road-to-sold.settings.areas.index', ['view' => 'suburbs']) }}" class="px-3 py-1.5 rounded-md text-sm font-semibold"
+        <a href="{{ route($rb . 'areas.index', ['view' => 'suburbs']) }}" class="px-3 py-1.5 rounded-md text-sm font-semibold"
            style="{{ $mode === 'suburbs' ? 'background:var(--brand-icon, #0ea5e9); color:#fff;' : 'background:var(--surface); border:1px solid var(--border); color:var(--text-primary);' }}">Suburbs and who works them</a>
     </div>
 
     {{-- Filters --}}
-    <form method="GET" action="{{ route('road-to-sold.settings.areas.index') }}" class="rounded-md p-4 grid grid-cols-1 sm:grid-cols-6 gap-3 items-end"
+    <form method="GET" action="{{ route($rb . 'areas.index') }}" class="rounded-md p-4 grid grid-cols-1 sm:grid-cols-6 gap-3 items-end"
           style="background:var(--surface); border:1px solid var(--border);">
         <input type="hidden" name="view" value="{{ $mode }}">
         <div class="sm:col-span-2">
@@ -111,9 +112,9 @@
             @else
                 <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);"><input type="checkbox" name="unassigned" value="1" @checked(!empty($filters['unassigned']))> Nobody works it</label>
             @endif
-            <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);"><input type="checkbox" name="stale" value="1" @checked(!empty($filters['staleOnly']))> Needs a refresh (nothing captured in {{ $warnDays }} days)</label>
+            <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);"><input type="checkbox" name="stale" value="1" @checked(!empty($filters['staleOnly']))> Needs a refresh (a portal not captured in {{ $warnDays }} days)</label>
             <button type="submit" class="corex-btn-primary">Apply</button>
-            <a href="{{ route('road-to-sold.settings.areas.index', ['view' => $mode]) }}" class="corex-btn-outline">Clear</a>
+            <a href="{{ route($rb . 'areas.index', ['view' => $mode]) }}" class="corex-btn-outline">Clear</a>
         </div>
     </form>
 
@@ -125,7 +126,7 @@
                     <h3 class="text-sm font-bold" style="color:var(--text-primary);">Add suburbs for {{ $picker['agent']->name }}</h3>
                     <a href="{{ $tabUrl(['add_for' => null]) }}" class="corex-btn-outline">Close</a>
                 </div>
-                <form method="GET" action="{{ route('road-to-sold.settings.areas.index') }}" class="flex flex-wrap gap-2 items-end">
+                <form method="GET" action="{{ route($rb . 'areas.index') }}" class="flex flex-wrap gap-2 items-end">
                     <input type="hidden" name="view" value="agents">
                     <input type="hidden" name="add_for" value="{{ $picker['agent']->id }}">
                     <input name="suburb_q" value="{{ $picker['suburb_q'] }}" type="search" placeholder="Search suburbs" class="rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
@@ -138,7 +139,7 @@
                 @if($picker['results']->isEmpty())
                     <p class="text-sm" style="color:var(--text-muted);">No suburbs match.</p>
                 @else
-                    <form method="POST" action="{{ route('road-to-sold.settings.areas.sync', $picker['agent']->id) }}">
+                    <form method="POST" action="{{ route($rb . 'areas.sync', $picker['agent']->id) }}">
                         @csrf
                         <input type="hidden" name="view" value="agents">
                         <div class="grid grid-cols-1 sm:grid-cols-3 gap-1 max-h-72 overflow-y-auto p-2" style="border:1px solid var(--border);">
@@ -184,13 +185,13 @@
                                         <div style="color:var(--text-muted);">No longer in your Prospecting Setup</div>
                                     @else
                                         <div style="color:var(--text-muted);">Last captured: P24 {{ $fmt($c['p24']) }} &middot; PP {{ $fmt($c['pp']) }}</div>
-                                        @if($c['needs_refresh'])<div><strong>Needs a refresh</strong></div>@endif
+                                        @if($c['needs_refresh'])<div><strong>Needs a refresh: {{ $portalWords($c['stale_portals']) }}</strong></div>@endif
                                     @endunless
                                     <div class="mt-1">
                                         @if($status === 'removed')
-                                            <form method="POST" action="{{ route('road-to-sold.settings.areas.restore', $c['area_id']) }}" class="inline">@csrf<button type="submit" class="corex-btn-outline">Give back</button></form>
+                                            <form method="POST" action="{{ route($rb . 'areas.restore', $c['area_id']) }}" class="inline">@csrf<button type="submit" class="corex-btn-outline">Give back</button></form>
                                         @else
-                                            <form method="POST" action="{{ route('road-to-sold.settings.areas.archive', $c['area_id']) }}" class="inline"
+                                            <form method="POST" action="{{ route($rb . 'areas.archive', $c['area_id']) }}" class="inline"
                                                   onsubmit="return confirm('Take this suburb off {{ addslashes($row['user']->name) }}? You can give it back later from the Removed suburbs list.');">
                                                 @csrf @method('DELETE')<button type="submit" class="corex-btn-outline">Remove</button>
                                             </form>
@@ -204,7 +205,7 @@
             @empty
                 <div class="rounded-md p-8 text-center text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-muted);">
                     @if($emptyFiltered)
-                        No agents match those filters. <a href="{{ route('road-to-sold.settings.areas.index', ['view' => 'agents']) }}" class="underline">Clear the filters</a>.
+                        No agents match those filters. <a href="{{ route($rb . 'areas.index', ['view' => 'agents']) }}" class="underline">Clear the filters</a>.
                     @else
                         No agents have the "Access Road to Sold" permission yet. Add it in Role Manager.
                     @endif
@@ -235,14 +236,14 @@
                                 @permission('access_settings')
                                     <a href="{{ route('admin.minion.setup') }}" class="corex-btn-outline">Refresh now</a>
                                 @else
-                                    <span class="text-xs font-semibold" style="color:var(--text-muted);">Needs a refresh</span>
+                                    <span class="text-xs font-semibold" style="color:var(--text-muted);">Needs a refresh: {{ $portalWords($s['stale_portals']) }}</span>
                                 @endpermission
                             @endif
                         </td>
                     </tr>
                 @empty
                     <tr><td colspan="6" class="px-4 py-8 text-center" style="color:var(--text-muted);">
-                        @if($emptyFiltered) No suburbs match those filters. <a href="{{ route('road-to-sold.settings.areas.index', ['view' => 'suburbs']) }}" class="underline">Clear the filters</a>.
+                        @if($emptyFiltered) No suburbs match those filters. <a href="{{ route($rb . 'areas.index', ['view' => 'suburbs']) }}" class="underline">Clear the filters</a>.
                         @else Your agency has no suburbs set up yet. Add a town under Prospecting Setup first. @endif
                     </td></tr>
                 @endforelse

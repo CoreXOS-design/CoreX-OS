@@ -35,6 +35,7 @@ final class BuilderSettings
         public readonly int $priceDropLookbackDays = 30,
         public readonly int $stuckStockLookbackDays = 30,
         public readonly int $addToDayMax = 100,
+        public readonly int $scanPageSize = 200,
         public readonly int $hotPocketWeightBuyers = 1,
         public readonly int $hotPocketWeightLeads = 1,
         public readonly int $hotPocketWeightSales = 1,
@@ -70,11 +71,12 @@ final class BuilderSettings
             priceDropLookbackDays: $s->priceDropLookbackDays(),
             stuckStockLookbackDays: $s->stuckStockLookbackDays(),
             addToDayMax: $s->addToDayMax(),
+            scanPageSize: $s->scanPageSize(),
             hotPocketWeightBuyers: $s->hotPocketWeightBuyers(),
             hotPocketWeightLeads: $s->hotPocketWeightLeads(),
             hotPocketWeightSales: $s->hotPocketWeightSales(),
             buyerMatchTiers: $s->buyerMatchTiers(),
-            buyerActiveStates: $s->buyerActiveStates(),
+            buyerActiveStates: $s->activeBuyerStates(),
             onMarketStatuses: $s->onMarketStatuses(),
         );
     }

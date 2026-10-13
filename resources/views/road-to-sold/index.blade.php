@@ -44,10 +44,10 @@
                     </form>
                 @endif
                 @if(\Illuminate\Support\Facades\Route::has('road-to-sold.report'))
-                    <a href="{{ route('road-to-sold.report') }}" class="corex-btn-outline corex-btn-xs">Report</a>
+                    <a href="{{ route('road-to-sold.report', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Report</a>
                 @endif
                 @if($canManageOutcomes)
-                    <a href="{{ route('road-to-sold.settings.outcomes.index') }}" class="corex-btn-outline corex-btn-xs">Outcomes</a>
+                    <a href="{{ route('road-to-sold.settings.outcomes.index', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Outcomes</a>
                 @endif
             </div>
         </div>
@@ -69,6 +69,7 @@
 
     {{-- Filters --}}
     <form method="GET" class="flex items-end gap-3 flex-wrap">
+        @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
         @if(! $viewingOwn)<input type="hidden" name="agent" value="{{ $agentId }}">@endif
         <div>
             <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-view">Show</label>
@@ -113,7 +114,7 @@
         </div>
         <button type="submit" class="corex-btn-outline corex-btn-xs">Search</button>
         @if($filters['q'] !== '' || $filters['selection'] !== '' || $filters['status'] !== 'open' || $filters['view'] !== 'today')
-            <a href="{{ route('road-to-sold.index', $viewingOwn ? [] : ['agent' => $agentId]) }}" class="corex-btn-outline corex-btn-xs">Clear</a>
+            <a href="{{ route('road-to-sold.index', ($viewingOwn ? [] : ['agent' => $agentId]) + \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Clear</a>
         @endif
     </form>
 
@@ -126,6 +127,7 @@
             @if($canAddToDay && $date->isToday() && count($addChoices))
                 <form method="POST" action="{{ route('road-to-sold.add-to-day') }}" class="flex items-center gap-2">
                     @csrf
+                    @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
                     <select name="selection" aria-label="Selection to add from" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}">
                         @foreach($addChoices as $k => $l)<option value="{{ $k }}">{{ $l }}</option>@endforeach
                     </select>
@@ -289,6 +291,7 @@
     <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @keydown.escape.window="open = false">
         <form method="POST" action="{{ route('road-to-sold.outcomes.record') }}" class="w-full max-w-lg rounded-md p-5 space-y-4 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border); max-height: 90vh;">
             @csrf
+            @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
             <input type="hidden" name="tracked_property_id" :value="tp">
             <input type="hidden" name="list_item_id" :value="item">
 

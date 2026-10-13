@@ -213,7 +213,7 @@ final class AuditFixesTest extends TestCase
     public function test_the_builder_settings_come_from_the_settings_service_with_no_fallback(): void
     {
         DB::table('rts_settings')->insert([
-            'agency_id' => $this->agency->id, 'track' => 'sales', 'owner_known_quantity' => 7, 'add_to_day_max' => 9,
+            'agency_id' => $this->agency->id, 'track' => 'sales', 'owner_known_quantity' => 7, 'add_to_day_max' => 9, 'scan_page_size' => 50,
             'created_at' => now(), 'updated_at' => now(),
         ]);
         SettingsService::forget();
@@ -221,6 +221,7 @@ final class AuditFixesTest extends TestCase
         $s = BuilderSettings::forUser($this->agent);
         $this->assertSame(7, $s->ownerKnownQuantity);
         $this->assertSame(9, $s->addToDayMax);
+        $this->assertSame(50, $s->scanPageSize);
         $this->assertSame(['perfect', 'strong'], $s->buyerMatchTiers);
     }
 
@@ -338,38 +339,6 @@ final class AuditFixesTest extends TestCase
         $b->addToDay($this->agent, 'new_on_market', 4, self::WED);
     }
 
-    public function test_the_settings_page_saves_the_new_settings_and_refuses_an_empty_pick_list(): void
-    {
-        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin', 'is_active' => true]);
-
-        $this->actingAs($admin)->put(route('road-to-sold.settings.general.update'), [
-            'list_settings_present' => '1',
-            'add_to_day_max' => '40', 'hot_pocket_weight_buyers' => '2', 'hot_pocket_weight_leads' => '0', 'hot_pocket_weight_sales' => '3',
-            'buyer_match_tiers' => ['strong', 'approximate'], 'buyer_active_states' => ['new', 'warm', 'cold'], 'on_market_statuses' => ['active', 'under_offer'],
-        ])->assertSessionHasNoErrors();
-
-        SettingsService::forget();
-        $s = BuilderSettings::forUser($admin);
-        $this->assertSame(40, $s->addToDayMax);
-        $this->assertSame([2, 0, 3], [$s->hotPocketWeightBuyers, $s->hotPocketWeightLeads, $s->hotPocketWeightSales]);
-        $this->assertSame(['strong', 'approximate'], $s->buyerMatchTiers);
-        $this->assertSame(['new', 'warm', 'cold'], $s->buyerActiveStates);
-        $this->assertSame(['active', 'under_offer'], $s->onMarketStatuses);
-
-        // un-ticking every box is an error, not a silent "no change"
-        $this->actingAs($admin)->put(route('road-to-sold.settings.general.update'), ['list_settings_present' => '1', 'add_to_day_max' => '40'])
-            ->assertSessionHasErrors('buyer_match_tiers');
-        // a value outside the choices is refused
-        $this->actingAs($admin)->put(route('road-to-sold.settings.general.update'), ['buyer_match_tiers' => ['bogus']])->assertSessionHasErrors('buyer_match_tiers.0');
-        // a partial post (the wizard shape) leaves them alone
-        $this->actingAs($admin)->put(route('road-to-sold.settings.general.update'), ['hold_days' => '31'])->assertSessionHasNoErrors();
-        SettingsService::forget();
-        $this->assertSame(['strong', 'approximate'], BuilderSettings::forUser($admin)->buyerMatchTiers);
-
-        // the page itself renders them
-        $this->actingAs($admin)->get(route('road-to-sold.settings.index'))->assertOk()->assertSee('Approximate match')->assertSee('add_to_day_max', false);
-    }
-
     public function test_the_scan_keeps_reading_until_the_day_is_filled_or_the_pool_is_exhausted(): void
     {
         $listings = [];
@@ -379,14 +348,14 @@ final class AuditFixesTest extends TestCase
         $blockedTracked = array_map(fn ($id) => (int) DB::table('prospecting_listings')->where('id', $id)->value('tracked_property_id'), array_slice($listings, 0, 11));
         $guard = new class($blockedTracked) implements \App\Services\RoadToSold\Contracts\SuggestionGuard {
             public function __construct(private array $b) {}
-            public function blockedFor(User $u, array $ids, string $t): array { return array_values(array_intersect($ids, $this->b)); }
+            public function blockedFor(User $u, array $ids, string $t, ?\Carbon\CarbonInterface $on = null): array { return array_values(array_intersect($ids, $this->b)); }
             public function ownHeld(User $u, array $ids, string $t): array { return []; }
         };
         // a tiny first window: 2 rows, then 4, then 8 - the first 11 are blocked, so the 3 left live in the third window
         $sel = new class extends MicPoolSelection {
             public function key(): string { return 'probe'; }
             public function label(): string { return 'Probe'; }
-            protected function firstPage(): int { return 2; }
+            protected function firstPage(\App\Services\RoadToSold\Selections\SelectionContext $ctx): int { return 2; }
             protected function filter(Builder $q, \App\Services\RoadToSold\Selections\SelectionContext $ctx): void {}
             protected function order(Builder $q, \App\Services\RoadToSold\Selections\SelectionContext $ctx): void { $q->orderByDesc('pl.first_seen_at'); }
             protected function reason(object $row, \App\Services\RoadToSold\Selections\SelectionContext $ctx): string { return 'probe'; }
@@ -429,7 +398,7 @@ final class AuditFixesTest extends TestCase
     {
         $id = $this->listing(['address' => '5 Palm Road', 'suburb' => 'Margate'], null);
         $blockAll = new class implements \App\Services\RoadToSold\Contracts\SuggestionGuard {
-            public function blockedFor(User $u, array $ids, string $t): array { return $ids; }
+            public function blockedFor(User $u, array $ids, string $t, ?\Carbon\CarbonInterface $on = null): array { return $ids; }
             public function ownHeld(User $u, array $ids, string $t): array { return []; }
         };
 

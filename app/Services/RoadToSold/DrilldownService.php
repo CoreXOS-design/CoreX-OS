@@ -116,7 +116,7 @@ class DrilldownService
     private function callLogQuery(string $metric, array $agentIds, string $from, string $to, int $agencyId, string $track)
     {
         $q = DB::table('rts_contact_outcomes as o')
-            ->join('tracked_properties as tp', 'tp.id', '=', 'o.tracked_property_id')
+            ->leftJoin('tracked_properties as tp', 'tp.id', '=', 'o.tracked_property_id')   // left: a call on an archived property still counts, as the report counts it
             ->leftJoin('contacts as c', 'c.id', '=', 'o.contact_id')
             ->leftJoin('users as u', 'u.id', '=', 'o.user_id')
             ->where('o.agency_id', $agencyId)->where('o.track', $track)->whereNull('o.deleted_at')
@@ -140,7 +140,7 @@ class DrilldownService
         $total = (clone $q)->count();
         $rows = $q->orderByDesc('o.occurred_at')->limit(self::MAX_ROWS)->get([
             'o.occurred_at', 'o.outcome_label', 'o.kind', 'o.note', 'o.valuation_booked', 'o.no_answer_streak', 'o.tracked_property_id',
-            'tp.street_number', 'tp.street_name', 'tp.suburb', 'u.name as agent',
+            'tp.id as tp_id', 'tp.deleted_at as tp_deleted_at', 'tp.street_number', 'tp.street_name', 'tp.suburb', 'u.name as agent',
             'c.first_name', 'c.last_name', 'c.entity_name',
         ])->map(fn ($r) => [
             'when'     => Carbon::parse($r->occurred_at)->format('j M Y H:i'),
@@ -187,7 +187,7 @@ class DrilldownService
         $rows = $q->leftJoin('tracked_properties as tp', 'tp.id', '=', 'i.tracked_property_id')
             ->leftJoin('users as u', 'u.id', '=', 'i.user_id')
             ->orderByDesc('i.list_date')->orderBy('i.position')->limit(self::MAX_ROWS)
-            ->get(['i.list_date', 'i.status', 'i.reason', 'i.tracked_property_id', 'tp.street_number', 'tp.street_name', 'tp.suburb', 'u.name as agent'])
+            ->get(['i.list_date', 'i.status', 'i.reason', 'i.tracked_property_id', 'tp.id as tp_id', 'tp.deleted_at as tp_deleted_at', 'tp.street_number', 'tp.street_name', 'tp.suburb', 'u.name as agent'])
             ->map(fn ($r) => [
                 'when' => Carbon::parse($r->list_date)->format('j M Y'), 'agent' => $r->agent, 'property' => $this->address($r),
                 'why' => $r->reason, 'status' => ucfirst((string) $r->status),
@@ -340,7 +340,12 @@ class DrilldownService
         $street = trim(trim((string) $r->street_number) . ' ' . trim((string) $r->street_name));
         $line = trim($street . ($r->suburb ? ($street !== '' ? ', ' : '') . $r->suburb : ''));
 
-        return $line !== '' ? $line : '(no address)';
+        $line = $line !== '' ? $line : '(no address)';
+        if (property_exists($r, 'tp_id') && ($r->tp_id === null || ! empty($r->tp_deleted_at))) {
+            return $r->tp_id === null ? '(property archived)' : $line . ' (property archived)';
+        }
+
+        return $line;
     }
 
     private function ownerName(object $r): ?string

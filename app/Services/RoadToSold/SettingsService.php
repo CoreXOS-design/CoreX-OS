@@ -13,11 +13,17 @@ use App\Models\User;
  *  - A missing row means "defaults". Reading NEVER writes (STANDARDS Rule 17).
  *  - $agencyId <= 0 (owner with no agency, console, queued job) returns the
  *    defaults with nothing persisted.
- *  - Memoised per request/process; save paths call forget().
+ *  - Memoised for a few seconds only (MEMO_SECONDS), never for the life of a process: the nightly build
+ *    is one long process and must see a setting saved while it runs. Save paths call forget(); every
+ *    queued job and artisan command start drops the memo too (AppServiceProvider), and a long loop can
+ *    call SettingsService::forget() itself or ask for forAgency(..., fresh: true).
  */
 class SettingsService
 {
-    /** @var array<string,self> */
+    /** How long one instance may be reused. Short on purpose - see the class note. */
+    public const MEMO_SECONDS = 15;
+
+    /** @var array<string,array{0:int,1:self}> key => [stored at (unix), instance] */
     private static array $memo = [];
 
     private function __construct(
@@ -27,11 +33,11 @@ class SettingsService
     ) {
     }
 
-    public static function forAgency(int $agencyId, string $track = RtsSetting::TRACK_SALES): self
+    public static function forAgency(int $agencyId, string $track = RtsSetting::TRACK_SALES, bool $fresh = false): self
     {
         $key = $agencyId . '|' . $track;
-        if (isset(self::$memo[$key])) {
-            return self::$memo[$key];
+        if (! $fresh && isset(self::$memo[$key]) && (time() - self::$memo[$key][0]) < self::MEMO_SECONDS) {
+            return self::$memo[$key][1];
         }
 
         $row = null;
@@ -43,7 +49,10 @@ class SettingsService
                 ->first();
         }
 
-        return self::$memo[$key] = new self($agencyId, $track, $row ?? new RtsSetting());
+        $instance = new self($agencyId, $track, $row ?? new RtsSetting());
+        self::$memo[$key] = [time(), $instance];
+
+        return $instance;
     }
 
     public static function forUser(User $user, string $track = RtsSetting::TRACK_SALES): self
@@ -93,6 +102,14 @@ class SettingsService
     public function areaRefreshWarnDays(): int
     {
         return (int) $this->scalar('area_refresh_warn_days');
+    }
+
+    /** Whose public holidays carry no target (two-letter country code of the public_holidays table). */
+    public function holidayCountry(): string
+    {
+        $code = strtoupper(trim((string) $this->scalar('public_holiday_country')));
+
+        return preg_match('/^[A-Z]{2}$/', $code) === 1 ? $code : RtsSetting::SCALAR_DEFAULTS['public_holiday_country'];
     }
 
     // ── Targets ───────────────────────────────────────────────────────────
@@ -203,6 +220,53 @@ class SettingsService
         return (int) $this->scalar('stuck_stock_lookback_days');
     }
 
+    // ── Values lane 2 used to hard-code (spec 9.11) ───────────────────────
+
+    /** @return string[] buyer-match tiers that count as a match worth a call (perfect / strong / approximate) */
+    public function buyerMatchTiers(): array
+    {
+        return $this->list('buyer_match_tiers');
+    }
+
+    /** @return string[] buyer states that count as an active buyer (new / warm / cold) */
+    public function activeBuyerStates(): array
+    {
+        return $this->list('active_buyer_states');
+    }
+
+    /** @return string[] property statuses that count as on the market (stock that is not selling) */
+    public function onMarketStatuses(): array
+    {
+        return $this->list('on_market_statuses');
+    }
+
+    /** The most properties one "Add to my day" press may add. */
+    public function addToDayMax(): int
+    {
+        return (int) $this->scalar('add_to_day_max');
+    }
+
+    /** Rows in the first window read while scanning the pool; each further window doubles until the day is full or the pool ends. */
+    public function scanPageSize(): int
+    {
+        return (int) $this->scalar('scan_page_size');
+    }
+
+    public function hotPocketWeightBuyers(): int
+    {
+        return (int) $this->scalar('hot_pocket_weight_buyers');
+    }
+
+    public function hotPocketWeightLeads(): int
+    {
+        return (int) $this->scalar('hot_pocket_weight_leads');
+    }
+
+    public function hotPocketWeightSales(): int
+    {
+        return (int) $this->scalar('hot_pocket_weight_sales');
+    }
+
     // ── Outcomes / holds (read by lane 3) ─────────────────────────────────
 
     public function noAnswerDropAfter(): int
@@ -260,6 +324,25 @@ class SettingsService
     }
 
     // ── internals ─────────────────────────────────────────────────────────
+
+    /**
+     * A stored list, kept to the known choices and in the choice order; the code default when the column
+     * is NULL or holds nothing usable. An empty stored list is honoured only if it was saved deliberately
+     * as empty - which the saver refuses for these four - so empty/garbage means "the default".
+     *
+     * @return string[]
+     */
+    private function list(string $column): array
+    {
+        $stored  = $this->row->{$column};
+        $choices = array_keys(RtsSetting::listChoices()[$column]);
+        if (! is_array($stored)) {
+            return RtsSetting::LIST_DEFAULTS[$column];
+        }
+        $clean = array_values(array_filter($choices, fn ($c) => in_array($c, $stored, true)));
+
+        return $clean === [] ? RtsSetting::LIST_DEFAULTS[$column] : $clean;
+    }
 
     /** Stored value, or the code default when the row is missing / the column is null. */
     private function scalar(string $column): mixed

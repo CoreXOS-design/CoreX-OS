@@ -23,7 +23,7 @@ class RtsContactOutcome extends Model
     protected $table = 'rts_contact_outcomes';
 
     protected $fillable = [
-        'agency_id', 'branch_id', 'track', 'user_id', 'tracked_property_id', 'property_id',
+        'agency_id', 'branch_id', 'track', 'user_id', 'recorded_by_user_id', 'tracked_property_id', 'property_id',
         'prospecting_listing_id', 'list_item_id', 'contact_id', 'outcome_definition_id',
         'outcome_key', 'outcome_label', 'kind', 'note', 'valuation_booked', 'calendar_event_id',
         'next_action', 'next_action_at', 'list_tag', 'no_answer_streak', 'dropped', 'is_current',
@@ -47,6 +47,12 @@ class RtsContactOutcome extends Model
     public function agent(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id')->withTrashed();
+    }
+
+    /** Who actually made the call: the assistant when one recorded it for the agent; null = the agent themselves. */
+    public function recordedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'recorded_by_user_id')->withTrashed();
     }
 
     public function trackedProperty(): BelongsTo

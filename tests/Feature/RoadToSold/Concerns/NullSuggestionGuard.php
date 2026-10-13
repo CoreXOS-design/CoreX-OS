@@ -11,7 +11,7 @@ use App\Services\RoadToSold\Contracts\SuggestionGuard;
  */
 final class NullSuggestionGuard implements SuggestionGuard
 {
-    public function blockedFor(User $user, array $trackedPropertyIds, string $track): array
+    public function blockedFor(User $user, array $trackedPropertyIds, string $track, ?\Carbon\CarbonInterface $on = null): array
     {
         return [];
     }

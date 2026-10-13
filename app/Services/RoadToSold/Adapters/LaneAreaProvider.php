@@ -4,11 +4,17 @@ namespace App\Services\RoadToSold\Adapters;
 
 use App\Models\User;
 use App\Services\RoadToSold\AreaService;
+use App\Services\RoadToSold\Contracts\AreaMatchProvider;
 use App\Services\RoadToSold\Contracts\AreaProvider;
 
 /** AreaProvider backed by lane 1's AreaService (the agent's assigned suburbs). */
-final class LaneAreaProvider implements AreaProvider
+final class LaneAreaProvider implements AreaProvider, AreaMatchProvider
 {
+    public function suburbMatchesFor(User $user, string $track): array
+    {
+        return app(AreaService::class)->suburbMatchesFor($user, $track);
+    }
+
     public function suburbIdsFor(User $user, string $track): array
     {
         return array_values(array_map('intval', app(AreaService::class)->suburbIdsFor($user, $track)));

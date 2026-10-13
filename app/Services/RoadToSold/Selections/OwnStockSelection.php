@@ -86,7 +86,7 @@ abstract class OwnStockSelection implements Selection
             $keyed[] = [$row, (int) $tid];
         }
         $trackedIds = array_values(array_unique(array_column($keyed, 1)));
-        $blocked = array_flip($ctx->guard->blockedFor($ctx->user, $trackedIds, $ctx->track));
+        $blocked = array_flip($ctx->guard->blockedFor($ctx->user, $trackedIds, $ctx->track, $ctx->date));
         $held = array_flip($ctx->guard->ownHeld($ctx->user, $trackedIds, $ctx->track));
 
         $out = [];

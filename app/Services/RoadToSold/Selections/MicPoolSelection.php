@@ -14,14 +14,13 @@ use Illuminate\Support\Facades\DB;
  */
 abstract class MicPoolSelection implements Selection
 {
-    /** The first window read from the pool; each further window doubles, up to MAX_PAGE (the scan never stops short). */
-    private const PAGE = 200;
+    /** Each further window doubles, up to this many rows (the scan itself never stops short of the pool's end). */
     private const MAX_PAGE = 3200;
 
-    /** Rows read per window; overridable so a test can prove the scan keeps going past a short first window. */
-    protected function firstPage(): int
+    /** Rows in the first window: the agency's "properties read per page" setting. Overridable so a test can prove the scan keeps going. */
+    protected function firstPage(SelectionContext $ctx): int
     {
-        return self::PAGE;
+        return max(1, $ctx->settings->scanPageSize);
     }
 
     /** prospecting_listings.listing_type for the track. */
@@ -65,7 +64,7 @@ abstract class MicPoolSelection implements Selection
         $out = [];
         $seen = [];
         $offset = 0;
-        $size = max(1, $this->firstPage());
+        $size = max(1, $this->firstPage($ctx));
         $stock = $ctx->otherStock();
         $excluded = array_flip($ctx->excludeTrackedIds);
 
@@ -79,7 +78,7 @@ abstract class MicPoolSelection implements Selection
             $offset += $rows->count();
 
             $trackedIds = $rows->pluck('tracked_property_id')->filter()->map(fn ($v) => (int) $v)->unique()->values()->all();
-            $blocked = array_flip($ctx->guard->blockedFor($ctx->user, $trackedIds, $ctx->track));
+            $blocked = array_flip($ctx->guard->blockedFor($ctx->user, $trackedIds, $ctx->track, $ctx->date));
             $held = $this->skipOwnHeld() ? array_flip($ctx->guard->ownHeld($ctx->user, $trackedIds, $ctx->track)) : [];
 
             foreach ($rows as $row) {
@@ -105,7 +104,7 @@ abstract class MicPoolSelection implements Selection
                     if ($tid === null || isset($excluded[$tid])) {
                         continue;
                     }
-                    if ($ctx->guard->blockedFor($ctx->user, [$tid], $ctx->track) !== []
+                    if ($ctx->guard->blockedFor($ctx->user, [$tid], $ctx->track, $ctx->date) !== []
                         || ($this->skipOwnHeld() && $ctx->guard->ownHeld($ctx->user, [$tid], $ctx->track) !== [])) {
                         continue;
                     }
@@ -219,6 +218,9 @@ abstract class MicPoolSelection implements Selection
     /** @return array{0:string,1:array} SQL fragment (1 when the listing is in the agent's areas) + bindings */
     private function areaSql(SelectionContext $ctx): array
     {
+        if ($ctx->areaMatches !== []) {
+            return \App\Services\RoadToSold\AreaService::matchSql($ctx->areaMatches, 'tp', 'pl');
+        }
         $terms = [];
         $bindings = [];
         if ($ctx->areaSuburbIds !== []) {

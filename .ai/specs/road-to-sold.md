@@ -74,6 +74,8 @@ Namespace `App\Services\RoadToSold\`. Every method takes/returns plain PHP types
 
 `SettingsService::forAgency(int $agencyId, string $track = 'sales'): self` — memoised per request. `$agencyId <= 0` returns an unsaved in-memory instance of the defaults and never writes (STANDARDS Rule 17). Use `SettingsService::forUser(User $u, string $track='sales')` which resolves `$u->effectiveAgencyId() ?: 0`.
 
+**Memo (audit D):** the instance is reused for `SettingsService::MEMO_SECONDS` (15 s) only — never for the life of a process. The nightly build is one long process and must see a setting saved while it runs. The memo is also dropped at the start of every queued job and artisan command (`AppServiceProvider`), by every save (`forget()`), and `forAgency($id, $track, fresh: true)` re-reads on demand. A long loop that wants certainty calls `SettingsService::forget()` itself at the start of each agency.
+
 | Getter | Returns | Default | Read by |
 |---|---|---|---|
 | `lockAgentsToAreas()` | bool | `false` | lane 2 |
@@ -101,6 +103,8 @@ Namespace `App\Services\RoadToSold\`. Every method takes/returns plain PHP types
 | `summaryRedBelowPct()` | int | `70` | lane 3 |
 | `statusForPct(float $pct)` | `'green'`\|`'amber'`\|`'red'` | green ≥ 90, red < 70, else amber | lane 3 |
 | `defaultWeekdayTargets()` | `array<int,int>` keyed 1..7 (ISO, 1=Mon … 7=Sun) | `[1=>5,2=>5,3=>5,4=>5,5=>5,6=>0,7=>0]` | `WorkdayService` |
+| `holidayCountry()` | 2-letter code present in `public_holidays` | `'ZA'` | `WorkdayService` (audit C: was hard-coded) |
+| `buyerMatchTiers()` / `activeBuyerStates()` / `takenStatuses()` / `onMarketStatuses()` / `addToDayMax()` / `scanPageSize()` / `scanMaxPages()` / `hotPocketWeightBuyers()` / `…Leads()` / `…Sales()` | lists / ints | see §9.11 | lane 2 (audit G) |
 
 Stable keys (do not rename — they are stored):
 - **Selection keys, default order:** `my_buyers_sourcing`, `agency_buyers_sourcing`, `hot_pockets`, `price_drops`, `new_on_market`, `long_on_market`, `owner_known`, `my_expired_stock`, `my_stock_not_selling`.
@@ -133,7 +137,9 @@ Sources: `PublicHolidayService::isPublicHoliday` (global table `public_holidays`
 | `agentsWithoutAreas(int $agencyId, string $track='sales'): Collection` | Active selling users in the agency with zero areas (drives the settings warning when lock is ON). |
 | `lastCaptured(int $agencyId, ?array $suburbIds=null): array<int,array{p24:?Carbon,pp:?Carbon}>` | **Built.** Batch form (two small queries for the whole pool). Labelled "last captured" in the UI. |
 | `suburbNamesLowerTrimFor(User, track): string[]` | **Built.** Suburb names as `lower(trim())` — the form MIC joins against `prospecting_listings.suburb`. |
-| `needsRefresh(array $captured, int $warnDays): bool` | **Built.** True when NEITHER portal was captured within `$warnDays` (never = true). |
+| `portalsNeedingRefresh(array $captured, int $warnDays): string[]` | **Built (audit A).** `['p24']`, `['pp']`, both or none: each portal prompts on its own — a fresh P24 capture does not hide a missing Private Property one. |
+| `needsRefresh(array $captured, int $warnDays): bool` | **Built.** True when at least one portal needs a refresh (never = true). |
+| `suburbMatchesFor(User, track): array` / `AreaService::matchSql(array $matches, 'tp', 'pl'): [sql, bindings]` | **Built (audit B).** The agent's areas with city/town and `unique_in_pool`, and the ONE area-membership test (§5.7). Lane 2's `AreaMatchProvider` hands them to the selections. `suburbNamesNormalisedFor` / `suburbNamesLowerTrimFor` remain for stub providers but production matching no longer uses bare names. |
 | `poolQuery(int $agencyId)` / `idsInPool(int $agencyId, int[] $ids): int[]` / `towns(int $agencyId)` | **Built.** The pool as a query builder (`s.id, s.name, s.p24_city_id, town_name`); membership check; the agency's towns that map to a P24 city. |
 | `lastRefreshed(int $agencyId, int $p24SuburbId): array{p24:?Carbon,pp:?Carbon}` | Per portal. P24 = `minion_capture_areas.last_captured_at` (where a row exists); fallback and PP = `MAX(prospecting_listings.last_seen_at)` for that agency, `portal_source` 'p24'/'pp', matched on the suburb's normalised name. `null` = never. Confirmed at build step 2. |
 | `isStale(?Carbon $at, int $warnDays): bool` | `null` counts as stale. |
@@ -149,7 +155,7 @@ All tables: `agency_id` NOT NULL FK + `BelongsToAgency`; `branch_id` nullable + 
 ### 3.1 `rts_settings` — one row per (agency, track)
 `id`, `agency_id`, `track`, then:
 `lock_agents_to_areas` tinyint(1) default 0; `half_day_leave_halves_target` tinyint(1) default 0; `area_refresh_warn_days` smallint default 7; `missed_items_mode` varchar(20) default `show_missed`; `selections` json (ordered `[{key,enabled}]`); `new_on_market_days` smallint default 14; `long_on_market_days` smallint default 90; `owner_known_quantity` smallint default 3; `stuck_stock_min_days` smallint default 60; `stuck_stock_max_views` smallint default 30; `stuck_stock_max_leads` int default 2; `hot_pocket_lookback_days` smallint default 180; `price_drop_lookback_days` smallint default 30; `stuck_stock_lookback_days` smallint default 30; `no_answer_drop_after` smallint default 3; `hold_days` smallint default 30; `summary_steps` json (ordered `[{key,enabled}]`); `summary_green_from_pct` smallint default 90; `summary_red_below_pct` smallint default 70; `default_weekday_targets` json (`{"1":5,…,"7":0}`); `updated_by_user_id` nullable.
-Unique `(agency_id, track)` (soft delete is not used on this table — it is a singleton; "reset to defaults" overwrites the values, no archive). Missing row ⇒ `SettingsService` returns defaults and creates the row on first save, never on read. Every change is appended to `rts_settings_audit` (`agency_id`, `track`, `changed_by_user_id`, `old_values` json, `new_values` json, `changed_at`) — append-only, never edited or deleted, same shape as `core_match_buyer_state_audit`. A save that changes nothing writes nothing.
+Unique `(agency_id, track)`. **Soft delete (audit F, `deleted_at`):** "Put everything back to the defaults" archives the row (a missing or archived row means the defaults); the next save finds it `withTrashed()`, restores it and starts from the defaults plus that save (BUILD_STANDARD §5a — never a second row). **`rts_settings_audit` is append-only and has no soft delete, by design:** it is the permanent record, never edited or deleted. Columns added by the audit: `public_holiday_country` char(2) default `ZA`; the §9.11 lane 2 values; `deleted_at`. Missing row ⇒ `SettingsService` returns defaults and creates the row on first save, never on read. Every change is appended to `rts_settings_audit` (`agency_id`, `track`, `changed_by_user_id`, `old_values` json, `new_values` json, `changed_at`) — append-only, never edited or deleted, same shape as `core_match_buyer_state_audit`. A save that changes nothing writes nothing.
 
 ### 3.2 `rts_agent_areas` — agent ↔ suburb
 `id`, `agency_id`, `branch_id` (copied from the agent at write time), `track`, `user_id` FK users, `p24_suburb_id` bigint unsigned (matches the project's existing no-FK convention on `tracked_properties.p24_suburb_id`; validated against the pool in code), `assigned_by_user_id`, `deleted_at`.
@@ -245,6 +251,18 @@ Pillars: Agent (User) ↔ Property (suburb pool). No cross-pillar reactivity is 
 
 ---
 
+### 5.6 Assistants (audit H) — §11.1 is the rule; lane 1's part
+Areas, targets and leave belong to the **list owner**, `User::ownershipUserId()` (the agent an assistant acts for, honouring a multi-agent assistant's "Acting for" choice); a plain user is their own owner. `AreaService::suburbIdsFor/hasAreas/suburbMatchesFor/suburbNames…` and `WorkdayService::targetFor/isWorkday/monthTarget…` resolve an assistant to that owner themselves, so a **direct call with an assistant** gives the same answer as the builder (which already hands over the owner). Rows assigned to an assistant directly are not used; the Areas and Targets screens list and edit real agents only (assistants are excluded from the grids, `agentsWithoutAreas` skips them). Tests: `AuditGapsTest` + `ParkedAndAssistantTest`.
+
+### 5.7 Matching a property to an area (audit B)
+A property (a tracked property, joined to its listing) is in an area:
+1. **by suburb id** — `tracked_properties.p24_suburb_id` equals the area's `p24_suburb_id`; or, only when the row has **no** suburb id,
+2. **by name AND town** — the suburb name (normalised form, or the listing's lower-trimmed free text) equals the area's AND the row's town agrees: its `p24_city_id` equals the area's city; else (no city on the row) its town name equals the area's town; else (no town information at all) the name alone decides **only when that name is unique among the agency's pool suburbs**. Two pool suburbs sharing a name (Uvongo in two towns) therefore never merge.
+A row that carries a suburb id of a *different* suburb is never rescued by its name. "Last captured" dates (`lastCaptured`) apply the same test to each listing (through its tracked property); a listing with no tracked property and an ambiguous name belongs to no area.
+
+### 5.8 Track (audit E)
+The screens take their track from where they are mounted (`App\Services\RoadToSold\Support\Routing`): route-name root `road-to-sold` = sales, `road-to-rented` = rentals; anything else = sales. The routes live in `routes/road-to-sold-settings.php` as a closure; `web.php` mounts them as `road-to-sold.settings.*` and Road to Rented mounts the same file under `road-to-rented/settings` with name `road-to-rented.settings.` and gets the same screens, the same savers and its own rows (proved by `AuditGapsTest`). Nothing a user posts can switch track. Links and redirects use the mount's own route names (`$rb` in views, `Routing::base()` in controllers).
+
 ## 6. Input space (BUILD_STANDARD §2/§3) — prevent or absorb
 
 | Input | Rule |
@@ -267,6 +285,11 @@ Pillars: Agent (User) ↔ Property (suburb pool). No cross-pillar reactivity is 
 | Two admins save the same grid | Last write wins per cell; every changed cell is audited. |
 | Agent has every weekday at 0 | Valid; `nextWorkday` returns null; consumers must handle it (lane 2: no list, "no working days set" message). |
 | Settings read when no row exists / agency id 0 | Absorb: defaults, nothing persisted. |
+| "Back to the defaults" when already on the defaults | Absorb: nothing to undo, no audit row. |
+| Save after "back to the defaults" | Restore the archived row, defaults + this save; never a second row. |
+| Holiday country not in `public_holidays` | Prevent: "pick one of the choices shown". |
+| A tick-list (buyer tiers / buyer states / the two status lists) with nothing ticked or an unknown value | Prevent: "tick at least one" / "pick from the choices shown"; a stored list with unusable values reads back as the clean subset, else the default. |
+| Add-to-day / scan page / scan cap / hot-pocket weights out of range | Prevent: whole numbers 1–500 / 10–2000 / 1–50 / 0–100. |
 
 Test matrix (each piece): happy path with all fields; each optional field omitted individually; the lazy shortcut (open the page, tick one box, save); one malformed value per validated field; the **create → archive → recreate** pass on `rts_agent_areas` and `rts_weekday_targets` (§5a); deleted-related-record (agent soft-deleted, suburb gone from the pool); idempotent re-save; cross-agency 404 and out-of-branch 404 by direct URL; second-agency test (a second agency with different settings/targets sees none of the first's, and none of HFC's wording).
 
@@ -420,6 +443,9 @@ Sidebar link "Road to Sold" (Real Estate group, `@feature('road-to-sold')`). Ser
 * **Contacted client popup:** outcome list (active only, agency order); date picker only for outcomes that need one; "Valuation booked" tick (conversations) → date-and-time; note; Save. Errors re-open the popup with the message.
 * **History popup:** the property's last 10 outcomes the viewer may see (own = own calls, branch = branch, agency = all): outcome, attempt or conversation, valuation booked, date, who, back-on date, note. Read through `OutcomeService::historyForPage()` (one query for the whole page, `RtsContactOutcome::scopeVisibleTo`). The same outcome is also a note on the owner contact (Notes tab) - history on the property and on the contact.
 * **Layout rule (Johan):** screen space is for data and controls only - no explanatory paragraphs under headings or empty states; every field, dropdown and button on the page, the report and the outcome settings is the same height (`road-to-sold/_controls.blade.php`, class `rts-page`).
+* **Track:** every Road to Sold request carries a track (`RoadToSold\Track::fromRequest()` - route default or `track` field; anything unknown = sales). The page, outcome list, capture, add-to-day, summary bar, report, print/PDF/XLSX and drill-down all use it; links and forms keep it (`Track::params()` - nothing is added for sales). The three feed blocks are sales work and are not shown on another track. Open: the on-demand list build in `RoadToSoldController::buildIfMissing()` and `RtsListItem::forDay` do not take a track yet - that block is cc4's current fix and was left alone.
+* **Dates in the past:** an agent-picked return date and a valuation date-and-time are refused with a plain message when they are before today / before now (`OutcomeService`).
+* **Report vs drill:** the call-log drill left-joins `tracked_properties`, so a call on an archived property is in the drill exactly as it is in the report; the row reads "(property archived)".
 * **Add to my day:** selection + count → `ListBuilderService::addToDay()` (lane 2).
 * **Blocks under the list (not counted against the target), each own-scoped and correct (not the Today-page queries):** buyer follow-ups (`contacts.agent_id` in the agent's identity — **not** `created_by_user_id` — stale beyond the agency's buyer-warm/cold days, newest risk score only, no hard-coded 14 days); lead follow-ups (`LeadResponseService::results()` waiting/overdue for the agent); expiring mandates (`MandateExpiryPolicy` window for the agent's own listings).
 
@@ -463,6 +489,13 @@ Sidebar link "Road to Sold" (Real Estate group, `@feature('road-to-sold')`). Ser
 * **Q11 (process):** lane 3 lands on `origin/QA1` itself (conductor, 13 Oct) although Standard −1l says only cc1 does; acted on the conductor's word.
 
 
+### 10.9 Call history on the property and the tracked-property page (BUILT, 14 Oct)
+- Rule (section 1): every outcome is history on the property and on the owner contact. The contact side is the contact note written by `OutcomeService`; this is the property side.
+- `<x-road-to-sold.history-panel :property-id>` on the property page (Overview tab, under the owner/showdays grid) and `:tracked-property-id` on the tracked-property (MIC) detail page. Heading "Road to Sold calls". Columns: When, Who, Outcome, Note, Next action. Newest first, 10 a page (`?rts_page=`, Previous/Next). Empty state is one line: "No Road to Sold calls on this property yet." No helper text.
+- Reads `PropertyHistoryService` (viewer-scoped and paged; `OutcomeService::historyForProperty` stays the unscoped read behind the call page). Scoping is in the query through `RtsContactOutcome::visibleTo()`: agent = own calls, branch manager = the branch, admin = the agency; agency is always pinned.
+- The property page shows calls logged on the property (`property_id`) and on the tracked property it was promoted from (`promoted_to_property_id`). Works with no owner contact.
+- Renders nothing without the `road-to-sold` feature or `access_road_to_sold`. Tests: `tests/Feature/RoadToSold/PropertyHistoryTest.php`.
+
 ## 10. Wizard step as built (lane 1, step 5)
 
 Step key `road_to_sold` (`config/agency-onboarding-copy.php`; `AgencyOnboardingSetup::STEPS` position 8b; gate `road_to_sold => road-to-sold`). Controls (all with `explain` + "What this changes:"): `default_target_1..7` (Monday..Sunday, 0-200), `half_day_leave_halves_target`, `lock_agents_to_areas`, `area_refresh_warn_days`, `missed_items_mode`, `no_answer_drop_after`, `hold_days`. Saver: `RoadToSold\SettingsController@saveFromWizard` - requires `road_to_sold.manage_settings` (403 before any write, absorbed by the wizard), maps `default_target_N` to the settings page's `default_targets[]` only when all seven are posted, then calls the same `saveFor` (partial-update safe: anything the step did not post is left as it was). Values shown come from `SettingsService` through an explicit per-key arm in `AgencySetupWizardController::currentValues`. **Deliberately NOT in the wizard (Johan, 13 Oct):** the call-list sources (order, on/off) and their limits and look-backs, the colour lines, the on-track bar steps; and each agent's own suburbs and weekday numbers (per-person records). Also recorded in `agency-onboarding-setup.md` §5 / §5.1.
@@ -473,13 +506,59 @@ Step key `road_to_sold` (`config/agency-onboarding-copy.php`; `AgencyOnboardingS
 * Timings after the fix: 0.01–0.6 s per selection, hot pockets 1.8 s (141 pockets). **Before the fix two selections ran past 60 s**: `px.id IN (pl.matched_property_id, tp.promoted_to_property_id)` in a correlated NOT EXISTS defeats the primary key on 34k live listings; replaced by two plain equality checks (0.26 s). Test data cannot show this class of fault — profile on real data.
 * Strict agency-order fill (Q8) means an agent who has buyers gets a day that is 100 % "My buyers" until those run out. That is the rule as written; a per-selection share would be a setting.
 
-### 9.11 Audit fixes (13 Oct 2026, cc4's findings A-H on lane 2's files)
+
+### 9.11 Settings lane 2 reads — agreed keys (audit G, lane 1, 13 Oct 2026)
+These were hard-coded in lane 2; they are now agency settings (columns on `rts_settings`, getters on `SettingsService`, controls under "Matching and list size" on the General screen). **Lane 2: replace the constant with the getter; do not add columns.** Defaults equal the old constants, so an untouched agency behaves exactly as before.
+
+| Getter | Replaces | Default | Choices / range |
+|---|---|---|---|
+| `buyerMatchTiers()` | `tier IN ('perfect','strong')` (BuyerSourcingSelection, HotPocketService) | `perfect, strong` | perfect / strong / approximate; at least one |
+| `activeBuyerStates()` | `ACTIVE_BUYER_STATES`, `buyer_state IN ('new','warm')` | `new, warm` | new / warm / cold; at least one |
+| `onMarketStatuses()` | `MyStockNotSellingSelection::ON_MARKET` (also selection 8's live-status test) | `active, for_sale, on_show` | active / for sale / to let / under offer / on show / prospecting / expired; at least one |
+| `addToDayMax()` | `ListBuilderService::MAX_ADD` | 100 | 1–500 |
+| `scanPageSize()` | `MicPoolSelection::PAGE` (the first window; the scan then doubles and never stops short) | 200 | 10–2000 |
+| `hotPocketWeightBuyers()` / `…Leads()` / `…Sales()` | the equal weights in `HotPocketService::rank` | 1 / 1 / 1 | 0–100 (0 ignores that source) |
+
+Not settings on purpose: the lead-type `'Test'` and the deal statuses counted as a sale (`active/granted/completed`) are data-integrity rules, not agency preferences. Hot pockets are still keyed by suburb *name* in `HotPocketService` (portal_leads → properties.suburb); two same-named suburbs in two towns are merged there — lane 2's file, reported to the conductor (§5.7 is the rule to follow).
+
+---
+
+## 11. Assistants, and properties the agent has parked (13 Oct 2026, conductor rulings after the lane audit)
+
+### 11.1 Assistants - ONE rule
+
+**An assistant works the list of the agent they act for.** The *list owner* is `User::ownershipUserId()` - the assigned agent, or the Sub-Agent a multi-agent assistant has chosen with "Acting for". A normal user is their own list owner. Every Road to Sold service that takes a `User` first turns an assistant into the list owner, so one user id is used everywhere:
+
+- **page build and page read** - `ListBuilderService::buildFor()` / `listFor()` / `RtsListItem::forDay($user)` resolve the list owner; the page reads by that same id, so what the assistant sees is the agent's list;
+- **the nightly build** (`rts:build-lists`) builds for the AGENT (assistants are skipped as users in their own right: they have no list of their own) - the assistant opens that list;
+- **add to my day, roll-over, "worked"** (`addToDay`, `closePastDays`, `markWorked`) all act on the agent's rows (`rts_list_items.user_id` is always the agent);
+- **areas and targets** are the agent's: because the builder hands the list owner to `AreaService` / `WorkdayService`, an assistant never has "no areas" of their own (lane 1 also fixes `AreaService::suburbIdsFor` for a direct assistant call - both must match this rule);
+- **outcomes**: the outcome, the hold, the follow-up, the target and the report figure belong to the AGENT (`rts_contact_outcomes.user_id`). WHO ACTUALLY MADE THE CALL is kept in `rts_contact_outcomes.recorded_by_user_id` (the assistant; `NULL` = the agent recorded it). The note written on the owner's contact says "(call made by <assistant>)", and `OutcomeService::historyForPage()` returns `made_by` beside `by`.
+
+Migration `2026_10_29_500000_add_recorded_by_to_rts_contact_outcomes.php` adds the column (nullable, indexed, no foreign key - project convention).
+Tests: `tests/Feature/RoadToSold/ParkedAndAssistantTest.php`.
+
+### 11.2 Properties the agent parked with their own outcome are not offered back as new
+
+Audit gap 1. A hold lasts a fixed 30 days (agency setting) and then the property is free again (section 1: "lapses -> free"). But an agent's OWN latest outcome can say more than that, and it must not be contradicted by the property reappearing as a new suggestion. `HoldService::ownParkedIds()` (part of `excludedIdsFor()`, so it applies to every selection and to follow-ups through `SuggestionGuard::blockedFor()`) excludes, for THIS agent only, a property whose current outcome is:
+
+- a return date still in the future (return after N days, a picked date, a mandate expiry date) - until that date, when it comes back as a **follow-up** through `OutcomeService::followUpsDue()`;
+- "move to the list" (wrong number) - it lives on the find-the-right-contact list, not the new-property list;
+- a booked valuation (the appointment is the follow-up);
+- dropped after N no-answers in a row (on the manager's report, off this agent's list).
+
+`blockedFor()` takes the day the list is built for (`$on`, default today), so a follow-up that is due on that day is never mistaken for a parked property (building tomorrow's list tomorrow's follow-ups are due). Another agent is NOT affected: when the hold lapses the property is free for them, as section 1 says.
+Open question for Johan (not built): after a hold lapses should a property that the first agent parked with a date far in the future also stay off OTHER agents' new lists until that date?
+
+*Superseded by the lane 2 audit (§9.12):* `takenStatuses()` and `scanMaxPages()` were removed again - another agent's property is never offered whatever its status (so there is no "taken" list), and the pool scan has no page cap.
+
+### 9.12 Audit fixes (13 Oct 2026, cc4's findings A-H on lane 2's files)
 * **A — never another agent's stock, on every path.** `Support\OtherAgentStock` (built once per build / add-to-day / close; ~0.8 s on QA1's 4,700 properties): another agent's property is excluded **whatever its status** and whether or not the listing was linked to it (matched / promoted link, same portal reference, same normalised address; a tracked property any of whose adverts is theirs). It is applied inside the pool scan (so a day is not left short), to follow-ups, to rolled-over items (closed as missed, not carried) and to add-to-my-day — and again in `ListBuilderService::insert()`, the one gate every origin passes. The agent's own stock is never blocked by it. On real QA1 data for the agent with most properties, 885 of 34,097 active adverts are now excluded (372 of them only found through reference/address, not through a link). The earlier fixed status list (active, for_sale, … expired) is gone — it let sold / let / withdrawn through.
 * **B — nothing fails quietly.** `BuilderSettings::forUser()` reads `SettingsService` directly (the "class missing → defaults" fallback and the 5-a-day calendar fallback are gone; the adapters call lane 1/3 directly). An enabled selection with no implementation is logged as an error. A failed on-demand build on the page logs and shows "We could not build your call list just now…" instead of an empty page (small change in lane 3's `RoadToSoldController`).
 * **C — owner known is per agent per day.** The quantity left = agency quantity − owner-known rows already on that day (any origin), read from the day's rows on every build and add-to-day.
 * **D — selections 8 and 9.** 9: no portal statistics = zero views / leads (qualifies). 8: also a live-status listing whose `expiry_date` has passed.
-* **E — settings, with today's value as the default** (`rts_settings`, migration `…120000`; Settings → Road to Sold; **not in the wizard**: they are limits for the call-list sources, which Johan ruled settings-page only on 13 Oct): `add_to_day_max` (100), `hot_pocket_weight_buyers/leads/sales` (1/1/1), `buyer_match_tiers` (perfect, strong), `buyer_active_states` (new, warm), `on_market_statuses` (active, for_sale, on_show). The "statuses counted as taken" list no longer exists (A replaces it). The 1,600-row scan cap is gone: the scan reads windows of 200, 400, … up to 3,200 until the day is filled or the pool is exhausted. The add-to-day limit on the page and its validation now read the setting.
+* **E — settings, with today's value as the default** (lane 1 delivered the columns and controls - §9.11; Settings → Road to Sold; **not in the wizard**: they are limits for the call-list sources, which Johan ruled settings-page only on 13 Oct): the builder now READS them (add-to-day maximum on the page and in the builder, hot-pocket weights, buyer match levels and states, on-market statuses, first scan window). The "statuses counted as taken" list does not exist (A replaces it) and the page cap is gone: the scan reads windows of `scanPageSize`, doubling up to 3,200, until the day is filled or the pool is exhausted.
 * **F — track.** `prospecting_listings.listing_type` (`sale` default, migration `…120100`) and every market-pool selection filters on it by track (`rentals` → `rental`). Nothing writes `rental` yet; the rentals capture will.
 * **G — keyed and de-duplicated rows** (see §9.4).
 * **H — day lookup** is a date range, not `whereDate()`.
-Test file: `tests/Feature/RoadToSold/AuditFixesTest.php` (25 tests; the guard tests fail if the guard is disabled).
+Test file: `tests/Feature/RoadToSold/AuditFixesTest.php` (24 tests; the guard tests fail if the guard is disabled).

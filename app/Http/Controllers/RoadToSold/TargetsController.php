@@ -8,6 +8,7 @@ use App\Models\RoadToSold\RtsWeekdayTarget;
 use App\Models\User;
 use App\Services\PermissionService;
 use App\Services\RoadToSold\SettingsService;
+use App\Services\RoadToSold\Support\Routing;
 use App\Services\RoadToSold\TargetService;
 use App\Services\RoadToSold\VisibleAgents;
 use App\Services\RoadToSold\WorkdayService;
@@ -28,8 +29,13 @@ use Illuminate\View\View;
  */
 class TargetsController extends Controller
 {
-    private const TRACK     = RtsSetting::TRACK_SALES;
     private const PAGE_SIZE = 25;
+
+    /** Sales or rentals: decided by where these screens are mounted (see Support\Routing). */
+    private function track(): string
+    {
+        return Routing::track();
+    }
 
     public function __construct(private readonly TargetService $targets)
     {
@@ -43,7 +49,7 @@ class TargetsController extends Controller
             return redirect()->route('corex.dashboard')->with('error', 'Switch into an agency first - targets belong to one agency.');
         }
 
-        $settings = SettingsService::forAgency($agencyId, self::TRACK);
+        $settings = SettingsService::forAgency($agencyId, $this->track());
         $default  = $settings->defaultWeekdayTargets();
         $agents   = VisibleAgents::for($viewer);
 
@@ -53,8 +59,8 @@ class TargetsController extends Controller
         $branchId = (int) $request->query('branch_id', 0);
         $sort    = in_array($request->query('sort'), ['name', 'branch', 'total'], true) ? $request->query('sort') : 'name';
 
-        $own     = $this->targets->ownForMany($agencyId, self::TRACK, $agents->keys()->all());
-        $cleared = array_flip($this->targets->clearedAgentIds($agencyId, self::TRACK, $agents->keys()->all()));
+        $own     = $this->targets->ownForMany($agencyId, $this->track(), $agents->keys()->all());
+        $cleared = array_flip($this->targets->clearedAgentIds($agencyId, $this->track(), $agents->keys()->all()));
 
         $rows = $agents->map(function (User $u) use ($own, $default, $cleared) {
             $mine = $own[$u->id] ?? [];
@@ -92,8 +98,8 @@ class TargetsController extends Controller
         $workdays = app(WorkdayService::class);
         $today    = now();
         $page->through(function (array $row) use ($workdays, $today) {
-            $row['month_to_date'] = $workdays->monthTargetToDate($row['user'], $today, self::TRACK);
-            $row['month_total']   = $workdays->monthTarget($row['user'], $today, self::TRACK);
+            $row['month_to_date'] = $workdays->monthTargetToDate($row['user'], $today, $this->track());
+            $row['month_total']   = $workdays->monthTarget($row['user'], $today, $this->track());
 
             return $row;
         });
@@ -135,7 +141,7 @@ class TargetsController extends Controller
         $this->assertCanWrite($viewer);
 
         $request->validate($this->weekRules('week', required: false), $this->weekMessages('Target'));
-        $changed = $this->targets->saveWeek($agent, TargetService::normalisePosted($request->input('week')), (int) $viewer->id, self::TRACK);
+        $changed = $this->targets->saveWeek($agent, TargetService::normalisePosted($request->input('week')), (int) $viewer->id, $this->track());
 
         return $this->back($request)->with('success', $changed === 0
             ? 'Nothing changed for ' . $agent->name . '.'
@@ -157,7 +163,7 @@ class TargetsController extends Controller
         foreach ([2, 3, 4, 5] as $day) {
             $week[$day] = $week[1];
         }
-        $this->targets->saveWeek($agent, $week, (int) $viewer->id, self::TRACK);
+        $this->targets->saveWeek($agent, $week, (int) $viewer->id, $this->track());
 
         return $this->back($request)->with('success', $agent->name . ': Monday\'s number copied to Tuesday-Friday and saved.');
     }
@@ -180,7 +186,7 @@ class TargetsController extends Controller
         $n = 0;
         DB::transaction(function () use ($agents, $week, $viewer, &$n) {
             foreach ($agents as $agent) {
-                $this->targets->saveWeek($agent, $week, (int) $viewer->id, self::TRACK);
+                $this->targets->saveWeek($agent, $week, (int) $viewer->id, $this->track());
                 $n++;
             }
         });
@@ -195,7 +201,7 @@ class TargetsController extends Controller
         $agent  = $this->agentOr404($viewer, $user);
         $this->assertCanWrite($viewer);
 
-        $n = $this->targets->clear($agent, self::TRACK);
+        $n = $this->targets->clear($agent, $this->track());
 
         return $this->back($request)->with('success', $n === 0
             ? $agent->name . ' had no numbers of their own - nothing to clear.'
@@ -208,7 +214,7 @@ class TargetsController extends Controller
         $agent  = $this->agentOr404($viewer, $user);
         $this->assertCanWrite($viewer);
 
-        $n = $this->targets->restore($agent, self::TRACK);
+        $n = $this->targets->restore($agent, $this->track());
 
         return $this->back($request)->with('success', $n === 0 ? 'Nothing to bring back.' : $agent->name . '\'s numbers are back.');
     }
@@ -278,7 +284,7 @@ class TargetsController extends Controller
 
     private function back(Request $request): RedirectResponse
     {
-        return redirect()->route('road-to-sold.settings.targets.index', array_filter($request->only(['q', 'status', 'mode', 'branch_id', 'sort', 'page'])));
+        return redirect()->route(Routing::base() . 'targets.index', array_filter($request->only(['q', 'status', 'mode', 'branch_id', 'sort', 'page'])));
     }
 
     private function paginate(Collection $items, Request $request): LengthAwarePaginator

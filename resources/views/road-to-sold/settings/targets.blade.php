@@ -44,7 +44,7 @@
     {{-- Agency default --}}
     <div class="rounded-md p-4" style="background:var(--surface); border:2px solid var(--brand-icon, #0ea5e9);">
         <h3 class="text-sm font-bold mb-1" style="color:var(--text-primary);">Agency default week</h3>
-        <form method="POST" action="{{ route('road-to-sold.settings.targets.default') }}" class="flex flex-wrap items-end gap-3">
+        <form method="POST" action="{{ route($rb . 'targets.default') }}" class="flex flex-wrap items-end gap-3">
             @csrf @method('PUT')
             @foreach($keep as $k => $v)<input type="hidden" name="{{ $k }}" value="{{ $v }}">@endforeach
             @foreach($weekdays as $d => $label)
@@ -56,7 +56,7 @@
             @endforeach
             @if($canEditDefault)
                 <button type="submit" class="corex-btn-primary">Save default</button>
-                <button type="submit" formaction="{{ route('road-to-sold.settings.targets.copy-agents') }}" formmethod="POST" name="_method" value="POST"
+                <button type="submit" formaction="{{ route($rb . 'targets.copy-agents') }}" formmethod="POST" name="_method" value="POST"
                         onclick="return confirm('Give EVERY agent this week as their own numbers? Their current numbers are replaced (you can clear them again later).');"
                         class="corex-btn-outline">Give every agent this week</button>
             @endif
@@ -64,7 +64,7 @@
     </div>
 
     {{-- Filters --}}
-    <form method="GET" action="{{ route('road-to-sold.settings.targets.index') }}" class="rounded-md p-4 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end"
+    <form method="GET" action="{{ route($rb . 'targets.index') }}" class="rounded-md p-4 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end"
           style="background:var(--surface); border:1px solid var(--border);">
         <div class="sm:col-span-2">
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="q">Search</label>
@@ -105,7 +105,7 @@
         </div>
         <div class="sm:col-span-5 flex items-center gap-3">
             <button type="submit" class="corex-btn-primary">Apply</button>
-            <a href="{{ route('road-to-sold.settings.targets.index') }}" class="corex-btn-outline">Clear</a>
+            <a href="{{ route($rb . 'targets.index') }}" class="corex-btn-outline">Clear</a>
         </div>
     </form>
 
@@ -140,23 +140,23 @@
                     <td class="px-3 py-2 text-center font-semibold" title="What this agent owes in a normal week (own numbers over the default)">{{ array_sum($row['week']) }}</td>
                     <td class="px-3 py-2 text-center text-xs" style="color:var(--text-muted);" title="Should be {{ $row['month_to_date'] }} by today; {{ $row['month_total'] }} for the whole month. Public holidays and approved leave are already taken off.">{{ $row['month_to_date'] }} / {{ $row['month_total'] }}</td>
                     <td class="px-4 py-2">
-                        <form id="{{ $fid }}" method="POST" action="{{ route('road-to-sold.settings.targets.agent', $u->id) }}" class="flex flex-wrap gap-2">
+                        <form id="{{ $fid }}" method="POST" action="{{ route($rb . 'targets.agent', $u->id) }}" class="flex flex-wrap gap-2">
                             @csrf @method('PUT')
                             @foreach($keep as $k => $v)<input type="hidden" name="{{ $k }}" value="{{ $v }}">@endforeach
                             @if($status === 'cleared')
                                 @if($canWrite)
-                                    <button type="submit" formaction="{{ route('road-to-sold.settings.targets.restore', $u->id) }}" name="_method" value="POST"
+                                    <button type="submit" formaction="{{ route($rb . 'targets.restore', $u->id) }}" name="_method" value="POST"
                                             class="corex-btn-primary">Bring back</button>
                                 @endif
                             @elseif($canWrite)
                                 <button type="submit" class="corex-btn-primary">Save</button>
-                                <button type="submit" formaction="{{ route('road-to-sold.settings.targets.fill-weekdays', $u->id) }}" name="_method" value="POST"
+                                <button type="submit" formaction="{{ route($rb . 'targets.fill-weekdays', $u->id) }}" name="_method" value="POST"
                                         title="Copies the Monday number onto Tuesday to Friday" class="corex-btn-outline">Monday to Friday</button>
-                                <button type="submit" formaction="{{ route('road-to-sold.settings.targets.copy-agents') }}" name="_method" value="POST"
+                                <button type="submit" formaction="{{ route($rb . 'targets.copy-agents') }}" name="_method" value="POST"
                                         onclick="return confirm('Give EVERY agent the numbers shown on this row? Their current numbers are replaced (blank boxes clear that day).');"
                                         title="Copies the boxes on this row to every agent you can see" class="corex-btn-outline">To all agents</button>
                                 @if($row['custom'])
-                                    <button type="submit" formaction="{{ route('road-to-sold.settings.targets.clear', $u->id) }}" name="_method" value="DELETE"
+                                    <button type="submit" formaction="{{ route($rb . 'targets.clear', $u->id) }}" name="_method" value="DELETE"
                                             onclick="return confirm('Clear {{ addslashes($u->name) }}\'s own numbers? They go back to the agency default and you can bring them back later.');"
                                             class="corex-btn-outline">Clear</button>
                                 @endif
@@ -166,7 +166,7 @@
                 </tr>
             @empty
                 <tr><td colspan="{{ count($weekdays) + 4 }}" class="px-4 py-8 text-center" style="color:var(--text-muted);">
-                    @if($emptyFiltered) No agents match those filters. <a class="underline" href="{{ route('road-to-sold.settings.targets.index') }}">Clear the filters</a>.
+                    @if($emptyFiltered) No agents match those filters. <a class="underline" href="{{ route($rb . 'targets.index') }}">Clear the filters</a>.
                     @else No agents have the "Access Road to Sold" permission yet. Add it in Role Manager. @endif
                 </td></tr>
             @endforelse

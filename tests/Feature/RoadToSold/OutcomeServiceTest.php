@@ -303,6 +303,24 @@ final class OutcomeServiceTest extends TestCase
         $this->assertSame('2026-10-14', $ok->next_action_at->toDateString(), 'today is allowed');
     }
 
+    public function test_a_valuation_cannot_be_booked_in_the_past(): void
+    {
+        $tp = $this->tp();
+        foreach (['spoke_valuation_booked' => ['appointment_at' => '2026-10-13 15:00'], 'spoke_call_back' => ['valuation_booked' => true, 'appointment_at' => '2026-10-14 08:00', 'next_action_at' => '2026-10-20']] as $key => $in) {
+            try {
+                $this->record($key, $tp, $in);
+                $this->fail('a past valuation should be refused');
+            } catch (RoadToSoldException $e) {
+                $this->assertStringContainsString('past', $e->getMessage());
+            }
+        }
+        $this->assertSame(0, RtsContactOutcome::withoutGlobalScopes()->count(), 'nothing is saved when the valuation is refused');
+        $this->assertSame(0, \App\Models\CommandCenter\CalendarEvent::withoutGlobalScopes()->count());
+
+        $ok = $this->record('spoke_valuation_booked', $tp, ['appointment_at' => '2026-10-14 09:30']);
+        $this->assertTrue((bool) $ok->valuation_booked, 'later today is fine');
+    }
+
     public function test_sole_mandate_elsewhere_asks_for_a_date_because_no_expiry_is_known(): void
     {
         $tp = $this->tp();
@@ -389,7 +407,9 @@ final class OutcomeServiceTest extends TestCase
         $this->assertTrue($holds->isHeldByOther($tp->id, $this->other));
         $this->assertFalse($holds->isHeldByOther($tp->id, $this->agent));
         $this->assertSame([$tp->id], $holds->excludedIdsFor($this->other, [$tp->id, 999999]));
-        $this->assertSame([], $holds->excludedIdsFor($this->agent, [$tp->id]));
+        // the agent's own "No answer" parks it until it is due again (+7 days): it comes back as a follow-up, not as a new property
+        $this->assertSame([$tp->id], $holds->excludedIdsFor($this->agent, [$tp->id]));
+        $this->assertSame([], $holds->excludedIdsFor($this->agent, [$tp->id], 'sales', Carbon::parse('2026-10-21')), 'on the day it is due it is a follow-up, no longer parked');
         $this->assertSame([$tp->id], $holds->ownHeldIds([$tp->id], $this->agent));
 
         try {
