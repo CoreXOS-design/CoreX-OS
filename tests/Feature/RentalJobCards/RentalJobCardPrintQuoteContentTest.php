@@ -117,6 +117,10 @@ final class RentalJobCardPrintQuoteContentTest extends TestCase
             'title' => 'Blocked drain', 'description' => 'Kitchen drain blocked.', 'status' => RentalFaultReport::STATUS_REPORTED,
             'owner_approval_status' => RentalFaultReport::APPROVAL_NOT_REQUIRED, 'reported_at' => now(), 'created_by_user_id' => $this->admin->id,
         ]);
+        // Section 22: nobody is sent to a fault until someone has authorised it - here the owner's approval, recorded by the agent.
+        $faultReport->saveOwnerVersion(['owner_title' => 'Blocked drain', 'owner_description' => 'Kitchen drain blocked.'], $this->admin);
+        $faultReport->fresh()->requestApproval($this->admin);
+        $faultReport->fresh()->recordApproval($this->admin, ['decision' => 'approved', 'approval_route' => 'agency_appoints', 'evidence_type' => 'verbal_note', 'evidence_text' => 'Owner agreed.']);
         $jobCard = app(RentalJobCardService::class)->createStandalone([
             'property_id' => $this->property->id, 'fault_report_id' => $faultReport->id, 'title' => 'Blocked drain',
         ], $this->admin);

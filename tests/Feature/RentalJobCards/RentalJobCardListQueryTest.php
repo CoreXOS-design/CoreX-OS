@@ -94,7 +94,8 @@ final class RentalJobCardListQueryTest extends TestCase
         $crewB = RentalCrew::create(['agency_id' => $this->agency->id, 'name' => 'Crew B', 'created_by_user_id' => $this->admin->id]);
 
         $this->card('Alpha geyser', $zebra, ['status' => 'draft', 'due_at' => null, 'rental_crew_id' => $crewB->id, 'created_at' => '2026-01-03 09:00:00'], null, 300);
-        $this->card('Bravo tap', $apple, ['status' => 'scheduled', 'due_at' => '2026-10-10 09:00:00', 'rental_crew_id' => $crewA->id, 'created_at' => '2026-01-02 09:00:00'], null, 100);
+        // Bravo is the one scheduled card that is NOT overdue: its due date is always in the future (a fixed calendar date went overdue by itself on 10 Oct 2026)
+        $this->card('Bravo tap', $apple, ['status' => 'scheduled', 'due_at' => now()->addDays(10)->setTime(9, 0)->format('Y-m-d H:i:s'), 'rental_crew_id' => $crewA->id, 'created_at' => '2026-01-02 09:00:00'], null, 100);
         $this->card('Charlie roof', $mango, ['status' => 'completed', 'due_at' => '2026-10-05 09:00:00', 'rental_crew_id' => null, 'created_at' => '2026-01-01 09:00:00'], null, 200);
     }
 
