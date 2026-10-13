@@ -1861,6 +1861,11 @@
                     </div>
                 @endif
             </div>
+
+            {{-- AT-454 - Road to Sold calls logged on this property (scoped own / branch / agency in the query). --}}
+            @if(! $isNew)
+                <x-road-to-sold.history-panel :property-id="$property->id" />
+            @endif
         </div>
 
 
