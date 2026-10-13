@@ -708,6 +708,30 @@ class RentalApplicationQualifyingSetting extends Model
             : self::DEFAULT_REQUIRE_FICA_BEFORE_AUTHORISATION;
     }
 
+    /**
+     * The active users of the agency who hold a Reviewer (RO) or Override (CO) tick.
+     *
+     * @return int[]
+     */
+    public static function authoriserIds(int $agencyId): array
+    {
+        $agency = \App\Models\Agency::find($agencyId);
+        if (! $agency) {
+            return [];
+        }
+        $ids = array_values(array_unique(array_map('intval', array_merge((array) ($agency->rental_application_ro_user_ids ?? []), (array) ($agency->rental_application_co_user_ids ?? [])))));
+
+        return $ids === [] ? [] : \App\Models\User::query()->whereIn('id', $ids)->where('agency_id', $agencyId)->where('is_active', true)->pluck('id')->map(fn ($i) => (int) $i)->all();
+    }
+
+    /** The agency has exactly one approver and it is this user: there is nobody else to hand an application to. */
+    public static function isSoleAuthoriser(int $agencyId, int $userId): bool
+    {
+        $ids = self::authoriserIds($agencyId);
+
+        return count($ids) === 1 && $ids[0] === $userId;
+    }
+
     public static function approvalModeFor(?int $agencyId): string
     {
         if ($agencyId === null || $agencyId <= 0) {

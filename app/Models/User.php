@@ -943,6 +943,25 @@ class User extends Authenticatable
         return $this->isRentalApplicationCO($agencyId) || in_array($this->role, ['admin', 'super_admin'], true);
     }
 
+    /**
+     * May this user approve / decline an application THEY created? An Override (CO) or administrator always may. A Reviewer
+     * (RO) may too when the agency is on One step AND they are its only approver - a one-person agency has nobody else to
+     * hand the application to (Sherry, 13 Oct 2026). With other approvers in the agency the independent-eyes rule stands.
+     */
+    public function mayDecideOwnRentalApplication(?int $agencyId = null): bool
+    {
+        $agencyId = $agencyId ?? $this->effectiveAgencyId();
+        if ($this->isRentalApplicationOverrideTier($agencyId)) {
+            return true;
+        }
+        if (! $agencyId || ! $this->isRentalApplicationAuthoriser($agencyId)) {
+            return false;
+        }
+
+        return \App\Models\RentalApplicationQualifyingSetting::approvalModeFor($agencyId) === 'one_step'
+            && \App\Models\RentalApplicationQualifyingSetting::isSoleAuthoriser($agencyId, (int) $this->id);
+    }
+
     private function inRentalApplicationTier(string $column, ?int $agencyId): bool
     {
         $agencyId = $agencyId ?? $this->effectiveAgencyId();

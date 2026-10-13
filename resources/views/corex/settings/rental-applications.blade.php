@@ -1279,9 +1279,8 @@
          .ai/specs/rental-applications.md for the full reasoning). --}}
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">RO — Application Reviewers</h2>
-        <p class="text-xs mb-3" style="color: var(--text-muted);">
-            These users can approve, decline, or request more information on an application
-            an agent has submitted for approval.
+        <p class="text-xs mb-3" style="color: var(--text-muted);" data-qa="ro-meaning">
+            Reviewer: approves, declines or asks for more information - but not on an application they created (unless One step is on and they are the agency's only approver), and cannot change a decision once made.
         </p>
         <form method="POST" action="{{ route('corex.settings.rental-applications.ro') }}">
             @csrf
@@ -1303,10 +1302,8 @@
 
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">CO — Overrides</h2>
-        <p class="text-xs mb-3" style="color: var(--text-muted);">
-            Typically an admin or branch manager. These users can do everything a Reviewer can, and
-            can also OVERRIDE a Reviewer's existing decision (change an approve to a decline, or a
-            decline to an approve) — a reason is required whenever they do.
+        <p class="text-xs mb-3" style="color: var(--text-muted);" data-qa="co-meaning">
+            Override: everything a Reviewer can, plus deciding an application they created and changing a decision already made (a reason is required).
         </p>
         <form method="POST" action="{{ route('corex.settings.rental-applications.co') }}">
             @csrf

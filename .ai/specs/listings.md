@@ -221,3 +221,9 @@ The following require full spec before build:
 ---
 
 *Full spec to be completed during Phase 1 consolidation sprint.*
+
+
+## Sherry walk, 13 Oct 2026 (cc1) - the price typed for a new rental is the rent
+
+**Cause:** the New Property page is rendered before a Listing Type is chosen, so its Info tab is the SALE form: the single "Price (ZAR) *" box wrote `properties.price`, the rent column `rental_amount` stayed empty, and the header (`Property::effectivePrice()` reads `rental_amount` for a rental) showed R 0 until the rent was retyped on the Rental tab. The header chip likewise stayed "For Sale" (rendered from the saved type).
+**Fix:** `PropertyController::carryPriceIntoRent()` (store and update) - for a rental with no rent yet, the typed price becomes `rental_amount` and the sale price is cleared (a rent typed on the rental field always wins; sales are untouched); on a NEW property, picking For Rental relabels the box "Monthly rent (ZAR)" and the header chip reads "For Rent" at once (`data-listing-chip`, `#prop-price-label`). Tests: `SherryWalkFixesTest`.

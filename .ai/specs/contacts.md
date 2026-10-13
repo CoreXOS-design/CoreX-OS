@@ -337,3 +337,9 @@ links-on-store / store-links-without-detaching-existing.
 Deleting an agent moves their contacts' primary agent to the successor; the saved searches of those
 buyers now move with it, in the same transaction and logged per search. See `core-matches.md`
 ("Agent offboarding moves the buyers' saved searches too"). No clean-up of existing mismatched searches.
+
+
+## Sherry walk, 13 Oct 2026 (cc1) - a landlord created from a property holds the Landlord type, one word for it
+
+**Cause:** the "Landlord" badge comes from the contact's LINK to a property (`contact_property.role` landlord / lessor), not from a contact TYPE; a contact created from New Property / the property's contacts tab was never given one, so the Contact Type box was empty and the first save failed ("Please assign at least one contact type") until the agent added "Lessor" by hand - the system-locked parent is stored as "Lessor" (its e-sign role) while every other screen says "Landlord".
+**Fix:** (1) `ContactPropertyLinker::link()` - the single choke point every property link goes through - adds the Landlord (e-sign role `lessor`) type when a contact is linked as landlord / lessor, additive only (never replaces a type, never fails the link); (2) `ContactType::displayName()` - the screens (type picker, header badges, contacts list) say **Landlord**; the stored name and the e-sign mapping are untouched; (3) the type picker pre-selects Landlord for a contact that is already a landlord of a property but holds no type (contacts linked before this fix), so the first save works. No data is changed for existing contacts. Tests: `SherryWalkFixesTest`.

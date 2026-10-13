@@ -475,13 +475,21 @@ class RentalApplicationReviewController extends Controller
         // will actually accept; the server checks are what actually decide).
         $user = $request->user();
         $selfCreatedBlocked = (int) $rentalApplication->created_by_user_id === (int) $user->id
-            && ! $user->isRentalApplicationOverrideTier($agencyId);
+            && ! $user->mayDecideOwnRentalApplication($agencyId);
         $showSubmitOrApprove = ! in_array($rentalApplication->status, ['submitted_for_approval', 'approved', 'declined'], true)
             && ! $rentalApplication->isPendingAuthorisation();
         $canApproveDirectly = $showSubmitOrApprove
             && RentalApplicationQualifyingSetting::approvalModeFor($agencyId) === 'one_step'
             && $user->isRentalApplicationAuthoriser($agencyId)
             && ! $selfCreatedBlocked;
+        // One step is on but this user still gets "Submit for approval": say why, in one line, instead of silently handing the
+        // application to somebody else.
+        $oneStepNote = null;
+        if ($showSubmitOrApprove && ! $canApproveDirectly && RentalApplicationQualifyingSetting::approvalModeFor($agencyId) === 'one_step') {
+            $oneStepNote = ! $user->isRentalApplicationAuthoriser($agencyId)
+                ? 'One step is on, but you are not ticked as a Reviewer or Override approver in Settings - so this goes to an approver.'
+                : 'You created this application and your agency has other approvers - another approver must approve it.';
+        }
         // Only needed to populate the Decline modal's reason picker when the
         // one-step buttons can actually render — same source the authoriser
         // screen's own Decline modal already reads from.
@@ -537,7 +545,7 @@ class RentalApplicationReviewController extends Controller
             'rentalApplication', 'assessment', 'documents', 'moreInfoRequestedNote', 'declineInfo', 'highlighters',
             'viewerRole', 'propertyLinkLocked', 'auditLog', 'auditLogTotal', 'existingWishlist', 'matchCategories', 'matchTypes', 'featureOptions',
             'rentalPropertyTypeNames', 'wishlistPrefill', 'pickableContactDocuments', 'pickableStaleness', 'documentChecklist', 'captureEntries',
-            'documentTypeOptions', 'fieldConfig', 'canApproveDirectly', 'declineReasonTemplates', 'checklistSections', 'panelPreferences'
+            'documentTypeOptions', 'fieldConfig', 'canApproveDirectly', 'oneStepNote', 'declineReasonTemplates', 'checklistSections', 'panelPreferences'
         ))->with('isPendingAuthorisation', $rentalApplication->isPendingAuthorisation());
     }
 
@@ -659,7 +667,8 @@ class RentalApplicationReviewController extends Controller
                 ->with('error', 'This application has no email address on file - there is nowhere to send this. Add one to the application before sending.');
         }
 
-        $properties = $matcher->forApproval($rentalApplication);
+        // An application for a NAMED property is approved for that property: no list of other listings goes with it.
+        $properties = $rentalApplication->property_id ? collect() : $matcher->forApproval($rentalApplication);
 
         $sent = $mailer->sendApproved($rentalApplication, $properties);
 

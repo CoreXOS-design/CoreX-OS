@@ -76,6 +76,14 @@ class Lease extends Model
     public const SOURCE_UPLOADED_SIGNED_COPY = 'uploaded_signed_copy';
 
     /** §15.13 — shown on the edit panel and returned by update() while isLockedForSigning(). */
+    /** The lease-screen sentence for a lease whose agreement is in flight: out for signing, or signed by everyone and waiting for approval. */
+    public function lockedMessage(): string
+    {
+        return $this->signing_status === self::SIGNING_AWAITING_AGENT_REVIEW
+            ? 'Everyone has signed. Approve the signed agreement to finish - values change in the agreement, not here.'
+            : self::LOCKED_FOR_SIGNING_MESSAGE;
+    }
+
     public const LOCKED_FOR_SIGNING_MESSAGE = 'This agreement is out for signing. Change values in the agreement — CoreX will ask you to confirm them at approval.';
     // LEASE-AGREEMENT END
 

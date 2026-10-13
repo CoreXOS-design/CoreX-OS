@@ -1237,6 +1237,27 @@ class PropertyController extends Controller
         $data['deposit_amount_is_default'] = true;
     }
 
+    /**
+     * One field, carried through (Sherry walk, 13 Oct 2026). On a NEW property the form still shows the single "Price (ZAR)" box
+     * whichever Listing Type is picked, so for a rental that number IS the rent: it becomes rental_amount (the column every rental
+     * screen and the header read) and the sale price is cleared. An explicit rent typed on the Rental tab always wins.
+     *
+     * @param array<string,mixed> $data
+     */
+    private function carryPriceIntoRent(array &$data, ?Property $existing): void
+    {
+        $type = strtolower((string) ($data['listing_type'] ?? $existing?->listing_type ?? 'sale'));
+        if ($type !== 'rental') {
+            return;
+        }
+        $rent  = (float) ($data['rental_amount'] ?? $existing?->rental_amount ?? 0);
+        $price = (float) ($data['price'] ?? 0);
+        if ($rent <= 0 && $price > 0) {
+            $data['rental_amount'] = $price;
+            $data['price'] = 0;
+        }
+    }
+
     public function store(Request $request)
     {
         /** @var User $user */
@@ -1416,6 +1437,7 @@ class PropertyController extends Controller
         // not) so applyDepositDefault() below can test it reliably. See
         // that method's own docblock for the full reasoning.
         $data['has_deposit'] = $request->boolean('has_deposit');
+        $this->carryPriceIntoRent($data, null);
         $this->applyDepositDefault($data, $data['agency_id']);
 
         // Branch follows the primary agent — every property is owned by its agent's branch.
@@ -1984,7 +2006,8 @@ class PropertyController extends Controller
         // real boolean, and so unticking the box actually persists as
         // false like every other checkbox on this form.
         $data['has_deposit'] = $request->boolean('has_deposit');
-        $this->applyDepositDefault($data, $property->agency_id, (float) $property->rental_amount);
+        $this->carryPriceIntoRent($data, $property);
+        $this->applyDepositDefault($data, $property->agency_id, (float) ($data['rental_amount'] ?? $property->rental_amount));
 
         // AT-422 — a user changing the status, expiry date or listed date of Imported Stock
         // takes the listing over: Listed Date and Loaded become today, the Imported tag goes,
