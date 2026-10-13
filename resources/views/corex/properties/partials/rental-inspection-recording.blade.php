@@ -1496,6 +1496,9 @@
         {{-- 13 Oct 2026 (Johan, Sherry demo) - the signing controls live where the agent FINISHES, not below eleven rooms:
              a bar pinned to the foot of the screen with the one-line state and the next step (Ready to sign / Complete); "Signing"
              opens everything about signing (links, QR, sign on this device, the signature rows) above it. --}}
+        {{-- .prop-section clips its overflow, which makes it the (non-scrolling) scrollport a sticky child sticks inside - the bar would sit
+             at the end of the page. `clip` keeps the clipping without becoming a scroll container, so the bar sticks to the tab panel. --}}
+        <style>.prop-section:has([data-qa="signoff-bar"]) { overflow: clip !important; }</style>
         <div x-data="{ signOpen: false, openedOnce: false }"
              x-effect="if (!openedOnce && currentInspection({{ $sectionJs }}).status === 'awaiting_signature') { signOpen = true; openedOnce = true; }"
              @signing-open.window="signOpen = true"
