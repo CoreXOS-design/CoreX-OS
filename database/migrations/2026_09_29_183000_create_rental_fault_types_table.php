@@ -41,7 +41,7 @@ return new class extends Migration
         // never empty on day one (§13.2's own "seeded default profile,
         // never broken" reasoning, applied here to the catalogue itself).
         foreach (DB::table('agencies')->pluck('id') as $agencyId) {
-            RentalFaultType::seedDefaultsFor((int) $agencyId);
+            RentalFaultType::seedDefaultTypesFor((int) $agencyId);   // types only: the causes table does not exist yet (created by 2026_10_28_100000, which back-fills it)
         }
     }
 

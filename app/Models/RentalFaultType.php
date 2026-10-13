@@ -124,10 +124,15 @@ class RentalFaultType extends Model
         'sort_order' => 'integer',
     ];
 
-    public static function seedDefaultsFor(int $agencyId): void
+    /**
+     * The default fault TYPES only - exactly what this method has always done. The migration that CREATES the catalogue
+     * (2026_09_29_183000) calls this one, because it runs long before the table that holds the "who normally pays" defaults
+     * (2026_10_28_100000) exists: a migration must never depend on a later migration's table.
+     */
+    public static function seedDefaultTypesFor(int $agencyId): void
     {
         foreach (self::DEFAULTS as $i => $row) {
-            $type = static::withoutGlobalScopes()->firstOrCreate(
+            static::withoutGlobalScopes()->firstOrCreate(
                 ['agency_id' => $agencyId, 'name' => $row['name']],
                 [
                     'category' => $row['category'],
@@ -138,11 +143,19 @@ class RentalFaultType extends Model
                     'is_active' => true,
                 ],
             );
-            // spec section 22.13.1 - the "who normally pays" defaults travel with the default type
-            if ($type->wasRecentlyCreated) {
-                RentalFaultTypeCause::seedForType($type);
-            }
         }
+    }
+
+    /**
+     * A new agency's whole default catalogue: the types AND (spec section 22.13.1) each type's "who normally pays" defaults.
+     * Run-time use only (AgencyObserver, tests). Idempotent: every row is firstOrCreate-keyed and never overwritten, so an
+     * agency's own edits or archived rows are left alone.
+     */
+    public static function seedDefaultsFor(int $agencyId): void
+    {
+        self::seedDefaultTypesFor($agencyId);
+        static::withoutGlobalScopes()->where('agency_id', $agencyId)->where('is_default', true)->get()
+            ->each(fn (self $type) => RentalFaultTypeCause::seedForType($type));
     }
 
     /** Spec section 22.13 - this type's self-checks and causes, each with a default "who normally pays". */
