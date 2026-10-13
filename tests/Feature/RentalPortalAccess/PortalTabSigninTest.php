@@ -63,40 +63,69 @@ final class PortalTabSigninTest extends TestCase
         return compact('owner', 'tenant', 'ownerContact', 'tenantContact', 'lease', 'property');
     }
 
-    /** A browser tab signs in with its password. Returns [token, the browser's "logins remembered here" cookie after this sign-in]. */
+    /** One browser request (like Chrome sends it): Origin set, the "logins remembered here" cookie exactly as the server issued it, optionally a tab's bearer. */
+    public function browser(string $method, string $uri, array $data = [], ?string $cookie = null, ?string $bearer = null, ?string $role = null, bool $freshGuards = true)
+    {
+        if ($freshGuards) {
+            $this->app['auth']->forgetGuards();   // every request is a new HTTP request: no guard remembers the last one's user
+        }
+        $server = ['HTTP_ORIGIN' => 'http://localhost', 'CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json'];
+        if ($bearer) {
+            $server['HTTP_AUTHORIZATION'] = 'Bearer ' . $bearer;
+        }
+        if ($role) {
+            $server['HTTP_X_PORTAL_ROLE'] = $role;
+        }
+
+        return $this->call($method, $uri, [], $cookie !== null ? ['portal_logins' => $cookie] : [], [], $server, $method === 'GET' ? null : json_encode($data));
+    }
+
+    /** A browser tab signs in with its password. Returns [token, the browser's remembered-logins cookie (as issued, encrypted) after this sign-in]. */
     private function tabSignIn(ClientUser $login, ?string $browserCookie = null): array
     {
-        $this->app['auth']->forgetGuards();
-        $req = $browserCookie !== null ? $this->withCookie('portal_logins', $browserCookie) : $this;
-        $res = $req->withHeaders(self::BROWSER)->postJson('/api/v1/client-auth/login', ['email' => $login->email, 'password' => self::PASSWORD, 'tab' => true])->assertOk();
+        $res = $this->browser('POST', '/api/v1/client-auth/login', ['email' => $login->email, 'password' => self::PASSWORD, 'tab' => true], $browserCookie)->assertOk();
         $token = $res->json('token');
         $this->assertNotEmpty($token, 'a web tab is handed a token of its own');
 
         return [$token, $this->rememberedCookie($res) ?? $browserCookie];
     }
 
-    /** The plain value of the browser's remembered-logins cookie from a response. */
+    /** The remembered-logins cookie a response sets, exactly as the browser would store and send it back. */
     private function rememberedCookie($res): ?string
     {
         foreach ($res->baseResponse->headers->getCookies() as $c) {
             if ($c->getName() === 'portal_logins') {
-                return CookieValuePrefix::remove(app('encrypter')->decrypt($c->getValue(), false));
+                return $c->getValue();
             }
         }
 
         return null;
     }
 
+    /** The login ids inside an issued remembered-logins cookie. */
+    private function idsIn(string $issued): array
+    {
+        return json_decode(CookieValuePrefix::remove(app('encrypter')->decrypt($issued, false)), true);
+    }
+
     /** A request as one tab: its own token, and (optionally) the side it is fixed to. */
     private function asTab(string $token, ?string $role = null)
     {
-        $this->app['auth']->forgetGuards();
-        $h = self::BROWSER + ['Authorization' => 'Bearer ' . $token];
-        if ($role) {
-            $h['X-Portal-Role'] = $role;
-        }
+        $t = $this;
 
-        return $this->withHeaders($h);
+        return new class($t, $token, $role) {
+            public function __construct(private $t, private string $token, private ?string $role) {}
+
+            public function getJson(string $uri)
+            {
+                return $this->t->browser('GET', $uri, [], null, $this->token, $this->role);
+            }
+
+            public function postJson(string $uri, array $d = [])
+            {
+                return $this->t->browser('POST', $uri, $d, null, $this->token, $this->role);
+            }
+        };
     }
 
     public function test_an_owner_and_a_tenant_in_two_tabs_of_one_browser_both_stay_signed_in(): void
@@ -154,19 +183,18 @@ final class PortalTabSigninTest extends TestCase
         $r = $this->rental('D');
         [$ownerTab, $cookie] = $this->tabSignIn($r['owner']);
         [$tenantTab, $cookie] = $this->tabSignIn($r['tenant'], $cookie);
+        $this->assertSame([$r['owner']->id, $r['tenant']->id], $this->idsIn($cookie), 'both people are remembered on this browser');
 
-        $out = $this->asTab($tenantTab)->withCookie('portal_logins', $cookie)->postJson('/api/v1/client-auth/logout')->assertOk();
+        $out = $this->browser('POST', '/api/v1/client-auth/logout', [], $cookie, $tenantTab)->assertOk();
 
         $this->asTab($tenantTab)->getJson('/api/v1/client/me')->assertStatus(401);   // that tab is signed out
         $this->asTab($ownerTab)->getJson('/api/v1/client/me')->assertOk()->assertJsonPath('client.id', $r['owner']->id);   // the other is not
 
         // the tenant is no longer remembered for NEW tabs on this browser; the owner still is
         $after = $this->rememberedCookie($out);
-        $this->assertSame([$r['owner']->id], json_decode($after, true));
-        $this->app['auth']->forgetGuards();
-        $this->withCookie('portal_logins', $after)->withHeaders(self::BROWSER)->postJson('/api/v1/client-auth/tab-token', ['email' => $r['tenant']->email])->assertStatus(401);
-        $this->app['auth']->forgetGuards();
-        $this->withCookie('portal_logins', $after)->withHeaders(self::BROWSER)->postJson('/api/v1/client-auth/tab-token', ['email' => $r['owner']->email])->assertOk();
+        $this->assertSame([$r['owner']->id], $this->idsIn($after));
+        $this->browser('POST', '/api/v1/client-auth/tab-token', ['email' => $r['tenant']->email], $after)->assertStatus(401);
+        $this->browser('POST', '/api/v1/client-auth/tab-token', ['email' => $r['owner']->email], $after)->assertOk();
     }
 
     public function test_the_browsers_session_cookie_never_answers_in_place_of_a_tabs_own_login(): void
@@ -176,23 +204,24 @@ final class PortalTabSigninTest extends TestCase
 
         // the browser's shared portal session belongs to somebody else (the owner, signed in the old way, or another tab)
         $this->app['auth']->forgetGuards();
-        $res = $this->actingAs($r['owner'], 'client-web')->withHeaders(self::BROWSER + ['Authorization' => 'Bearer ' . $tenantTab])->getJson('/api/v1/client/me');
-        $res->assertOk()->assertJsonPath('client.id', $r['tenant']->id);
+        $this->actingAs($r['owner'], 'client-web');
+        $this->browser('GET', '/api/v1/client/me', [], null, $tenantTab)->assertOk()->assertJsonPath('client.id', $r['tenant']->id);
     }
 
     public function test_a_request_with_no_tab_token_behaves_as_before(): void
     {
         $r = $this->rental('F');
         // the cookie session (older tabs) still authenticates when there is no bearer
-        $this->actingAs($r['owner'], 'client-web')->withHeaders(self::BROWSER)->getJson('/api/v1/client/me')->assertOk()->assertJsonPath('client.id', $r['owner']->id);
+        $this->actingAs($r['owner'], 'client-web');
+        $this->browser('GET', '/api/v1/client/me', [], null, null, null, false)->assertOk()->assertJsonPath('client.id', $r['owner']->id);
         // and the mobile app's own sign-in (no Origin, no tab flag) still returns a normal long-lived token, not a tab token
         $this->app['auth']->forgetGuards();
-        $mobile = $this->postJson('/api/v1/client-auth/login', ['email' => $r['tenant']->email, 'password' => self::PASSWORD, 'device_name' => 'Pixel'])->assertOk();
+        $mobile = $this->call('POST', '/api/v1/client-auth/login', [], [], [], ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json'], json_encode(['email' => $r['tenant']->email, 'password' => self::PASSWORD, 'device_name' => 'Pixel']))->assertOk();
         $this->assertNotEmpty($mobile->json('token'));
         $this->assertSame('Pixel', $r['tenant']->tokens()->latest('id')->first()->name);
         // asking for a tab token without being a same-origin browser page gets the normal token too
         $this->app['auth']->forgetGuards();
-        $viaApp = $this->postJson('/api/v1/client-auth/login', ['email' => $r['tenant']->email, 'password' => self::PASSWORD, 'tab' => true, 'device_name' => 'Pixel2'])->assertOk();
+        $viaApp = $this->call('POST', '/api/v1/client-auth/login', [], [], [], ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json'], json_encode(['email' => $r['tenant']->email, 'password' => self::PASSWORD, 'tab' => true, 'device_name' => 'Pixel2']))->assertOk();
         $this->assertSame('Pixel2', $r['tenant']->tokens()->latest('id')->first()->name);
         $this->assertNotEmpty($viaApp->json('token'));
     }
@@ -200,34 +229,30 @@ final class PortalTabSigninTest extends TestCase
     public function test_a_new_tab_for_someone_who_already_signed_in_here_needs_no_password_and_a_stranger_does(): void
     {
         $r = $this->rental('G');
+        $stranger = $this->rental('H');   // made first: creating records after a portal request would run as that request's user
         [$t1, $cookie] = $this->tabSignIn($r['owner']);
         [$t2, $cookie] = $this->tabSignIn($r['tenant'], $cookie);
 
         // a new tab opened from the OWNER's link: named by the link, handed the owner's login
-        $this->app['auth']->forgetGuards();
-        $new = $this->withCookie('portal_logins', $cookie)->withHeaders(self::BROWSER)->postJson('/api/v1/client-auth/tab-token', ['email' => $r['owner']->email, 'contact_id' => $r['ownerContact']->id])->assertOk();
+        $new = $this->browser('POST', '/api/v1/client-auth/tab-token', ['email' => $r['owner']->email, 'contact_id' => $r['ownerContact']->id], $cookie)->assertOk();
         $this->assertNotSame($t1, $new->json('token'));
         $this->asTab($new->json('token'))->getJson('/api/v1/client/me')->assertOk()->assertJsonPath('client.id', $r['owner']->id);
         // ... and the tab opened from the tenant's link gets the tenant, not the most recent person
-        $this->app['auth']->forgetGuards();
-        $other = $this->withCookie('portal_logins', $cookie)->withHeaders(self::BROWSER)->postJson('/api/v1/client-auth/tab-token', ['email' => $r['tenant']->email])->assertOk();
+        $other = $this->browser('POST', '/api/v1/client-auth/tab-token', ['email' => $r['tenant']->email], $cookie)->assertOk();
         $this->asTab($other->json('token'))->getJson('/api/v1/client/me')->assertJsonPath('client.id', $r['tenant']->id);
 
         // a person who has NOT signed in on this browser is refused: the link alone never signs anybody in
-        $stranger = $this->rental('H');
-        $this->app['auth']->forgetGuards();
-        $this->withCookie('portal_logins', $cookie)->withHeaders(self::BROWSER)->postJson('/api/v1/client-auth/tab-token', ['email' => $stranger['owner']->email, 'contact_id' => $stranger['ownerContact']->id])
+        $this->browser('POST', '/api/v1/client-auth/tab-token', ['email' => $stranger['owner']->email, 'contact_id' => $stranger['ownerContact']->id], $cookie)
             ->assertStatus(401)->assertJsonPath('needs_signin', true);
         // a browser that has signed nobody in has nothing to resume
-        $this->app['auth']->forgetGuards();
-        $this->withHeaders(self::BROWSER)->postJson('/api/v1/client-auth/tab-token', [])->assertStatus(401);
+        $this->browser('POST', '/api/v1/client-auth/tab-token', [])->assertStatus(401);
     }
 
     public function test_a_portal_session_from_before_per_tab_sign_in_is_still_honoured_for_a_new_tab(): void
     {
         $r = $this->rental('I');
-        $this->app['auth']->forgetGuards();
-        $res = $this->actingAs($r['owner'], 'client-web')->withHeaders(self::BROWSER)->postJson('/api/v1/client-auth/tab-token', ['email' => $r['owner']->email])->assertOk();
+        $this->actingAs($r['owner'], 'client-web');
+        $res = $this->browser('POST', '/api/v1/client-auth/tab-token', ['email' => $r['owner']->email], null, null, null, false)->assertOk();
         $this->asTab($res->json('token'))->getJson('/api/v1/client/me')->assertOk()->assertJsonPath('client.id', $r['owner']->id);
     }
 
@@ -245,11 +270,11 @@ final class PortalTabSigninTest extends TestCase
         $r = $this->rental('K');
         $fresh = ClientUser::create(['email' => 'fresh-' . uniqid() . '@example.invalid', 'current_agency_id' => $this->agency->id, 'created_by_agency_id' => $this->agency->id]);
         $activation = app(\App\Services\ClientAuthService::class)->issueActivationToken($fresh);
-        $this->app['auth']->forgetGuards();
-        $res = $this->actingAs($r['owner'], 'client-web')->withHeaders(self::BROWSER + ['Authorization' => 'Bearer ' . $activation])
-            ->postJson('/api/v1/client-auth/password/set', ['password' => self::PASSWORD, 'password_confirmation' => self::PASSWORD, 'tab' => true])->assertOk();
+        $this->actingAs($r['owner'], 'client-web');
+        $res = $this->browser('POST', '/api/v1/client-auth/password/set', ['password' => self::PASSWORD, 'password_confirmation' => self::PASSWORD, 'tab' => true], null, $activation)->assertOk();
         $this->assertNotEmpty($res->json('token'));
         $this->assertNotNull($fresh->fresh()->password_set_at);
+        $this->app['auth']->shouldUse('web');
         $this->asTab($res->json('token'))->getJson('/api/v1/client/me')->assertOk()->assertJsonPath('client.id', $fresh->id);
     }
 
@@ -258,6 +283,7 @@ final class PortalTabSigninTest extends TestCase
     private function registerGate(string $env, bool $flag): void
     {
         $this->app['env'] = $env;
+        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class);   // the harness only skips CSRF on env "testing"; the real page sends X-XSRF-TOKEN
         config(['clientauth.demo_signin_enabled' => $flag]);
         PortalDemoSigninGate::registerRoutes();
         $this->app['router']->getRoutes()->refreshNameLookups();
@@ -282,10 +308,8 @@ final class PortalTabSigninTest extends TestCase
         $ownerRef = $this->refOf(PortalLink::personal($r['owner']->email, PortalLink::VIEW_OWNER, [], $r['ownerContact']->id));
         $tenantRef = $this->refOf(PortalLink::personal($r['tenant']->email, PortalLink::VIEW_TENANT, [], $r['tenantContact']->id));
 
-        $this->app['auth']->forgetGuards();
-        $o = $this->withHeaders(self::BROWSER)->postJson('/api/v1/client-auth/qa-link-signin', ['r' => $ownerRef])->assertOk();
-        $this->app['auth']->forgetGuards();
-        $t = $this->withHeaders(self::BROWSER)->postJson('/api/v1/client-auth/qa-link-signin', ['r' => $tenantRef])->assertOk();
+        $o = $this->browser('POST', '/api/v1/client-auth/qa-link-signin', ['r' => $ownerRef])->assertOk();
+        $t = $this->browser('POST', '/api/v1/client-auth/qa-link-signin', ['r' => $tenantRef])->assertOk();
 
         // both tabs live at once
         $this->asTab($o->json('token'), 'owner')->getJson('/api/v1/client/rentals/landlord/properties')->assertOk()->assertJsonCount(1, 'properties');
@@ -302,8 +326,7 @@ final class PortalTabSigninTest extends TestCase
         $c = Contact::withoutGlobalScope(AgencyScope::class)->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'first_name' => 'New', 'last_name' => 'Comer', 'email' => $email]);
         $ref = $this->refOf(PortalLink::personal($email, PortalLink::VIEW_TENANT, [], $c->id));
 
-        $this->app['auth']->forgetGuards();
-        $res = $this->withHeaders(self::BROWSER)->postJson('/api/v1/client-auth/qa-link-signin', ['r' => $ref])->assertOk();
+        $res = $this->browser('POST', '/api/v1/client-auth/qa-link-signin', ['r' => $ref])->assertOk();
         $login = ClientUser::where('email', $email)->first();
         $this->assertNotNull($login);
         $this->assertSame($c->fresh()->client_user_id, $login->id);
@@ -315,14 +338,12 @@ final class PortalTabSigninTest extends TestCase
     {
         $this->registerGate('qa', true);
         $r = $this->rental('N');
-        $this->app['auth']->forgetGuards();
-        $this->withHeaders(self::BROWSER)->postJson('/api/v1/client-auth/qa-link-signin', ['r' => 'e30.forged'])->assertStatus(422);
+        $this->browser('POST', '/api/v1/client-auth/qa-link-signin', ['r' => 'e30.forged'])->assertStatus(422);
         // a hand-typed address with the signature of another link
         $ref = $this->refOf(PortalLink::personal($r['owner']->email, PortalLink::VIEW_OWNER, [], $r['ownerContact']->id));
         [$payload, $sig] = explode('.', $ref, 2);
         $edited = rtrim(strtr(base64_encode(json_encode(['c' => $r['tenantContact']->id, 'e' => $r['tenant']->email])), '+/', '-_'), '=') . '.' . $sig;
-        $this->app['auth']->forgetGuards();
-        $this->withHeaders(self::BROWSER)->postJson('/api/v1/client-auth/qa-link-signin', ['r' => $edited])->assertStatus(422);
+        $this->browser('POST', '/api/v1/client-auth/qa-link-signin', ['r' => $edited])->assertStatus(422);
     }
 
     public function test_outside_the_qa_gate_the_route_does_not_exist_and_first_time_sign_in_is_unchanged(): void
@@ -335,18 +356,16 @@ final class PortalTabSigninTest extends TestCase
         // the route is not registered on a normal boot, so the QA endpoint answers 404 - not "forbidden"
         $this->app['env'] = 'testing';
         config(['clientauth.demo_signin_enabled' => false]);
-        $this->withHeaders(self::BROWSER)->postJson('/api/v1/client-auth/qa-link-signin', ['r' => 'x.y'])->assertStatus(404);
+        $this->browser('POST', '/api/v1/client-auth/qa-link-signin', ['r' => 'x.y'])->assertStatus(404);
 
         // a first-time person (no password) is still sent through the emailed code
         $r = $this->rental('O');
         $r['owner']->forceFill(['password' => null, 'password_set_at' => null])->save();
-        $this->app['auth']->forgetGuards();
-        $look = $this->withHeaders(self::BROWSER)->postJson('/api/v1/client-auth/lookup', ['email' => $r['owner']->email])->assertOk();
+        $look = $this->browser('POST', '/api/v1/client-auth/lookup', ['email' => $r['owner']->email])->assertOk();
         $this->assertTrue($look->json('exists'));
         $this->assertFalse($look->json('requires_password'), 'no password yet: the page goes to "we sent you a code"');
         // and a link alone gets no tab: nobody remembered on this browser
-        $this->app['auth']->forgetGuards();
-        $this->withHeaders(self::BROWSER)->postJson('/api/v1/client-auth/tab-token', ['email' => $r['owner']->email, 'contact_id' => $r['ownerContact']->id])->assertStatus(401);
+        $this->browser('POST', '/api/v1/client-auth/tab-token', ['email' => $r['owner']->email, 'contact_id' => $r['ownerContact']->id])->assertStatus(401);
     }
 
     public function test_the_page_asks_for_the_qa_sign_in_only_where_the_gate_is_open(): void
