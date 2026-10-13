@@ -41,7 +41,7 @@ final class SupplierKindTest extends TestCase
         $s = $this->make('Old Plumber');
         $this->assertSame('contractor', $s->fresh()->kind);
         $this->assertSame('Contractor', AgencyServiceProvider::kindLabel($s->fresh()->kind));
-        $this->assertSame(['contractor', 'caretaker', 'owner_team', 'insurer', 'body_corporate'], array_keys(AgencyServiceProvider::KINDS));
+        $this->assertSame(['contractor', 'caretaker', 'owner_team', 'insurer', 'body_corporate', 'attorney_conveyancer', 'bond_originator'], array_keys(AgencyServiceProvider::KINDS));
         $this->assertSame("Owner's own maintenance team", AgencyServiceProvider::kindLabel('owner_team'));
         $this->assertSame('Body corporate / managing agent', AgencyServiceProvider::kindLabel('body_corporate'));
     }

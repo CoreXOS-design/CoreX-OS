@@ -1,13 +1,22 @@
 {{-- .ai/specs/rentals-faults-work-orders.md §20 - the call-out fee question, ONE partial: the Add provider form, the fault / work order popups and the
      directory's inline editor all use it, so the wording is identical everywhere.
      Expects: $idp (id prefix); optional $mode ('unknown'), $amount, $note. --}}
+{{-- OLD INPUT IS SCOPED TO THE FORM THAT WAS SUBMITTED (13 Oct 2026). The page holds one of these per supplier plus the Add form; a failed save used to
+     refill ALL of them from old(), so another supplier's editor showed the failed values and saving it wrote a wrong fee. Each copy posts its own
+     `_callout_scope` (= $idp) and only the copy whose scope comes back refills; every other copy keeps its stored values. --}}
 @php
-    $mode = old('callout_fee_mode', $mode ?? 'unknown');
-    $amount = old('callout_fee_amount', $amount ?? null);
-    $note = old('callout_fee_note', $note ?? null);
+    $scope = (string) $idp;
+    $submitted = old('_callout_scope') === $scope;
+    $mode = $submitted ? old('callout_fee_mode', $mode ?? 'unknown') : ($mode ?? 'unknown');
+    $amount = $submitted ? old('callout_fee_amount', $amount ?? null) : ($amount ?? null);
+    $note = $submitted ? old('callout_fee_note', $note ?? null) : ($note ?? null);
 @endphp
-<div class="grid grid-cols-1 md:grid-cols-3 gap-4 md:col-span-3" data-callout-fields
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 md:col-span-3" data-callout-fields data-callout-scope="{{ $scope }}"
      x-data="{ mode: @js($mode) }" @reset.window="setTimeout(() => mode = $refs.mode.value, 0)">
+    <input type="hidden" name="_callout_scope" value="{{ $scope }}">
+    @if($submitted && $errors->any())
+        <div class="md:col-span-3 text-xs font-medium" style="color: var(--ds-crimson, #b3261e);" role="alert" data-callout-error>{{ $errors->first() }}</div>
+    @endif
     <div>
         <label for="{{ $idp }}-callout-mode" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Charges a call-out fee?</label>
         <select id="{{ $idp }}-callout-mode" name="callout_fee_mode" x-ref="mode" x-model="mode" class="w-full rounded-md px-3 py-2 text-sm"

@@ -125,7 +125,42 @@ class AgencyServiceProvider extends Model
         'owner_team' => "Owner's own maintenance team",
         'insurer' => 'Insurer / insurance assessor',
         'body_corporate' => 'Body corporate / managing agent',
+        // 13 Oct 2026 - property-transaction firms. They are NEVER offered as a rental contractor or a first responder (see NON_MAINTENANCE_KINDS).
+        'attorney_conveyancer' => 'Attorney / conveyancer',
+        'bond_originator' => 'Bond originator',
     ];
+
+    /** Kinds that never do maintenance: kept out of every rental contractor picker and out of "Who looks at faults first", whatever their trade says. */
+    public const NON_MAINTENANCE_KINDS = ['attorney_conveyancer', 'bond_originator'];
+
+    /** The trades that make a firm an attorney / conveyancer (kind 'attorney_conveyancer'). */
+    public const ATTORNEY_SPECIALTIES = ['transfer_attorney', 'bond_attorney', 'conveyancer'];
+
+    /**
+     * The kind a supplier should carry, given its trade: a Transfer / Bond attorney or conveyancer is an "Attorney / conveyancer", a bond originator is a
+     * "Bond originator". Only a plain Contractor (or no kind) is re-derived - a kind somebody chose on purpose is never overridden.
+     */
+    public static function kindFor(?string $specialty, ?string $kind = null): string
+    {
+        $kind = $kind ?: self::KIND_CONTRACTOR;
+        if ($kind !== self::KIND_CONTRACTOR) {
+            return $kind;
+        }
+
+        return match (true) {
+            in_array($specialty, self::ATTORNEY_SPECIALTIES, true) => 'attorney_conveyancer',
+            $specialty === 'bond_originator' => 'bond_originator',
+            default => $kind,
+        };
+    }
+
+    protected static function booted(): void
+    {
+        // Every way of creating a supplier (directory form, deal inline add, deal register attorney firm) gets the right kind from its trade.
+        static::creating(function (self $p) {
+            $p->kind = self::kindFor($p->specialty, $p->kind);
+        });
+    }
 
     public static function kindLabel(?string $kind): string
     {
@@ -232,7 +267,7 @@ class AgencyServiceProvider extends Model
      * (electrician, entomologist, plumber, gas, electric_fence, transfer_attorney, bond_attorney, conveyancer, bond_originator, external_agency,
      * other); a firm may ALSO carry the two attorney flags (`is_transfer_attorney`, `is_bond_attorney` - both at once allowed); and each agency
      * has its own configurable service types (`agency_service_types` via `agency_service_provider_service_types`: Electrical COC, Plumbing...).
-     * Maintenance contractors = everyone who is NOT one of the property-transaction roles: no attorney flag, and a specialty that is not
+     * Maintenance contractors = everyone who is NOT one of the property-transaction roles: no attorney flag, a kind that is not attorney / bond originator, and a specialty that is not
      * transfer_attorney / bond_attorney / conveyancer / bond_originator / external_agency. "other" stays in (an unclassified contractor).
      */
     public const NON_MAINTENANCE_SPECIALTIES = ['transfer_attorney', 'bond_attorney', 'conveyancer', 'bond_originator', 'external_agency'];
@@ -240,7 +275,8 @@ class AgencyServiceProvider extends Model
     public function scopeMaintenanceContractors(Builder $q): Builder
     {
         return $q->where('is_transfer_attorney', false)->where('is_bond_attorney', false)
-            ->whereNotIn('specialty', self::NON_MAINTENANCE_SPECIALTIES);
+            ->whereNotIn('specialty', self::NON_MAINTENANCE_SPECIALTIES)
+            ->whereNotIn('kind', self::NON_MAINTENANCE_KINDS);
     }
 
     /** Validation twin of {@see self::scopeMaintenanceContractors()}: an id that exists, in this agency, and is a maintenance contractor (or $alsoAllowId, an existing choice left as it was). */
@@ -248,7 +284,7 @@ class AgencyServiceProvider extends Model
     {
         return \Illuminate\Validation\Rule::exists('agency_service_providers', 'id')->where(function ($q) use ($agencyId, $alsoAllowId) {
             $q->where('agency_id', $agencyId)->whereNull('deleted_at')->where(function ($w) use ($alsoAllowId) {
-                $w->where(fn ($m) => $m->where('is_transfer_attorney', 0)->where('is_bond_attorney', 0)->whereNotIn('specialty', self::NON_MAINTENANCE_SPECIALTIES));
+                $w->where(fn ($m) => $m->where('is_transfer_attorney', 0)->where('is_bond_attorney', 0)->whereNotIn('specialty', self::NON_MAINTENANCE_SPECIALTIES)->whereNotIn('kind', self::NON_MAINTENANCE_KINDS));
                 if ($alsoAllowId) {
                     $w->orWhere('id', $alsoAllowId);
                 }
