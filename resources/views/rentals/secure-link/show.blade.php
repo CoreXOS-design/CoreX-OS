@@ -27,7 +27,7 @@
         h2 { font-size:15px; margin:0 0 10px; }
         label { display:block; font-size:13px; font-weight:600; margin:10px 0 4px; }
         input, textarea { width:100%; padding:11px 12px; border:1px solid var(--border); border-radius:10px; font-size:15px; font-family:inherit; }
-        .btn { display:inline-block; width:100%; text-align:center; padding:12px; border-radius:10px; border:none; font-weight:700; font-size:15px; cursor:pointer; margin-top:10px; }
+        .btn { display:flex; align-items:center; justify-content:center; box-sizing:border-box; width:100%; min-height:46px; text-align:center; padding:10px 12px; border-radius:10px; border:none; font-weight:700; font-size:15px; line-height:1.2; cursor:pointer; margin-top:10px; }
         .btn-primary { background:var(--accent); color:#fff; }
         .btn-ok { background:var(--ok); color:#fff; }
         .muted { color:var(--muted); font-size:13px; }
@@ -53,7 +53,7 @@
             @if ($accessNotes)
                 <p class="muted"><strong>Getting in:</strong> {{ $accessNotes }}</p>
             @endif
-            @if (! empty($lookAndQuote))
+            @if (! empty($lookAndQuote) && empty($unlocked))
                 <p data-look-and-quote><strong>This is a visit to look at the problem and give a quote.</strong> Any repair work is agreed with the owner separately, before it starts.</p>
             @endif
             @if ($jobCard?->access_notes)
@@ -94,6 +94,7 @@
             </div>
         @else
         {{-- AT-452 round 2 (§19) - the contractor's answer. --}}
+        @if (empty($unlocked))
         <div class="card" data-contractor-answer>
             <h2>Can you take this job?</h2>
             <p class="muted" data-contractor-answer-state>{{ $response ? $responseLabel : 'Not answered yet' }}@if ($response === 'declined' && $workOrder->contractor_decline_reason) &mdash; {{ $workOrder->contractor_decline_reason }}@endif</p>
@@ -112,6 +113,7 @@
                 </form>
             @endif
         </div>
+        @endif
 
         @if ($tasks->count())
             <div class="card">

@@ -315,6 +315,10 @@ class ContractorSecureLinkController extends Controller
         if (! app(\App\Services\Rentals\RentalGoAheadService::class)->jobOpenForWork($record->workOrder) && ! in_array($record->workOrder->contractor_response, [\App\Services\Rentals\RentalContractorJobService::RESPONSE_ACCEPTED, \App\Services\Rentals\RentalContractorJobService::RESPONSE_QUOTE], true)) {
             return back()->withErrors(['work_order' => 'Please accept the job first.']);
         }
+        // spec 22.17: a request for extra money is still with the owner - say THAT (the job is authorised; it is the extra that waits)
+        if ($record->workOrder->openVariation()) {
+            return back()->withErrors(['work_order' => 'Your request for extra money is still waiting for the owner. You can mark the job done once they have answered - we will tell you.']);
+        }
         // section 22.6: nothing is finished before its cost is authorised - in the contractor's words, never the office's (cc4's walk of QA1, item 1)
         if (! app(\App\Services\Rentals\RentalApprovalGateService::class)->authoriseToProceed($record->workOrder, false)->authorised) {
             return back()->withErrors(['work_order' => 'This job has not been authorised yet - the agency will tell you when you can go ahead. Send your quote and wait for their answer.']);

@@ -169,6 +169,25 @@ final class ContractorFinishTest extends TestCase
         $this->assertStringContainsString('the owner agreed', $this->get(route('rentals.secure-link.show', $raw))->getContent());
     }
 
+    public function test_marking_done_while_an_extra_request_waits_says_so_and_the_page_drops_the_quote_only_wording(): void
+    {
+        [$wo, $raw] = $this->job(true);
+        $this->post(route('rentals.secure-link.extra', $raw), ['extra_amount' => 150, 'reason' => 'The old pipe was rotten'])->assertSessionHasNoErrors();
+        $this->post(route('rentals.secure-link.mark-done', $raw))->assertSessionHasErrors('work_order');
+        $this->assertStringContainsString('Your request for extra money is still waiting for the owner', session('errors')->first('work_order'));
+        $this->assertSame(RentalWorkOrder::STATUS_ORDERED, $wo->fresh()->status);
+
+        // a fault job: after the go-ahead the page no longer calls it "a visit to look at the problem and give a quote"
+        $fault = \App\Models\RentalFaultReport::withoutGlobalScopes()->create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id, 'title' => 'Drain', 'description' => 'x', 'reported_by_type' => 'agent', 'reported_channel' => 'app',
+            'status' => 'approved', 'owner_approval_status' => 'approved', 'reported_at' => now(), 'created_by_user_id' => $this->admin->id,
+        ]);
+        $wo->forceFill(['reported_fault_report_id' => $fault->id])->save();
+        $html = $this->get(route('rentals.secure-link.show', $raw))->assertOk()->getContent();
+        $this->assertStringNotContainsString('This is a visit to look at the problem', $html);
+        $this->assertStringNotContainsString('data-contractor-answer', $html);
+    }
+
     public function test_the_job_done_button_completes_it_with_what_was_found_and_the_link_then_stops_working(): void
     {
         [$wo, $raw] = $this->job(true);
