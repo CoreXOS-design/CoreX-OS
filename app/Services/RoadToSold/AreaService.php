@@ -301,13 +301,20 @@ class AreaService
      * within $warnDays (never = stale). Each portal prompts on its own - a fresh P24 capture does not
      * hide a missing Private Property one.
      *
+     * Only the portals the agency says it captures from are checked ($portals, default both): an agency
+     * without Private Property is never asked to refresh it.
+     *
      * @param  array{p24:?Carbon,pp:?Carbon} $captured
+     * @param  string[]|null $portals subset of ['p24','pp']; null = both
      * @return string[]
      */
-    public function portalsNeedingRefresh(array $captured, int $warnDays): array
+    public function portalsNeedingRefresh(array $captured, int $warnDays, ?array $portals = null): array
     {
         $stale = [];
         foreach (['p24', 'pp'] as $portal) {
+            if ($portals !== null && ! in_array($portal, $portals, true)) {
+                continue;
+            }
             if ($this->isStale($captured[$portal] ?? null, $warnDays)) {
                 $stale[] = $portal;
             }
@@ -317,9 +324,9 @@ class AreaService
     }
 
     /** True when at least one portal needs a refresh. @param array{p24:?Carbon,pp:?Carbon} $captured */
-    public function needsRefresh(array $captured, int $warnDays): bool
+    public function needsRefresh(array $captured, int $warnDays, ?array $portals = null): bool
     {
-        return $this->portalsNeedingRefresh($captured, $warnDays) !== [];
+        return $this->portalsNeedingRefresh($captured, $warnDays, $portals) !== [];
     }
 
     // ── internals ─────────────────────────────────────────────────────────

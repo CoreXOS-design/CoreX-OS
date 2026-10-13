@@ -184,7 +184,7 @@
                                     @unless($c['in_pool'])
                                         <div style="color:var(--text-muted);">No longer in your Prospecting Setup</div>
                                     @else
-                                        <div style="color:var(--text-muted);">Last captured: P24 {{ $fmt($c['p24']) }} &middot; PP {{ $fmt($c['pp']) }}</div>
+                                        <div style="color:var(--text-muted);">Last captured: {{ collect($portals)->map(fn ($p) => ($p === 'pp' ? 'PP ' : 'P24 ') . $fmt($c[$p]))->implode(' · ') }}</div>
                                         @if($c['needs_refresh'])<div><strong>Needs a refresh: {{ $portalWords($c['stale_portals']) }}</strong></div>@endif
                                     @endunless
                                     <div class="mt-1">
@@ -220,7 +220,7 @@
                 <thead>
                     <tr style="border-bottom:1px solid var(--border); color:var(--text-muted);" class="text-left text-xs">
                         <th class="px-4 py-2">Suburb</th><th class="px-4 py-2">Town</th><th class="px-4 py-2">Who works it</th>
-                        <th class="px-4 py-2">Last captured (P24)</th><th class="px-4 py-2">Last captured (PP)</th><th class="px-4 py-2"></th>
+                        @if(in_array('p24', $portals, true))<th class="px-4 py-2">Last captured (P24)</th>@endif @if(in_array('pp', $portals, true))<th class="px-4 py-2">Last captured (PP)</th>@endif<th class="px-4 py-2"></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -229,8 +229,8 @@
                         <td class="px-4 py-2 font-semibold">{{ $s['name'] }}</td>
                         <td class="px-4 py-2" style="color:var(--text-muted);">{{ $s['town'] ?? '-' }}</td>
                         <td class="px-4 py-2">{{ $s['agents']->isEmpty() ? 'Nobody yet' : $s['agents']->implode(', ') }}</td>
-                        <td class="px-4 py-2">{{ $fmt($s['p24']) }}</td>
-                        <td class="px-4 py-2">{{ $fmt($s['pp']) }}</td>
+                        @if(in_array('p24', $portals, true))<td class="px-4 py-2">{{ $fmt($s['p24']) }}</td>@endif
+                        @if(in_array('pp', $portals, true))<td class="px-4 py-2">{{ $fmt($s['pp']) }}</td>@endif
                         <td class="px-4 py-2">
                             @if($s['needs_refresh'])
                                 @permission('access_settings')
@@ -242,7 +242,7 @@
                         </td>
                     </tr>
                 @empty
-                    <tr><td colspan="6" class="px-4 py-8 text-center" style="color:var(--text-muted);">
+                    <tr><td colspan="{{ 4 + count($portals) }}" class="px-4 py-8 text-center" style="color:var(--text-muted);">
                         @if($emptyFiltered) No suburbs match those filters. <a href="{{ route($rb . 'areas.index', ['view' => 'suburbs']) }}" class="underline">Clear the filters</a>.
                         @else Your agency has no suburbs set up yet. Add a town under Prospecting Setup first. @endif
                     </td></tr>

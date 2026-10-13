@@ -104,6 +104,12 @@ class SettingsService
         return (int) $this->scalar('area_refresh_warn_days');
     }
 
+    /** @return string[] the portals this agency captures from ('p24', 'pp'); only these ask for a refresh. At least one. */
+    public function refreshPortals(): array
+    {
+        return $this->list('refresh_portals');
+    }
+
     /** Whose public holidays carry no target (two-letter country code of the public_holidays table). */
     public function holidayCountry(): string
     {

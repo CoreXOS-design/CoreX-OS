@@ -160,6 +160,43 @@ final class AuditGapsTest extends TestCase
             ->assertOk()->assertSee('Needs a refresh: PP')->assertDontSee('Needs a refresh: P24');
     }
 
+    public function test_an_agency_without_private_property_is_never_asked_to_refresh_it(): void
+    {
+        $this->assertSame(['p24', 'pp'], SettingsService::forAgency($this->agency->id)->refreshPortals(), 'both on by default');
+
+        $this->actingAs($this->admin)->put(route('road-to-sold.settings.general.update'), ['refresh_portals' => ['', 'p24']])->assertSessionHasNoErrors();
+        SettingsService::forget();
+        $portals = SettingsService::forAgency($this->agency->id)->refreshPortals();
+        $this->assertSame(['p24'], $portals);
+
+        $svc = app(AreaService::class);
+        $this->assertSame([], $svc->portalsNeedingRefresh(['p24' => now()->subDay(), 'pp' => null], 7, $portals), 'PP is not one of ours');
+        $this->assertFalse($svc->needsRefresh(['p24' => now()->subDay(), 'pp' => null], 7, $portals));
+        $this->assertSame(['p24'], $svc->portalsNeedingRefresh(['p24' => null, 'pp' => null], 7, $portals));
+
+        // The screens: no PP wording, no PP column, and the suburb with a fresh P24 capture is not stale.
+        $this->assign($this->agent, $this->sub['manaba']);
+        $this->listing('Manaba', 'p24', now()->subDay()->toDateTimeString());
+        $this->actingAs($this->admin)->get(route('road-to-sold.settings.areas.index'))
+            ->assertOk()->assertDontSee('Needs a refresh:')->assertDontSee('· PP', false)->assertDontSee('&middot; PP', false);
+        $this->actingAs($this->admin)->get(route('road-to-sold.settings.areas.index', ['view' => 'suburbs']))
+            ->assertOk()->assertDontSee('Last captured (PP)')->assertSee('Last captured (P24)');
+
+        // Switching it back on asks again.
+        $this->actingAs($this->admin)->put(route('road-to-sold.settings.general.update'), ['refresh_portals' => ['', 'p24', 'pp']]);
+        SettingsService::forget();
+        $this->actingAs($this->admin)->get(route('road-to-sold.settings.areas.index'))->assertOk()->assertSee('Needs a refresh: PP');
+    }
+
+    public function test_at_least_one_portal_must_stay_ticked(): void
+    {
+        foreach ([[''], ['', 'bogus']] as $bad) {
+            $this->actingAs($this->admin)->put(route('road-to-sold.settings.general.update'), ['refresh_portals' => $bad])->assertSessionHasErrors();
+        }
+        $this->assertDatabaseMissing('rts_settings', ['agency_id' => $this->agency->id]);
+        $this->actingAs($this->admin)->get(route('road-to-sold.settings.index'))->assertOk()->assertSee('Portals we capture from')->assertSee('Private Property');
+    }
+
     // ── B: id + town, not name ────────────────────────────────────────────
 
     public function test_last_captured_does_not_merge_two_towns_that_share_a_suburb_name(): void

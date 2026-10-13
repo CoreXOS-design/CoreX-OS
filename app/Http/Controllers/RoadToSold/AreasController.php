@@ -61,6 +61,7 @@ class AreasController extends Controller
         return view('road-to-sold.settings.areas', $data + [
             'mode'     => $mode,
             'warnDays' => $warnDays,
+            'portals'  => SettingsService::forAgency($agencyId, $this->track())->refreshPortals(),
             'tabs'     => SettingsController::tabsFor($viewer, 'areas'),
             'towns'    => $this->areas->towns($agencyId),
             'branches' => VisibleAgents::for($viewer)->pluck('branch.name', 'branch_id')->filter()->sort(),
@@ -164,6 +165,7 @@ class AreasController extends Controller
 
     private function agentsView(Request $request, User $viewer, int $agencyId, int $warnDays): array
     {
+        $portals = SettingsService::forAgency($agencyId, $this->track())->refreshPortals();
         $agents   = VisibleAgents::for($viewer);
         $status   = $request->query('status') === 'removed' ? 'removed' : 'active';
         $q        = trim((string) $request->query('q', ''));
@@ -188,8 +190,8 @@ class AreasController extends Controller
         $townFilterCity = $townId > 0 ? (int) DB::table('towns')->where('id', $townId)->where('agency_id', $agencyId)->value('p24_city_id') : 0;
 
         $byUser = $areaRows->groupBy('user_id');
-        $rows = $agents->map(function (User $u) use ($byUser, $meta, $poolIds, $captured, $warnDays) {
-            $chips = ($byUser->get($u->id) ?? collect())->map(function (RtsAgentArea $a) use ($meta, $poolIds, $captured, $warnDays) {
+        $rows = $agents->map(function (User $u) use ($byUser, $meta, $poolIds, $captured, $warnDays, $portals) {
+            $chips = ($byUser->get($u->id) ?? collect())->map(function (RtsAgentArea $a) use ($meta, $poolIds, $captured, $warnDays, $portals) {
                 $m   = $meta[(int) $a->p24_suburb_id] ?? null;
                 $cap = $captured[(int) $a->p24_suburb_id] ?? ['p24' => null, 'pp' => null];
 
@@ -202,13 +204,13 @@ class AreasController extends Controller
                     'in_pool'  => isset($poolIds[(int) $a->p24_suburb_id]),
                     'p24'      => $cap['p24'],
                     'pp'       => $cap['pp'],
-                    'stale_portals' => $stale = (isset($poolIds[(int) $a->p24_suburb_id]) ? $this->areas->portalsNeedingRefresh($cap, $warnDays) : []),
+                    'stale_portals' => $stale = (isset($poolIds[(int) $a->p24_suburb_id]) ? $this->areas->portalsNeedingRefresh($cap, $warnDays, $portals) : []),
                     'needs_refresh' => $stale !== [],
                 ];
             })->sortBy('name', SORT_NATURAL | SORT_FLAG_CASE)->values();
 
             // The stalest portal of the stalest suburb (a portal never captured counts as 0).
-            $oldest = $chips->flatMap(fn ($c) => [$c['p24']?->timestamp ?? 0, $c['pp']?->timestamp ?? 0])->min();
+            $oldest = $chips->flatMap(fn ($c) => collect($portals)->map(fn ($p) => $c[$p]?->timestamp ?? 0))->min();
 
             return ['user' => $u, 'chips' => $chips, 'count' => $chips->count(), 'oldest' => $oldest ?? PHP_INT_MAX];
         })->values();
@@ -281,6 +283,7 @@ class AreasController extends Controller
 
     private function suburbsView(Request $request, User $viewer, int $agencyId, int $warnDays): array
     {
+        $portals = SettingsService::forAgency($agencyId, $this->track())->refreshPortals();
         $q        = trim((string) $request->query('q', ''));
         $townId   = (int) $request->query('town_id', 0);
         $unassigned = $request->boolean('unassigned');
@@ -297,16 +300,16 @@ class AreasController extends Controller
             ->whereIn('user_id', $agents->keys()->all())->get()->groupBy('p24_suburb_id');
         $captured = $this->areas->lastCaptured($agencyId);
 
-        $rows = $pool->map(function ($s) use ($assigned, $captured, $agents, $warnDays) {
+        $rows = $pool->map(function ($s) use ($assigned, $captured, $agents, $warnDays, $portals) {
             $cap  = $captured[(int) $s->id] ?? ['p24' => null, 'pp' => null];
             $who  = ($assigned->get((int) $s->id) ?? collect())->map(fn ($a) => $agents->get($a->user_id)?->name)->filter()->sort()->values();
 
             return [
                 'id' => (int) $s->id, 'name' => $s->name, 'town' => $s->town_name,
                 'agents' => $who, 'p24' => $cap['p24'], 'pp' => $cap['pp'],
-                'stale_portals' => $stale = $this->areas->portalsNeedingRefresh($cap, $warnDays),
+                'stale_portals' => $stale = $this->areas->portalsNeedingRefresh($cap, $warnDays, $portals),
                 'needs_refresh' => $stale !== [],
-                'newest' => min($cap['p24']?->timestamp ?? 0, $cap['pp']?->timestamp ?? 0),
+                'newest' => collect($portals)->map(fn ($p) => $cap[$p]?->timestamp ?? 0)->min() ?? 0,
             ];
         });
 
