@@ -88,7 +88,7 @@ if (process.env.FIRSTTIME_EMAIL) {
     await check('first-time: password set, tab signed in (' + sp.status + ', token ' + (sp.json.token ? 'yes' : 'NO') + ')');
     if (sp.status !== 200 || !sp.json.token) bad.push('first-time: password/set did not return a tab token: ' + sp.status);
     const lg = await api('login', { email: em, password: 'Staff-Survives-2026!', tab: true }); await check('first-time: password sign-in (' + lg.status + ')');
-    if (lg.json.token) { await F.evaluate((t) => fetch('/api/v1/client-auth/logout', { method: 'POST', credentials: 'same-origin', headers: { Authorization: 'Bearer ' + t, Accept: 'application/json' } }), lg.json.token); await wait(800); await check('first-time: portal logout'); }
+    if (lg.json.token) { const lo = await api('logout', {}, lg.json.token); await wait(500); await check('first-time: portal logout (' + lo.status + ')'); if (lo.status !== 200) bad.push('first-time logout status ' + lo.status); }
   }
 }
 
