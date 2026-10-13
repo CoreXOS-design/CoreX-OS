@@ -54,6 +54,12 @@
         .crew-job .cj-banner { background: #eafaf0; border: 1px solid #bfe6cd; color: var(--cj-ok); border-radius: 12px; padding: 14px; font-weight: 700; font-size: 15px; }
     </style>
 
+    @if(! empty($job['on_hold']))
+        <div class="cj-card" data-on-hold style="border:2px solid #c0392b;">
+            <h2 style="color:#c0392b;">On hold &mdash; please do not attend</h2>
+            <div>This job is on hold. Please do not attend until you hear from us.</div>
+        </div>
+    @endif
     <div class="cj-card">
         <div class="cj-title">{{ $job['title'] }}</div>
         <div style="margin-bottom:8px;">
@@ -191,7 +197,7 @@
     @elseif($job['is_open'] && ! ($job['authorised'] ?? true))
         <div class="cj-card">
             <h2>Mark work completed</h2>
-            <div class="cj-muted">This job has not been approved yet — contact the office. This button appears once the job is approved.</div>
+            <div class="cj-muted">@if(! empty($job['on_hold']))This job is on hold — please do not attend until you hear from us.@else This job has not been approved yet — contact the office. This button appears once the job is approved.@endif</div>
         </div>
     @elseif($job['is_open'])
         {{-- BUILD 3 — while the tenant has disputed the finished work, the same form reads "Report fixed" (§17.10.6). --}}

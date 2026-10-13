@@ -42,6 +42,14 @@ class ContractorSecureLinkController extends Controller
         return $record;
     }
 
+    /** section 22.7 - the plain line a contractor reads while the owner has the job on hold; never the owner's reason. */
+    private function onHold(RentalSecureAccessToken $record): ?string
+    {
+        return app(\App\Services\Rentals\RentalOwnerHoldService::class)->activeFor($record->workOrder) !== null
+            ? 'This job is on hold - please do not attend until you hear from us.'
+            : null;
+    }
+
     public function show(Request $request, string $token): View
     {
         $record = $this->resolveToken($token);
@@ -65,6 +73,8 @@ class ContractorSecureLinkController extends Controller
             'responseLabel' => $jobs::responseLabel($workOrder->contractor_response),
             'agencyName' => $workOrder->agency?->trading_name ?: ($workOrder->agency?->name ?: 'The agency'),
             'accessNotes' => trim((string) ($workOrder->property?->access_notes ?? '')) ?: null,
+            // section 22.7 - the owner stopped it: "On hold - do not attend" and nothing to answer, quote, photograph or mark done (the owner's reason is never shown here)
+            'onHold' => app(\App\Services\Rentals\RentalOwnerHoldService::class)->activeFor($workOrder) !== null,
         ]);
     }
 
@@ -74,6 +84,9 @@ class ContractorSecureLinkController extends Controller
         $record = $this->resolveToken($token);
         if (!$record) {
             return view('rentals.secure-link.unavailable');
+        }
+        if ($held = $this->onHold($record)) {
+            return back()->withErrors(['work_order' => $held]);
         }
         $data = $request->validate([
             'answer' => ['required', 'in:accept,decline'],
@@ -98,6 +111,9 @@ class ContractorSecureLinkController extends Controller
         $record = $this->resolveToken($token);
         if (!$record) {
             return view('rentals.secure-link.unavailable');
+        }
+        if ($held = $this->onHold($record)) {
+            return back()->withErrors(['work_order' => $held]);
         }
 
         $data = $request->validate([
@@ -133,6 +149,9 @@ class ContractorSecureLinkController extends Controller
         if (!$record) {
             return view('rentals.secure-link.unavailable');
         }
+        if ($held = $this->onHold($record)) {
+            return back()->withErrors(['work_order' => $held]);
+        }
 
         $data = $request->validate([
             'photo' => 'required|file|mimes:jpg,jpeg,png,webp,heic,heif|max:51200',
@@ -150,6 +169,9 @@ class ContractorSecureLinkController extends Controller
         $record = $this->resolveToken($token);
         if (!$record) {
             return view('rentals.secure-link.unavailable');
+        }
+        if ($held = $this->onHold($record)) {
+            return back()->withErrors(['work_order' => $held]);
         }
 
         // spec section 22.13.2 - a job that came from a fault is not done until the contractor says what was found and what caused it

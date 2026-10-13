@@ -443,4 +443,52 @@ final class OwnerStopQueryTest extends TestCase
         $this->assertSame('Earlier question?', $rows->first()->question);
         $this->assertFalse($rows->first()->isAnswered());
     }
+
+    // ── found in the end-to-end walk: the contractor's own link, and the time the owner told the agent ──
+
+    public function test_the_contractors_link_says_on_hold_offers_nothing_to_do_and_never_shows_the_owners_reason(): void
+    {
+        $f = $this->arranged();
+        $wo = $this->wo($f);
+        $token = app(\App\Services\Rentals\RentalSecureAccessTokenService::class)->issueFor($wo, $this->agent)['raw_token'];
+        $show = route('rentals.secure-link.show', $token);
+
+        $this->get($show)->assertOk()->assertDontSee('data-on-hold', false)->assertSee('Can you take this job?')->assertSee('Mark job done');
+
+        $this->holds()->stop($f, $this->landlord, 'PRIVATE OWNER WORDS about the plumber', 'link');
+
+        $this->get($show)->assertOk()
+            ->assertSee('data-on-hold', false)->assertSee('please do not attend')->assertSee('Please do not attend until you hear from us')
+            ->assertDontSee('Can you take this job?')->assertDontSee('Upload a quote')->assertDontSee('Mark job done')
+            ->assertDontSee('PRIVATE OWNER WORDS');
+        // every action refuses with the same plain line - and never the owner's reason
+        foreach (['respond' => ['answer' => 'accept'], 'quote' => ['amount' => 100, 'quote_date' => now()->toDateString(), 'detail_text' => 'x'], 'mark-done' => ['found_text' => 'x'], 'photo' => []] as $path => $body) {
+            $res = $this->from($show)->post("/secure/work-orders/{$token}/{$path}", $body);
+            $res->assertSessionHasErrors('work_order');
+            $this->assertSame('This job is on hold - please do not attend until you hear from us.', session('errors')->first('work_order'));
+            $this->assertStringNotContainsString('PRIVATE OWNER WORDS', session('errors')->first('work_order'));
+        }
+        $this->assertSame('pending', $wo->fresh()->contractor_response, 'nothing the contractor pressed was recorded');
+        $this->assertSame(0, $wo->quotes()->count());
+        $this->assertNotSame(RentalWorkOrder::STATUS_COMPLETED, $wo->fresh()->status);
+
+        // once the owner says go ahead, the page is a normal page again
+        $this->holds()->resumeByOwner($f, $this->landlord, 'link');
+        $this->get($show)->assertOk()->assertDontSee('data-on-hold', false)->assertSee('Can you take this job?');
+    }
+
+    public function test_the_time_the_agent_records_for_the_owners_go_ahead_is_the_time_they_typed(): void
+    {
+        $f = $this->arranged();
+        $this->holds()->stop($f, $this->landlord, 'Wait please', 'link');
+        $typed = now()->setTimezone('Africa/Johannesburg')->subMinutes(10)->format('Y-m-d\TH:i');   // what the agent's date box holds, in the agency's own time
+
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.resume', $f), ['owner_contact_id' => $this->landlord->id, 'told_via' => 'phone_call', 'note' => 'Owner says carry on', 'told_at' => $typed])
+            ->assertRedirect(route('corex.rental-fault-reports.show', $f));
+
+        $row = RentalAuthorisation::withoutGlobalScopes()->where('rental_fault_report_id', $f->id)->where('basis', 'owner_instruction')->firstOrFail();
+        $this->assertSame(substr(str_replace('T', ' ', $typed), 0, 16), $row->told_at->format('Y-m-d H:i'), 'stored in the app timezone, so it reads back as typed (not two hours early)');
+        $expected = \Illuminate\Support\Carbon::parse($typed, 'Africa/Johannesburg')->format('j M Y H:i');
+        $this->assertStringContainsString($expected, app(\App\Services\Rentals\RentalAuthorisationService::class)->sentenceFor($row->load(['byUser', 'ownerContact'])));
+    }
 }

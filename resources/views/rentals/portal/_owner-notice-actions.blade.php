@@ -3,7 +3,7 @@
      Needs the Alpine `noticeUi`, `sendStop()`, `sendResume()`, `sendQuery()` of the portal shell and `faultDetail.owner_actions`. --}}
 <template x-if="faultDetail.owner_actions && faultDetail.owner_actions.show">
     <section class="sec" data-fault-section="owner-actions">
-        <h3>Your say</h3>
+        <h3>Not right? Stop it or ask a question</h3>
 
         {{-- on hold --}}
         <template x-if="faultDetail.owner_actions.hold">

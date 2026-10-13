@@ -349,7 +349,18 @@ class RentalAuthorisationService
     /** The time an owner said it, in the agency's timezone -> UTC, never in the future (the validation `recordOwnerDecision` uses; public for the hold service). */
     public function toldAt(RentalFaultReport|RentalWorkOrder $subject, mixed $value): Carbon
     {
-        return $this->parseToldAt($subject, $value);
+        try {
+            $at = ! empty($value) ? Carbon::parse((string) $value, $this->tz($subject)) : now();
+        } catch (\Throwable) {
+            throw new \InvalidArgumentException('That date and time is not valid.');
+        }
+        // the column is READ BACK in the app timezone, so it is stored in the app timezone (->utc() stored 03:43 for 05:43 and showed the owner a time two hours early)
+        $at = $at->copy()->setTimezone(config('app.timezone') ?: 'UTC');
+        if ($at->gt(now()->addMinutes(5))) {
+            throw new \InvalidArgumentException('The time the owner told you cannot be in the future.');
+        }
+
+        return $at;
     }
 
     /**

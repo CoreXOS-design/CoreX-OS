@@ -107,6 +107,8 @@ class CrewJobService
             // page offers "Mark work completed": the server refuses it on an unauthorised job (RentalJobCard::recordCrewCompletion),
             // so the action is not offered until the job is authorised. A pure read (record: false), no side effects.
             'authorised' => app(RentalApprovalGateService::class)->authoriseCard($card, false)->authorised,
+            // section 22.7 - the owner stopped the job: a plain yes/no (never the owner's reason)
+            'on_hold' => app(\App\Services\Rentals\RentalOwnerHoldService::class)->activeFor($card) !== null,
             'address' => $address,
             'map_url' => $this->mapUrl($property, $address),
             'access_notes' => $card->access_notes,

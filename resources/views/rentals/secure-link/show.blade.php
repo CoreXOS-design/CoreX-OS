@@ -83,6 +83,13 @@
             </script>
         @endif
 
+        {{-- section 22.7 - the owner stopped this job: nothing to do until the agency says so --}}
+        @if (! empty($onHold))
+            <div class="card" data-on-hold style="border:2px solid #c0392b;">
+                <h2 style="color:#c0392b;">On hold &mdash; please do not attend</h2>
+                <p>This job is on hold. Please do not attend until you hear from us. You do not need to do anything on this page for now.</p>
+            </div>
+        @else
         {{-- AT-452 round 2 (§19) - the contractor's answer. --}}
         <div class="card" data-contractor-answer>
             <h2>Can you take this job?</h2>
@@ -148,6 +155,7 @@
                 <button class="btn btn-ok" type="submit">Mark done</button>
             </form>
         </div>
+        @endif
     </div>
 </body>
 </html>
