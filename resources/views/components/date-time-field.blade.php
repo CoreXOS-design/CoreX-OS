@@ -32,9 +32,10 @@
 </div>
 @once
 <style>
-    .cx-dt { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .cx-dt { display: flex; flex-wrap: nowrap; gap: 8px; align-items: center; }
+    @media (max-width: 480px) { .cx-dt { flex-wrap: wrap; } }
     .cx-dt-ctl { height: 38px; box-sizing: border-box; padding: 0 10px; font-size: 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface, #fff); color: var(--text-primary); }
-    .cx-dt-date { flex: 1 1 130px; min-width: 130px; }
+    .cx-dt-date { flex: 1 1 100px; min-width: 110px; }
     .cx-dt-time { flex: 0 0 112px; }
     .cx-dt-other { flex: 0 0 76px; }
     .cx-dt-other[x-cloak] { display: none; }
