@@ -97,6 +97,13 @@
                        class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                 <p class="text-[11px] mt-1" style="color:var(--text-muted);">How quickly a new fault, lead or approval pops up on a screen that is already open. The lowest allowed is 15.</p>
             </div>
+            <div>
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Show alerts still unread from the last (minutes)</label>
+                <input type="number" name="alert_catchup_minutes" min="1" max="240" step="1"
+                       value="{{ old('alert_catchup_minutes', $d->alert_catchup_minutes ?? 10) }}"
+                       class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                <p class="text-[11px] mt-1" style="color:var(--text-muted);">When someone opens CoreX in a new tab or signs in, alerts that arrived in this many minutes and are still unread pop up. Lowest 1, highest 240.</p>
+            </div>
         </div>
     </div>
 

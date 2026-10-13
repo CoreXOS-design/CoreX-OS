@@ -26,6 +26,9 @@ class AlertSwitchService
     public const DEFAULT_POLL_SECONDS = 30;
     public const MIN_POLL_SECONDS = 15;
     public const MAX_POLL_SECONDS = 600;
+    public const DEFAULT_CATCHUP_MINUTES = 10;
+    public const MIN_CATCHUP_MINUTES = 1;
+    public const MAX_CATCHUP_MINUTES = 240;
 
     public function __construct(private NotificationPreferenceService $prefs) {}
 
@@ -54,6 +57,31 @@ class AlertSwitchService
         }
 
         return self::clampPollSeconds($value);
+    }
+
+    /** How far back a fresh tab looks for alerts that are still unread, as saved or read: whole minutes, 1 to 240, blank = the default 10. */
+    public static function clampCatchupMinutes(mixed $value): int
+    {
+        if ($value === null || $value === '' || ! is_numeric($value)) {
+            return self::DEFAULT_CATCHUP_MINUTES;
+        }
+
+        return max(self::MIN_CATCHUP_MINUTES, min(self::MAX_CATCHUP_MINUTES, (int) $value));
+    }
+
+    public function catchupMinutesFor(?int $agencyId): int
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_CATCHUP_MINUTES;
+        }
+
+        try {
+            $value = AgencyDashboardSetting::withoutGlobalScopes()->where('agency_id', $agencyId)->value('alert_catchup_minutes');
+        } catch (\Throwable $e) {
+            return self::DEFAULT_CATCHUP_MINUTES;
+        }
+
+        return self::clampCatchupMinutes($value);
     }
 
     // ── State ──────────────────────────────────────────────────────────────────────────────────
