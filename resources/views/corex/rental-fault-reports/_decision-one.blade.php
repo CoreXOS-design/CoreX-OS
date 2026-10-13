@@ -1,5 +1,5 @@
 {{--
-    .ai/specs/rentals-faults-work-orders.md section 22.4 - DECISION 1: who goes to look at this fault. The agent picks from "Set for this property", "Suits <type>",
+    .ai/specs/rentals-faults-work-orders.md section 22.4 - "Who goes to look first?": who goes to look at this fault. The agent picks from "Set for this property", "Suits <type>",
     "Other contractors" or "Our own crew"; with someone picked there are exactly TWO equal buttons (the shared partials/contractor-inspect-choice):
       "Send <name> to inspect"        - only when the visit costs the owner nothing, or the owner's call-out permission covers it (else disabled, with the reason);
       "Send to owner to authorise"    - the fault goes to the owner on their link with this contractor proposed.
@@ -22,23 +22,34 @@
         look: @js($d1Notices),
         urls: { inspect: @js(route('corex.rental-fault-reports.send-to-inspect', $faultReport)), owner: @js(route('corex.rental-fault-reports.send-to-owner-to-authorise', $faultReport)) },
         async submitLook(choice) {
-            if (!this.picked || this.busy) { return; }
+            if (this.busy || (choice === 'inspect' && !this.picked)) { return; }
             const n = this.look[this.picked] || { name: 'them', text: '' };
             const crew = this.picked === 'crew';
             const f = this.$refs.look;
-            f.elements['assignment_type'].value = crew ? 'internal' : 'outside_supplier';
-            f.elements['agency_service_provider_id'].value = crew ? '' : this.picked;
+            f.elements['assignment_type'].value = this.picked ? (crew ? 'internal' : 'outside_supplier') : '';
+            f.elements['agency_service_provider_id'].value = (!this.picked || crew) ? '' : this.picked;
             f.elements['rental_crew_id'].value = crew ? this.crew : '';
+            // the press saves what the owner will see: its fields travel with it (no separate Save to hunt for)
+            f.querySelectorAll('[data-ov-clone]').forEach((e) => e.remove());
+            const ov = document.getElementById('owner-version-form');
+            if (ov) {
+                if (!ov.reportValidity()) { return; }
+                for (const el of ov.querySelectorAll('input[name], textarea[name]')) {
+                    if (el.name === '_token' || (el.type === 'checkbox' && !el.checked)) { continue; }
+                    const h = document.createElement('input'); h.type = 'hidden'; h.name = el.name; h.value = el.value; h.setAttribute('data-ov-clone', ''); f.appendChild(h);
+                }
+            }
             const msg = choice === 'inspect'
                 ? (crew ? 'The job card is made for the crew now' : n.name + ' gets the job and their private link now') + ', and the owner is told at once' + (n.text ? ' (' + n.text + ')' : '') + '. Anything they quote still has to be authorised before the work starts.'
-                : 'The owner receives this fault on their link' + (crew ? '' : ' with ' + n.name + (n.text ? ' (' + n.text + ')' : '') + ' proposed') + ', and chooses \'Send someone to look and quote\' or \'Decline\'.';
+                : 'The owner receives this fault on their link' + (!this.picked || crew ? '' : ' with ' + n.name + (n.text ? ' (' + n.text + ')' : '') + ' proposed') + ', and chooses \'Send someone to look and quote\' or \'Decline\'.';
             const ok = await window.corexConfirm({ title: choice === 'inspect' ? 'Send ' + n.name + ' to inspect?' : 'Send to the owner to authorise?', message: msg, confirmLabel: choice === 'inspect' ? 'Send ' + n.name + ' to inspect' : 'Send to owner' });
             if (!ok) { return; }
             this.busy = true; f.action = this.urls[choice]; f.submit();
         }
      }">
-    <div class="flex items-center justify-between gap-2">
-        <h2 class="text-sm font-semibold">Who goes to look first? <span class="font-normal text-xs" style="color: var(--text-muted);">&mdash; Decision 1: nothing is sent until you press a button</span></h2>
+    <div>
+        <h2 class="text-sm font-semibold">Who goes to look first?</h2>
+        <p class="text-xs" style="color: var(--text-muted);">Nothing is sent until you press a button.</p>
     </div>
 
     @if($d1First)
@@ -77,8 +88,8 @@
 
     @include('partials.contractor-inspect-choice', [
         'notices' => $d1Notices, 'model' => 'picked',
-        'buttonsDisabled' => '!picked || busy',
-        'inspectExtraDisabled' => ($inspectBlock || ! $d1CanInspect) ? 'true' : 'false',
+        'buttonsDisabled' => 'busy',
+        'inspectExtraDisabled' => '!picked || ' . (($inspectBlock || ! $d1CanInspect) ? 'true' : 'false'),
         'authoriseExtraDisabled' => (! $d1CanSend || $inspectBlock) ? 'true' : 'false',
         'inspectAttrs' => '@click="submitLook(\'inspect\')"',
         'authoriseAttrs' => '@click="submitLook(\'owner\')"',

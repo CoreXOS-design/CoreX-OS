@@ -24,18 +24,33 @@
         <div class="text-xs font-semibold pt-1" data-contractor-group="{{ $groupKey }}">{{ $groupKey === 'suits' ? 'Suits ' . ($cls['type'] ?: $cls['category']) : 'Other contractors' }}</div>
     @endif
     @foreach($groupRows as $c)
-        <label class="flex flex-wrap items-center gap-2 text-sm rounded-md px-2 py-1" style="border: 1px solid var(--border);" data-contractor-row="{{ $c['id'] }}"
+        {{-- one aligned line each: name | kind or trade | phone | call-out; a contractor with no way to reach them gets a plain amber line under it --}}
+        <label class="cx-crow rounded-md px-2 py-1 text-sm" style="border: 1px solid var(--border);" data-contractor-row="{{ $c['id'] }}"
                data-search="{{ mb_strtolower($c['name'] . ' ' . $c['trades'] . ' ' . $c['phone']) }}"
                x-show="q === '' || $el.dataset.search.indexOf(q.toLowerCase()) !== -1">
             <input type="radio" name="contractor_pick" value="{{ $c['id'] }}" x-model="picked">
-            <span class="font-medium">{{ $c['name'] }}</span>
-            @if(($c['kind'] ?? 'contractor') !== 'contractor')<span class="ds-badge ds-badge-muted" data-contractor-kind="{{ $c['kind'] }}">{{ $c['kind_label'] }}</span>@endif
-            @if($c['trades'])<span class="text-xs" style="color: var(--text-muted);">{{ $c['trades'] }}</span>@endif
-            @if($c['phone'])<span class="text-xs" style="color: var(--text-muted);">{{ $c['phone'] }}</span>@endif
-            @if(! ($c['has_contact'] ?? true))<span class="ds-badge ds-badge-danger" data-no-contact-details>no contact details</span>@endif
-            @if(isset($c['callout']))<span class="text-xs" style="color: var(--text-muted);" data-callout-suffix="{{ $c['callout_status'] }}">- {{ $c['callout'] }}</span>@endif
+            <span class="font-medium cx-crow-name">{{ $c['name'] }}</span>
+            <span class="text-xs cx-crow-trade" style="color: var(--text-muted);">@if(($c['kind'] ?? 'contractor') !== 'contractor')<span data-contractor-kind="{{ $c['kind'] }}">{{ $c['kind_label'] }}</span>@if($c['trades']) &middot; @endif @endif{{ $c['trades'] }}</span>
+            <span class="text-xs cx-crow-phone" style="color: var(--text-muted);">{{ $c['phone'] }}</span>
+            <span class="text-xs cx-crow-callout" style="color: var(--text-muted);">@if(isset($c['callout']))<span data-callout-suffix="{{ $c['callout_status'] }}">{{ $c['callout'] }}</span>@endif</span>
+            @if(! ($c['has_contact'] ?? true))<span class="cx-crow-warn" data-no-contact-details>No email or mobile on file - they cannot be sent the job</span>@endif
         </label>
     @endforeach
 @empty
     <p class="text-xs" style="color: var(--text-muted);">No contractors are set up yet. Add one under Suppliers, or use the internal crew.</p>
 @endforelse
+@once
+<style>
+    .cx-crow { display: grid; grid-template-columns: 1.25rem minmax(0, 1fr); column-gap: .5rem; row-gap: .1rem; align-items: center; cursor: pointer; }
+    .cx-crow-name { grid-column: 2; }
+    .cx-crow-trade, .cx-crow-phone, .cx-crow-callout { grid-column: 2; }
+    .cx-crow-trade:empty, .cx-crow-phone:empty, .cx-crow-callout:empty { display: none; }
+    .cx-crow-warn { grid-column: 2; font-size: 12px; padding: 2px 8px; border-radius: 6px; background: color-mix(in srgb, var(--ds-amber, #f59e0b) 16%, var(--surface)); border: 1px solid var(--ds-amber, #f59e0b); }
+    @media (min-width: 640px) {
+        .cx-crow { grid-template-columns: 1.25rem minmax(9rem, 1.4fr) minmax(7rem, 1.2fr) minmax(7rem, 1fr) minmax(7rem, 1fr); }
+        .cx-crow-name { grid-column: 2; } .cx-crow-trade { grid-column: 3; } .cx-crow-phone { grid-column: 4; } .cx-crow-callout { grid-column: 5; }
+        .cx-crow-trade:empty, .cx-crow-phone:empty, .cx-crow-callout:empty { display: block; }
+        .cx-crow-warn { grid-column: 2 / -1; }
+    }
+</style>
+@endonce
