@@ -5,6 +5,7 @@ namespace App\Models\DealV2;
 use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 /**
@@ -95,6 +96,19 @@ class AgencyServiceType extends Model
      */
     public static function seedDefaultsFor(int $agencyId): void
     {
+        // A from-scratch migrate runs the original create_agency_service_types backfill BEFORE the groups migration exists:
+        // seed the plain list then (no groups, no roles); the groups migration adds both for every agency afterwards.
+        if (! Schema::hasTable('agency_service_type_groups') || ! Schema::hasColumn('agency_service_types', 'group_id')) {
+            foreach (self::DEFAULTS as $i => $row) {
+                static::withoutGlobalScopes()->firstOrCreate(
+                    ['agency_id' => $agencyId, 'code' => $row['code']],
+                    ['label' => $row['label'], 'sort_order' => $i + 1, 'is_active' => true],
+                );
+            }
+
+            return;
+        }
+
         AgencyServiceTypeGroup::seedDefaultsFor($agencyId);
         $trades = AgencyServiceTypeGroup::tradesIdFor($agencyId);
         $sales = (int) AgencyServiceTypeGroup::withoutGlobalScopes()->where('agency_id', $agencyId)->where('code', AgencyServiceTypeGroup::CODE_PROPERTY_SALES)->value('id');
