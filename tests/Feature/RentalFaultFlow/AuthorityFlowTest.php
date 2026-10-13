@@ -590,4 +590,44 @@ final class AuthorityFlowTest extends TestCase
         $this->assertStringContainsString('No email or mobile on file - they cannot be sent the job', $html);
         $this->assertStringNotContainsString('NO CONTACT DETAILS', $html);
     }
+
+    // ── cc4's independent walk of QA1: the staff fault page said things twice ─
+
+    public function test_the_fault_page_does_not_repeat_itself_and_the_header_buttons_share_one_size(): void
+    {
+        $f = $this->fault(false, ['tenant_self_checks' => [
+            ['text' => "Your agent hasn't recorded where the main water valve is — check near the meter/boundary.", 'ticked' => true],
+            ['text' => 'Catch the water in a bucket', 'ticked' => false],
+        ]]);
+        $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $f))->assertOk()->getContent();
+
+        // the header action row: one class, one size (CSS partial included once)
+        $this->assertStringContainsString('data-header-actions', $html);
+        $this->assertSame(1, substr_count($html, '[data-header-actions] a.corex-btn-outline'));
+        // the tenant's tick is worded for the AGENT, with a link to set the missing place; never a placeholder
+        $text = html_entity_decode(strip_tags((string) preg_replace('#<(style|script).*?</\1>#si', '', $html)));
+        $this->assertStringContainsString('Main water valve location not recorded on this property', $text);
+        $this->assertStringContainsString('data-set-property-field="rental_main_water_valve_location"', $html);
+        $this->assertStringNotContainsString("Your agent hasn't recorded", $text);
+        $this->assertStringNotContainsString('{{', $text);
+
+        // sent to the owner: "waiting" is said once, the lines that repeated it are gone
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.send-to-owner-to-authorise', $f), ['owner_title' => 'Tap leaking', 'owner_description' => 'x'])->assertSessionHasNoErrors();
+        $after = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $f->fresh()))->assertOk()->getContent();
+        $this->assertStringNotContainsString('data-waiting-for-owner', $after);
+        $this->assertStringNotContainsString('Owner approval:', $after);
+        $this->assertStringContainsString('data-already-with-owner', $after);
+    }
+
+    public function test_saving_the_same_owner_version_again_does_not_write_a_second_history_line(): void
+    {
+        $f = $this->fault(false);
+        $words = ['owner_title' => 'Kitchen tap leaking', 'owner_description' => 'A tap drips.', 'owner_agent_note' => 'x', 'owner_photo_ids' => []];
+        $f->saveOwnerVersion($words, $this->agent);
+        $f->fresh()->saveOwnerVersion($words, $this->agent);   // the "Save" press, then a decision button with the same words
+        $count = $f->fresh()->updates()->where('update_type', \App\Models\RentalFaultReportUpdate::TYPE_OWNER_VERSION_SAVED)->count();
+        $this->assertSame(1, $count);
+        $f->fresh()->saveOwnerVersion(array_merge($words, ['owner_title' => 'Kitchen tap leaking badly']), $this->agent);
+        $this->assertSame(2, $f->fresh()->updates()->where('update_type', \App\Models\RentalFaultReportUpdate::TYPE_OWNER_VERSION_SAVED)->count(), 'a real change is logged');
+    }
 }

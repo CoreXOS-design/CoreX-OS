@@ -407,9 +407,9 @@ final class VariationFlowTest extends TestCase
 
         $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $this->wo))
             ->assertOk()->assertSee('Extra work (variations)')->assertSee('Awaiting owner')->assertSee('Replace the whole manifold')
-            ->assertSee('Why was this approved?')->assertSee('Variation awaiting owner');
+            ->assertSee('Approve the cost')->assertSee('Extra work waiting for the owner');
         $this->actingAs($this->admin)->get(route('corex.rental-job-cards.show', $this->card))
-            ->assertOk()->assertSee('Variation awaiting owner')->assertSee('The owner has approved this job')->assertDontSee('Re-send revised quote');
+            ->assertOk()->assertSee('Extra work waiting for the owner')->assertSee('The owner has approved this job')->assertDontSee('Re-send revised quote');
     }
 
     public function test_the_resend_revised_quote_is_refused_after_approval(): void

@@ -32,7 +32,8 @@
         @if($tpChecks)
             <ul class="mt-1 space-y-1 text-sm">
                 @foreach($tpChecks as $chk)
-                    <li data-self-check="{{ $chk['ticked'] ? 'ticked' : 'not-ticked' }}"><span aria-hidden="true">{{ $chk['ticked'] ? '☑' : '☐' }}</span> <span @if(! $chk['ticked']) style="color: var(--text-muted);" @endif>{{ $chk['text'] }}</span><span class="sr-only">{{ $chk['ticked'] ? ' - ticked' : ' - not ticked' }}</span></li>
+                    @php $tpAgent = app(\App\Services\Rentals\RentalFaultTypeService::class)->agentWording((string) $chk['text']); @endphp
+                    <li data-self-check="{{ $chk['ticked'] ? 'ticked' : 'not-ticked' }}"><span aria-hidden="true">{{ $chk['ticked'] ? '☑' : '☐' }}</span> <span @if(! $chk['ticked']) style="color: var(--text-muted);" @endif>{{ $tpAgent['text'] }}</span>@if($tpAgent['missing'] && $faultReport->property_id) <a class="underline text-xs" href="{{ route('corex.properties.show', ['property' => $faultReport->property_id, 'tab' => 'rental']) }}" data-set-property-field="{{ $tpAgent['field'] }}">Set it on the property</a>@endif<span class="sr-only">{{ $chk['ticked'] ? ' - ticked' : ' - not ticked' }}</span></li>
                 @endforeach
             </ul>
         @else

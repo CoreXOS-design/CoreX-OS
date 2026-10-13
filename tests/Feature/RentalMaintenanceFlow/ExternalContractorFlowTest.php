@@ -201,7 +201,7 @@ final class ExternalContractorFlowTest extends TestCase
             ->assertSessionHasErrors('rental_work_order');
         $this->assertSame(RentalWorkOrder::STATUS_REPORTED, $wo->fresh()->status);
         $this->assertSame([], $this->sent());
-        $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->assertSee('Work cannot start yet')->assertSee('waiting for the owner');
+        $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->assertSee('Waiting for the owner');
 
         $wo->fresh()->recordApproval($this->admin, ['decision' => 'approved', 'evidence_type' => 'email', 'evidence_text' => 'Owner accepted R4,400']);
         $this->assertSame('4400.00', $wo->fresh()->approved_amount);

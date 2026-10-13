@@ -50,6 +50,27 @@ class RentalFaultTypeService
         ],
     ];
 
+    /**
+     * How the AGENT reads one of the tenant's ticked self-check steps. The steps are written to the tenant ("Your agent hasn't recorded where the main water valve is"); the agent
+     * must never read that, nor an unfilled {{placeholder}}: a step whose place was never recorded reads "<Place> not recorded on this property" with the property field to set;
+     * a step that carries the place reads "Main water valve is at: ...".
+     *
+     * @return array{text:string, missing:?string, field:?string}
+     */
+    public function agentWording(string $text): array
+    {
+        $labels = ['{{main_water_valve_location}}' => 'Main water valve location', '{{db_board_location}}' => 'DB board location'];
+        foreach (self::TOKENS as $token => $config) {
+            $label = $labels[$token] ?? 'Location';
+            if (trim($text) === $config['fallback_sentence'] || str_contains($text, $token) || str_contains($text, $config['bare_fallback'])) {
+                return ['text' => $label . ' not recorded on this property', 'missing' => $label, 'field' => $config['property_field']];
+            }
+        }
+        $text = preg_replace('/\byour\s+(main\s+water\s+valve|db\s+board)\s+is\s+at:/i', '$1 is at:', $text);
+
+        return ['text' => ucfirst((string) $text), 'missing' => null, 'field' => null];
+    }
+
     public function renderFirstAidSteps(RentalFaultType $faultType, Property $property): string
     {
         $steps = (string) $faultType->first_aid_steps;
