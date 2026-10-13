@@ -116,7 +116,7 @@ final class GoAheadTest extends TestCase
         $wo = $this->quotedJob(1200.0);
         $this->authoriseCostOf($wo);
         $this->assertCount(1, $this->goAheads());
-        $this->assertStringContainsString('Your quote of R1 200.00', (string) $this->goAheads()[0]->goAheadText);
+        $this->assertStringContainsString('Your quote of R1,200.00', (string) $this->goAheads()[0]->goAheadText);
 
         // a small known job: no quote, the agent types the amount
         $supplier = $this->supplier('Handy Andy', 'andy@example.invalid');

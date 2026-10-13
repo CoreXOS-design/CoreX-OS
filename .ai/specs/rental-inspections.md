@@ -7890,3 +7890,15 @@ Now ONE definition of "a lease I may act on" (`RentalInspectionDueController::le
 **The party's link page before signing opens** is one line - "The agent is still recording this inspection - signing opens here by itself." - never a dead end: the page checks quietly every 15 seconds (header `X-Signing-Poll`, which is not counted as the party opening the link again) and shows the signing form the moment it opens. Existing links keep working: #108's tenant link (issued before this rule) opens for signing the moment the agent presses any sign control.
 
 **Tests.** `RentalInspectionSigningLinkTest` (11 new): link issue opens signing; blocked = nothing issued + count and rooms; panel readiness; the panel's Ready to sign is the same action; QR / device / email each open signing; blocked QR / email / device page / Email everyone; the agent's link never does; the poll is not an "open"; the same link shows the form once signing opens. Real-browser proof on QA1 on a spare lease is in the commit report.
+
+
+## Sherry walk, third batch, 13 Oct 2026 (cc1) - the inspection screens (tests in `RentalInspectionSigningLinkTest`)
+
+From cc5's walk of an incoming inspection:
+- **Blank white pills across the top of the inspection page.** The shared rental context bar painted its chips with `var(--surface-1, #fff)` - a variable that does not exist - and no text colour, so in the dark theme light text sat on white. They now use the theme's own `--surface` with `--text-primary`. The bar's **Documents (n)** chip counted the property's old attachment files; it now counts the same list as the property's Drive tab (so the signed lease shows).
+- **"Complete" looked live with a signature still outstanding.** It is grey until the signing summary says it is ready; it can still be pressed, and then the plain reason shows in the line above it ("Cannot complete: ... has neither signed nor been marked as refusing").
+- **Everything vanished after the last item was recorded.** The "Needs attention" filter is remembered per agent, so a finished inspection could open on it with nothing to show. The empty message now carries **Show every room and item**.
+- **A new rental property has no rooms.** The inspection page says so at the top, in a box, with **Add rooms and items** (to the property's Inspections tab) - not as small print at the foot. Shown only while the inspection can still be recorded and the property has no live items.
+- **Agent signing.** "Set them in My Portal first" is now a link (opens My Portal in a new tab). The PIN is the act of signing: the signature is saved the moment it unlocks; "Confirm & save signature" stays only as the retry if that save was refused.
+- **"Next inspection: Routine - Start" on the inspection itself.** The next-in-chain box is offered once this inspection is completed (or shows the existing next link), not while it is still being recorded.
+- **The agent's own email** said "ready to read" and nothing about signing; it now says the link is for reading and the agent signs inside CoreX with their own login and signing PIN.

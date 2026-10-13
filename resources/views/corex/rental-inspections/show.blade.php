@@ -64,6 +64,16 @@
 
     <x-rental-context-bar :property="$inspection->property" :lease="$inspection->lease" current="inspections" />
 
+    {{-- 13 Oct 2026 (Sherry walk): a new rental property has no rooms, so nothing can be recorded or signed. Said once, up
+         here, with the way to fix it - not as small print at the foot of the page. --}}
+    @if($inspection->property && $inspection->isRecordable() && ! \App\Models\RentalInspectionItem::query()->where('property_id', $inspection->property_id)->notRetired()->exists())
+        <div class="rounded-md p-3 text-sm flex flex-wrap items-center justify-between gap-2" data-qa="no-rooms-notice"
+             style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber) 40%, transparent); color: var(--text-primary);">
+            <span><strong>This property has no rooms yet.</strong> Add its rooms and items first - until then nothing can be recorded or signed.</span>
+            <a href="{{ route('corex.properties.show', ['property' => $inspection->property_id, 'tab' => 'inspections']) }}" class="corex-btn-primary text-xs">Add rooms and items</a>
+        </div>
+    @endif
+
     <div class="grid grid-cols-3 gap-4">
     <div class="col-span-3 lg:col-span-2 space-y-4">
 
@@ -74,7 +84,11 @@
          is never offered here since it can only ever be the first link
          (RentalInspection::startNext()'s own guard). --}}
     @permission('rental_inspections.create')
-        @if(! $inspection->nextInChain)
+        {{-- 13 Oct 2026 (Sherry walk): a chain link is "what follows THIS inspection" - offered once this one is completed,
+             not on an inspection that is still being recorded (it read as "Routine - Start" on the inspection itself). --}}
+        @if($inspection->status !== 'completed' && ! $inspection->nextInChain)
+            {{-- nothing follows an inspection that is not finished yet --}}
+        @elseif(! $inspection->nextInChain)
             <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
                 <form method="POST" action="{{ route('corex.rental-inspections.next', $inspection) }}" class="flex items-center gap-2 flex-wrap">
                     @csrf

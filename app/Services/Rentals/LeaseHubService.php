@@ -182,7 +182,7 @@ class LeaseHubService
                 // leases.md §15.8.4 #3 (Build L3c) — the agreement was changed in e-sign: the agent reviews the
                 // differences on the lease screen before approving.
                 if ($user && $this->agreementNeedsReview($lease, $user)) {
-                    return ['label' => 'Agreement changed — review before approving', 'route_name' => 'corex.leases.agreement.confirm', 'route_param' => $lease->id];
+                    return ['label' => 'Everyone has signed — check the details filled in, then approve', 'route_name' => 'corex.leases.agreement.confirm', 'route_param' => $lease->id];
                 }
                 if ($envelope && $envelope->document_id) {
                     return ['label' => 'Approve the signed agreement', 'route_name' => 'docuperfect.signatures.review', 'route_param' => $envelope->document_id];

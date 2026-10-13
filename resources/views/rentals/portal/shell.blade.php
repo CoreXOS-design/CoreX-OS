@@ -49,7 +49,7 @@
         input[type=text], input[type=email], input[type=password], input[type=number], input[type=date], textarea, select {
             width:100%; padding:11px 12px; border:1px solid var(--border); border-radius:10px; font-size:15px; font-family:inherit; background:var(--surface-2);
         }
-        .btn { display:inline-block; width:100%; text-align:center; padding:12px; border-radius:10px; border:none; font-weight:700; font-size:15px; cursor:pointer; margin-top:10px; }
+        .btn { display:inline-block; box-sizing:border-box; width:100%; text-align:center; padding:12px; border-radius:10px; border:1px solid transparent; font-weight:700; font-size:15px; cursor:pointer; margin-top:10px; }
         .btn-primary { background:var(--accent); color:#fff; }
         .btn-outline { background:transparent; border:1px solid var(--border); color:var(--text); }
         .btn-danger { background:var(--danger); color:#fff; }
@@ -528,7 +528,7 @@
                                             <p class="muted"><strong>Supplier invoices</strong></p>
                                             <template x-for="inv in (w.invoices || [])" :key="inv.id">
                                                 <div class="list-item" data-wo-invoice>
-                                                    <div class="row"><strong x-text="'Invoice ' + inv.invoice_number"></strong><span x-text="'R ' + Number(inv.amount).toFixed(2)"></span></div>
+                                                    <div class="row"><strong x-text="'Invoice ' + inv.invoice_number"></strong><span x-text="'R' + Number(inv.amount).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></span></div>
                                                     <div class="muted" x-text="[inv.supplier, inv.invoice_date].filter(Boolean).join(' · ')"></div>
                                                     <div style="display:flex; gap:14px; margin-top:6px;">
                                                         <a class="link" :href="inv.view_url" target="_blank" rel="noopener" @click="openFile($event, inv.view_url, false)">View</a>
@@ -592,12 +592,12 @@
                         <template x-for="v in variationsFor(w.id)" :key="'v'+v.id">
                             <div class="card" data-variation-card>
                                 <h2 x-text="'Extra work needs your approval'"></h2>
-                                <p class="muted">Approved so far: <strong x-text="'R ' + Number(v.baseline_amount).toFixed(2)"></strong></p>
+                                <p class="muted">Approved so far: <strong x-text="'R' + Number(v.baseline_amount).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></strong></p>
                                 <template x-for="(l, li) in v.lines" :key="li">
                                     <div class="list-item">
                                         <div class="row">
                                             <span x-text="l.description + (l.quantity ? ' x ' + l.quantity : '')"></span>
-                                            <span x-text="l.total != null ? 'R ' + Number(l.total).toFixed(2) : ''"></span>
+                                            <span x-text="l.total != null ? 'R' + Number(l.total).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : ''"></span>
                                         </div>
                                         <p class="muted" x-show="l.note" x-text="l.note"></p>
                                     </div>
@@ -608,7 +608,7 @@
                                     </template>
                                 </div>
                                 <p class="muted" x-show="v.reason" data-variation-reason x-text="v.reason"></p>
-                                <p style="margin-top:10px;">Extra work: <strong x-text="'R ' + Number(v.extra_amount).toFixed(2)"></strong> &middot; New total: <strong x-text="'R ' + Number(v.new_total).toFixed(2)"></strong></p>
+                                <p style="margin-top:10px;">Extra work: <strong x-text="'R' + Number(v.extra_amount).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></strong> &middot; New total: <strong x-text="'R' + Number(v.new_total).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})"></strong></p>
                                 <p class="muted" x-show="v.term_text" x-text="v.term_text"></p>
                                 <button class="btn btn-ok" :disabled="!!(busy['var' + v.id])" @click="decideVariation(v, 'approve')" x-text="busy['var' + v.id] ? 'Sending…' : 'Approve'"></button>
                                 <button class="btn btn-danger" :disabled="!!(busy['var' + v.id])" @click="decideVariation(v, 'decline')">Decline</button>

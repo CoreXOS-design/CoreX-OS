@@ -10,7 +10,8 @@
         <div class="rounded-md px-4 py-3 text-sm" style="background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;">{{ $errors->first() }}</div>
     @endif
 
-    <form method="POST" action="{{ route('corex.rental-fault-types.store') }}" enctype="multipart/form-data" class="space-y-4">
+    <form method="POST" action="{{ route('corex.rental-fault-types.store') }}" enctype="multipart/form-data" class="space-y-4"
+          onsubmit="if (this.dataset.sent) { return false; } this.dataset.sent = '1';">
         @csrf
         <div>
             <label class="prop-label">Name</label>

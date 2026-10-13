@@ -126,7 +126,7 @@ class RentalFaultTypeController extends Controller
 
     public function update(Request $request, RentalFaultType $rentalFaultType): RedirectResponse
     {
-        $data = $this->validated($request);
+        $data = $this->validated($request, $rentalFaultType);
         $rentalFaultType->update($data);
 
         $this->storeDocuments($request, $rentalFaultType);
@@ -173,8 +173,16 @@ class RentalFaultTypeController extends Controller
         return Storage::disk('local')->download($document->storage_path);
     }
 
-    private function validated(Request $request): array
+    private function validated(Request $request, ?RentalFaultType $editing = null): array
     {
+        // 13 Oct 2026 (Sherry walk): "Pool pump is not running" was in the tenant's list twice - one Add pressed twice in the same
+        // second. Two live entries with one name are never wanted (the agency scope applies, archived ones are not counted).
+        $name = trim((string) $request->input('name'));
+        if ($name !== '' && RentalFaultType::query()->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
+            ->when($editing, fn ($q) => $q->where('id', '!=', $editing->id))->exists()) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['name' => "A fault type called \"{$name}\" already exists - open that one to change it."]);
+        }
+
         return $request->validate([
             'name' => ['required', 'string', 'max:191'],
             'category' => ['nullable', 'string', 'max:100'],

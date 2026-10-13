@@ -26,6 +26,7 @@
                 Open it on your phone or computer, go through the rooms and photos, and when you are happy with it you can sign it right there.
             @else
                 The {{ strtolower($inspectionLabel) }} report for <strong>{{ $propertyAddress }}</strong> is ready to read.
+                This link is for reading it only - the agent signs inside CoreX, with their own login and signing PIN.
             @endif
         </p>
 

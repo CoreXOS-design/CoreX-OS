@@ -302,6 +302,20 @@ final class LeaseSigningReconcileTest extends TestCase
         $this->assertFalse($lease->fresh()->reconcileSigning(), 'nothing changed, so nothing is reported changed');
     }
 
+    public function test_the_agent_is_told_the_moment_everyone_has_signed_and_it_waits_for_their_approval_once(): void
+    {
+        [$lease, $envelope] = $this->leaseOut();
+
+        $envelope->update(['status' => SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL]);
+        $lease->fresh()->reconcileSigning();
+        $lease->fresh()->reconcileSigning();   // nothing changed the second time - no second alert
+
+        $alerts = $this->agent->fresh()->notifications()->get()->filter(fn ($n) => ($n->data['type'] ?? null) === 'lease_agreement_awaiting_approval');
+        $this->assertCount(1, $alerts);
+        $this->assertStringContainsString('waiting for your approval', $alerts->first()->data['message']);
+        $this->assertStringContainsString('/corex/leases/' . $lease->id, (string) ($alerts->first()->data['url'] ?? ''));
+    }
+
     public function test_a_completed_envelope_whose_signed_copy_is_still_being_filed_does_not_yet_activate_the_lease(): void
     {
         [$lease, $envelope] = $this->leaseOut();

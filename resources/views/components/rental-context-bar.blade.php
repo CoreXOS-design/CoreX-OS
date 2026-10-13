@@ -43,7 +43,8 @@
         $faultsCount = $lease ? $lease->faultReports()->count() : \App\Models\RentalFaultReport::where('property_id', $property->id)->where('lease_id', null)->count();
         $workOrdersCount = $lease ? $lease->workOrders()->count() : \App\Models\RentalWorkOrder::where('property_id', $property->id)->where('lease_id', null)->count();
         $inventoriesCount = $lease ? $lease->inventories()->count() : \App\Models\RentalInventory::where('property_id', $property->id)->count();
-        $documentsCount = $property->files()->count();
+        // the SAME list the property's Drive tab shows (its documents - the signed lease is one), not the old photo/attachment files
+        $documentsCount = $property->documents()->count();
         $tenantNames = $lease ? $lease->tenantNames() : 'No active tenant';
         $landlords = $lease ? $lease->landlordContacts() : $property->contactsForRole('landlord')->merge($property->contactsForRole('lessor'))->unique('id');
         $landlordNames = $landlords->isEmpty() ? 'Not linked' : $landlords->map(fn ($c) => $c->full_name)->implode(', ');
@@ -84,11 +85,11 @@
             @if($chip['route'])
                 <a href="{{ $chip['route'] }}"
                    class="rounded-full px-3 py-1 no-underline"
-                   style="{{ $isCurrent ? 'background: var(--brand-button, #0ea5e9); color: #fff;' : 'background: var(--surface-1, #fff); border: 1px solid var(--border);' }}">
+                   style="{{ $isCurrent ? 'background: var(--brand-button, #0ea5e9); color: #fff;' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);' }}">
                     {{ $chip['label'] }}{{ $chip['count'] !== null ? ' (' . $chip['count'] . ')' : '' }}
                 </a>
             @else
-                <span class="rounded-full px-3 py-1" style="background: var(--surface-1, #fff); border: 1px dashed var(--border); color: var(--text-muted);">
+                <span class="rounded-full px-3 py-1" style="background: var(--surface); border: 1px dashed var(--border); color: var(--text-muted);">
                     @if($key === 'landlord' && $landlords->isEmpty())
                         No landlord linked
                         @if($landlordLinkRoute)

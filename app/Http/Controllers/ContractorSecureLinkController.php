@@ -196,7 +196,7 @@ class ContractorSecureLinkController extends Controller
         $extra = round((float) $data['extra_amount'], 2);
         $feeAttrs = \App\Models\RentalWorkOrderQuote::feeAttributes($workOrder, $extra, false);
         $ownerFacing = isset($feeAttrs['selling_amount']) && $feeAttrs['selling_amount'] !== null ? (float) $feeAttrs['selling_amount'] : $extra;
-        $note = $this->contractorName($workOrder) . ' asks for R' . number_format($extra, 2, '.', ' ') . ' extra: ' . trim($data['reason']);
+        $note = $this->contractorName($workOrder) . ' asks for R' . number_format($extra, 2, '.', ',') . ' extra: ' . trim($data['reason']);
 
         try {
             app(\App\Services\Rentals\RentalApprovalGateService::class)->raiseContractorExtra($workOrder, $ownerFacing, $note);

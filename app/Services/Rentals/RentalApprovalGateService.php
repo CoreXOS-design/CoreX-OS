@@ -580,13 +580,14 @@ class RentalApprovalGateService
      */
     public function recordVariationDecision(RentalWorkOrderVariation $variation, string $decision, array $evidence, array $actor): void
     {
+        $answered = [];
         $approved = match (strtolower(trim($decision))) {
             'approve', 'approved' => true,
             'decline', 'declined' => false,
             default => throw new \InvalidArgumentException('The decision must be approve or decline.'),
         };
 
-        DB::transaction(function () use ($variation, $approved, $evidence, $actor) {
+        DB::transaction(function () use ($variation, $approved, $evidence, $actor, &$answered) {
             /** @var RentalWorkOrderVariation $locked */
             $locked = RentalWorkOrderVariation::withoutGlobalScopes()->lockForUpdate()->findOrFail($variation->id);
             if (! $locked->isAwaitingOwner()) {
@@ -671,7 +672,20 @@ class RentalApprovalGateService
             ]);
 
             RentalVariationDecided::dispatch($locked->refresh(), $approved ? 'approved' : 'declined', (string) $via, $user?->id);
+            $answered = [$workOrder, $locked->origin === RentalWorkOrderVariation::ORIGIN_CONTRACTOR, $approved, (float) $locked->extra_amount];
         });
+
+        // 13 Oct 2026 (Sherry walk): the contractor who asked for the extra money is told the answer (the page showed it only on their next visit)
+        if (! empty($answered) && $answered[1]) {
+            [$wo, , $wasApproved, $extra] = $answered;
+            app(RentalWorkOrderService::class)->emailContractorUpdate(
+                $wo,
+                $wasApproved ? 'Extra work approved' : 'Extra work not approved',
+                $wasApproved
+                    ? 'The owner has agreed to the extra work you asked for (' . $this->money($extra) . '). You may do it; the authorised amount for the job has gone up.'
+                    : 'The owner did not agree to the extra work you asked for (' . $this->money($extra) . '). Please do not do it - the job carries on at the amount already authorised.',
+            );
+        }
     }
 
     // ───────────────────────── authorisation to proceed ─────────────────────────

@@ -553,7 +553,7 @@ final class LeaseAgreementConfirmTest extends TestCase
         $this->print($document, ['rent_f' => '6940.00']);
 
         $step = app(LeaseHubService::class)->nextStep($lease->fresh(), $this->agent);
-        $this->assertSame('Agreement changed — review before approving', $step['label']);
+        $this->assertSame('Everyone has signed — check the details filled in, then approve', $step['label']);
         $this->assertSame('corex.leases.agreement.confirm', $step['route_name']);
 
         $card = app(LeaseSigningLauncher::class)->cardFor($lease->fresh(), $this->agent);

@@ -991,9 +991,14 @@
 
         {{-- Johan's ruling — a filter that matches nothing must say so in
              words, never render a blank panel with no explanation. --}}
-        <p class="text-xs rounded-md p-3" style="background:var(--surface-2); color:var(--text-muted);"
-           x-show="activeItems().length && filterMode !== 'all' && !hasAnyFilterMatch({{ $sectionJs }})"
-           x-text="filteredEmptyMessage()"></p>
+        {{-- 13 Oct 2026 (Sherry walk): the filter is remembered per agent, so a finished inspection could open on "Needs
+             attention" with nothing to show and look as if it had vanished - the way back is one press away. --}}
+        <div class="text-xs rounded-md p-3 flex flex-wrap items-center justify-between gap-2" style="background:var(--surface-2); color:var(--text-muted);"
+             data-qa="filter-empty"
+             x-show="activeItems().length && filterMode !== 'all' && !hasAnyFilterMatch({{ $sectionJs }})">
+            <span x-text="filteredEmptyMessage()"></span>
+            <button type="button" class="font-semibold underline" style="color:var(--text-primary);" @click="setFilterMode('all')" data-qa="filter-show-all">Show every room and item</button>
+        </div>
 
         {{-- 2026-09-21, Johan on property 5792 — same room-heading grouping
              as the Inspection Items panel above, applied here so a walkthrough
@@ -1676,7 +1681,10 @@
                         </template>
                     </div>
                     <template x-if="!agentDisposition({{ $sectionJs }}) && allRequiredPartiesDispositioned({{ $sectionJs }})">
-                        <div class="pt-2" x-data="signaturePlacer({ context: 'rental-inspection:' + currentInspection({{ $sectionJs }}).id })" x-init="init()">
+                        {{-- 13 Oct 2026 (Sherry walk): the PIN is the agent's act of signing - the signature is saved the moment it unlocks
+                         (the "Confirm & save" press below stays as the retry if that save was refused). --}}
+                    <div class="pt-2" x-data="signaturePlacer({ context: 'rental-inspection:' + currentInspection({{ $sectionJs }}).id })" x-init="init()"
+                         x-effect="if (signatureImg && !$root.dataset.autosaved) { $root.dataset.autosaved = '1'; saveAgentSignatureFor({{ $sectionJs }}, signatureImg); }">
                             <template x-if="!signatureImg">
                                 <button type="button" @click="ensureUnlocked()"
                                         class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Sign with PIN</button>
@@ -1685,7 +1693,7 @@
                                 <div class="space-y-2">
                                     <img :src="signatureImg" alt="Your saved signature" class="rounded-md" style="height:70px; background:#fff; border:1px solid var(--border); padding:4px;">
                                     <div class="flex items-center gap-2">
-                                        <button type="button" @click="signatureImg = null; unlocked = false;" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Not you? Unlock again</button>
+                                        <button type="button" @click="signatureImg = null; unlocked = false; $root.dataset.autosaved = '';" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Not you? Unlock again</button>
                                         <button type="button" @click="saveAgentSignatureFor({{ $sectionJs }}, signatureImg)" class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Confirm &amp; save signature</button>
                                     </div>
                                 </div>
@@ -1738,9 +1746,13 @@
                             </button>
                         </template>
                         <template x-if="currentInspection({{ $sectionJs }}).status === 'awaiting_signature'">
+                            {{-- 13 Oct 2026 (Sherry walk): live-looking with a signature still outstanding, and the refusal read as nothing
+                                 happening. Greyed until the signing summary says it is ready; still pressable, so the plain reason shows
+                                 in the line above ("Cannot complete: ... has neither signed nor been marked as refusing"). --}}
                             <button type="button" :disabled="hasUnresolvedDiscrepancy({{ $sectionJs }})" @click="completeInspection({{ $sectionJs }})" data-qa="complete"
+                                    :title="readyToComplete({{ $sectionJs }}) ? '' : 'Not everyone has signed yet - press to see what is still needed'"
                                     class="px-4 py-2 rounded-md text-sm font-semibold"
-                                    :style="hasUnresolvedDiscrepancy({{ $sectionJs }}) ? 'background:var(--surface-2); color:var(--text-muted);' : 'background:var(--brand-button,#0ea5e9); color:#fff;'">
+                                    :style="(hasUnresolvedDiscrepancy({{ $sectionJs }}) || !readyToComplete({{ $sectionJs }})) ? 'background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);' : 'background:var(--brand-button,#0ea5e9); color:#fff;'">
                                 Complete
                             </button>
                         </template>

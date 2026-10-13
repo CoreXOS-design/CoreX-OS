@@ -725,7 +725,7 @@ class RentalFaultReport extends Model
             return 'Your agent arranged this repair as an emergency.';
         }
 
-        return 'Your agent arranged this repair under your R' . number_format((float) $this->arranged_limit_amount, 2, '.', ' ') . ' repair limit.';
+        return 'Your agent arranged this repair under your R' . number_format((float) $this->arranged_limit_amount, 2, '.', ',') . ' repair limit.';
     }
 
     /** Section 22.3 - what the tenant ticked when they reported: [['text' => ..., 'ticked' => bool], ...]; empty when they were shown none. */

@@ -1269,4 +1269,78 @@ final class RentalInspectionSigningLinkTest extends TestCase
 
         $this->get($link->url())->assertOk()->assertDontSee('data-qa="sign-unavailable"', false)->assertSee('Sign the report');
     }
+
+    // ═══ 13 Oct 2026 (Sherry walk): the inspection screens ═══
+
+    public function test_a_property_with_no_rooms_is_said_so_at_the_top_of_the_inspection_page_with_the_way_to_fix_it(): void
+    {
+        $inspection = RentalInspection::create([
+            'agency_id' => $this->agency->id, 'lease_id' => $this->lease->id, 'type' => RentalInspection::TYPE_IN,
+            'created_by_user_id' => $this->admin->id, 'inspector_user_id' => $this->inspector->id,
+        ]);
+
+        $html = $this->get(route('corex.rental-inspections.show', $inspection))->assertOk()->getContent();
+        $this->assertStringContainsString('data-qa="no-rooms-notice"', $html);
+        $this->assertStringContainsString('This property has no rooms yet.', $html);
+        $this->assertStringContainsString('tab=inspections', $html);
+
+        RentalInspectionItem::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'kind' => RentalInspectionItem::KIND_SPACE, 'label' => 'Lounge Ceiling', 'created_by_user_id' => $this->admin->id,
+        ]);
+        $this->get(route('corex.rental-inspections.show', $inspection))->assertOk()->assertDontSee('data-qa="no-rooms-notice"', false);
+    }
+
+    public function test_next_inspection_is_offered_only_once_this_one_is_completed(): void
+    {
+        $inspection = $this->inspection(RentalInspection::TYPE_IN, readyToSign: false);
+        $this->get(route('corex.rental-inspections.show', $inspection))->assertOk()->assertDontSee('data-qa="next-type"', false);
+
+        $inspection->forceFill(['status' => RentalInspection::STATUS_COMPLETED, 'completed_at' => now()])->save();
+        $this->get(route('corex.rental-inspections.show', $inspection))->assertOk()->assertSee('data-qa="next-type"', false);
+    }
+
+    public function test_the_context_bar_pills_have_their_own_text_colour_and_the_documents_count_is_the_drive_tabs(): void
+    {
+        $inspection = $this->inspection(RentalInspection::TYPE_IN, readyToSign: false);
+        $html = $this->get(route('corex.rental-inspections.show', $inspection))->assertOk()->getContent();
+        $this->assertStringNotContainsString('surface-1', $html, 'the undefined variable that made every pill white-on-white');
+        $this->assertStringContainsString('background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);', $html);
+        $this->assertStringContainsString('Documents (0)', preg_replace('/\s+/', ' ', strip_tags($html)));
+
+        // a document on the property's Drive tab counts, whatever kind of file it is
+        $type = \App\Models\DocumentType::firstOrCreate(['slug' => 'lease_agreement'], ['label' => 'Lease Agreement', 'is_active' => true]);
+        $doc = \App\Models\Document::create([
+            'agency_id' => $this->agency->id, 'document_type_id' => $type->id, 'original_name' => 'Signed lease.pdf', 'storage_path' => 'x/lease.pdf',
+            'disk' => 'local', 'mime_type' => 'application/pdf', 'size' => 10, 'uploaded_by' => $this->admin->id,
+        ]);
+        $this->property->documents()->attach($doc->id);
+        $this->assertStringContainsString('Documents (1)', preg_replace('/\s+/', ' ', strip_tags($this->get(route('corex.rental-inspections.show', $inspection))->assertOk()->getContent())));
+    }
+
+    public function test_the_agents_own_email_says_they_sign_inside_corex(): void
+    {
+        $inspection = $this->inspection();
+        $link = $this->issue($inspection, 'agent');
+        $this->postJson(route('corex.rental-inspections.signing-links.email', [$inspection, $link]))->assertOk();
+
+        Mail::assertSent(RentalInspectionSigningLinkMail::class, function (RentalInspectionSigningLinkMail $mail) {
+            return $mail->canSign === false
+                && str_contains($mail->render(), 'the agent signs inside CoreX, with their own login and signing PIN')
+                && str_contains($mail->render(), 'READ THE REPORT');
+        });
+    }
+
+    public function test_the_recording_screen_greys_complete_until_ready_links_my_portal_and_offers_a_way_back_from_an_empty_filter(): void
+    {
+        $inspection = $this->inspection(RentalInspection::TYPE_IN, readyToSign: false);
+        $html = $this->get(route('corex.properties.show', ['property' => $this->property->id, 'tab' => 'inspections']))->assertOk()->getContent();
+
+        $this->assertStringContainsString('Not everyone has signed yet - press to see what is still needed', $html);
+        $this->assertStringContainsString('!readyToComplete(', $html);
+        $this->assertStringContainsString('data-qa="set-signature-link"', $html);
+        $this->assertStringContainsString("saveAgentSignatureFor(", $html);
+        $this->assertStringContainsString('$root.dataset.autosaved', $html);
+        $this->assertStringContainsString('data-qa="filter-show-all"', $html);
+    }
 }

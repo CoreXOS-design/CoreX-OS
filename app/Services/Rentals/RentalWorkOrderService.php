@@ -423,6 +423,13 @@ class RentalWorkOrderService
 
         $fresh = $workOrder->fresh();
         $this->notifyTenantAppointment($fresh, (bool) $previous);
+        // 13 Oct 2026 (Sherry walk): the contractor is told too - they used to find out only by opening their page
+        $this->emailContractorUpdate(
+            $fresh,
+            $previous ? 'Appointment changed' : 'Appointment set',
+            'The appointment for this job is now ' . \App\Support\AppDate::dateTime($when, $fresh->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg')) . ($note ? ' (' . $note . ')' : '') . '.',
+            $byUser,
+        );
         if ($byContact) {
             $this->notifyAgentOfOwnerAction(
                 $fresh, 'rental_work_order.owner_appointment',
@@ -433,6 +440,33 @@ class RentalWorkOrderService
         }
 
         return true;
+    }
+
+    /**
+     * 13 Oct 2026 (Sherry walk) - one short note to the contractor on the job (the supplier's first service contact, else the supplier's
+     * own email) when something about their job changes. A job with no contractor, or one who has no email, is quietly skipped: the
+     * agent already sees the change on the work order. Never throws - the change itself is already saved.
+     */
+    public function emailContractorUpdate(RentalWorkOrder $workOrder, string $heading, string $line, ?User $by = null): bool
+    {
+        try {
+            if ($workOrder->isOwnerContractor() || $workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL) {
+                return false;
+            }
+            $provider = $workOrder->supplier()->with('serviceContacts')->first();
+            $contact = $provider?->serviceContacts->first();
+            $email = $contact?->email ?: $provider?->email;
+            if (! $provider || ! $email) {
+                return false;
+            }
+            $mail = new \App\Mail\Rentals\RentalContractorUpdateMail($workOrder, (string) ($contact?->name ?: $provider->name), $heading, $line, $this->senderFor($workOrder, $by));
+
+            return $this->dispatchMail($email, $mail);
+        } catch (\Throwable $e) {
+            Log::warning('Contractor update mail failed', ['work_order' => $workOrder->id, 'error' => $e->getMessage()]);
+
+            return false;
+        }
     }
 
     /** W2 - the tenant is told when the repair appointment is set or changed (the existing tenant-notification setting). */

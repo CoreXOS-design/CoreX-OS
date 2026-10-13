@@ -33,7 +33,7 @@ class RentalGoAheadService
 
     private static function rand(float $amount): string
     {
-        return 'R' . number_format($amount, 2, '.', ' ');
+        return 'R' . number_format($amount, 2, '.', ',');   // one money format across the fault flow: R1,350.00
     }
 
     private static function cents(float $amount): int

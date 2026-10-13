@@ -163,7 +163,7 @@
         {{-- spec 22.17 - the cost is authorised: everything the contractor needs to finish the job is on this page --}}
         <div class="card" data-go-ahead style="border:2px solid var(--ok);">
             <h2 style="color:var(--ok);">You may go ahead</h2>
-            <p>The owner has authorised the cost{!! $authorisedAmount !== null ? ': <strong>R' . e(number_format($authorisedAmount, 2, '.', ' ')) . '</strong>' : '' !!}.
+            <p>The owner has authorised the cost{!! $authorisedAmount !== null ? ': <strong>R' . e(number_format($authorisedAmount, 2, '.', ',')) . '</strong>' : '' !!}.
                 Any work that would take the cost above that must first be authorised by the owner - use &ldquo;Ask for extra money&rdquo; below and wait for the answer.</p>
         </div>
 

@@ -654,7 +654,7 @@
                         <x-date-time-field name="appointment_at" id="wo-appointment-at" class="mt-1" :value="old('appointment_at', $apptValue)" />
                     </div>
                     <div>
-                        <label class="text-xs font-medium">Note for the tenant (optional)</label>
+                        <label class="text-xs font-medium">Note for the tenant (optional) <span class="font-normal" style="color: var(--text-muted);">- the owner and the contractor can read it too</span></label>
                         <input type="text" name="appointment_note" maxlength="500" value="{{ old('appointment_note', $workOrder->appointment_note) }}" placeholder="e.g. the plumber will call 30 minutes before" class="w-full cx-dt-ctl mt-1">
                     </div>
                     <div><button type="submit" class="corex-btn-primary text-xs" style="height:38px; margin-top:4px;">{{ $workOrder->appointment_at ? 'Change appointment' : 'Set appointment' }}</button></div>

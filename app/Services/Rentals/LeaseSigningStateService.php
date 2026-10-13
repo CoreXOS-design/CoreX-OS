@@ -160,7 +160,43 @@ class LeaseSigningStateService
 
         $lease->update(['signing_status' => $target]);
 
+        if ($target === Lease::SIGNING_AWAITING_AGENT_REVIEW) {
+            $this->tellAgentWaitingForApproval($lease);
+        }
+
         return true;
+    }
+
+    /**
+     * 13 Oct 2026 (Sherry walk): the last signature lands and the agreement waits for the agent's approval - and the agent was
+     * never told (the parties are promised the signed copy, so the lease just sat). The agent who sent it gets the in-app alert
+     * the other outcomes already use (their own notification settings decide how it reaches them; no mail - the screen they
+     * land on says what to do). Best effort: the signing is already done.
+     */
+    private function tellAgentWaitingForApproval(Lease $lease): void
+    {
+        try {
+            $envelope = $lease->signature_template_id ? SignatureTemplate::withoutGlobalScopes()->find($lease->signature_template_id) : null;
+            $agent = $envelope?->created_by ? User::withoutGlobalScopes()->find($envelope->created_by) : null;
+            if (! $envelope || ! $agent) {
+                return;
+            }
+
+            $address = $lease->property?->buildDisplayAddress() ?: ('Property #' . $lease->property_id);
+            app(NotificationDispatcher::class)->send(
+                $agent, 'lease.agreement_signing_outcome', $envelope,
+                new SignatureActivityNotification(
+                    type: 'lease_agreement_awaiting_approval',
+                    message: "Everyone has signed the lease agreement for {$address} - it is waiting for your approval before the signed copy goes out",
+                    url: route('corex.leases.show', $lease->id),
+                    documentId: $envelope->document_id,
+                    metadata: ['lease_id' => $lease->id],
+                ),
+                ['threshold_hit_at' => now()],
+            );
+        } catch (\Throwable $e) {
+            Log::warning('Lease signing: could not tell the agent it is waiting for approval', ['lease_id' => $lease->id, 'error' => $e->getMessage()]);
+        }
     }
 
     // ── Signed and approved ──────────────────────────────────────────────────────────────────
