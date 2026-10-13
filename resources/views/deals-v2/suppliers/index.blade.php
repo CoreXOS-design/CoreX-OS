@@ -9,7 +9,18 @@
 @php($rf = $returnFault ?? null)
 @php($openAdd = $rf && $rf['mode'] === 'add' && ! session('success'))
 @php($preTick = $rf && $rf['mode'] === 'add' && $rf['trade_code'] ? [$rf['trade_code']] : [])
-<div class="w-full space-y-5" x-data="{ showAdd: {{ $openAdd ? 'true' : 'false' }} }">
+{{-- rentals-faults-work-orders.md section 20.8 - one line per supplier; Open expands that row's details in place (one at a time).
+     A save / validation error reloads the page, so the open row is remembered in the browser for that one reload. --}}
+@php($openInitial = (int) request()->query('open', 0) ?: (int) ($rf['provider'] ?? 0))
+<div class="w-full space-y-5" data-suppliers-page x-data="{
+        showAdd: {{ $openAdd ? 'true' : 'false' }},
+        openId: {{ $openInitial }},
+        remember(id) { try { sessionStorage.setItem('sd-open', String(id)); } catch (e) {} },
+        init() {
+            try { const s = sessionStorage.getItem('sd-open'); if (s) { this.openId = parseInt(s, 10) || 0; sessionStorage.removeItem('sd-open'); } } catch (e) {}
+            if (this.openId) { this.$nextTick(() => { const r = document.getElementById('provider-' + this.openId); if (r) { r.scrollIntoView({ block: 'center' }); } }); }
+        }
+     }">
 
     @if($rf)
         <div class="rounded-md px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, var(--surface)); border: 1px solid var(--ds-amber, #f59e0b); color: var(--text-primary);" data-return-to-fault>
@@ -38,8 +49,7 @@
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Supplier Directory</h1>
                 <p class="text-xs" style="color: var(--text-muted);">
-                    Reusable service providers (electrician for the COC, entomologist, attorneys, bond originator…).
-                    Pick them on a deal, or add "the one we always use" once here for reuse.
+                    Service providers and contractors used on deals and rentals.
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
@@ -82,6 +92,7 @@
     @php($filtered = $fl['q'] !== '' || $fl['status'] !== 'all' || $fl['callout'] !== 'any' || ($fl['kind'] ?? '') !== '')
     <form method="GET" action="{{ route('deals-v2.suppliers.index') }}" class="rounded-md p-4 flex flex-wrap items-end gap-3" style="background: var(--surface); border: 1px solid var(--border);" data-supplier-filters>
         @if($fl['sort'])<input type="hidden" name="sort" value="{{ $fl['sort'] }}"><input type="hidden" name="dir" value="{{ $fl['dir'] }}">@endif
+        @if(request()->query('nav') === 'rentals')<input type="hidden" name="nav" value="rentals">@endif
         @if($rf)<input type="hidden" name="fault" value="{{ request('fault') }}"><input type="hidden" name="mode" value="{{ request('mode') }}">@endif
         <div class="grow" style="min-width: 14rem;">
             <label for="sd-q" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
@@ -114,69 +125,44 @@
         </div>
         <div class="flex items-center gap-2">
             <button type="submit" class="corex-btn-primary text-xs" style="min-width: 6rem;">Search</button>
-            <a href="{{ route('deals-v2.suppliers.index', $rf ? ['fault' => request('fault'), 'mode' => request('mode')] : []) }}" class="corex-btn-outline text-xs inline-flex items-center justify-center" style="min-width: 6rem;">Clear</a>
+            <a href="{{ route('deals-v2.suppliers.index', ($rf ? ['fault' => request('fault'), 'mode' => request('mode')] : []) + (request()->query('nav') === 'rentals' ? ['nav' => 'rentals'] : [])) }}" class="corex-btn-outline text-xs inline-flex items-center justify-center" style="min-width: 6rem;">Clear</a>
         </div>
     </form>
 
-    {{-- Directory table (§3.7) --}}
+    {{-- Directory table (§3.7) - ONE line per supplier (section 20.8) --}}
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="overflow-x-auto">
-            <table class="min-w-full text-sm ds-table">
+            <table class="min-w-full text-sm ds-table" data-supplier-table>
                 <thead>
                     <tr style="background: var(--surface-2);">
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);"><a href="{{ $sortUrl('name') }}" class="no-underline" data-sort="name">Name{{ $arrow('name') }}</a></th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);"><a href="{{ $sortUrl('kind') }}" class="no-underline" data-sort="kind">Kind{{ $arrow('kind') }}</a></th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);"><a href="{{ $sortUrl('specialty') }}" class="no-underline" data-sort="specialty">Specialty{{ $arrow('specialty') }}</a></th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Contact</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden md:table-cell" style="color: var(--text-muted);"><a href="{{ $sortUrl('kind') }}" class="no-underline" data-sort="kind">Kind{{ $arrow('kind') }}</a></th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden md:table-cell" style="color: var(--text-muted);"><a href="{{ $sortUrl('specialty') }}" class="no-underline" data-sort="specialty">Specialty{{ $arrow('specialty') }}</a></th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden md:table-cell" style="color: var(--text-muted);">Contact</th>
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);"><a href="{{ $sortUrl('callout') }}" class="no-underline" data-sort="callout">Call-out{{ $arrow('callout') }}</a></th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);"><a href="{{ $sortUrl('status') }}" class="no-underline" data-sort="status">Status{{ $arrow('status') }}</a></th>
-                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actions</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden md:table-cell" style="color: var(--text-muted);"><a href="{{ $sortUrl('status') }}" class="no-underline" data-sort="status">Status{{ $arrow('status') }}</a></th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);"><span class="sr-only">Actions</span></th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse($providers as $p)
-                        <tr id="provider-{{ $p->id }}" style="{{ $p->is_active ? '' : 'opacity:0.55;' }}{{ ($rf['provider'] ?? null) === $p->id ? ' outline:2px solid var(--ds-amber, #f59e0b);' : '' }}">
+                        @php($mainContact = $p->serviceContacts->firstWhere('is_active', true))
+                        @php($mainName = $mainContact ? ($mainContact->attorney_name ?: $mainContact->contact_person) : null)
+                        @php($kindLabel = \App\Models\DealV2\AgencyServiceProvider::kindLabel($p->kind))
+                        @php($specialtyLabel = ucwords(str_replace('_', ' ', $p->specialty)))
+                        @php($contactLine2 = collect([$mainName ? $p->email : null, $p->phone])->filter()->implode(' · '))
+                        <tr id="provider-{{ $p->id }}" data-supplier-row="{{ $p->id }}" style="{{ $p->is_active ? '' : 'opacity:0.55;' }}{{ ($rf['provider'] ?? null) === $p->id ? ' outline:2px solid var(--ds-amber, #f59e0b);' : '' }}">
                             <td class="px-4 py-3">
                                 <span class="font-medium" style="color: var(--text-primary);">{{ $p->name }}</span>
                                 @if($p->is_preferred)<span class="ds-badge ds-badge-success ml-2">Preferred</span>@endif
                                 @if($p->company)<div class="text-[11px]" style="color: var(--text-muted);">{{ $p->company }}</div>@endif
-                                @if($p->address)<div class="text-[11px]" style="color: var(--text-muted);">{{ $p->address }}</div>@endif
-                                {{-- AT-319 — the supplier's service types (labels; falls back to the stored code if archived). --}}
-                                @if($p->serviceTypes->isNotEmpty())
-                                    <div class="mt-1 flex flex-wrap gap-1">
-                                        @foreach($p->serviceTypes as $st)
-                                            <span class="ds-badge ds-badge-default text-[10px]">{{ $typeLabels[$st->service_type] ?? $st->service_type }}</span>
-                                        @endforeach
-                                    </div>
-                                @endif
+                                {{-- phone width: the columns that fold away show as one small line under the name --}}
+                                <div class="md:hidden text-[11px]" style="color: var(--text-muted);">{{ $kindLabel }} &middot; {{ $specialtyLabel }}@unless($p->is_active) &middot; Inactive @endunless</div>
                             </td>
-                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);" data-supplier-kind="{{ $p->kind }}">
-                                @if($p->is_active)
-                                    <span x-data="{
-                                            kind: {{ \Illuminate\Support\Js::from($p->kind ?: 'contractor') }}, saving: false, saved: false, err: false,
-                                            async persist() {
-                                                this.saving = true; this.saved = false; this.err = false;
-                                                try {
-                                                    const r = await fetch('{{ route('deals-v2.suppliers.kind', $p) }}', {method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'}, credentials:'same-origin', body: JSON.stringify({kind: this.kind})});
-                                                    const j = await r.json();
-                                                    if (r.ok && j.ok) { this.saved = true; setTimeout(() => { this.saved = false; }, 1600); } else { this.err = true; }
-                                                } catch (e) { this.err = true; }
-                                                this.saving = false;
-                                            }
-                                         }">
-                                        <select x-model="kind" @change="persist()" aria-label="Kind of supplier for {{ $p->name }}" class="rounded-md px-2 py-1 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                                            @foreach(($kinds ?? \App\Models\DealV2\AgencyServiceProvider::KINDS) as $kk => $kl)<option value="{{ $kk }}">{{ $kl }}</option>@endforeach
-                                        </select>
-                                        <span x-show="saved" x-cloak class="text-[10px]" style="color:#059669;">&#10003; saved</span>
-                                        <span x-show="err" x-cloak class="text-[10px]" style="color:#b45309;">save failed</span>
-                                    </span>
-                                @else
-                                    {{ \App\Models\DealV2\AgencyServiceProvider::kindLabel($p->kind) }}
-                                @endif
-                            </td>
-                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ ucwords(str_replace('_', ' ', $p->specialty)) }}</td>
-                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">
-                                {{ $p->email ?: '—' }}@if($p->phone)<div class="text-[11px]" style="color: var(--text-muted);">{{ $p->phone }}</div>@endif
+                            <td class="px-4 py-3 text-xs hidden md:table-cell" style="color: var(--text-secondary);" data-supplier-kind="{{ $p->kind }}">{{ $kindLabel }}</td>
+                            <td class="px-4 py-3 text-xs hidden md:table-cell" style="color: var(--text-secondary);">{{ $specialtyLabel }}</td>
+                            <td class="px-4 py-3 text-xs hidden md:table-cell" style="color: var(--text-secondary);" data-supplier-contact>
+                                {{ $mainName ?: ($p->email ?: '—') }}@if($contactLine2)<div class="text-[11px]" style="color: var(--text-muted);">{{ $contactLine2 }}</div>@endif
                             </td>
                             <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);" data-callout-cell="{{ $p->calloutFeeStatus() }}">
                                 @if($p->calloutFeeStatus() === 'yes')
@@ -188,34 +174,49 @@
                                     <span style="color: var(--text-muted);">Not known</span>
                                 @endif
                             </td>
-                            <td class="px-4 py-3">
+                            <td class="px-4 py-3 hidden md:table-cell">
                                 <span class="ds-badge {{ $p->is_active ? 'ds-badge-info' : 'ds-badge-default' }}">{{ $p->is_active ? 'Active' : 'Inactive' }}</span>
                             </td>
                             <td class="px-4 py-3 text-right whitespace-nowrap">
-                                @if($p->is_active && !$p->is_preferred)
-                                    <form method="POST" action="{{ route('deals-v2.suppliers.preferred', $p) }}" class="inline">
-                                        @csrf<button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--brand-icon);">Set preferred</button>
-                                    </form>
-                                @endif
-                                @unless($p->is_active)
-                                    <form method="POST" action="{{ route('deals-v2.suppliers.activate', $p) }}" class="inline">
-                                        @csrf<button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--brand-icon);" data-restore-supplier>Restore</button>
-                                    </form>
-                                @endunless
                                 @if($p->is_active)
-                                    <form method="POST" action="{{ route('deals-v2.suppliers.deactivate', $p) }}" class="inline ml-3"
-                                          onsubmit="return confirm('Deactivate {{ $p->name }}? Historic deals keep resolving; only new pickers hide it.');">
-                                        @csrf<button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--ds-crimson);">Deactivate</button>
+                                    <button type="button" @click="openId = (openId === {{ $p->id }}) ? 0 : {{ $p->id }}" class="corex-btn-outline text-xs justify-center" style="min-width: 6rem;"
+                                            :aria-expanded="openId === {{ $p->id }} ? 'true' : 'false'" aria-controls="provider-{{ $p->id }}-details" data-open-supplier>
+                                        <span x-text="openId === {{ $p->id }} ? 'Close' : 'Open'">Open</span>
+                                    </button>
+                                @else
+                                    <form method="POST" action="{{ route('deals-v2.suppliers.activate', $p) }}" class="inline">
+                                        @csrf<button type="submit" class="corex-btn-outline text-xs justify-center" style="min-width: 6rem;" data-restore-supplier>Restore</button>
                                     </form>
                                 @endif
                             </td>
                         </tr>
 
-                        {{-- (DR2 respec) A firm holds MULTIPLE contact persons (attorney + working
-                             contact). List them + add/remove inline. Soft-delete keeps history. --}}
+                        {{-- Details: opened in place by the Open button (DR2 respec: a firm holds MULTIPLE contact persons - list + add/remove inline; soft-delete keeps history). --}}
                         @if($p->is_active)
-                        <tr style="background: var(--surface-2);">
+                        <tr id="provider-{{ $p->id }}-details" x-show="openId === {{ $p->id }}" x-cloak style="background: var(--surface-2);" @submit="remember({{ $p->id }})" data-supplier-details="{{ $p->id }}">
                             <td colspan="7" class="px-4 py-3">
+                                {{-- section 21.1 - the kind, changed here (persist-on-change, same route as before) --}}
+                                <div class="mb-4" x-data="{
+                                        kind: {{ \Illuminate\Support\Js::from($p->kind ?: 'contractor') }}, saving: false, saved: false, err: false,
+                                        async persist() {
+                                            this.saving = true; this.saved = false; this.err = false;
+                                            try {
+                                                const r = await fetch('{{ route('deals-v2.suppliers.kind', $p) }}', {method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'}, credentials:'same-origin', body: JSON.stringify({kind: this.kind})});
+                                                const j = await r.json();
+                                                if (r.ok && j.ok) { this.saved = true; setTimeout(() => { this.saved = false; }, 1600); } else { this.err = true; }
+                                            } catch (e) { this.err = true; }
+                                            this.saving = false;
+                                        }
+                                     }">
+                                    <label for="sd-kind-{{ $p->id }}" class="text-[11px] font-semibold uppercase tracking-wider mb-1 flex items-center gap-2" style="color: var(--text-muted);">
+                                        <span>Kind</span>
+                                        <span x-show="saved" x-cloak class="text-[10px] normal-case" style="color:#059669;">&#10003; saved</span>
+                                        <span x-show="err" x-cloak class="text-[10px] normal-case" style="color:#b45309;">save failed &mdash; retry</span>
+                                    </label>
+                                    <select id="sd-kind-{{ $p->id }}" x-model="kind" @change="persist()" aria-label="Kind of supplier for {{ $p->name }}" data-supplier-kind-select class="rounded-md px-2 py-1 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                        @foreach(($kinds ?? \App\Models\DealV2\AgencyServiceProvider::KINDS) as $kk => $kl)<option value="{{ $kk }}">{{ $kl }}</option>@endforeach
+                                    </select>
+                                </div>
                                 {{-- AT-364 — attorney capabilities (Transfer / Bond). A firm like BBB does BOTH,
                                      so both may be ticked; the transfer-attorney and bond-attorney pickers each
                                      surface the firms that carry the matching capability. Shown only for attorney
@@ -390,6 +391,19 @@
                                     <input type="text" name="phone" placeholder="Phone" class="text-xs rounded-md px-2 py-1" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                                     <button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--brand-icon);">+ Add contact</button>
                                 </form>
+
+                                {{-- section 20.8 - equal-sized buttons; Deactivate asks first and never deletes --}}
+                                <div class="mt-4 pt-3 flex flex-wrap items-center gap-2" style="border-top: 1px solid var(--border);" data-supplier-actions>
+                                    @unless($p->is_preferred)
+                                        <form method="POST" action="{{ route('deals-v2.suppliers.preferred', $p) }}" class="inline">
+                                            @csrf<button type="submit" class="corex-btn-outline text-xs justify-center" style="min-width: 9rem;" data-set-preferred>Set preferred</button>
+                                        </form>
+                                    @endunless
+                                    <form method="POST" action="{{ route('deals-v2.suppliers.deactivate', $p) }}" class="inline"
+                                          data-confirm="Deactivate {{ $p->name }}? Historic deals keep resolving; only new pickers hide it." data-confirm-title="Deactivate supplier" data-confirm-label="Deactivate" data-confirm-danger>
+                                        @csrf<button type="submit" class="corex-btn-outline text-xs justify-center" style="min-width: 9rem; color: var(--ds-crimson); border-color: var(--ds-crimson);" data-deactivate-supplier>Deactivate</button>
+                                    </form>
+                                </div>
                             </td>
                         </tr>
                         @endif
