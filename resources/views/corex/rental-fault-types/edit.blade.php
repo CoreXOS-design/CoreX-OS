@@ -48,6 +48,8 @@
         </div>
     </form>
 
+    @include('corex.rental-fault-types._causes-panel')
+
     <div class="pt-4 border-t space-y-3" style="border-color: var(--border);">
         <h2 class="text-sm font-semibold">Documents</h2>
 

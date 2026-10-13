@@ -21,6 +21,8 @@
             &middot; {{ ucfirst(str_replace('_', ' ', $faultReport->reported_channel)) }}
             &middot; {{ ($faultReport->reported_at ?? $faultReport->created_at)?->copy()->setTimezone($tpTz)->format('j M Y H:i') }}
             &middot; Tenancy: {{ $faultReport->lease?->tenantNames() ?? 'None - vacancy period' }}
+            @if($faultReport->inspectionItem?->label) &middot; Item: {{ $faultReport->inspectionItem->label }}@endif
+            @if($faultReport->capturedByUser) &middot; Captured by {{ $faultReport->capturedByUser->name }}@endif
             @if($faultReport->photos->isNotEmpty()) &middot; {{ $faultReport->photos->count() }} photo{{ $faultReport->photos->count() === 1 ? '' : 's' }} (right-hand side)@endif
         </p>
     </section>
@@ -34,7 +36,7 @@
                 @endforeach
             </ul>
         @else
-            <p class="text-xs mt-1" style="color: var(--text-muted);">{{ $tpTenant ? 'The tenant was shown no self-checks for this type of fault (or reported before they existed).' : 'Not a tenant report, so there are no self-checks.' }}</p>
+            <p class="text-xs mt-1" style="color: var(--text-muted);">{{ $tpTenant ? 'No self-checks were shown for this fault.' : 'Not a tenant report, so there are no self-checks.' }}</p>
         @endif
     </section>
 

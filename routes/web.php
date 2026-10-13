@@ -58,6 +58,10 @@ Route::post('/buyer/portal/{token}/respond', [\App\Http\Controllers\BuyerPortalC
 Route::match(['get', 'post'], '/owner/fault-settings/{property}/{contact}/dispute', [\App\Http\Controllers\RentalFaultSettingsDisputeController::class, 'handle'])
     ->middleware(['signed', 'throttle:20,1'])->whereNumber(['property', 'contact'])->name('rentals.fault-settings.dispute');
 
+// ── "Stop this" / "Query this" (public, SIGNED link in the owner's email) - rentals-faults-work-orders.md section 22.7. GET only asks; the POST (the owner's own press) records.
+Route::match(['get', 'post'], '/owner/job/{kind}/{id}/{contact}/{action}', [\App\Http\Controllers\RentalOwnerNoticeController::class, 'handle'])
+    ->middleware(['signed', 'throttle:20,1'])->whereNumber(['id', 'contact'])->whereIn('kind', ['fault', 'work-order'])->whereIn('action', ['stop', 'query'])->name('rentals.owner-notice');
+
 // ── Contractor Secure Link (public, no auth) — AT-445, .ai/specs/rental-portal-access.md §4/§9 ──
 Route::prefix('secure/work-orders/{token}')->middleware('throttle:30,1')->group(function () {
     Route::get('/', [\App\Http\Controllers\ContractorSecureLinkController::class, 'show'])->name('rentals.secure-link.show');
@@ -4187,6 +4191,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_fault_types.create')->name('corex.rental-fault-types.restore');
         Route::post('/{rentalFaultType}/documents', [\App\Http\Controllers\CoreX\RentalFaultTypeController::class, 'storeDocument'])
             ->middleware('permission:rental_fault_types.create')->name('corex.rental-fault-types.documents.store');
+        // rentals-faults-work-orders.md section 22.13.5 - "Who normally pays": a fault type's self-checks and causes, each with a default payer.
+        $causeCtl = \App\Http\Controllers\CoreX\RentalFaultTypeCauseController::class;
+        Route::post('/{rentalFaultType}/causes', [$causeCtl, 'store'])->middleware('permission:rental_fault_types.create')->name('corex.rental-fault-types.causes.store');
+        Route::put('/{rentalFaultType}/causes/{cause}', [$causeCtl, 'update'])->whereNumber('cause')->middleware('permission:rental_fault_types.create')->name('corex.rental-fault-types.causes.update');
+        Route::post('/{rentalFaultType}/causes/{cause}/archive', [$causeCtl, 'archive'])->whereNumber('cause')->middleware('permission:rental_fault_types.create')->name('corex.rental-fault-types.causes.archive');
+        Route::post('/{rentalFaultType}/causes/{cause}/restore', [$causeCtl, 'restore'])->whereNumber('cause')->middleware('permission:rental_fault_types.create')->name('corex.rental-fault-types.causes.restore');
         Route::delete('/{rentalFaultType}/documents/{document}', [\App\Http\Controllers\CoreX\RentalFaultTypeController::class, 'destroyDocument'])
             ->middleware('permission:rental_fault_types.create')->name('corex.rental-fault-types.documents.destroy');
         Route::get('/{rentalFaultType}/documents/{document}/download', [\App\Http\Controllers\CoreX\RentalFaultTypeController::class, 'downloadDocument'])
@@ -4230,6 +4240,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_fault_reports.send_to_owner')->name('corex.rental-fault-reports.send-to-owner-to-authorise');
         Route::post('/{rentalFaultReport}/owner-decision', [\App\Http\Controllers\CoreX\RentalFaultAuthorityController::class, 'recordOwnerDecision'])
             ->middleware('permission:rental_fault_reports.record_approval')->name('corex.rental-fault-reports.owner-decision.store');
+        // Section 22.7 (stage 3): Resume = a fresh authority (the same popup as "Record the owner's decision"); answer the owner's "Query this" question.
+        Route::post('/{rentalFaultReport}/resume', [\App\Http\Controllers\CoreX\RentalFaultAuthorityController::class, 'resume'])
+            ->middleware('permission:rental_fault_reports.record_approval')->name('corex.rental-fault-reports.resume');
+        Route::post('/{rentalFaultReport}/owner-questions/{query}/answer', [\App\Http\Controllers\CoreX\RentalFaultAuthorityController::class, 'answerQuery'])
+            ->middleware('permission:rental_fault_reports.send_to_owner')->whereNumber('query')->name('corex.rental-fault-reports.owner-query.answer');
         Route::post('/{rentalFaultReport}/tenant-confirmation', [\App\Http\Controllers\CoreX\RentalFaultAuthorityController::class, 'confirmWithTenant'])
             ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.tenant-confirmation');
         Route::post('/{rentalFaultReport}/repair-anyway', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'repairAnyway'])
@@ -4314,6 +4329,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.start-progress');
         Route::post('/{rentalWorkOrder}/complete', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'complete'])
             ->middleware('permission:rental_work_orders.complete')->name('corex.rental-work-orders.complete');
+        // rentals-faults-work-orders.md section 22.13 - "Who pays": record what was found + the cause, make the (logged) ruling, open its evidence.
+        Route::post('/{rentalWorkOrder}/who-pays/findings', [\App\Http\Controllers\CoreX\RentalWhoPaysController::class, 'findings'])
+            ->middleware('permission:rental_work_orders.manage_completion')->name('corex.rental-work-orders.who-pays.findings');
+        Route::post('/{rentalWorkOrder}/who-pays/rule', [\App\Http\Controllers\CoreX\RentalWhoPaysController::class, 'rule'])
+            ->middleware('permission:rental_work_orders.manage_completion')->name('corex.rental-work-orders.who-pays.rule');
+        Route::get('/{rentalWorkOrder}/who-pays/{ruling}/evidence', [\App\Http\Controllers\CoreX\RentalWhoPaysController::class, 'evidence'])->whereNumber('ruling')
+            ->middleware('permission:rental_work_orders.view')->name('corex.rental-work-orders.who-pays.evidence');
         Route::post('/{rentalWorkOrder}/appointment', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'setAppointment'])
             ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.appointment.store');
         Route::put('/{rentalWorkOrder}/owner-contractor', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'updateOwnerContractor'])

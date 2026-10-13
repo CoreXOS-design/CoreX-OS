@@ -152,6 +152,18 @@ class ContractorSecureLinkController extends Controller
             return view('rentals.secure-link.unavailable');
         }
 
+        // spec section 22.13.2 - a job that came from a fault is not done until the contractor says what was found and what caused it
+        $who = app(\App\Services\Rentals\RentalWhoPaysService::class);
+        if ($who->isFaultJob($record->workOrder)) {
+            $data = $request->validate(['found_text' => ['nullable', 'string', 'max:2000'], 'cause_id' => ['nullable', 'integer'], 'cause_note' => ['nullable', 'string', 'max:500']]);
+            try {
+                $who->recordFindings($record->workOrder, $data['found_text'] ?? null, ($data['cause_id'] ?? null) ? (int) $data['cause_id'] : null, $data['cause_note'] ?? null,
+                    ($record->workOrder->supplier?->name ?: $record->workOrder->contractor_name ?: 'The contractor') . ' (contractor link)');
+            } catch (\InvalidArgumentException $e) {
+                return back()->withErrors(['work_order' => $e->getMessage()])->withInput();
+            }
+        }
+
         try {
             $record->workOrder->complete(null, [
                 'paid_by' => RentalWorkOrder::PAID_BY_NOT_YET_PAID,

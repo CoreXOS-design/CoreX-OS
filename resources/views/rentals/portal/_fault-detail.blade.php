@@ -57,7 +57,6 @@
                 <p style="margin:0 0 6px;" x-show="faultDetail.arranged.amount !== null && faultDetail.arranged.amount !== undefined" data-arranged-amount><strong x-text="(faultDetail.arranged.final_cost !== null ? 'Quoted / approved: ' : 'Quoted / approved: ') + 'R ' + Number(faultDetail.arranged.amount || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})"></strong></p>
                 <p style="margin:0 0 6px;" x-show="faultDetail.arranged.final_cost !== null" data-arranged-final><strong x-text="'Final cost: R ' + Number(faultDetail.arranged.final_cost || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})"></strong></p>
                 <p class="error" style="margin:0 0 6px;" x-show="faultDetail.arranged.needs_owner_approval" data-arranged-over-limit>This has gone over your no-approval limit, so it needs your approval before the work goes ahead &mdash; open the work order below.</p>
-                @include('rentals.portal._query-this', ['queries' => 'faultDetail.arranged.queries'])
             </section>
         </template>
 
@@ -67,9 +66,13 @@
                 <h3 x-text="faultDetail.authorisation.title"></h3>
                 <p style="margin:0 0 6px;" data-authorisation-sentence x-text="faultDetail.authorisation.sentence"></p>
                 <p class="muted" style="margin:0 0 6px;" x-show="faultDetail.authorisation.note" data-authorisation-note x-text="'What your agent wrote down: &quot;' + faultDetail.authorisation.note + '&quot;'"></p>
-                @include('rentals.portal._query-this', ['queries' => 'faultDetail.authorisation.queries'])
             </section>
         </template>
+
+        {{-- section 22.7 - Stop this / Query this for every agent-made notice above (shown once) --}}
+        @include('rentals.portal._owner-notice-actions')
+        {{-- section 22.13.4 - who pays for this repair (a record; nothing has been charged) --}}
+        <section class="sec" data-fault-section="who-pays" x-show="faultDetail.payer_ruling">@include('rentals.portal._who-pays', ['p' => 'faultDetail.payer_ruling'])</section>
 
         {{-- 1. Progress (and, once a work order exists, where the repair stands) --}}
         <template x-if="!faultDetail.self_resolved && (faultDetail.progress || faultDetail.work_order)">

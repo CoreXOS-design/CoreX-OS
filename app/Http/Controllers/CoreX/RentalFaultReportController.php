@@ -456,10 +456,14 @@ class RentalFaultReportController extends Controller
             'inspectNotices' => app(\App\Services\Rentals\FaultInspectionService::class)->noticeMapFor(
                 $rentalFaultReport, app(\App\Services\Rentals\RentalFaultContractorService::class)->pickerFor($rentalFaultReport)
             ),
-            'inspectBlock' => app(\App\Services\Rentals\FaultInspectionService::class)->blockReason($rentalFaultReport),
+            'inspectBlock' => app(\App\Services\Rentals\FaultInspectionService::class)->blockReason($rentalFaultReport, true),
             'authorisations' => app(\App\Services\Rentals\RentalAuthorisationService::class)->rowsFor($rentalFaultReport),
             'authorityOwners' => app(\App\Services\Rentals\RentalAuthorisationService::class)->ownersFor($rentalFaultReport),
             'recordBlock' => app(\App\Services\Rentals\RentalAuthorisationService::class)->recordBlockReason($rentalFaultReport),
+            // section 22.7 - PAUSED BY OWNER, every stop / resume so far, and the owner's questions with the agents' answers
+            'ownerHold' => app(\App\Services\Rentals\RentalOwnerHoldService::class)->activeFor($rentalFaultReport),
+            'ownerHolds' => app(\App\Services\Rentals\RentalOwnerHoldService::class)->historyFor($rentalFaultReport),
+            'ownerQueries' => app(\App\Services\Rentals\RentalOwnerHoldService::class)->queriesFor($rentalFaultReport),
         ]);
     }
 

@@ -37,6 +37,15 @@
     }
     // J7: a declined fault whose outcome was filled in automatically - the Outcome block is then a summary, not a task.
     $declinedClosed = $faultReport->status === \App\Models\RentalFaultReport::STATUS_DECLINED && (bool) $faultReport->outcome_set_automatically;
+    $prefillTradeCode = null;
+    if ($faultReport->faultType?->category) {
+        $needle = strtolower($faultReport->faultType->category);
+        $prefillTradeCode = optional(\App\Models\DealV2\AgencyServiceType::orderBy('label')->get()->first(
+            fn ($t) => str_contains(strtolower($t->label . ' ' . $t->code), $needle)
+        ))->code;
+    }
+    $isOpen = ! in_array($faultReport->status, ['resolved', 'cancelled'], true);
+    $notYetSent = $faultReport->sent_to_owner_at === null && $faultReport->owner_approval_status === \App\Models\RentalFaultReport::APPROVAL_NOT_REQUIRED;
 @endphp
 
 @section('content')
@@ -71,11 +80,32 @@
                 @endif
             </span>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2" data-header-actions>
+            @permission('rental_fault_reports.cancel')
+                {{-- J7 (Johan, 9 Oct 2026): "Cancel report" only while the owner has not decided; once decided the fault is handled through its work order / outcome. --}}
+                @if(in_array($faultReport->status, [\App\Models\RentalFaultReport::STATUS_REPORTED, \App\Models\RentalFaultReport::STATUS_UNDER_REVIEW, \App\Models\RentalFaultReport::STATUS_AWAITING_APPROVAL], true))
+                    <button type="button" onclick="document.getElementById('cancel-fault-report-form').classList.toggle('hidden')" class="corex-btn-outline text-xs" data-cancel-report>Cancel report</button>
+                @endif
+            @endpermission
+            @permission('rental_fault_reports.create')
+                @if($faultReport->isDeletable() && $faultReport->status === \App\Models\RentalFaultReport::STATUS_REPORTED)
+                    <form method="POST" action="{{ route('corex.rental-fault-reports.destroy', $faultReport) }}">
+                        @csrf
+                        @method('DELETE')
+                        <x-confirm-submit title="Archive this fault report" message="Archive this fault report? It leaves the list, and an admin can restore it." confirm-label="Archive" :plain="true" class="corex-btn-outline text-xs">Archive</x-confirm-submit>
+                    </form>
+                @endif
+            @endpermission
             <a href="{{ route('corex.rental-fault-reports.pdf', $faultReport) }}" target="_blank" class="corex-btn-outline text-xs">Download PDF</a>
             <a href="{{ route('corex.rental-fault-reports.index') }}" class="corex-btn-outline text-xs">&larr; All fault reports</a>
         </div>
     </div>
+    <form id="cancel-fault-report-form" method="POST" action="{{ route('corex.rental-fault-reports.cancel', $faultReport) }}" class="hidden space-y-2 rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        @csrf
+        <label class="text-xs font-medium">Reason for cancellation (required)</label>
+        <textarea name="cancel_reason" required class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);"></textarea>
+        <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-crimson);">Confirm cancel</button>
+    </form>
 
     <x-rental-context-bar :property="$faultReport->property" :lease="$faultReport->lease" current="faults" />
 
@@ -126,6 +156,9 @@
         </div>
     @endif
 
+    {{-- section 22.7 - PAUSED BY OWNER (with Resume) and the owner's questions (with Answer) --}}
+    @include('corex.rental-fault-reports._owner-hold-and-questions')
+
     {{-- "Reported before" (F-OWNER): for a tenant-resolved fault it is the banner here; for every other fault it is the last block of the tenant picture below. --}}
     @if($reportedBefore && $faultReport->isTenantSelfResolved())
         <div class="rounded-md px-4 py-2 text-xs" style="background: var(--surface-2); border: 1px solid var(--border);" data-reported-before>
@@ -158,23 +191,94 @@
         @include('corex.rental-fault-reports._tenant-picture')
     @endif
 
-    {{-- section 22.4 - DECISION 1: who goes to look. Only while the fault is open and has no work order; nothing is sent without one of the buttons. --}}
+    {{-- Fault flow F2 (Johan 2026-10-08) / section 22.3 - what the OWNER will see. The tenant's original above stays exactly as reported; this is the agent's reviewed copy.
+         ONE button: Save. The owner cannot see the fault until the agent presses one of the two buttons in "Who goes to look first?" below (which also save this). --}}
+    @if($isOpen)
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" id="owner-version-card" data-owner-version>
+        <div class="flex items-center justify-between">
+            <h2 class="text-sm font-semibold">What the owner will see</h2>
+            <span class="ds-badge {{ $statusBadgeClass }}">{{ $faultReport->statusLabel() }}</span>
+        </div>
+
+        @if($faultReport->sent_to_owner_at === null && $faultReport->owner_approval_status === \App\Models\RentalFaultReport::APPROVAL_NOT_REQUIRED)
+            <p class="text-xs" style="color: var(--text-muted);">The owner cannot see this fault yet. Check the wording, choose the photos and add your note, then press Save. The two buttons under &ldquo;Who goes to look first?&rdquo; save this too. The tenant's original is kept as it was reported.</p>
+            @permission('rental_fault_reports.create')
+            <form id="owner-version-form" method="POST" action="{{ route('corex.rental-fault-reports.owner-version.store', $faultReport) }}" class="space-y-3">
+                @csrf
+                <div>
+                    <label class="text-xs font-medium">Title the owner sees</label>
+                    <input type="text" name="owner_title" required maxlength="191" value="{{ old('owner_title', $faultReport->owner_title ?? $faultReport->title) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                </div>
+                <div>
+                    <label class="text-xs font-medium">Description the owner sees</label>
+                    <textarea name="owner_description" rows="4" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('owner_description', $faultReport->owner_description ?? $faultReport->description) }}</textarea>
+                </div>
+                @if($faultReport->photos->isNotEmpty())
+                <div>
+                    <label class="text-xs font-medium">Photos the owner sees <span class="font-normal" style="color: var(--text-muted);">(none are shared unless ticked)</span></label>
+                    <div class="flex flex-wrap gap-3 mt-1">
+                        @foreach($faultReport->photos as $photo)
+                            <div class="text-xs flex flex-col items-center gap-1">
+                                <button type="button" data-open-photo="{{ $photo->id }}" aria-label="Open photo {{ $loop->iteration }}" class="p-0 bg-transparent border-0 cursor-zoom-in">
+                                    <img src="{{ $vp[$photo->id]['thumb_url'] ?? $photo->storage_path }}" alt="Photo {{ $loop->iteration }}" loading="lazy" class="rounded-md object-cover" style="width: 90px; height: 70px; border: 1px solid var(--border);">
+                                </button>
+                                <label><input type="checkbox" name="owner_photo_ids[]" value="{{ $photo->id }}" @checked(in_array($photo->id, (array) old('owner_photo_ids', $faultReport->owner_photo_ids ?? []), true))> Share</label>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+                @endif
+                <div>
+                    <label class="text-xs font-medium">Your note / recommendation to the owner</label>
+                    <textarea name="owner_agent_note" rows="3" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);" placeholder="e.g. I recommend we approve this - a plumber can fix it this week.">{{ old('owner_agent_note', $faultReport->owner_agent_note) }}</textarea>
+                </div>
+                <div class="cx-action-row" data-owner-version-actions>
+                    <button type="submit" class="corex-btn-primary text-xs" data-owner-version-save>Save</button>
+                </div>
+            </form>
+            @endpermission
+        @else
+            @php $ov = $faultReport->ownerVersion(); @endphp
+            <p class="text-xs" style="color: var(--text-muted);">
+                @if($faultReport->sent_to_owner_at)
+                    Sent to the owner {{ $faultReport->sent_to_owner_at->format('j M Y H:i') }}. This is exactly what they see:
+                @else
+                    Decided without being sent through the portal. This is the version prepared for the owner:
+                @endif
+            </p>
+            <div class="rounded-md p-3 text-sm space-y-1" style="background: var(--surface-2);">
+                <div class="font-medium">{{ $ov['title'] }}</div>
+                @if($ov['description'])<div>{{ $ov['description'] }}</div>@endif
+                @if($ov['photos']->isNotEmpty())
+                    <div class="flex flex-wrap gap-2 pt-1">@foreach($ov['photos'] as $photo)<button type="button" data-open-photo="{{ $photo->id }}" aria-label="Open photo" class="p-0 bg-transparent border-0 cursor-zoom-in"><img src="{{ $vp[$photo->id]['thumb_url'] ?? $photo->storage_path }}" alt="Photo" loading="lazy" class="rounded-md object-cover" style="width: 90px; height: 70px;"></button>@endforeach</div>
+                @endif
+                @if($ov['agent_note'])<div class="text-xs pt-1" style="color: var(--text-muted);">Agent note: {{ $ov['agent_note'] }}</div>@endif
+            </div>
+        @endif
+
+    </div>
+    @endif
+
+    {{-- section 22.4 - "Who goes to look first?". Only while the fault is open and has no work order; nothing is sent without one of the buttons. --}}
     @if(in_array($stage, ['prepare', 'with_owner'], true) && ! $faultReport->workOrder && ! $faultReport->isTenantSelfResolved())
         @include('corex.rental-fault-reports._decision-one')
     @endif
     @include('corex.rental-fault-reports._authorisation-records')
+    @include('corex.rental-fault-reports._who-pays-summary')
 
     <div class="grid grid-cols-3 gap-4">
     <div class="col-span-3 lg:col-span-2 space-y-4">
 
+    @php
+        // the loose "Tenancy / Item / Reported by / Channel / Captured by / Reported at" lines are gone (they repeat "What the tenant reported"); this card
+        // now exists only when it has something the page does not already say
+        $detailHas = $faultReport->reportedInspectionObservation?->inspection || $faultReport->workOrder || $faultReport->owner_approval_status !== \App\Models\RentalFaultReport::APPROVAL_NOT_REQUIRED
+            || $faultReport->outcome || $faultReport->status === 'cancelled'
+            || ($faultReport->status === \App\Models\RentalFaultReport::STATUS_REPORTED && ! in_array($faultReport->reported_by_type, [\App\Models\RentalFaultReport::REPORTED_BY_TENANT, \App\Models\RentalFaultReport::REPORTED_BY_LANDLORD], true));
+    @endphp
+    @if($detailHas)
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ editing: false }">
         <div class="grid grid-cols-2 gap-3 text-sm" x-show="!editing">
-            <div><span style="color: var(--text-muted);">Tenancy:</span> {{ $faultReport->lease?->tenantNames() ?? 'None — vacancy period' }}</div>
-            <div><span style="color: var(--text-muted);">Item:</span> {{ $faultReport->inspectionItem?->label ?? '—' }}</div>
-            <div><span style="color: var(--text-muted);">Reported by:</span> {{ ucfirst(str_replace('_', ' ', $faultReport->reported_by_type)) }}{{ $faultReport->reportedByContact ? ' — ' . $faultReport->reportedByContact->first_name . ' ' . $faultReport->reportedByContact->last_name : ($faultReport->reportedByUser ? ' — ' . $faultReport->reportedByUser->name : '') }}</div>
-            <div><span style="color: var(--text-muted);">Channel:</span> {{ ucfirst(str_replace('_', ' ', $faultReport->reported_channel)) }}</div>
-            <div><span style="color: var(--text-muted);">Captured by:</span> {{ $faultReport->capturedByUser?->name ?? 'Self-reported' }}</div>
-            <div><span style="color: var(--text-muted);">Reported at:</span> {{ $faultReport->reported_at?->format('Y-m-d H:i') }}</div>
             {{-- §15 (AT-447) — "From inspection <type> <date>" back-link. --}}
             @if($faultReport->reportedInspectionObservation?->inspection)
                 <div><span style="color: var(--text-muted);">From inspection:</span> @feature('rental-inspections')<a href="{{ route('corex.rental-inspections.show', $faultReport->reportedInspectionObservation->inspection) }}" class="underline">{{ ucfirst(str_replace('_', '-', $faultReport->reportedInspectionObservation->inspection->type)) }}-inspection {{ $faultReport->reportedInspectionObservation->inspection->scheduled_for?->format('Y-m-d') ?? $faultReport->reportedInspectionObservation->inspection->created_at?->format('Y-m-d') }}</a>@else {{ ucfirst(str_replace('_', '-', $faultReport->reportedInspectionObservation->inspection->type)) }}-inspection {{ $faultReport->reportedInspectionObservation->inspection->scheduled_for?->format('Y-m-d') ?? $faultReport->reportedInspectionObservation->inspection->created_at?->format('Y-m-d') }} @endfeature</div>
@@ -235,139 +339,6 @@
 
         @if($faultReport->status === 'cancelled')
             <p class="text-xs" style="color: var(--ds-crimson);">Cancelled {{ $faultReport->cancelled_at?->format('Y-m-d') }} by {{ $faultReport->cancelledByUser?->name }}: {{ $faultReport->cancel_reason }}</p>
-        @endif
-
-        <div class="flex gap-2 pt-2">
-            @permission('rental_fault_reports.cancel')
-                {{-- J7 (Johan, 9 Oct 2026): "Cancel report" only while the owner has not decided; once decided the fault is handled through its work order / outcome. --}}
-                @if(in_array($faultReport->status, [\App\Models\RentalFaultReport::STATUS_REPORTED, \App\Models\RentalFaultReport::STATUS_UNDER_REVIEW, \App\Models\RentalFaultReport::STATUS_AWAITING_APPROVAL], true))
-                    <button type="button" onclick="document.getElementById('cancel-fault-report-form').classList.toggle('hidden')" class="corex-btn-outline text-xs">Cancel report</button>
-                @endif
-            @endpermission
-            @permission('rental_fault_reports.create')
-                @if($faultReport->isDeletable() && $faultReport->status === \App\Models\RentalFaultReport::STATUS_REPORTED)
-                    <form method="POST" action="{{ route('corex.rental-fault-reports.destroy', $faultReport) }}">
-                        @csrf
-                        @method('DELETE')
-                        <x-confirm-submit title="Archive this fault report" message="Archive this fault report? It leaves the list, and an admin can restore it." confirm-label="Archive" :danger="true" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);">Archive</x-confirm-submit>
-                    </form>
-                @endif
-            @endpermission
-        </div>
-
-        <form id="cancel-fault-report-form" method="POST" action="{{ route('corex.rental-fault-reports.cancel', $faultReport) }}" class="hidden space-y-2 pt-2">
-            @csrf
-            <label class="text-xs font-medium">Reason for cancellation (required)</label>
-            <textarea name="cancel_reason" required class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);"></textarea>
-            <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-crimson);">Confirm cancel</button>
-        </form>
-    </div>
-
-    @php
-        // Fault flow: the contractor chosen on the decision (agency route) pre-fills the existing work-order form.
-        $latestDecision = $faultReport->decision();
-        $prefillSupplier = ($latestDecision && $latestDecision->contractor_source === \App\Models\RentalApproval::CONTRACTOR_AGENCY) ? $latestDecision->contractorSupplier : null;
-        $prefillOwner = ($latestDecision && $latestDecision->contractor_source === \App\Models\RentalApproval::CONTRACTOR_OWN) ? $latestDecision : null;
-        $prefillTradeCode = null;
-        if ($faultReport->faultType?->category) {
-            $needle = strtolower($faultReport->faultType->category);
-            $prefillTradeCode = optional(\App\Models\DealV2\AgencyServiceType::orderBy('label')->get()->first(
-                fn ($t) => str_contains(strtolower($t->label . ' ' . $t->code), $needle)
-            ))->code;
-        }
-        $isOpen = ! in_array($faultReport->status, ['resolved', 'cancelled'], true);
-        $notYetSent = $faultReport->sent_to_owner_at === null && $faultReport->owner_approval_status === \App\Models\RentalFaultReport::APPROVAL_NOT_REQUIRED;
-    @endphp
-
-    {{-- Fault flow F2 (Johan 2026-10-08) - what the OWNER will see. The tenant's original above stays exactly as reported;
-         this is the agent's reviewed, sanitised copy. Until the agent presses send the owner cannot see the fault at all. --}}
-    @if($isOpen)
-    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" id="owner-version-card"
-         x-data="{ noContractor: {{ !empty($noContractor) ? 'true' : 'false' }}, coveredNote: '' }"
-         x-on:cx-contractor-changed.window="if ($event.detail.covered) { noContractor = false; }">
-        <div class="flex items-center justify-between">
-            <h2 class="text-sm font-semibold">Owner version <span class="font-normal text-xs" style="color: var(--text-muted);">&mdash; what the owner will see</span></h2>
-            <span class="ds-badge {{ $statusBadgeClass }}">{{ $faultReport->statusLabel() }}</span>
-        </div>
-
-        @if($faultReport->sent_to_owner_at === null && $faultReport->owner_approval_status === \App\Models\RentalFaultReport::APPROVAL_NOT_REQUIRED)
-            <p class="text-xs" style="color: var(--text-muted);">The owner cannot see this fault yet. Check the wording, choose the photos and add your note, then send it. The tenant's original is kept as it was reported.</p>
-            @permission('rental_fault_reports.create')
-            <form method="POST" action="{{ route('corex.rental-fault-reports.owner-version.store', $faultReport) }}" class="space-y-3">
-                @csrf
-                <div>
-                    <label class="text-xs font-medium">Title the owner sees</label>
-                    <input type="text" name="owner_title" required maxlength="191" value="{{ old('owner_title', $faultReport->owner_title ?? $faultReport->title) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-                </div>
-                <div>
-                    <label class="text-xs font-medium">Description the owner sees</label>
-                    <textarea name="owner_description" rows="4" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('owner_description', $faultReport->owner_description ?? $faultReport->description) }}</textarea>
-                </div>
-                @if($faultReport->photos->isNotEmpty())
-                <div>
-                    <label class="text-xs font-medium">Photos the owner sees <span class="font-normal" style="color: var(--text-muted);">(none are shared unless ticked)</span></label>
-                    <div class="flex flex-wrap gap-3 mt-1">
-                        @foreach($faultReport->photos as $photo)
-                            <div class="text-xs flex flex-col items-center gap-1">
-                                <button type="button" data-open-photo="{{ $photo->id }}" aria-label="Open photo {{ $loop->iteration }}" class="p-0 bg-transparent border-0 cursor-zoom-in">
-                                    <img src="{{ $vp[$photo->id]['thumb_url'] ?? $photo->storage_path }}" alt="Photo {{ $loop->iteration }}" loading="lazy" class="rounded-md object-cover" style="width: 90px; height: 70px; border: 1px solid var(--border);">
-                                </button>
-                                <label><input type="checkbox" name="owner_photo_ids[]" value="{{ $photo->id }}" @checked(in_array($photo->id, (array) old('owner_photo_ids', $faultReport->owner_photo_ids ?? []), true))> Share</label>
-                            </div>
-                        @endforeach
-                    </div>
-                </div>
-                @endif
-                <div>
-                    <label class="text-xs font-medium">Your note / recommendation to the owner</label>
-                    <textarea name="owner_agent_note" rows="3" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);" placeholder="e.g. I recommend we approve this - a plumber can fix it this week.">{{ old('owner_agent_note', $faultReport->owner_agent_note) }}</textarea>
-                </div>
-                @include('corex.rental-fault-reports._no-contractor-warning')
-                <div class="cx-action-row" data-owner-version-actions>
-                    <button type="submit" class="corex-btn-outline text-xs">Save draft</button>
-                    @permission('rental_fault_reports.send_to_owner')
-                        {{-- both variants exist while a contractor is missing, so adding one in the popup swaps the dialog without a reload --}}
-                        @if($noContractor)
-                            <span x-show="noContractor" data-send-variant="no-contractor"><x-confirm-submit title="Send without a contractor?" message="Send without a contractor for {{ $typeName }}?" confirm-label="Send without a contractor" name="send_now" value="1">Save and send to owner</x-confirm-submit></span>
-                            <span x-show="!noContractor" x-cloak data-send-variant="covered"><x-confirm-submit title="Send to the owner" message="Send this to the owner now? They will see it in their portal and be emailed." confirm-label="Send to owner" name="send_now" value="1">Save and send to owner</x-confirm-submit></span>
-                        @else
-                            <x-confirm-submit title="Send to the owner" message="Send this to the owner now? They will see it in their portal and be emailed." confirm-label="Send to owner" name="send_now" value="1">Save and send to owner</x-confirm-submit>
-                        @endif
-                    @endpermission
-                </div>
-            </form>
-            @if($faultReport->owner_version_saved_at)
-                @permission('rental_fault_reports.send_to_owner')
-                <form method="POST" action="{{ route('corex.rental-fault-reports.send-to-owner', $faultReport) }}">
-                    @csrf
-                    @if($noContractor)
-                        <input type="hidden" name="send_without_contractor" value="1" x-bind:disabled="!noContractor">
-                        <span x-show="noContractor"><x-confirm-submit title="Send without a contractor?" message="Send without a contractor for {{ $typeName }}?" confirm-label="Send without a contractor">Send saved version to owner</x-confirm-submit></span>
-                        <span x-show="!noContractor" x-cloak><x-confirm-submit title="Send to the owner" message="Send the saved owner version to the owner now? They will see it in their portal and be emailed." confirm-label="Send to owner">Send saved version to owner</x-confirm-submit></span>
-                    @else
-                        <x-confirm-submit title="Send to the owner" message="Send the saved owner version to the owner now? They will see it in their portal and be emailed." confirm-label="Send to owner">Send saved version to owner</x-confirm-submit>
-                    @endif
-                </form>
-                @endpermission
-            @endif
-            @endpermission
-        @else
-            @php $ov = $faultReport->ownerVersion(); @endphp
-            <p class="text-xs" style="color: var(--text-muted);">
-                @if($faultReport->sent_to_owner_at)
-                    Sent to the owner {{ $faultReport->sent_to_owner_at->format('j M Y H:i') }}. This is exactly what they see:
-                @else
-                    Decided without being sent through the portal. This is the version prepared for the owner:
-                @endif
-            </p>
-            <div class="rounded-md p-3 text-sm space-y-1" style="background: var(--surface-2);">
-                <div class="font-medium">{{ $ov['title'] }}</div>
-                @if($ov['description'])<div>{{ $ov['description'] }}</div>@endif
-                @if($ov['photos']->isNotEmpty())
-                    <div class="flex flex-wrap gap-2 pt-1">@foreach($ov['photos'] as $photo)<button type="button" data-open-photo="{{ $photo->id }}" aria-label="Open photo" class="p-0 bg-transparent border-0 cursor-zoom-in"><img src="{{ $vp[$photo->id]['thumb_url'] ?? $photo->storage_path }}" alt="Photo" loading="lazy" class="rounded-md object-cover" style="width: 90px; height: 70px;"></button>@endforeach</div>
-                @endif
-                @if($ov['agent_note'])<div class="text-xs pt-1" style="color: var(--text-muted);">Agent note: {{ $ov['agent_note'] }}</div>@endif
-            </div>
         @endif
 
     </div>

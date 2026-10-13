@@ -39,11 +39,40 @@ class RentalFaultAuthorityController extends Controller
         return $v;
     }
 
+    /**
+     * The two decision buttons save "what the owner will see" themselves: the page sends the draft's fields with the press, so there is no separate Save to hunt for.
+     * Nothing is sent when the draft is invalid (a title is required).
+     */
+    private function saveOwnerVersionFromPress(Request $request, RentalFaultReport $fault): ?string
+    {
+        if (! $request->has('owner_title') || $fault->sent_to_owner_at !== null) {
+            return null;
+        }
+        $v = $request->validate([
+            'owner_title' => ['required', 'string', 'max:191'],
+            'owner_description' => ['nullable', 'string', 'max:5000'],
+            'owner_agent_note' => ['nullable', 'string', 'max:3000'],
+            'owner_photo_ids' => ['nullable', 'array'],
+            'owner_photo_ids.*' => ['integer'],
+        ], ['owner_title.required' => 'Write the title the owner will see first.']);
+        try {
+            $fault->saveOwnerVersion($v, $request->user());
+        } catch (\LogicException|\InvalidArgumentException $e) {
+            return $e->getMessage();
+        }
+
+        return null;
+    }
+
     /** "Send <name> to inspect". */
     public function inspect(Request $request, FaultInspectionService $service, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
         $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
         $choice = $this->choice($request);
+        if ($problem = $this->saveOwnerVersionFromPress($request, $rentalFaultReport)) {
+            return redirect($this->back($rentalFaultReport))->withErrors(['rental_fault_report' => $problem]);
+        }
+        $rentalFaultReport->refresh();
 
         try {
             $made = $service->sendToInspect($rentalFaultReport, $request->user(), $choice);
@@ -68,6 +97,10 @@ class RentalFaultAuthorityController extends Controller
             'agency_service_provider_id' => ['nullable', 'integer'],
             'rental_crew_id' => ['nullable', 'integer'],
         ]);
+        if ($problem = $this->saveOwnerVersionFromPress($request, $rentalFaultReport)) {
+            return redirect($this->back($rentalFaultReport))->withErrors(['rental_fault_report' => $problem]);
+        }
+        $rentalFaultReport->refresh();
 
         try {
             $service->sendToOwnerToAuthorise($rentalFaultReport, $request->user(), $v);
@@ -104,6 +137,49 @@ class RentalFaultAuthorityController extends Controller
         }
 
         return redirect($this->back($rentalFaultReport))->with('success', "The owner's decision is recorded. The owner has been emailed what you wrote down.");
+    }
+
+    /** Section 22.7 - Resume a job the owner stopped: needs a fresh authority, so it is the owner's decision recorded by the agent. */
+    public function resume(Request $request, \App\Services\Rentals\RentalOwnerHoldService $holds, RentalFaultReport $rentalFaultReport): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+        $v = $request->validate([
+            'owner_contact_id' => ['required', 'integer'],
+            'told_via' => ['required', Rule::in(RentalAuthorisation::VIAS)],
+            'told_at' => ['nullable', 'date'],
+            'note' => ['required', 'string', 'max:4000'],
+            'proof' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:20480'],
+        ], [
+            'owner_contact_id.required' => 'Pick which owner told you.',
+            'told_via.required' => 'Say how the owner told you: phone call, WhatsApp or email.',
+            'note.required' => 'Write down what the owner said - it is required.',
+            'proof.mimes' => 'The proof must be a picture (a screenshot of the WhatsApp or email).',
+        ]);
+
+        try {
+            $holds->resumeByAgent($request->user(), $rentalFaultReport, $v, $request->file('proof'));
+        } catch (\LogicException|\InvalidArgumentException $e) {
+            return redirect($this->back($rentalFaultReport))->withErrors(['owner_decision' => $e->getMessage()])->withInput();
+        }
+
+        return redirect($this->back($rentalFaultReport))->with('success', "Resumed on the owner's go-ahead. The owner has been emailed what you wrote down. If the contractor or crew were told to wait, send the job again.");
+    }
+
+    /** Section 22.7 - the agent's answer to the owner's "Query this" question (saved under their name, never edited). */
+    public function answerQuery(Request $request, \App\Services\Rentals\RentalOwnerHoldService $holds, RentalFaultReport $rentalFaultReport, int $query): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+        $row = $holds->queriesFor($rentalFaultReport)->firstWhere('id', $query);
+        abort_unless($row, 404);
+        $v = $request->validate(['answer' => ['required', 'string', 'max:2000']], ['answer.required' => 'Write your answer first.']);
+
+        try {
+            $holds->answer($request->user(), $row, $v['answer']);
+        } catch (\LogicException|\InvalidArgumentException $e) {
+            return redirect($this->back($rentalFaultReport))->withErrors(['owner_query' => $e->getMessage()]);
+        }
+
+        return redirect($this->back($rentalFaultReport))->with('success', 'Your answer is saved and the owner has been emailed it.');
     }
 
     /** "Confirmed with the tenant": how, when, a note. A later one is added; every one stays in the history. */

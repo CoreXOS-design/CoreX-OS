@@ -251,7 +251,7 @@ final class AuthorityFlowTest extends TestCase
     {
         $f = $this->fault(false);
         $p = $this->supplier('Free Visit Plumbing', 'no');
-        $this->inspect($f, $p)->assertSessionHasErrors(['rental_fault_report' => 'Save the owner version first - it is what the owner will read.']);
+        $this->inspect($f, $p)->assertSessionHasErrors(['rental_fault_report' => 'Save what the owner will see first - it is what the owner will read.']);
         $this->assertNull($f->fresh()->rental_work_order_id);
 
         // the ordinary "Create work order" form cannot make one for a fault nobody has authorised
@@ -500,5 +500,94 @@ final class AuthorityFlowTest extends TestCase
         $res->assertStatus(201);
         $fault = RentalFaultReport::withoutGlobalScopes()->latest('id')->first();
         $this->assertSame([['text' => 'Close the valve', 'ticked' => true], ['text' => 'Check the washer', 'ticked' => false]], $fault->tenant_self_checks);
+    }
+
+    // ── the fault page, in working order (Johan's walk of QA1, 13 Oct) ───────
+
+    public function test_the_fault_page_is_in_working_order_top_to_bottom_and_speaks_plain_words(): void
+    {
+        $f = $this->fault(false);
+        $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $f))->assertOk()->getContent();
+
+        $tenant = strpos($html, 'data-tenant-picture');
+        $owner = strpos($html, 'id="owner-version-card"');
+        $who = strpos($html, 'data-decision-one');
+        $this->assertTrue($tenant !== false && $owner !== false && $who !== false);
+        $this->assertLessThan($owner, $tenant, 'what the tenant reported/checked/confirmed comes first');
+        $this->assertLessThan($who, $owner, '"What the owner will see" comes BEFORE "Who goes to look first?" - no scrolling back up to save');
+        $this->assertStringContainsString('What the owner will see', $html);
+        $this->assertStringContainsString('Who goes to look first?', $html);
+        $this->assertStringContainsString('Nothing is sent until you press a button.', $html);
+        $this->assertStringNotContainsString('Decision 1', $html);
+        $this->assertStringNotContainsString('Decision 2', $html);
+
+        // ONE way to the owner; ONE save button on the owner version
+        $this->assertStringNotContainsString('Save and send to owner', $html);
+        $this->assertStringNotContainsString('Send saved version to owner', $html);
+        $this->assertStringNotContainsString('Save draft', $html);
+        $this->assertSame(1, substr_count($html, 'data-owner-version-save'));
+        $this->assertStringContainsString('Send to owner to authorise', $html);
+
+        // the loose detail lines that repeated "What the tenant reported" are gone; Cancel report is in the page header
+        foreach (['Channel:</span>', 'Reported at:</span>', 'Captured by:</span>', 'Reported by:</span>'] as $gone) {
+            $this->assertStringNotContainsString($gone, $html);
+        }
+        $this->assertLessThan($tenant, strpos($html, 'data-cancel-report'), 'Cancel report sits in the header actions');
+
+        // plain wording for a fault with no ticks
+        $this->assertStringContainsString('No self-checks were shown for this fault.', $html);
+        $this->assertStringNotContainsString('or reported before they existed', $html);
+    }
+
+    public function test_send_to_owner_to_authorise_works_with_nobody_picked_and_the_press_saves_what_the_owner_will_see(): void
+    {
+        $f = $this->fault(false);
+        $this->assertNull($f->owner_version_saved_at);
+
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.send-to-owner-to-authorise', $f), [
+            'owner_title' => 'Tap leaking in the kitchen', 'owner_description' => 'It drips all night.', 'owner_agent_note' => 'A plumber can fix it this week.',
+        ])->assertSessionHasNoErrors();
+
+        $f = $f->fresh();
+        $this->assertNotNull($f->owner_version_saved_at, 'the press saved the draft');
+        $this->assertSame('Tap leaking in the kitchen', $f->owner_title);
+        $this->assertNotNull($f->sent_to_owner_at, 'and the owner was asked');
+        $this->assertNull($f->proposed_supplier_id, 'nobody proposed - the owner is simply asked "send someone to look and quote?"');
+        $this->assertSame(RentalFaultReport::STATUS_AWAITING_APPROVAL, $f->status);
+    }
+
+    public function test_send_to_inspect_also_saves_the_draft_but_refuses_an_empty_title(): void
+    {
+        $p = $this->supplier('Free Visit Plumbing', 'no');
+        $bad = $this->fault(false);
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.send-to-inspect', $bad), [
+            'assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $p->id, 'owner_title' => '',
+        ])->assertSessionHasErrors('owner_title');
+        $this->assertNull($bad->fresh()->rental_work_order_id, 'nothing is sent when the draft is not valid');
+
+        $f = $this->fault(false);
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.send-to-inspect', $f), [
+            'assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $p->id, 'owner_title' => 'Tap leaking', 'owner_description' => 'Drips.',
+        ])->assertSessionHasNoErrors();
+        $f = $f->fresh();
+        $this->assertNotNull($f->rental_work_order_id);
+        $this->assertSame('Tap leaking', $f->owner_title);
+    }
+
+    public function test_a_contractor_with_no_email_or_mobile_cannot_be_sent_the_job(): void
+    {
+        $ghost = $this->supplier('Ghost Plumbing', 'no', null, ['email' => null, 'phone' => null]);
+        $f = $this->fault();
+        $svc = app(FaultInspectionService::class);
+        $map = $svc->noticeMapFor($f, app(\App\Services\Rentals\RentalFaultContractorService::class)->pickerFor($f));
+        $this->assertFalse($map[(string) $ghost->id]['inspect_allowed']);
+        $this->assertSame('No email or mobile on file - they cannot be sent the job.', $map[(string) $ghost->id]['text']);
+
+        $this->inspect($f, $ghost)->assertSessionHasErrors('rental_fault_report');
+        $this->assertNull($f->fresh()->rental_work_order_id);
+
+        $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $f))->getContent();
+        $this->assertStringContainsString('No email or mobile on file - they cannot be sent the job', $html);
+        $this->assertStringNotContainsString('NO CONTACT DETAILS', $html);
     }
 }

@@ -16,7 +16,7 @@
     @include('corex.rentals.partials._print-list-filters')
     <table>
         <thead>
-            <tr><th>Property</th><th>Title</th><th>Status</th><th>Priority</th><th>Supplier</th><th>Paid by</th><th>Reported</th></tr>
+            <tr><th>Property</th><th>Title</th><th>Status</th><th>Priority</th><th>Supplier</th><th>Paid by</th><th>Cause</th><th>Who pays (ruling)</th><th>Reported</th></tr>
         </thead>
         <tbody>
             @foreach($workOrders as $workOrder)
@@ -27,6 +27,8 @@
                     <td>{{ $workOrder->priority ? ucfirst($workOrder->priority) : '—' }}</td>
                     <td>{{ $workOrder->supplier?->name ?? '—' }}</td>
                     <td>{{ $workOrder->paid_by ? ucfirst(str_replace('_', ' ', $workOrder->paid_by)) : '—' }}</td>
+                    <td>{{ $workOrder->causeSummary() ?: '—' }}</td>
+                    <td>{{ $workOrder->whoPaysLabel() ?: '—' }}</td>
                     <td>{{ $workOrder->reported_at?->format('Y-m-d') }}</td>
                 </tr>
             @endforeach

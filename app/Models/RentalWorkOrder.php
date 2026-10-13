@@ -139,6 +139,15 @@ class RentalWorkOrder extends Model
         // §17.9.1a — per-work-order override of the agency's external-quote fee (null = inherit).
         'external_markup_type',
         'external_markup_value',
+        // spec section 22.13 - the report-back (what was found / the cause) and the current "Who pays" ruling's payer.
+        'found_text',
+        'cause_id',
+        'cause_label',
+        'cause_note',
+        'reported_back_at',
+        'reported_back_by',
+        'who_pays',
+        'who_pays_ruling_id',
     ];
 
     protected $casts = [
@@ -155,6 +164,7 @@ class RentalWorkOrder extends Model
         'external_markup_value' => 'decimal:2',
         'tenant_confirmed_at' => 'datetime',
         'tenant_confirmed_fixed' => 'boolean',
+        'reported_back_at' => 'datetime',
     ];
 
     public function property(): BelongsTo
@@ -309,6 +319,27 @@ class RentalWorkOrder extends Model
     }
 
     /** AT-442 — present only when assignment_type='internal'; §14. */
+    /** Spec section 22.13 - the list/CSV text for "Who pays (ruling)": the current ruling's payer, or empty. */
+    public function whoPaysLabel(): string
+    {
+        return $this->who_pays ? RentalPayerRuling::payerLabel($this->who_pays) : '';
+    }
+
+    /** Spec section 22.13 - the list/CSV text for "Cause": the picked label plus any words, or empty. */
+    public function causeSummary(): string
+    {
+        $label = trim((string) $this->cause_label);
+        $note = trim((string) $this->cause_note);
+
+        return $label !== '' && $note !== '' ? "{$label} - {$note}" : ($label !== '' ? $label : $note);
+    }
+
+    /** Spec section 22.13 - every "Who pays" ruling made on this work order, oldest first (the newest un-superseded one is current). */
+    public function payerRulings(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(RentalPayerRuling::class, 'rental_work_order_id')->withoutGlobalScopes()->orderBy('id');
+    }
+
     public function jobCard(): \Illuminate\Database\Eloquent\Relations\HasOne
     {
         return $this->hasOne(RentalJobCard::class, 'rental_work_order_id');
@@ -558,6 +589,9 @@ class RentalWorkOrder extends Model
     {
         if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true)) {
             throw new \LogicException('This work order is already closed.');
+        }
+        if ($recordedBy instanceof User) {   // section 22.7 - an agent cannot approve while the owner has it on hold (the owner's own press is not blocked)
+            app(\App\Services\Rentals\RentalOwnerHoldService::class)->assertNotOnHold($this);
         }
 
         $decision = $attributes['decision'];
@@ -869,6 +903,7 @@ class RentalWorkOrder extends Model
      */
     private function assertApprovalAllows(string $action, ?float $cost = null): void
     {
+        app(\App\Services\Rentals\RentalOwnerHoldService::class)->assertNotOnHold($this);   // section 22.7 - paused by the owner
         if (in_array($this->owner_approval_status, [self::APPROVAL_PENDING, self::APPROVAL_DECLINED], true)) {
             throw new \LogicException("Cannot {$action} while owner approval is pending or declined.");
         }

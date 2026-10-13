@@ -27,6 +27,9 @@ class RentalAuthorisationToOwnerMail extends Mailable implements ShouldQueue
     public ?string $note;
     public string $portalUrl;
     public bool $capturedForOwner;
+    /** section 22.7 - the two equal buttons: signed links to the pages that ASK (a GET records nothing); null when the mail has no named owner to sign them for. */
+    public ?string $stopUrl = null;
+    public ?string $queryUrl = null;
 
     public function __construct(public RentalFaultReport|RentalWorkOrder $authorityFor, public RentalAuthorisation $row, public string $sentence, string $recipientName, ?string $recipientEmail = null, ?\App\Models\Contact $recipient = null)
     {
@@ -40,6 +43,11 @@ class RentalAuthorisationToOwnerMail extends Mailable implements ShouldQueue
         $this->portalUrl = $recipientEmail
             ? \App\Support\PortalLink::forEmail($recipientEmail, \App\Support\PortalLink::VIEW_OWNER, $target, (int) $recipient?->id)
             : \App\Support\PortalLink::unaddressed(\App\Support\PortalLink::VIEW_OWNER, $target);
+        if ($recipient) {
+            $kind = $authorityFor instanceof RentalFaultReport ? 'fault' : 'work-order';
+            $this->stopUrl = \Illuminate\Support\Facades\URL::signedRoute('rentals.owner-notice', ['kind' => $kind, 'id' => $authorityFor->id, 'contact' => $recipient->id, 'action' => 'stop']);
+            $this->queryUrl = \Illuminate\Support\Facades\URL::signedRoute('rentals.owner-notice', ['kind' => $kind, 'id' => $authorityFor->id, 'contact' => $recipient->id, 'action' => 'query']);
+        }
     }
 
     public function envelope(): Envelope

@@ -94,6 +94,8 @@
         .btn-brand { background:var(--brand); color:#fff; }
         .btn-pair { display:flex; gap:10px; }
         .btn-pair .btn { flex:1 1 0; }
+        .btn-pair-keep { flex-direction:row !important; gap:10px !important; }
+        .btn-pair-keep .btn-spacer { flex:1 1 0; }
         @media (max-width:420px) { .btn-pair { flex-direction:column; gap:0; } }
         /* AT-452 - a photo that opens the shared viewer, and the owner decision screen's sections */
         .fault-head { display:flex; gap:8px; align-items:baseline; width:100%; text-align:left; background:none; border:0; padding:0; font:inherit; font-size:15px; cursor:pointer; color:var(--text); }
@@ -314,6 +316,7 @@
                                                     <button type="button" class="photo-btn" :aria-label="'Open photo ' + (i + 1)" @click="openPhotos(f.reported_photos, i, $event)"><img :src="ph.thumb_url || ph.url" :alt="ph.alt || 'Photo you sent'" loading="lazy" decoding="async"></button>
                                                 </template>
                                             </div>
+                                            @include('rentals.portal._who-pays', ['p' => 'f.payer_ruling'])
                                             <a class="link" href="#" style="display:block; margin-top:8px;" x-show="f.self_resolved" data-report-again @click.prevent="reportAgain(f)">Still a problem? Report it again</a>
                                             <button class="btn btn-outline" x-show="f.rental_work_order_id" @click="tenantTab='jobs'; loadWorkOrders()">See the work order</button>
                                         </div>
@@ -1257,7 +1260,32 @@ function rentalsPortal() {
             q.busy = true; q.error = null; q.sent = false;
             const r = await portalFetch('/api/v1/client/rentals/landlord/fault-reports/' + f.id + '/query', { method: 'POST', body: JSON.stringify({ note: q.note }), key: 'query-' + f.id + '-' + q.note.length + '-' + Date.now() });
             q.busy = false;
-            if (r.ok) { f.arranged = r.data.arranged; if (r.data.authorisation !== undefined) f.authorisation = r.data.authorisation; q.note = ''; q.sent = true; } else { q.error = r.data?.message || (r.data?.errors ? Object.values(r.data.errors)[0][0] : 'Could not send. Please try again.'); }
+            if (r.ok) { this.applyNotice(r.data); q.note = ''; q.sent = true; } else { q.error = r.data?.message || (r.data?.errors ? Object.values(r.data.errors)[0][0] : 'Could not send. Please try again.'); }
+        },
+        // section 22.7 - "Stop this" / "Go ahead after all": the owner's own press; the server decides (refused once the work has started)
+        noticeUi: { panel: null, reason: '', busy: false, error: null },
+        applyNotice(d) {
+            const f = this.faultDetail; if (!f || !d) return;
+            if (d.owner_actions) f.owner_actions = d.owner_actions;
+            if (d.arranged !== undefined) f.arranged = d.arranged;
+            if (d.authorisation !== undefined) f.authorisation = d.authorisation;
+            if (d.progress) f.progress = d.progress;
+        },
+        async sendStop() {
+            const f = this.faultDetail, n = this.noticeUi;
+            if (!f || n.busy || n.reason.trim().length < 3) return;
+            n.busy = true; n.error = null;
+            const r = await portalFetch('/api/v1/client/rentals/landlord/fault-reports/' + f.id + '/stop', { method: 'POST', body: JSON.stringify({ reason: n.reason }), key: 'stop-' + f.id });
+            n.busy = false;
+            if (r.ok) { this.applyNotice(r.data); n.reason = ''; n.panel = null; } else { if (r.data?.owner_actions) f.owner_actions = r.data.owner_actions; n.error = r.data?.message || (r.data?.errors ? Object.values(r.data.errors)[0][0] : 'Could not stop it. Please try again.'); }
+        },
+        async sendResume() {
+            const f = this.faultDetail, n = this.noticeUi;
+            if (!f || n.busy) return;
+            n.busy = true; n.error = null;
+            const r = await portalFetch('/api/v1/client/rentals/landlord/fault-reports/' + f.id + '/resume', { method: 'POST', body: JSON.stringify({}), key: 'resume-' + f.id });
+            n.busy = false;
+            if (r.ok) { this.applyNotice(r.data); n.panel = null; } else { if (r.data?.owner_actions) f.owner_actions = r.data.owner_actions; n.error = r.data?.message || 'Could not carry on. Please try again.'; }
         },
         // AT-452 round 2 (F-OWNER) - "Have this repaired anyway": the owner's existing Request-work flow, pre-filled from the resolved report and linked to it.
         // AT-452 (§19.12) - "Have this repaired anyway": shows the tenant's report READ-ONLY, then the owner's own comment box; "Ask my agent to have this repaired"

@@ -592,9 +592,8 @@ final class ContractorJobDispatchTest extends TestCase
         $this->assertStringContainsString('name="specialty"', $html);
         $this->assertStringContainsString('name="service_types[]"', $html);
         $this->assertStringContainsString('data-contractor-popup="types"', $html);
-        $this->assertStringContainsString('x-data="{ noContractor: true', $html, 'the warning is driven by page state, so it clears without a reload');
-        $this->assertStringContainsString('data-send-variant="covered"', $html, 'the send dialog swaps without a reload');
-        $this->assertStringContainsString('x-bind:disabled="!noContractor"', $html);
+        $this->assertSame(1, substr_count($html, 'data-no-contractor-suits'), 'the amber "no contractor loaded" line shows ONCE, in "Who goes to look first?"');
+        $this->assertStringContainsString('data-refresh-on-contractor-change', $html, 'the picker re-reads itself when a contractor is added, so the line clears without a reload');
         // plain agent words inside the popup, none of the developer wording; the directory page keeps its own
         $popup = substr($html, strpos($html, 'data-contractor-popups'));
         foreach (['>Trade', 'Business address', 'Our preferred contractor for this trade', 'Certificates and services they can do'] as $plainWord) {

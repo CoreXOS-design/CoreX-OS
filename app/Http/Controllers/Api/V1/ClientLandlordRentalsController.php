@@ -528,6 +528,10 @@ class ClientLandlordRentalsController extends Controller
             'arranged' => $this->arrangedFor($fault),
             // section 22 - what an AGENT did on the owner's behalf (recorded their instruction): the sentence, the agent's note, "Query this"
             'authorisation' => $this->authorisationFor($fault),
+            // section 22.7 - "Stop this" / "Query this": the buttons' state, the hold, and the questions with the agents' answers
+            'owner_actions' => $this->ownerActionsFor($fault),
+            // section 22.13.4 - the "Who pays" ruling in the owner's words (null until the agent has ruled)
+            'payer_ruling' => app(\App\Services\Rentals\RentalWhoPaysService::class)->portalPayload($fault, 'owner'),
             // section 22.4 - the contractor the agent proposes (and the call-out fee) while the owner is asked to authorise
             'proposed' => $awaiting ? app(\App\Services\Rentals\FaultInspectionService::class)->proposedFor($fault) : null,
             // AT-452 round 2 (F-OWNER) - "Reported before on <date> ..." when the same kind of fault was on this property earlier.
@@ -673,10 +677,33 @@ class ClientLandlordRentalsController extends Controller
     }
 
     /**
-     * Item I - "Query this": the owner asks their agent a question about a repair the agent arranged. A note, not a decision: it is written to the
-     * fault's history and BOTH lease agents are told (the same recipients as a new fault).
+     * Section 22.7 - what the owner's "Stop this" / "Query this" buttons need: whether there is an agent-made notice to act on, whether the owner can still
+     * stop it (the work has not started), the hold if there is one, and every question asked with its answer. One function, one answer for every screen.
+     *
+     * @return array<string,mixed>
      */
-    public function faultReportQuery(Request $request, int $faultReport): JsonResponse
+    private function ownerActionsFor(RentalFaultReport $fault): array
+    {
+        $holds = app(\App\Services\Rentals\RentalOwnerHoldService::class);
+        $hold = $holds->activeFor($fault);
+        $block = $holds->stopBlock($fault);
+        $tz = $fault->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+
+        return [
+            'show' => $hold !== null || $fault->isArrangedByAgent() || $this->authorisationFor($fault) !== null,
+            'can_stop' => $block === null,
+            'work_started' => $block !== null && $block['code'] === 'started',
+            'closed' => $block !== null && $block['code'] === 'closed',
+            'hold' => $hold ? ['reason' => $hold->reason, 'at' => $hold->stopped_at?->toIso8601String(), 'line' => $holds->stopLine($hold)] : null,
+            'queries' => $holds->queriesFor($fault)->map(fn ($q) => [
+                'id' => $q->id, 'question' => $q->question, 'at' => $q->asked_at?->toIso8601String(), 'answer' => $q->answer, 'answered_at' => $q->answered_at?->toIso8601String(),
+                'answered_by' => $q->answeredBy?->name,
+            ])->values()->all(),
+        ];
+    }
+
+    /** Resolve the owner (portal contact) and their fault for the three "Stop this" / "Query this" calls: [contact, fault] or a JsonResponse. */
+    private function ownerNoticeContext(Request $request, int $faultReport): array|JsonResponse
     {
         $contact = $this->resolvePortalContact($request);
         if ($contact instanceof JsonResponse) {
@@ -686,26 +713,92 @@ class ClientLandlordRentalsController extends Controller
         if (! $fault) {
             return response()->json(['message' => 'Fault report not found.'], 404);
         }
-        if (! $fault->isArrangedByAgent() && $this->authorisationFor($fault) === null) {
+
+        return [$contact, $fault];
+    }
+
+    /** The answer the three calls share: the refreshed fault state for the owner's screen. */
+    private function ownerNoticeState(RentalFaultReport $fault, int $status = 201): JsonResponse
+    {
+        $fault = $fault->fresh();
+
+        return response()->json([
+            'ok' => true, 'owner_actions' => $this->ownerActionsFor($fault), 'arranged' => $this->arrangedFor($fault), 'authorisation' => $this->authorisationFor($fault),
+            'progress' => app(\App\Services\Rentals\RentalFaultProgressService::class)->forFault($fault, \App\Services\Rentals\RentalFaultProgressService::AUDIENCE_OWNER),
+        ], $status);
+    }
+
+    /**
+     * Item I / section 22.7 - "Query this": the owner asks their agent a question about a repair the agent arranged. A note, not a decision - nothing stops. It is
+     * saved, both lease agents are told (in-app and by email), and the agent answers from the fault page.
+     */
+    public function faultReportQuery(Request $request, int $faultReport): JsonResponse
+    {
+        $ctx = $this->ownerNoticeContext($request, $faultReport);
+        if ($ctx instanceof JsonResponse) {
+            return $ctx;
+        }
+        [$contact, $fault] = $ctx;
+        if (! $this->ownerActionsFor($fault)['show']) {
             return response()->json(['message' => 'There is nothing to query on this one.'], 422);
         }
         $data = $request->validate(['note' => 'required|string|min:3|max:1000']);
 
-        $fault->recordHistory(\App\Models\RentalFaultReportUpdate::TYPE_OWNER_QUERY, null, trim((string) ($contact->first_name . ' ' . $contact->last_name)) . ' (owner) asked: ' . trim($data['note']));
-        $property = $fault->property()->withoutGlobalScopes()->first();
-        if ($property) {
-            foreach (app(\App\Services\Rentals\LeaseAgentService::class)->recipientsForEvent($fault->lease, $property, (int) $fault->agency_id) as $user) {
-                app(\App\Services\CommandCenter\NotificationDispatcher::class)->fire($user, 'rental_fault_report.owner_query', $fault, [
-                    'title' => 'The owner has a question - ' . ($property->buildDisplayAddress() ?: $property->title),
-                    'body' => $fault->ownerVersion()['title'] . ': ' . mb_substr(trim($data['note']), 0, 200),
-                    'action_url' => route('corex.rental-fault-reports.show', $fault->id),
-                    'severity' => 'info',
-                    'threshold_hit_at' => now(),
-                ]);
-            }
+        try {
+            app(\App\Services\Rentals\RentalOwnerHoldService::class)->ask($fault, $contact, $data['note'], \App\Models\RentalOwnerQuery::VIA_PORTAL);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        return response()->json(['ok' => true, 'arranged' => $this->arrangedFor($fault->fresh()), 'authorisation' => $this->authorisationFor($fault->fresh())], 201);
+        return $this->ownerNoticeState($fault);
+    }
+
+    /** Section 22.7 - "Stop this": a reason is required; refused once the work has started. */
+    public function faultReportStop(Request $request, int $faultReport): JsonResponse
+    {
+        $ctx = $this->ownerNoticeContext($request, $faultReport);
+        if ($ctx instanceof JsonResponse) {
+            return $ctx;
+        }
+        [$contact, $fault] = $ctx;
+        if (! $this->ownerActionsFor($fault)['show']) {
+            return response()->json(['message' => 'There is nothing to stop on this one.'], 422);
+        }
+        $data = $request->validate(['reason' => 'required|string|min:3|max:500'], ['reason.required' => 'Please say why - a short reason is required.', 'reason.min' => 'Please say why - a short reason is required.']);
+
+        try {
+            $r = app(\App\Services\Rentals\RentalOwnerHoldService::class)->stop($fault, $contact, $data['reason'], \App\Models\RentalOwnerHold::VIA_PORTAL);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+        if ($r['result'] === 'started') {
+            return response()->json(['message' => 'Work has started - contact your agent.', 'owner_actions' => $this->ownerActionsFor($fault->fresh())], 422);
+        }
+        if ($r['result'] === 'closed') {
+            return response()->json(['message' => 'This job is closed, so there is nothing to stop.', 'owner_actions' => $this->ownerActionsFor($fault->fresh())], 422);
+        }
+
+        return $this->ownerNoticeState($fault);
+    }
+
+    /** Section 22.7 - "Go ahead after all": the owner's own press is the fresh authority that lifts their hold. */
+    public function faultReportResume(Request $request, int $faultReport): JsonResponse
+    {
+        $ctx = $this->ownerNoticeContext($request, $faultReport);
+        if ($ctx instanceof JsonResponse) {
+            return $ctx;
+        }
+        [$contact, $fault] = $ctx;
+        try {
+            $r = app(\App\Services\Rentals\RentalOwnerHoldService::class)->resumeByOwner($fault, $contact, \App\Models\RentalOwnerHold::VIA_PORTAL);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+        if ($r === 'not_held') {
+            return response()->json(['message' => 'This is not on hold.', 'owner_actions' => $this->ownerActionsFor($fault->fresh())], 422);
+        }
+
+        return $this->ownerNoticeState($fault);
     }
 
     /** "Reported before on <date> ..." for the owner's decision screen - linked only to an earlier report this owner can open themselves. */

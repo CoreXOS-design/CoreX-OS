@@ -447,7 +447,9 @@ final class AlertSwitchTest extends TestCase
 
         $html = $this->actingAs($admin)->get(route('corex.rental-fault-reports.show', $fault->id))->assertOk()->getContent();
 
-        $this->assertStringContainsString('Save draft', $html);
+        $this->assertStringContainsString('What the owner will see', $html);
+        $this->assertStringContainsString('data-owner-version-save', $html);
+        $this->assertStringNotContainsString('Save draft', $html);
         $this->assertStringNotContainsString('Save owner version', $html);
     }
 

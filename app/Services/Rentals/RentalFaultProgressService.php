@@ -174,6 +174,12 @@ class RentalFaultProgressService
                 $steps[$last]['label'] = $this->label('reported_finished', $aud);
             }
         }
+        // section 22.7 - the owner pressed "Stop this": the CURRENT step reads "On hold" for everyone (the tenant is never told the owner's reason)
+        $held = $ended === null && $last !== null && app(RentalOwnerHoldService::class)->activeFor($fault) !== null;
+        if ($held) {
+            $steps[$last]['label'] = $this->label('on_hold', $aud);
+            $steps[$last]['on_hold'] = true;
+        }
         // A declined fault ends at its decision: no later steps are shown at all.
         if ($ended === 'not_approved') {
             $steps = array_values(array_filter($steps, fn ($s) => in_array($s['key'], ['sent_to_agent', 'agent_reviewing', 'sent_to_owner', 'owner_decided'], true)));
@@ -192,6 +198,7 @@ class RentalFaultProgressService
             'current' => $currentStep['key'],
             'current_label' => $currentStep['label'],
             'ended' => $ended,
+            'on_hold' => $held,
         ];
     }
 

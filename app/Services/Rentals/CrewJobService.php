@@ -99,6 +99,7 @@ class CrewJobService
         return [
             'agency' => ['name' => $branding['name'], 'logo_url' => $branding['logoUrl'] ? (\App\Support\PortalLogo::urlFor($ctx->agencyId) ?? $branding['logoUrl']) : null, 'color' => $branding['colors']['default']],
             'title' => $card->title,
+            'work_order_id' => $card->rental_work_order_id,
             'status' => $card->status,
             'status_label' => ucfirst(str_replace('_', ' ', $card->status)),
             'is_open' => ! $card->isClosed() && ! $card->trashed(),
@@ -214,7 +215,7 @@ class CrewJobService
      * sign-off ONLY — the card stays open until the agent signs off and
      * completes it. No undo from the link: a second attempt is refused.
      */
-    public function markCompleted(RentalJobCard $card, string $fullName, bool $confirmed, CrewViewContext $ctx): void
+    public function markCompleted(RentalJobCard $card, string $fullName, bool $confirmed, CrewViewContext $ctx, array $report = []): void
     {
         $this->assertReachable($card, $ctx);
         $card->assertContentEditable();
@@ -228,6 +229,13 @@ class CrewJobService
         }
         if ($card->worker_signed_off_at) {
             throw new \LogicException('This job has already been marked completed.');
+        }
+
+        // spec section 22.13.2 - a job that came from a fault is not done until the crew say what was found and what caused it (same writer as the contractor link)
+        $workOrder = $card->rental_work_order_id ? RentalWorkOrder::withoutGlobalScopes()->where('agency_id', $card->agency_id)->find($card->rental_work_order_id) : null;
+        $who = app(RentalWhoPaysService::class);
+        if ($workOrder && $who->isFaultJob($workOrder)) {
+            $who->recordFindings($workOrder, $report['found_text'] ?? null, ! empty($report['cause_id']) ? (int) $report['cause_id'] : null, $report['cause_note'] ?? null, $fullName . ' (crew)');
         }
 
         DB::transaction(function () use ($card, $fullName, $ctx) {

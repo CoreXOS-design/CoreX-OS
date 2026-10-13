@@ -191,9 +191,9 @@ final class OwnerCommentTest extends TestCase
         $verbs = $routes->flatMap(fn ($r) => $r->methods())->unique()->values()->all();
         $this->assertEmpty(array_intersect(['PUT', 'PATCH', 'DELETE'], $verbs), 'the owner has no edit or delete route on a fault report');
 
-        // the owner's complete list of WRITE routes on fault reports: a new one must be looked at on purpose
+        // the owner's complete list of WRITE routes on fault reports: a new one must be looked at on purpose (section 22.7 added stop + resume: both only pause / un-pause, neither edits the report)
         $writes = $routes->filter(fn ($r) => in_array('POST', $r->methods(), true))->map(fn ($r) => $r->getName())->sort()->values()->all();
-        $this->assertSame(['client.rentals.landlord.fault-reports.decision', 'client.rentals.landlord.fault-reports.query', 'client.rentals.landlord.fault-reports.repair-request'], array_values(array_filter($writes, fn ($n) => $n !== 'client.rentals.landlord.properties.fault-reports.store')));
+        $this->assertSame(['client.rentals.landlord.fault-reports.decision', 'client.rentals.landlord.fault-reports.query', 'client.rentals.landlord.fault-reports.repair-request', 'client.rentals.landlord.fault-reports.resume', 'client.rentals.landlord.fault-reports.stop'], array_values(array_filter($writes, fn ($n) => $n !== 'client.rentals.landlord.properties.fault-reports.store')));
     }
 
     // ───────────────────────── the decision form ─────────────────────────
@@ -249,7 +249,7 @@ final class OwnerCommentTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('#name="owner_agent_note"[^>]*>[^<]*Do it before the weekend#', $html);
     }
 
-    public function test_the_owner_version_row_is_two_equal_buttons_and_approve_within_limit_is_gone(): void
+    public function test_the_owner_version_has_one_save_button_and_approve_within_limit_is_gone(): void
     {
         $f = app(RentalFaultReportService::class)->report($this->property, ['lease_id' => $this->lease->id, 'reported_by_type' => 'tenant', 'reported_channel' => 'app', 'rental_fault_type_id' => $this->type->id, 'title' => 'Tap', 'description' => 'drip']);
         $f->saveOwnerVersion(['owner_title' => 'Tap dripping', 'owner_description' => 'A tap drips.', 'owner_agent_note' => 'x'], $this->ownerAgent);
@@ -258,8 +258,12 @@ final class OwnerCommentTest extends TestCase
         $this->assertStringContainsString('cx-equal-btns', $html);
         $row = substr($html, strpos($html, 'data-owner-version-actions'));
         $row = substr($row, 0, strpos($row, '</form>'));
-        $this->assertStringContainsString('Save draft', $row);
-        $this->assertStringContainsString('Save and send to owner', $row);
+        // section 22 (page order fix): ONE button on the owner version - Save. Sending is only through "Who goes to look first?" below it.
+        $this->assertStringContainsString('data-owner-version-save', $row);
+        $this->assertSame(1, substr_count($row, '<button'));
+        $this->assertStringNotContainsString('Save and send to owner', $html);
+        $this->assertStringNotContainsString('Send saved version to owner', $html);
+        $this->assertLessThan(strpos($html, 'data-decision-one'), strpos($html, 'id="owner-version-card"'), 'what the owner will see comes BEFORE who goes to look first');
         // section 22: approval against a limit exists only at Decision 2 (the cost) - never on the fault page
         $this->assertStringNotContainsString('Approve within agent limit', $html);
         $this->assertStringNotContainsString('data-go-ahead-toggle', $html);
@@ -267,12 +271,13 @@ final class OwnerCommentTest extends TestCase
         $this->assertStringNotContainsString('Go ahead now and tell the owner', $html);
     }
 
-    public function test_sending_someone_waits_for_the_owner_version_to_be_saved(): void
+    public function test_the_buttons_save_the_owner_version_so_an_unsaved_draft_is_not_a_blocker_on_the_page(): void
     {
         $f = app(RentalFaultReportService::class)->report($this->property, ['lease_id' => $this->lease->id, 'reported_by_type' => 'tenant', 'reported_channel' => 'app', 'rental_fault_type_id' => $this->type->id, 'title' => 'Tap', 'description' => 'drip']);
         $html = $this->actingAs($this->ownerAgent)->get(route('corex.rental-fault-reports.show', $f))->assertOk()->getContent();
-        $this->assertStringContainsString('data-inspect-block-line', $html);
-        $this->assertStringContainsString('Save the owner version first - it is what the owner will read.', $html);
+        // page-order fix: the two buttons under "Who goes to look first?" send the draft's fields with the press, so there is no "save it first" line to scroll for
+        $this->assertStringNotContainsString('data-inspect-block-line', $html);
+        $this->assertStringContainsString('id="owner-version-form"', $html);
     }
 
     // ───────────────────────── the owner portal screens ─────────────────────────

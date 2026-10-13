@@ -89,6 +89,7 @@ class RentalContractorJobService
      */
     public function appoint(RentalWorkOrder $wo, int $providerId, ?string $tradeType, User $by): array
     {
+        app(RentalOwnerHoldService::class)->assertNotOnHold($wo);   // section 22.7 - paused by the owner
         if (in_array($wo->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true)) {
             throw new \LogicException('This work order is already closed.');
         }
@@ -144,6 +145,13 @@ class RentalContractorJobService
     private function send(RentalWorkOrder $wo, ?User $by, string $reason, string $keyBase): array
     {
         $out = ['rows' => [], 'sent' => false, 'not_sent' => false];
+        if ($held = app(RentalOwnerHoldService::class)->holdReason($wo)) {   // section 22.7 - paused by the owner: nothing goes out
+            $this->history($wo, $by, 'job_not_sent', 'Job NOT sent - ' . $held);
+            $out['not_sent'] = true;
+            $out['held'] = $held;
+
+            return $out;
+        }
         try {
             $provider = $wo->supplier()->withoutGlobalScopes()->with('serviceContacts')->first();
             if (! $provider || in_array($wo->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true)) {
@@ -392,6 +400,12 @@ class RentalContractorJobService
     public function sendCrewLink(RentalJobCard $card, ?User $by, string $reason = RentalJobDispatch::REASON_CREW_AUTO, ?string $pressKey = null): array
     {
         $out = ['rows' => [], 'sent' => false, 'not_sent' => false];
+        if ($held = app(RentalOwnerHoldService::class)->holdReason($card)) {   // section 22.7 - paused by the owner: nothing goes out
+            $out['not_sent'] = true;
+            $out['held'] = $held;
+
+            return $out;
+        }
         try {
             if ($card->isClosed() || ! $card->rental_work_order_id) {
                 return $out;
