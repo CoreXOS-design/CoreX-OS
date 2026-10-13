@@ -457,6 +457,7 @@ final class AuthorityCostTest extends TestCase
         $html = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
 
         $this->assertStringContainsString('data-cost-decision', $html);
+        $this->assertStringContainsString('href="#cost-decision"', $html, '"What happens next" links straight to the box');
         $this->assertStringContainsString('Approve the cost', $html);
         $this->assertStringContainsString('Nothing is approved until you press a button.', $html);
         $this->assertStringNotContainsString('Decision 2', $html);

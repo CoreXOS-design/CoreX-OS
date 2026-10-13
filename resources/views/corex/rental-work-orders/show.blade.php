@@ -60,14 +60,14 @@
             @elseif(! $selectedQuote && $workOrder->quotes->isNotEmpty())
                 <div class="font-medium" style="color: var(--ds-crimson, #b3261e);" data-quote-not-selected>No quote chosen yet &mdash; the owner has not been asked, and the work order cannot be sent. Choose the quote below with its Select button.</div>
             @elseif(! $selectedQuote)
-                <div>Capture {{ $nextContractor }}'s quote below and select it. Nothing is approved by itself: under &ldquo;Approve the cost&rdquo; you authorise it if it is inside the owner's repair limit, or the owner approves it first (their link, or you record what they told you). Then you can send the work order.</div>
+                <div>Capture {{ $nextContractor }}'s quote below and select it. Nothing is approved by itself: under &ldquo;Approve the cost&rdquo; you authorise it if it is inside the owner's repair limit, or the owner approves it first (their link, or you record what they told you). Then you can send the work order. <a href="#cost-decision" class="underline font-medium" data-go-to-cost>Go to &ldquo;Approve the cost&rdquo;</a></div>
             @elseif($workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_PENDING)
                 <div class="font-medium" data-quote-sent-to-owner>Quote sent to {{ app(\App\Services\Rentals\RentalWorkOrderService::class)->ownerNames($workOrder) ?: 'the owner' }} for approval.</div>
-                <div>The quote of <strong>R{{ number_format($selectedQuote->ownerFacingAmount(), 2) }}</strong> needs the owner's approval first ({{ $costRepair['line'] }}). You can send the work order to {{ $nextContractor }} once they approve.</div>
+                <div>The quote of <strong>R{{ number_format($selectedQuote->ownerFacingAmount(), 2) }}</strong> needs the owner's approval first ({{ $costRepair['line'] }}). You can send the work order to {{ $nextContractor }} once they approve. <a href="#cost-decision" class="underline font-medium" data-go-to-cost>Record their answer under &ldquo;Approve the cost&rdquo;</a></div>
             @elseif($proceed->authorised)
                 <div>The cost is authorised{{ $workOrder->approvalBasisLabel() ? ' (' . strtolower($workOrder->approvalBasisLabel()) . ')' : '' }}. Next: send the work order to {{ $nextContractor }}.</div>
             @elseif($costRepair['agent_can'])
-                <div data-cost-needed>The quote of <strong>R{{ number_format($selectedQuote->ownerFacingAmount(), 2) }}</strong> is inside the owner's repair limit &mdash; press &ldquo;Authorise&rdquo; under &ldquo;Approve the cost&rdquo; to approve it, then send the work order to {{ $nextContractor }}.</div>
+                <div data-cost-needed>The quote of <strong>R{{ number_format($selectedQuote->ownerFacingAmount(), 2) }}</strong> is inside the owner's repair limit &mdash; press &ldquo;Authorise&rdquo; under &ldquo;Approve the cost&rdquo; to approve it, then send the work order to {{ $nextContractor }}. <a href="#cost-decision" class="underline font-medium" data-go-to-cost>Go to &ldquo;Approve the cost&rdquo;</a></div>
             @else
                 <div>{{ $proceed->note }}</div>
             @endif
