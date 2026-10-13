@@ -124,7 +124,7 @@
     {{-- Who is signed in and which side of the portal is on screen - always, one compact line (a shared browser must never leave this unclear). --}}
     <div class="whoami" data-portal-who x-show="session.authenticated && me && !sessionChanged" x-cloak>
         <span class="muted">Signed in as</span>
-        <span class="who-name" data-who-name :title="whoEmail()" x-text="whoName()"></span>
+        <span class="who-name" data-who-name x-text="whoName()"></span>
         <span class="who-role" data-who-role x-show="roleLabel()" x-text="'· ' + roleLabel() + ' view'"></span>
     </div>
 

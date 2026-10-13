@@ -296,6 +296,26 @@ test('the header always says who is signed in and which side is on screen', asyn
   assert.equal(o.p.roleLabel(), 'Owner');
 });
 
+test('the header shows the PERSON the link was written for - the contact name, never the login email - on both sides of one shared login (demo / QA auto sign-in / real links)', async () => {
+  // one login (one email), two contacts: Michael holds the owner side, Thandi the tenant side (the QA demo setup)
+  const meFor = (contact) => ({ client: { id: 40, email: 'can.assurance@gmail.com' }, contact, side_contacts: {
+    tenant: { id: 19200, full_name: 'Thandi Mokoena' }, landlord: { id: 19199, full_name: 'Michael Daniels' } } });
+  const owner = boot({ fetchImpl: portalApi({ me: meFor({ id: 19199, full_name: 'Michael Daniels' }), properties: [{ id: 6 }] }) });
+  await owner.p.init(); await settle();
+  assert.equal(owner.p.activeRole, 'landlord');
+  assert.equal(owner.p.whoName(), 'Michael Daniels');
+  assert.equal(owner.p.roleLabel(), 'Owner');
+  const tenant = boot({ fetchImpl: portalApi({ me: meFor({ id: 19200, full_name: 'Thandi Mokoena' }), leases: [{ id: 94 }] }) });
+  await tenant.p.init(); await settle();
+  assert.equal(tenant.p.activeRole, 'tenant');
+  assert.equal(tenant.p.whoName(), 'Thandi Mokoena');
+  for (const t of [owner, tenant]) assert.ok(!t.p.whoName().includes('@'), 'the header never reads the login email when a contact name exists');
+  // the side's own contact wins even when /me answered with the other side's contact first
+  const mixed = boot({ fetchImpl: portalApi({ me: meFor({ id: 19200, full_name: 'Thandi Mokoena' }), properties: [{ id: 6 }] }) });
+  await mixed.p.init(); await settle();
+  assert.equal(mixed.p.whoName(), 'Michael Daniels', 'owner side on screen: the owner contact');
+});
+
 test('a link for ANOTHER person is never shown as the browser\'s other person: the tab is offered the sign-in for the link\'s person, and nothing of the other person is loaded', async () => {
   const calls = [];
   const { p } = boot({ search: '?email=ndlovu5308%40gmail.com', fetchImpl: portalApi({ me: TENANT_ME, leases: [{ id: 94 }], calls }) });
