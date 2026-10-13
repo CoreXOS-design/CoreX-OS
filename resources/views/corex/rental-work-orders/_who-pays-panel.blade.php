@@ -89,7 +89,7 @@
         <div class="text-sm"><strong>{{ $wpRuling->summary() }}</strong> &mdash; {{ $wpRuling->reason }}</div>
         <div class="text-xs" style="color: var(--text-muted);">By {{ $wpRuling->ruledBy?->name ?? 'an agent' }}, {{ $wpRuling->ruled_at?->copy()->setTimezone($wpTz)->format('j M Y H:i') }}.
             Owner {{ $wpRuling->owner_told_at ? 'told ' . $wpRuling->owner_told_at->copy()->setTimezone($wpTz)->format('j M H:i') : 'not emailed' }};
-            tenant {{ $wpRuling->tenant_told_at ? 'told ' . $wpRuling->tenant_told_at->copy()->setTimezone($wpTz)->format('j M H:i') : 'not emailed' }}.
+            tenant {{ $wpRuling->tenant_told_at ? 'told ' . $wpRuling->tenant_told_at->copy()->setTimezone($wpTz)->format('j M H:i') : ($wp->tenantInvolved($wpRuling) ? 'not emailed' : 'not told (nothing for them to pay)') }}.
             @if($wpRuling->evidence_path)<a class="underline" href="{{ route('corex.rental-work-orders.who-pays.evidence', [$workOrder, $wpRuling->id]) }}">Evidence: {{ $wpRuling->evidence_name }}</a>@endif</div>
     </div>
     @endif
