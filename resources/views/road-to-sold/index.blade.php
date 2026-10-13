@@ -334,7 +334,7 @@
                 <textarea id="rts-note" name="note" rows="3" maxlength="5000" x-model="note" class="w-full rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}"></textarea>
             </div>
 
-            <div class="flex items-center justify-end gap-2">
+            <div class="flex items-center justify-end gap-2 rts-actions">
                 <button type="button" class="corex-btn-outline corex-btn-xs" @click="open = false">Cancel</button>
                 <button type="submit" class="corex-btn-primary corex-btn-xs" :disabled="!current">Save</button>
             </div>

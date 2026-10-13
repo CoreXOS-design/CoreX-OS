@@ -249,6 +249,37 @@ final class OutcomeServiceTest extends TestCase
         $this->assertDatabaseHas('contact_notes', ['contact_id' => $owner->id, 'type' => 'Contacted']);
     }
 
+    public function test_an_assistants_call_keeps_the_owner_contact_even_when_the_contact_list_would_hide_it(): void
+    {
+        // ContactScope decides which contacts a person SEES (an assistant's breadth is what the agent handed over); the owner of
+        // a property is the property's fact. Before the fix the owner was looked up through that scope and silently lost.
+        DB::table('agencies')->where('id', $this->agencyId)->update(['assistants_enabled' => true]);
+        $assistant = User::factory()->create([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'role' => 'assistant', 'is_active' => true, 'is_assistant' => true,
+        ]);
+        \App\Models\AssistantAssignment::create([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId,
+            'assistant_user_id' => $assistant->id, 'agent_user_id' => $this->agent->id, 'status' => \App\Models\AssistantAssignment::STATUS_ACTIVE,
+        ]);
+        $assistant = $assistant->fresh();
+        // the owner was captured by a colleague, not by the agent the assistant acts for
+        $owner = Contact::withoutGlobalScopes()->create([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'created_by_user_id' => $this->other->id,
+            'first_name' => 'Olive', 'last_name' => 'Owner', 'phone' => '0825550101',
+        ]);
+        $tp = $this->tp($owner->id);
+
+        $this->actingAs($assistant);
+        $this->assertNull(Contact::query()->find($owner->id), 'precondition: the contact list does not show this owner to the assistant');
+
+        $o = $this->svc()->record($assistant, $tp->id, $this->def('wrong_number')->id, []);
+
+        $this->assertSame($owner->id, (int) $o->contact_id, 'the outcome is history on the owner contact');
+        $this->assertSame($this->agent->id, (int) $o->user_id);
+        $this->assertSame($assistant->id, (int) $o->recorded_by_user_id);
+        $this->assertTrue(ContactNote::withoutGlobalScopes()->where('contact_id', $owner->id)->exists(), 'the note lands on the owner');
+    }
+
     public function test_three_no_answers_in_a_row_drop_the_property_and_a_conversation_resets_the_run(): void
     {
         $tp = $this->tp();
