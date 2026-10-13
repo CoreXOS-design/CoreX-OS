@@ -1685,7 +1685,7 @@ class MarketIntelligenceController extends Controller
             ->select(
                 'id', 'portal_source', 'portal_ref', 'portal_url',
                 'address', 'suburb', 'price', 'bedrooms', 'bathrooms',
-                'property_type', 'first_seen_at', 'is_active'
+                'property_type', 'first_seen_at', 'is_active', 'listed_date', 'listed_date_source'
             )
             ->orderByDesc('first_seen_at')
             ->get();

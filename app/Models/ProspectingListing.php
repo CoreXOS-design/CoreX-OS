@@ -67,6 +67,9 @@ class ProspectingListing extends Model
         'off_market_at',
         // MIC SUBURB RECONCILE (cc2) — the capture session that last saw this listing
         'last_search_id',
+        // AT-454 — the advert's REAL listed date (portal's own), separate from first_seen_at
+        'listed_date',
+        'listed_date_source',
     ];
 
     protected $casts = [
@@ -84,7 +87,11 @@ class ProspectingListing extends Model
         'portal_status_changed_at' => 'datetime',
         'off_market_at'            => 'datetime',
         'last_search_id'           => 'integer',
+        'listed_date'              => 'date',
     ];
+
+    public const LISTED_DATE_SOURCE_PORTAL = 'portal';
+    public const LISTED_DATE_SOURCE_AGENT  = 'agent';
 
     // ── Portal lifecycle status (MIC SOLD / OFF-MARKET + REF-TRACKING) ──
     public const PORTAL_STATUS_ACTIVE      = 'active';
@@ -114,16 +121,73 @@ class ProspectingListing extends Model
     }
 
     /**
-     * Days the listing was (or has been) on-market — from first sighting to its
-     * off-market date, or to now if still live. NULL when we never saw it first.
+     * When this advert went on the market, as best we know: the portal's real listed date when we
+     * have one (captured, or corrected by an agent), else the day CoreX first captured it.
+     * AT-454 — the ONE definition behind "days on market", "new on market" and "long on market".
+     */
+    public function listedOn(): ?\Illuminate\Support\Carbon
+    {
+        if ($this->listed_date) {
+            return $this->listed_date->copy()->startOfDay();
+        }
+
+        return $this->first_seen_at?->copy()->startOfDay();
+    }
+
+    /** True when listedOn() is the portal's real date, false when it is only our first sighting. */
+    public function hasRealListedDate(): bool
+    {
+        return $this->listed_date !== null;
+    }
+
+    /**
+     * Days the listing was (or has been) on-market — from its listed date (else first sighting) to
+     * its off-market date, or to now if still live. NULL when we never saw it first.
      */
     public function daysOnMarket(): ?int
     {
-        if (! $this->first_seen_at) {
+        $start = $this->listedOn();
+        if (! $start) {
             return null;
         }
         $end = $this->off_market_at ?? now();
-        return $this->first_seen_at->diffInDays($end);
+        return (int) $start->diffInDays($end->copy()->startOfDay());
+    }
+
+    /**
+     * Listed within the last $days days — "new on market". By the real listed date when we have one
+     * (calendar-day compare, today included), else by first sighting EXACTLY as the old
+     * `new_today` preset compared it (a timestamp against now − $days), so rows without a real
+     * date behave as they always did.
+     */
+    public function scopeListedWithinDays($query, int $days, string $table = 'prospecting_listings')
+    {
+        $days = max(0, $days);
+
+        return $query->where(function ($q) use ($days, $table) {
+            $q->where(fn ($w) => $w->whereNotNull("{$table}.listed_date")
+                    ->where("{$table}.listed_date", '>=', now()->subDays($days)->toDateString()))
+              ->orWhere(fn ($w) => $w->whereNull("{$table}.listed_date")
+                    ->where("{$table}.first_seen_at", '>=', now()->subDays($days)));
+        });
+    }
+
+    /** Listed MORE than $days days ago — "long on market". Same two-way definition as above. */
+    public function scopeListedBeforeDays($query, int $days, string $table = 'prospecting_listings')
+    {
+        $days = max(0, $days);
+
+        return $query->where(function ($q) use ($days, $table) {
+            $q->where(fn ($w) => $w->whereNotNull("{$table}.listed_date")
+                    ->where("{$table}.listed_date", '<', now()->subDays($days)->toDateString()))
+              ->orWhere(fn ($w) => $w->whereNull("{$table}.listed_date")
+                    ->where("{$table}.first_seen_at", '<', now()->subDays($days)));
+        });
+    }
+
+    public function dateCorrections()
+    {
+        return $this->hasMany(ProspectingListingDateCorrection::class, 'prospecting_listing_id');
     }
 
     /** Rows whose last portal-reported status is off-market. */

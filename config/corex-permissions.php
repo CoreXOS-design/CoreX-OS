@@ -718,6 +718,9 @@ return [
         // ── MIC property row comments — .ai/specs/mic-property-row-comments.md ──
         ['key' => 'mic.comments.view',           'label' => 'View Property Comments',              'section' => 'prospecting',      'type' => 'access',  'module' => 'mic',              'sort_order' => 58],
         ['key' => 'mic.comments.add',            'label' => 'Add Property Comments',               'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 59],
+        // AT-454 — correct a MIC listing's listed date (reason required, history kept). Default: admin + branch manager,
+        // same as properties.listed_date.correct.
+        ['key' => 'mic.listed_date.correct',     'label' => 'Correct Listed Date on MIC (reason required)', 'section' => 'prospecting', 'type' => 'action', 'module' => 'mic', 'sort_order' => 60],
 
         // ── Evaluation (Property/Suburb/Town Reports) ──
         ['key' => 'access_evaluation',           'label' => 'Access Evaluation Reports',   'section' => 'evaluation',       'type' => 'access',  'module' => 'evaluation',       'sort_order' => 1],
@@ -1073,6 +1076,7 @@ return [
                 'mic.edit_address', 'mic.merge_duplicates', 'mic.upload_reports',
                 'mic.view_team', 'mic.regenerate_brief', 'mic.view_ai_costs',
                 'mic.restore_reports', 'mic.comments.view', 'mic.comments.add',
+                'mic.listed_date.correct', // AT-454
                 // Agency Public API — admins manage their agency's website keys
                 'agency_api.view', 'agency_api.manage',
                 // Testimonials — admins curate which testimonials go on the website
@@ -1279,6 +1283,7 @@ return [
                 // EXCEPT regenerate_brief and view_ai_costs (admin+ only).
                 'mic.edit_address', 'mic.merge_duplicates', 'mic.upload_reports',
                 'mic.view_team',
+                'mic.listed_date.correct', // AT-454
                 // AT-380 — .view scope (branch_manager→branch, agent→own via
                 // scope_defaults). Admin/owner get these via '*'/all-minus-exclude.
                 'market_intelligence.view', 'outreach_canvassing.view',
