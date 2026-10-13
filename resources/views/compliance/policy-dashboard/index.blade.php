@@ -14,7 +14,7 @@
             <div class="flex flex-wrap items-center gap-2">
                 <a href="{{ route('compliance.policy.index') }}" class="corex-btn-outline text-xs">&larr; Policies</a>
                 @if($selectedPolicy)
-                <a href="{{ route('compliance.policy.dashboard.report', ['policy' => $selectedKey]) }}" target="_blank" class="corex-btn-outline text-xs">Export Report</a>
+                <a href="{{ route('compliance.policy.dashboard.report', ['policy' => $selectedKey]) }}" class="corex-btn-outline text-xs">Export Report</a>
                 @endif
             </div>
         </div>

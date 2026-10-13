@@ -15,9 +15,9 @@ use Illuminate\Support\Facades\DB;
  * The caller has already validated that $agentIds are agents the viewer may see; this service only
  * adds the agency wall. Rows are capped at MAX_ROWS (the true count is in `total`).
  *
- * Metrics: calls_made, attempts, conversations, valuations_booked, dropped, outcome:<key>
+ * Metrics: calls_made, attempts, conversations, evaluations_booked, dropped, outcome:<key>
  * (the call log); worked, added_worked, missed (the day's list: worked toward the target, worked on top
- * of it, missed or rolled over); target (one row per working day); valuations_done (calendar appointments with feedback); mandates_signed (completed
+ * of it, missed or rolled over); target (one row per working day); evaluations_done (calendar appointments with feedback); mandates_signed (completed
  * mandate e-sign documents); listings_live (listings that went live in the window).
  */
 class DrilldownService
@@ -29,14 +29,14 @@ class DrilldownService
     {
     }
 
-    public const LOG_METRICS = ['calls_made', 'attempts', 'conversations', 'valuations_booked', 'dropped'];
+    public const LOG_METRICS = ['calls_made', 'attempts', 'conversations', 'evaluations_booked', 'dropped'];
 
     public function supports(string $metric): bool
     {
         return in_array($metric, self::LOG_METRICS, true)
             || str_starts_with($metric, 'outcome:')
             || in_array($metric, self::ITEM_METRICS, true)
-            || in_array($metric, ['target', 'valuations_done', 'mandates_signed', 'listings_live'], true);
+            || in_array($metric, ['target', 'evaluations_done', 'mandates_signed', 'listings_live'], true);
     }
 
     /**
@@ -54,7 +54,7 @@ class DrilldownService
         $to = $period->end->toDateTimeString();
 
         return match (true) {
-            $metric === 'valuations_done' => $this->valuationsDone($agentIds, $from, $to, $agencyId, $period),
+            $metric === 'evaluations_done' => $this->evaluationsDone($agentIds, $from, $to, $agencyId, $period),
             $metric === 'mandates_signed' => $this->mandatesSigned($agentIds, $from, $to, $agencyId, $period),
             $metric === 'listings_live'   => $this->listingsLive($agentIds, $from, $to, $agencyId, $period, $track),
             $metric === 'target'          => $this->targetDays($agentIds, $agencyId, $period, $track),
@@ -78,7 +78,7 @@ class DrilldownService
         $to = $period->end->toDateTimeString();
 
         return match (true) {
-            $metric === 'valuations_done' => $this->valuationsDoneQuery($agentIds, $from, $to, $agencyId)->count(),
+            $metric === 'evaluations_done' => $this->evaluationsDoneQuery($agentIds, $from, $to, $agencyId)->count(),
             $metric === 'mandates_signed' => $this->mandatesQuery($agentIds, $from, $to, $agencyId)->count(),
             $metric === 'listings_live'   => $this->listingsQuery($agentIds, $from, $to, $agencyId, $track)->count(),
             $metric === 'target'          => $this->targetTotal($agentIds, $agencyId, $period, $track),
@@ -95,8 +95,8 @@ class DrilldownService
                 'calls_made'        => 'Calls made',
                 'attempts'          => 'Attempts',
                 'conversations'     => 'Conversations',
-                'valuations_booked' => 'Valuations booked',
-                'valuations_done'   => 'Valuations done',
+                'evaluations_booked' => 'Evaluations booked',
+                'evaluations_done'   => 'Evaluations done',
                 'mandates_signed'   => 'Mandates signed',
                 'listings_live'     => 'Listings live',
                 'dropped'           => 'Dropped after repeated no-answers',
@@ -126,7 +126,7 @@ class DrilldownService
         match (true) {
             $metric === 'conversations'     => $q->where('o.kind', 'conversation'),
             $metric === 'attempts'          => $q->where('o.kind', 'attempt'),
-            $metric === 'valuations_booked' => $q->where('o.valuation_booked', true),
+            $metric === 'evaluations_booked' => $q->where('o.valuation_booked', true),
             $metric === 'dropped'           => $q->where('o.dropped', true),
             str_starts_with($metric, 'outcome:') => $q->where('o.outcome_key', substr($metric, 8)),
             default                         => null,
@@ -149,7 +149,7 @@ class DrilldownService
             'made_by'  => $r->made_by ?: '-',
             'property' => $this->address($r),
             'owner'    => $this->ownerName($r),
-            'outcome'  => $r->outcome_label . ($r->valuation_booked ? ' (valuation booked)' : ''),
+            'outcome'  => $r->outcome_label . ($r->valuation_booked ? ' (evaluation booked)' : ''),
             'note'     => $r->note,
             'href'     => route('market-intelligence.opportunities.show', $r->tracked_property_id),
         ])->all();
@@ -243,9 +243,9 @@ class DrilldownService
         ], $rows, (int) array_sum(array_column($all, 'target')), count($all) > self::MAX_ROWS);
     }
 
-    // ── Valuations done: valuation appointments with feedback captured ─────────────────────
+    // ── Evaluations done: evaluation appointments with feedback captured ─────────────────────
 
-    private function valuationsDoneQuery(array $agentIds, string $from, string $to, int $agencyId)
+    private function evaluationsDoneQuery(array $agentIds, string $from, string $to, int $agencyId)
     {
         return DB::table('calendar_events as ce')
             ->leftJoin('properties as p', 'p.id', '=', 'ce.property_id')
@@ -257,9 +257,9 @@ class DrilldownService
                 ->whereColumn('f.calendar_event_id', 'ce.id')->whereNotNull('f.captured_at')->whereNull('f.deleted_at'));
     }
 
-    private function valuationsDone(array $agentIds, string $from, string $to, int $agencyId, Period $period): array
+    private function evaluationsDone(array $agentIds, string $from, string $to, int $agencyId, Period $period): array
     {
-        $q = $this->valuationsDoneQuery($agentIds, $from, $to, $agencyId);
+        $q = $this->evaluationsDoneQuery($agentIds, $from, $to, $agencyId);
         $total = (clone $q)->count();
         $rows = $q->orderByDesc('ce.event_date')->limit(self::MAX_ROWS)->get(['ce.id', 'ce.title', 'ce.event_date', 'p.title as property', 'u.name as agent'])
             ->map(fn ($r) => [
@@ -267,7 +267,7 @@ class DrilldownService
                 'property' => $r->property ?: $r->title, 'href' => route('command-center.calendar.show', $r->id),
             ])->all();
 
-        return $this->envelope($this->title('valuations_done', $period), [
+        return $this->envelope($this->title('evaluations_done', $period), [
             ['key' => 'when', 'label' => 'When', 'align' => 'left'],
             ['key' => 'agent', 'label' => 'Agent', 'align' => 'left'],
             ['key' => 'property', 'label' => 'Appointment', 'align' => 'left'],

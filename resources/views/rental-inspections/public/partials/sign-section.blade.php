@@ -45,6 +45,18 @@
         @endif
     @elseif(! $signing['can_sign'])
         <p class="text-sm text-slate-600" data-qa="sign-unavailable">{{ $signing['message'] }}</p>
+        @if(($signing['reason'] ?? null) === 'not_ready')
+            {{-- One line, never a dead end: the page checks quietly and opens the signing form by itself the moment the agent opens signing. --}}
+            <script>
+                (function () {
+                    var timer = setInterval(function () {
+                        fetch(window.location.href, { credentials: 'same-origin', cache: 'no-store', headers: { 'X-Signing-Poll': '1' } }).then(function (r) { return r.text(); }).then(function (html) {
+                            if (html.indexOf('data-qa="sign-unavailable"') === -1) { clearInterval(timer); window.location.reload(); }
+                        }).catch(function () {});
+                    }, 15000);
+                })();
+            </script>
+        @endif
         @include('rental-inspections.public.partials.download-link', ['signing' => $signing, 'cls' => 'bg-slate-100 text-slate-700 border border-slate-200'])
     @else
         <div x-data="inspectionLinkSigner({

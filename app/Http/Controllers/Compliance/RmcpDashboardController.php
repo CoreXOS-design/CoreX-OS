@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Compliance;
 
 use App\Http\Controllers\Controller;
 use App\Models\Agency;
+use App\Services\Compliance\CompliancePdf;
 use App\Models\Compliance\RmcpAcknowledgement;
 use App\Models\Compliance\RmcpVersion;
 use App\Models\User;
@@ -163,6 +164,12 @@ class RmcpDashboardController extends Controller
             ];
         }
 
-        return view('compliance.rmcp-dashboard.report', compact('agency', 'activeVersion', 'staffData'));
+        $pdf   = app(CompliancePdf::class);
+        $html  = view('compliance.rmcp-dashboard.report', compact('agency', 'activeVersion', 'staffData'))->render();
+        $bytes = $pdf->render($html, 'RMCP Compliance Register — ' . $agency->name, 'rmcp-register-' . $agencyId);
+
+        return $pdf->download($bytes, CompliancePdf::registerFileName('rmcp-compliance-register', $agency->name, now()->format('Y-m-d')))
+            ?? redirect()->route('compliance.rmcp.dashboard.index')
+                ->with('error', 'The report PDF could not be created just now. Please try again; if it keeps failing, tell your administrator.');
     }
 }

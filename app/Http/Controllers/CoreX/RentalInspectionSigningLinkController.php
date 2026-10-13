@@ -90,6 +90,9 @@ class RentalInspectionSigningLinkController extends Controller
                 $sent = $this->links->sendEmail($link, $request->user());
                 $results[] = ['name' => $party['name'], 'role' => $party['role'], 'status' => $sent['status'], 'error' => $sent['error']];
             } catch (LinkException $e) {
+                if ($e->reason === LinkException::NOT_READY) {
+                    return $this->refusal($e);
+                }
                 $results[] = ['name' => $party['name'], 'role' => $party['role'], 'status' => $e->reason === LinkException::ALREADY_RECORDED ? 'already_recorded' : 'failed', 'error' => $e->getMessage()];
             }
         }
@@ -127,6 +130,11 @@ class RentalInspectionSigningLinkController extends Controller
         if (! $link->isLive()) {
             return response()->json(['message' => 'This link is no longer live — issue a new one first.'], 409);
         }
+        try {
+            $this->links->ensureReadyToSign($rentalInspection, $link->party_role);
+        } catch (LinkException $e) {
+            return $this->refusal($e);
+        }
         $this->links->recordShared($link, RentalInspectionSigningLink::CHANNEL_QR, null, $request->user());
 
         return response()->json(['url' => $link->url(), 'data_uri' => $this->links->qrDataUri($link)]);
@@ -144,6 +152,11 @@ class RentalInspectionSigningLinkController extends Controller
 
         if (! $link->isLive()) {
             return $report->privateHeaders(response()->view('rental-inspections.public.unavailable'));
+        }
+        try {
+            $this->links->ensureReadyToSign($rentalInspection, $link->party_role);
+        } catch (LinkException $e) {
+            // not ready (items still to record): the device page opens on its one-line "agent is still recording" state
         }
 
         $data = $report->reportData(
@@ -193,7 +206,7 @@ class RentalInspectionSigningLinkController extends Controller
 
     private function refusal(LinkException $e): JsonResponse
     {
-        return response()->json(['message' => $e->getMessage(), 'reason' => $e->reason], $e->reason === LinkException::INVALID ? 422 : 409);
+        return response()->json(['message' => $e->getMessage(), 'reason' => $e->reason, 'readiness' => $e->details ?: null], $e->reason === LinkException::INVALID ? 422 : 409);
     }
 
     private function whatsappUrl(RentalInspection $inspection, RentalInspectionSigningLink $link, ?array $party): string

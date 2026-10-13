@@ -4,7 +4,11 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\ClientUser;
+use App\Models\Contact;
 use App\Services\ClientAuthService;
+use App\Services\PortalTabSession;
+use App\Support\PortalDemoSigninGate;
+use App\Support\PortalLink;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -19,7 +23,7 @@ use Illuminate\Validation\Rules\Password;
  */
 class ClientAuthController extends Controller
 {
-    public function __construct(private readonly ClientAuthService $service) {}
+    public function __construct(private readonly ClientAuthService $service, private readonly PortalTabSession $tabs) {}
 
     /**
      * POST /api/v1/client-auth/lookup
@@ -164,6 +168,7 @@ class ClientAuthController extends Controller
         $data = $request->validate([
             'password'              => ['required', 'confirmed', Password::min(8)],
             'device_name'           => 'sometimes|string|max:120',
+            'tab'                   => 'sometimes|boolean',
         ]);
 
         $tokenable = $request->user();
@@ -198,9 +203,14 @@ class ClientAuthController extends Controller
         // sees a token value at all, so there is nothing for an XSS to
         // steal. Mobile (never stateful) is completely unchanged.
         $sessionToken = null;
-        if ($this->isStatefulRequest($request)) {
-            Auth::guard('client-web')->login($tokenable);
-            $request->session()->regenerate();
+        if ($this->wantsTabToken($request)) {
+            // §28.5 - a web portal TAB signs in as a token of its own: the browser's shared session cookie is never touched, so another tab
+            // (another person) is not signed out.
+            $sessionToken = $this->tabs->issue($tokenable);
+            $this->tabs->remember($request, $tokenable);
+        } elseif ($this->isStatefulRequest($request)) {
+            // a staff page open in this browser keeps its CSRF token (StaffSafeSession)
+            \App\Support\StaffSafeSession::loginPortal($request, Auth::guard('client-web'), $tokenable);
         } else {
             $deviceName = $data['device_name'] ?? config('clientauth.token.name_default', 'CoreX Client App');
             $sessionToken = $this->service->issueSanctumToken($tokenable, $deviceName);
@@ -248,6 +258,7 @@ class ClientAuthController extends Controller
             'password'    => 'required|string',
             'device_name' => 'sometimes|string|max:120',
             'agency_id'   => 'sometimes|integer',
+            'tab'         => 'sometimes|boolean',
         ]);
 
         $key = 'clientauth.login:' . $request->ip() . ':' . strtolower($data['email']);
@@ -275,9 +286,13 @@ class ClientAuthController extends Controller
         $stateful = $this->isStatefulRequest($request);
         $token = null;
         $deviceName = 'Web portal (session)';
-        if ($stateful) {
-            Auth::guard('client-web')->login($clientUser);
-            $request->session()->regenerate();
+        if ($this->wantsTabToken($request)) {
+            // §28.5 - this tab's own login (see setPassword)
+            $deviceName = 'Web portal (tab)';
+            $token = $this->tabs->issue($clientUser);
+            $this->tabs->remember($request, $clientUser);
+        } elseif ($stateful) {
+            \App\Support\StaffSafeSession::loginPortal($request, Auth::guard('client-web'), $clientUser);
         } else {
             $deviceName = $data['device_name'] ?? config('clientauth.token.name_default', 'CoreX Client App');
             $token = $this->service->issueSanctumToken($clientUser, $deviceName);
@@ -491,13 +506,22 @@ class ClientAuthController extends Controller
             'token_id' => $token?->id ?? null,
         ]);
 
+        // §28.5 - a portal TAB signing out ends that tab's own login only: the token goes, this person is no longer remembered for NEW tabs on
+        // this browser, and the browser's session cookie (which may hold somebody else, or a staff user) is left alone. Other tabs keep working.
+        if ($token instanceof \Laravel\Sanctum\PersonalAccessToken && $token->name === PortalTabSession::tokenName()) {
+            $token->delete();
+            $this->tabs->forget($request, $clientUser);
+
+            return response()->json(['ok' => true]);
+        }
+
         // Delete by id where possible (currentAccessToken may return a TransientToken under
         // stateful Sanctum, which has no real DB row and a no-op delete()).
         if ($token instanceof \Laravel\Sanctum\PersonalAccessToken) {
             $token->delete();
         } else {
-            // Defensive fallback: nuke every token for this client user.
-            $clientUser->tokens()->delete();
+            // Defensive fallback: every token of this client user EXCEPT the ones other portal tabs are using right now.
+            $clientUser->tokens()->where('name', '!=', PortalTabSession::tokenName())->delete();
         }
 
         // Stateful Sanctum may have established a session cookie; clear it so a
@@ -505,6 +529,83 @@ class ClientAuthController extends Controller
         $this->endPortalSession($request);
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * POST /api/v1/client-auth/tab-token  (§28.5)
+     * A portal tab with no token of its own asks for one. It gets one only for a person who has ALREADY signed in on this browser
+     * (the encrypted "logins remembered here" cookie, or a portal session cookie from before per-tab sign-in): the link's person when the
+     * link names one, otherwise the most recent. Anyone else must sign in.
+     */
+    public function tabToken(Request $request): JsonResponse
+    {
+        $data = $request->validate(['email' => 'nullable|email|max:255', 'contact_id' => 'nullable|integer|min:1']);
+
+        $pool = $this->tabs->rememberedIds($request);
+        $legacy = $request->hasSession() ? Auth::guard('client-web')->user() : null;
+        if ($legacy instanceof ClientUser && ! in_array((int) $legacy->id, $pool, true)) {
+            $pool[] = (int) $legacy->id;
+        }
+
+        $named = ! empty($data['contact_id']) || ! empty($data['email']);
+        $target = null;
+        if (! empty($data['contact_id'])) {
+            $target = Contact::withoutGlobalScopes()->whereNull('deleted_at')->whereKey((int) $data['contact_id'])->value('client_user_id');
+        }
+        if (! $target && ! empty($data['email'])) {
+            $target = ClientUser::where('email', strtolower(trim($data['email'])))->value('id');
+        }
+
+        $id = $named ? ($target && in_array((int) $target, $pool, true) ? (int) $target : null) : (end($pool) ?: null);
+        $login = $id ? ClientUser::find($id) : null;
+        if (! $login) {
+            return response()->json(['message' => 'Sign in to continue.', 'needs_signin' => true], 401);
+        }
+
+        $token = $this->tabs->issue($login);
+        $this->tabs->remember($request, $login);
+
+        return response()->json(['token' => $token, 'client' => $this->summarise($login)]);
+    }
+
+    /**
+     * POST /api/v1/client-auth/qa-link-signin  (QA1 ONLY - the route exists only when PortalDemoSigninGate::open(); 404 everywhere else)
+     * An emailed portal link signs its tab straight in as the person the link was written for: no emailed code, no password. The link's
+     * signed recipient reference is the only thing trusted - an unsigned or edited link signs nobody in.
+     */
+    public function qaLinkSignin(Request $request): JsonResponse
+    {
+        abort_unless(PortalDemoSigninGate::open(), 404);
+
+        $data = $request->validate(['r' => 'required|string|max:600']);
+        $ref = PortalLink::parse($data['r']);
+        if (! $ref) {
+            return response()->json(['message' => 'This link could not be read.'], 422);
+        }
+
+        $contact = $ref['contact_id'] > 0 ? Contact::withoutGlobalScopes()->whereNull('deleted_at')->find($ref['contact_id']) : null;
+        $login = $contact && $contact->client_user_id ? ClientUser::find($contact->client_user_id) : null;
+        $login ??= $this->service->findOrCreateClientUser($ref['email']);
+
+        if (! $login->current_agency_id) {
+            $agencies = $this->service->agenciesFor($login);
+            $agencyId = $login->locked_to_agency_id ?: ($contact?->agency_id ?: (count($agencies) === 1 ? $agencies[0]['id'] : null));
+            if ($agencyId) {
+                $login->forceFill(['current_agency_id' => $agencyId])->save();
+            }
+        }
+
+        $this->service->log($login, (int) ($contact?->agency_id ?? $login->current_agency_id), $contact?->id, 'qa_link_signin', $request, ['email' => $ref['email']]);
+        $token = $this->tabs->issue($login);
+        $this->tabs->remember($request, $login);
+
+        return response()->json(['token' => $token, 'client' => $this->summarise($login)]);
+    }
+
+    /** §28.5 - the web portal page asks for a token of its own (`tab`); only a same-origin browser request can have one (never a different caller). */
+    private function wantsTabToken(Request $request): bool
+    {
+        return $request->boolean('tab') && $this->isStatefulRequest($request);
     }
 
     /**
@@ -534,7 +635,8 @@ class ClientAuthController extends Controller
         if (! Auth::guard('web')->check()) {
             $request->session()->invalidate();
         }
-        $request->session()->regenerateToken();
+        // A staff page open in this browser keeps its CSRF token (StaffSafeSession).
+        \App\Support\StaffSafeSession::rotateToken($request);
     }
 
     private function isStatefulRequest(Request $request): bool

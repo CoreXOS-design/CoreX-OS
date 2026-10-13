@@ -10,6 +10,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Tests\Feature\RoadToSold\Concerns\RtsFixtures;
+use Tests\Feature\RoadToSold\Concerns\SeedsDerivedAreas;
 use Tests\TestCase;
 
 /**
@@ -19,7 +20,7 @@ use Tests\TestCase;
  */
 final class HotPocketsTest extends TestCase
 {
-    use RefreshDatabase, RtsFixtures;
+    use RefreshDatabase, RtsFixtures, SeedsDerivedAreas;
 
     private HotPocketService $svc;
     private Carbon $asOf;
@@ -180,11 +181,8 @@ final class HotPocketsTest extends TestCase
                 'name' => $n, 'slug' => strtolower($n) . '-' . $p24, 'p24_id' => $p24, 'p24_city_id' => $city, 'created_at' => now(), 'updated_at' => now(),
             ]);
         }
-        foreach ([['Margate', $margate, 1], ['Port Shepstone', $port, 2]] as [$n, $city, $order]) {
-            DB::table('towns')->insert([
-                'agency_id' => $this->agency->id, 'name' => $n, 'slug' => strtolower(str_replace(' ', '-', $n)), 'p24_city_id' => $city,
-                'display_order' => $order, 'created_at' => now(), 'updated_at' => now(),
-            ]);
+        foreach (['um', 'up', 'mn'] as $k) {
+            $this->putInPool($this->agency->id, $sub[$k]);
         }
 
         return ['margate' => $margate, 'port' => $port, 'sub' => $sub];

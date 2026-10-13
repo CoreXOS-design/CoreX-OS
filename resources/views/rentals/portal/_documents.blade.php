@@ -33,8 +33,8 @@
             </div>
             <div class="muted" x-text="[d.belongs_to.lease_label, d.date ? fmtDay(d.date) : null].filter(Boolean).join(' · ')"></div>
             <div style="display:flex; gap:14px; margin-top:6px;">
-                <a class="link" :href="d.view_url" target="_blank" rel="noopener">View</a>
-                <a class="link" :href="d.download_url">Download</a>
+                <a class="link" :href="d.view_url" target="_blank" rel="noopener" @click="openFile($event, d.view_url, false)">View</a>
+                <a class="link" :href="d.download_url" @click="openFile($event, d.download_url, true)">Download</a>
             </div>
         </div>
     </template>

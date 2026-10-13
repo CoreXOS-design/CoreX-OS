@@ -25,7 +25,7 @@ use Tests\TestCase;
 
 /**
  * AT-454, 13 Oct 2026 (conductor):
- *  - gap 1: a property the agent parked with their own outcome (a future date, the wrong-number list, a booked valuation, dropped after
+ *  - gap 1: a property the agent parked with their own outcome (a future date, the wrong-number list, a booked evaluation, dropped after
  *    no-answers) is not offered back as a NEW property when the 30-day hold lapses; a return date that has arrived is a follow-up instead;
  *  - gap 8: an assistant works the list of the agent they act for - one user id for the page's build, its read, the nightly build, add-to-day
  *    and roll-over; the outcome is the agent's, and who actually made the call is kept.
@@ -106,7 +106,7 @@ final class ParkedAndAssistantTest extends TestCase
         $this->assertSame([$parked->id], $this->offered($this->build($this->mate)), 'spec: a hold lapses and the property is free again');
     }
 
-    public function test_wrong_number_valuation_booked_and_dropped_are_not_offered_back_either(): void
+    public function test_wrong_number_evaluation_booked_and_dropped_are_not_offered_back_either(): void
     {
         $wrong = $this->listed();
         $valuation = $this->listed();

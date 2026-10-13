@@ -46,6 +46,16 @@ final class PortalDemoSigninTest extends TestCase
         return Contact::withoutGlobalScope(AgencyScope::class)->create(['agency_id' => $this->agency->id, 'first_name' => $first, 'last_name' => $last, 'email' => 'x-' . uniqid() . '@example.invalid', 'client_user_id' => $login->id]);
     }
 
+    /** The login a demo link gave its TAB (the token travels in the redirect's URL fragment - rental-portal-access.md §28.5). */
+    private function tabLoginId($res): ?int
+    {
+        $this->assertMatchesRegularExpression('/#tt=/', (string) $res->headers->get('Location'), 'the tab login is handed over in the fragment');
+        preg_match('/#tt=(.+)$/', (string) $res->headers->get('Location'), $m);
+        $token = \Laravel\Sanctum\PersonalAccessToken::findToken(rawurldecode($m[1]));
+
+        return $token ? (int) $token->tokenable_id : null;
+    }
+
     /** Boot the routes the way routes/web.php does, for the given environment and flag. */
     private function register(string $env, bool $flag): void
     {
@@ -65,7 +75,8 @@ final class PortalDemoSigninTest extends TestCase
         $res->assertRedirect();
         $this->assertStringContainsString('/portal?', $res->headers->get('Location'));
         $this->assertStringContainsString('as=owner', $res->headers->get('Location'));
-        $this->assertSame($this->ownerLogin->id, Auth::guard('client-web')->id());
+        $this->assertSame($this->ownerLogin->id, $this->tabLoginId($res), 'the TAB is signed in as that contact');
+        $this->assertFalse(Auth::guard('client-web')->check(), 'the browser\'s shared session is not used any more');
 
         $row = PortalDemoSignin::query()->first();
         $this->assertSame(1, (int) $row->use_count);
@@ -113,9 +124,10 @@ final class PortalDemoSigninTest extends TestCase
         $ownerToken = PortalDemoSignin::issue($this->owner, 'owner');
         $tenantToken = PortalDemoSignin::issue($this->tenant, 'tenant');
 
-        $this->get('/demo-signin/' . $tenantToken)->assertRedirect();
-        $this->assertSame($this->tenantLogin->id, Auth::guard('client-web')->id());
-        $this->assertNotSame($this->ownerLogin->id, Auth::guard('client-web')->id());
+        $tenantTab = $this->get('/demo-signin/' . $tenantToken);
+        $tenantTab->assertRedirect();
+        $this->assertSame($this->tenantLogin->id, $this->tabLoginId($tenantTab));
+        $this->assertNotSame($this->ownerLogin->id, $this->tabLoginId($tenantTab));
 
         // a guessed / altered / unknown token opens nothing
         $this->flushSession();
@@ -125,11 +137,12 @@ final class PortalDemoSigninTest extends TestCase
         $this->assertFalse(Auth::guard('client-web')->check());
 
         // the owner's token still opens the owner's login, not the tenant's
-        $this->get('/demo-signin/' . $ownerToken)->assertRedirect();
-        $this->assertSame($this->ownerLogin->id, Auth::guard('client-web')->id());
+        $ownerTab = $this->get('/demo-signin/' . $ownerToken);
+        $ownerTab->assertRedirect();
+        $this->assertSame($this->ownerLogin->id, $this->tabLoginId($ownerTab));
     }
 
-    public function test_both_links_of_one_login_open_their_own_side_and_the_second_does_not_change_the_login(): void
+    public function test_both_links_of_one_login_open_their_own_side_and_each_tab_gets_a_login_of_its_own(): void
     {
         $this->register('qa', true);
         // the two demo contacts on ONE login (one session cookie, so two tabs never evict each other)
@@ -140,13 +153,12 @@ final class PortalDemoSigninTest extends TestCase
         $first = $this->get('/demo-signin/' . $ownerToken);
         $this->assertStringContainsString('as=owner', $first->headers->get('Location'));
         $this->assertStringContainsString('demo=1', $first->headers->get('Location'));
-        $loginAfterFirst = Auth::guard('client-web')->id();
-
-        $second = $this->get('/demo-signin/' . $tenantToken);   // same browser session, second tab
+        $second = $this->get('/demo-signin/' . $tenantToken);   // same browser, second tab
         $this->assertStringContainsString('as=tenant', $second->headers->get('Location'));
         $this->assertStringContainsString('demo=1', $second->headers->get('Location'));
-        $this->assertSame($loginAfterFirst, Auth::guard('client-web')->id(), 'the login must not change when the second tab opens');
-        $this->assertSame($this->ownerLogin->id, Auth::guard('client-web')->id());
+        $this->assertSame($this->ownerLogin->id, $this->tabLoginId($first));
+        $this->assertSame($this->ownerLogin->id, $this->tabLoginId($second));
+        $this->assertNotSame($first->headers->get('Location'), $second->headers->get('Location'), 'two tabs, two tokens');
     }
 
     public function test_a_revoked_token_and_a_reissued_token_replace_the_old_one(): void
@@ -168,11 +180,12 @@ final class PortalDemoSigninTest extends TestCase
         $staff = User::factory()->create(['agency_id' => $this->agency->id, 'role' => 'admin']);
         $token = PortalDemoSignin::issue($this->owner, 'owner');
 
-        $this->actingAs($staff)->get('/demo-signin/' . $token)->assertRedirect();
+        $res = $this->actingAs($staff)->get('/demo-signin/' . $token);
+        $res->assertRedirect();
 
         $this->assertTrue(Auth::guard('web')->check(), 'the staff login must survive');
         $this->assertSame($staff->id, Auth::guard('web')->id());
-        $this->assertSame($this->ownerLogin->id, Auth::guard('client-web')->id());
+        $this->assertSame($this->ownerLogin->id, $this->tabLoginId($res));
     }
 
     public function test_the_artisan_command_refuses_outside_the_gate_and_issues_a_link_inside_it(): void

@@ -24,6 +24,8 @@ return function () {
     Route::middleware('permission:road_to_sold.manage_areas')->prefix('areas')->name('areas.')->group(function () {
         Route::get('/', [\App\Http\Controllers\RoadToSold\AreasController::class, 'index'])->name('index');
         Route::post('/agents/{user}', [\App\Http\Controllers\RoadToSold\AreasController::class, 'sync'])->whereNumber('user')->name('sync');
+        Route::post('/hide', [\App\Http\Controllers\RoadToSold\AreasController::class, 'hide'])->middleware('permission:road_to_sold.manage_settings')->name('hide');
+        Route::post('/hidden/{hidden}/show', [\App\Http\Controllers\RoadToSold\AreasController::class, 'showAgain'])->whereNumber('hidden')->middleware('permission:road_to_sold.manage_settings')->name('show-again');
         Route::delete('/{area}', [\App\Http\Controllers\RoadToSold\AreasController::class, 'archive'])->whereNumber('area')->name('archive');
         Route::post('/{area}/restore', [\App\Http\Controllers\RoadToSold\AreasController::class, 'restore'])->whereNumber('area')->withTrashed()->name('restore');
     });

@@ -7,6 +7,7 @@ use App\Models\Agency;
 use App\Models\Compliance\AgencyPolicy;
 use App\Models\Compliance\PolicySection;
 use App\Models\Compliance\PolicyVersion;
+use App\Services\Compliance\CompliancePdf;
 use App\Services\Compliance\PolicyVariableResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -322,11 +323,17 @@ class PolicyController extends Controller
         $agency = Agency::findOrFail($version->agency_id);
         $variables = $this->resolver->resolve($agency, $version);
 
-        return view('compliance.policy.show', [
-            'version'   => $version,
-            'agency'    => $agency,
-            'variables' => $variables,
-            'pdfMode'   => true,
-        ]);
+        $pdf   = app(CompliancePdf::class);
+        $name  = $version->policy?->name ?: $version->title;
+        $html  = $pdf->versionHtml('Agency Policy', null, $version, $agency, $variables, $name);
+        $bytes = $pdf->render($html, $name . ' v' . $version->version_number . ' — ' . $agency->name, 'policy-' . $version->id);
+
+        $response = $pdf->download($bytes, CompliancePdf::fileName(
+            $name, $version->version_number, $agency->name,
+            ($version->approved_at ?? $version->created_at)?->format('Y-m-d'), (string) $version->status
+        ));
+
+        return $response ?? redirect()->route('compliance.policy.show', $version)
+            ->with('error', 'The PDF could not be created just now. Please try again; if it keeps failing, tell your administrator.');
     }
 }

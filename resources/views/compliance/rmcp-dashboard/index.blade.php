@@ -13,7 +13,7 @@
             </div>
             <div class="flex flex-wrap items-center gap-2">
                 <a href="{{ route('compliance.rmcp.index') }}" class="corex-btn-outline text-xs">&larr; RMCP</a>
-                <a href="{{ route('compliance.rmcp.dashboard.report') }}" target="_blank" class="corex-btn-outline text-xs">
+                <a href="{{ route('compliance.rmcp.dashboard.report') }}" class="corex-btn-outline text-xs">
                     Export Report
                 </a>
             </div>

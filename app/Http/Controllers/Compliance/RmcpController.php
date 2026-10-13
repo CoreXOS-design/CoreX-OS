@@ -7,6 +7,7 @@ use App\Models\Agency;
 use App\Models\Compliance\RmcpSection;
 use App\Models\Compliance\RmcpVariable;
 use App\Models\Compliance\RmcpVersion;
+use App\Services\Compliance\CompliancePdf;
 use App\Services\Compliance\RmcpVariableResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -224,13 +225,25 @@ class RmcpController extends Controller
         $agency = Agency::findOrFail($version->agency_id);
         $variables = $this->resolver->resolve($agency, $version);
 
-        // Render as printable HTML view (Puppeteer handles PDF conversion server-side)
-        return view('compliance.rmcp.show', [
-            'version'   => $version,
-            'agency'    => $agency,
-            'variables' => $variables,
-            'pdfMode'   => true,
-        ]);
+        $pdf   = app(CompliancePdf::class);
+        $title = 'Risk Management & Compliance Programme';
+        $html  = $pdf->versionHtml(
+            'Financial Intelligence Centre Act 38 of 2001',
+            'Prepared in terms of Section 42 of the FIC Act',
+            $version,
+            $agency,
+            $variables,
+            $version->title ?: $title,
+        );
+        $bytes = $pdf->render($html, 'RMCP v' . $version->version_number . ' — ' . $agency->name, 'rmcp-' . $version->id);
+
+        $response = $pdf->download($bytes, CompliancePdf::fileName(
+            'rmcp', $version->version_number, $agency->name,
+            ($version->approved_at ?? $version->created_at)?->format('Y-m-d'), (string) $version->status
+        ));
+
+        return $response ?? redirect()->route('compliance.rmcp.show', $version)
+            ->with('error', 'The PDF could not be created just now. Please try again; if it keeps failing, tell your administrator.');
     }
 
     /**

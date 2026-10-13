@@ -1513,7 +1513,8 @@ return [
                 . 'data it already holds - buyers who want stock, price drops, new and long-standing listings, owners it already knows, '
                 . 'and the agent\'s own expired or slow-moving stock - starting with the suburbs you give that agent. '
                 . 'The agent logs what happened on each call, and managers see the results. The numbers below set the standard week; '
-                . 'you can give individual agents their own numbers, and their own suburbs, afterwards under Settings -> Road to Sold.',
+                . 'you can give individual agents their own numbers, and their own suburbs, afterwards under Settings -> Road to Sold. '
+                . 'Your agency\'s suburbs are not chosen here: they come from the stock you hold and the Market Intelligence you capture, and update by themselves.',
         ],
         'savers' => [
             ['controller' => \App\Http\Controllers\RoadToSold\SettingsController::class, 'method' => 'saveFromWizard'],
@@ -1555,6 +1556,10 @@ return [
              'label' => 'Lock agents to their areas',
              'explain' => 'Each agent can be given their own suburbs. Off (recommended): their suburbs come first, then the list carries on into the rest of your agency\'s suburbs if the day is not full. On: they only ever get properties from their own suburbs.',
              'affects' => 'Whether an agent can be sent to a suburb they have not been assigned. With this on, an agent who has no suburbs gets no call list at all.'],
+            ['key' => 'min_area_properties', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 1, 'min' => 1, 'max' => 1000,
+             'label' => 'A suburb counts as a working area from (properties)',
+             'explain' => 'Your working suburbs are worked out from your own stock and the Market Intelligence adverts captured for your agency. A suburb with only a stray advert or two can be left out by raising this number.',
+             'affects' => 'Which suburbs appear on the Areas screen, can be given to an agent, and are used to build call lists. At 1, every suburb you hold stock in or have captured anything for appears.'],
             ['key' => 'refresh_portal_p24', 'source' => 'road_to_sold', 'type' => 'toggle', 'default' => 1,
              'label' => 'We capture from Property24',
              'explain' => 'Road to Sold only asks for a refresh of a portal your agency actually captures from. Leave this on if you capture Property24 listings.',
@@ -1781,6 +1786,13 @@ return [
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'updateDashboardMode'],
             ['controller' => SettingsController::class, 'method' => 'updateAgencyDashboardSettings'],
+        ],
+        // AT-451 follow-up (14 Oct 2026) - written through updateAgencyDashboardSettings, which only touches the field when this step posts it.
+        'controls' => [
+            ['key' => 'alert_catchup_minutes', 'source' => 'alert_settings', 'type' => 'number', 'default' => 10, 'min' => 1, 'max' => 240,
+             'label' => 'Show alerts still unread from the last (minutes)',
+             'explain' => 'When someone opens CoreX in a new tab or signs in, any alert that arrived in this many minutes and has not been read pops up on screen, so a fault reported a moment before is not missed.',
+             'affects' => 'How far back a freshly opened CoreX screen looks for unread alerts to pop up. A short time suits a busy office; a longer one suits people who open CoreX only now and then.'],
         ],
     ],
 

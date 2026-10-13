@@ -48,7 +48,7 @@ class RtsSetting extends Model
         'summary_steps', 'summary_green_from_pct', 'summary_red_below_pct',
         'default_weekday_targets', 'updated_by_user_id',
         'refresh_portals', 'buyer_match_tiers', 'active_buyer_states', 'on_market_statuses',
-        'add_to_day_max', 'scan_page_size',
+        'add_to_day_max', 'scan_page_size', 'min_area_properties',
         'hot_pocket_weight_buyers', 'hot_pocket_weight_leads', 'hot_pocket_weight_sales',
     ];
 
@@ -78,6 +78,7 @@ class RtsSetting extends Model
         'on_market_statuses'           => 'array',
         'add_to_day_max'               => 'integer',
         'scan_page_size'               => 'integer',
+        'min_area_properties'          => 'integer',
         'hot_pocket_weight_buyers'     => 'integer',
         'hot_pocket_weight_leads'      => 'integer',
         'hot_pocket_weight_sales'      => 'integer',
@@ -91,6 +92,7 @@ class RtsSetting extends Model
         'public_holiday_country'       => 'ZA',
         'add_to_day_max'               => 100,
         'scan_page_size'               => 200,
+        'min_area_properties'          => 1,
         'hot_pocket_weight_buyers'     => 1,
         'hot_pocket_weight_leads'      => 1,
         'hot_pocket_weight_sales'      => 1,
@@ -173,8 +175,8 @@ class RtsSetting extends Model
         return [
             'calls_made'        => 'Calls made',
             'conversations'     => 'Conversations',
-            'valuations_booked' => 'Valuations booked',
-            'valuations_done'   => 'Valuations done',
+            'evaluations_booked' => 'Evaluations booked',
+            'evaluations_done'   => 'Evaluations done',
             'mandates_signed'   => 'Mandates signed',
             'listings_live'     => 'Listings live',
         ];

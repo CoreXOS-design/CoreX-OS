@@ -1123,6 +1123,22 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      */
     public function startAwaitingSignature(): void
     {
+        $this->assertReadyToSign();
+
+        $this->forceFill([
+            'status' => self::STATUS_AWAITING_SIGNATURE,
+            'signing_deadline_at' => now()->addDays(RentalInspectionSetting::signingWindowDaysFor($this->agency_id)),
+        ])->save();
+    }
+
+    /**
+     * Everything that must be true before this inspection can be marked ready to sign. Changes nothing - the single
+     * sequence both startAwaitingSignature() and signingReadiness() run.
+     *
+     * @throws \LogicException (RentalInspectionItemsUngradedException, ...RequiredNotesMissingException and the plain ones)
+     */
+    public function assertReadyToSign(): void
+    {
         $this->assertRecordable();
         if ($this->hasUnresolvedDiscrepancy()) {
             throw new \LogicException('Cannot start the signing window while a discrepancy is unresolved.');
@@ -1137,11 +1153,39 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
                 throw new \LogicException($bare->count() . ' item' . ($bare->count() === 1 ? ' has' : 's have') . ' no photo yet (for example ' . $bare->first()->label . ') — add them, or ask an administrator to relax the "photos required" rule, before this can be marked ready to sign.');
             }
         }
+    }
 
-        $this->forceFill([
-            'status' => self::STATUS_AWAITING_SIGNATURE,
-            'signing_deadline_at' => now()->addDays(RentalInspectionSetting::signingWindowDaysFor($this->agency_id)),
-        ])->save();
+    /**
+     * What the signing panel shows about "ready to sign": `state` is 'signing' (already open), 'ready' (every item is
+     * recorded - a signing link or "Sign on this device" opens signing by itself), 'blocked' (something is still missing:
+     * `message`, and for unrecorded items `unrecorded` and `rooms` = [{room_id, room, count}]) or 'closed' (completed /
+     * cancelled / archived - nothing to do).
+     *
+     * @return array{state:string, unrecorded:int, rooms:array<int, array{room_id:?int, room:string, count:int}>, message:?string}
+     */
+    public function signingReadiness(): array
+    {
+        $out = ['state' => 'ready', 'unrecorded' => 0, 'rooms' => [], 'message' => null];
+        if ($this->status === self::STATUS_AWAITING_SIGNATURE) {
+            return ['state' => 'signing'] + $out;
+        }
+        if (! $this->isRecordable()) {
+            return ['state' => 'closed'] + $out;
+        }
+
+        try {
+            $this->assertReadyToSign();
+        } catch (\App\Exceptions\RentalInspectionItemsUngradedException $e) {
+            $rooms = collect($e->ungradedItems)->groupBy('room_label')->map(fn ($rows, $label) => [
+                'room_id' => $rows->first()['room_id'] ?? null, 'room' => (string) $label, 'count' => $rows->count(),
+            ])->values()->all();
+
+            return ['state' => 'blocked', 'unrecorded' => count($e->ungradedItems), 'rooms' => $rooms, 'message' => $e->getMessage()];
+        } catch (\LogicException $e) {
+            return ['state' => 'blocked', 'message' => $e->getMessage()] + $out;
+        }
+
+        return $out;
     }
 
     /**

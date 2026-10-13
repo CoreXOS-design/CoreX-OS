@@ -27,5 +27,11 @@ final class PortalDemoSigninGate
         }
         Route::middleware(['web', 'throttle:30,1'])->get('/demo-signin/{token}', [\App\Http\Controllers\PortalDemoSigninController::class, 'open'])
             ->where('token', '[A-Za-z0-9]{20,128}')->name('rentals.portal.demo-signin');
+
+        // Every emailed portal link signs its tab straight in on QA (no code, no password), for any contact on any lease - including ones made live
+        // during a demo. Same gate: this route does not exist anywhere else.
+        Route::middleware([\Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class, 'throttle:30,1'])
+            ->post('/api/v1/client-auth/qa-link-signin', [\App\Http\Controllers\Api\V1\ClientAuthController::class, 'qaLinkSignin'])
+            ->name('client-auth.qa-link-signin');
     }
 }

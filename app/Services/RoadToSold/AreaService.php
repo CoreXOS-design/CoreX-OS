@@ -3,22 +3,28 @@
 namespace App\Services\RoadToSold;
 
 use App\Models\Prospecting\TrackedPropertyAddress;
+use App\Models\Property;
 use App\Models\RoadToSold\RtsAgentArea;
+use App\Models\RoadToSold\RtsHiddenArea;
 use App\Models\RoadToSold\RtsSetting;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
  * AT-454 — which suburbs each agent works, and how fresh each suburb's data is.
  * Contract: .ai/specs/road-to-sold.md §2.3. Lane 2 (ListBuilderService) reads this.
  *
- * POOL = the agency's Prospecting Setup suburbs: every p24 suburb in the P24 city of
- * one of the agency's towns (towns.p24_city_id), plus any suburb the agency ticked for
- * P24 auto-import (minion_capture_areas). Keyed on p24_suburbs.id — the same id that
- * tracked_properties.p24_suburb_id holds.
+ * POOL (Johan's ruling, 13 Oct 2026 16:03) = the agency's working areas are DERIVED, never hand-set: the suburbs the agency
+ * holds stock in (its own properties, Other Agency Stock excluded) and the suburbs its Market Intelligence has captured adverts
+ * for (prospecting_listings, placed by the tracked property's p24_suburb_id). A suburb is a working area when stock + adverts
+ * reach the agency setting min_area_properties (default 1) and an administrator has not hidden it (or its town). Keyed on
+ * p24_suburbs.id - the id tracked_properties.p24_suburb_id holds. There is NO fallback to "every suburb": no stock and no MIC
+ * data = an empty pool. Computed on read from two index-backed GROUP BYs and cached per agency for 5 minutes (a maintained
+ * table would need hooks into every stock, capture and import path and could drift; the cache is the cheaper, always-true answer).
  *
  * WHOSE AREAS (spec 11.1, the one assistant rule): areas belong to the LIST OWNER - User::ownershipUserId(),
  * the agent an assistant acts for (honouring a multi-agent assistant's "Acting for" choice); a plain user is
@@ -31,55 +37,207 @@ use Illuminate\Support\Facades\DB;
  */
 class AreaService
 {
-    /** Query over the agency's pool: columns id, name, p24_city_id, town_name. */
-    public function poolQuery(int $agencyId): Builder
+    private const DERIVED_CACHE_SECONDS = 300;
+
+    // ── The derived pool ──────────────────────────────────────────────────
+
+    /**
+     * Raw per-suburb facts for the agency, before the minimum and the hidden list are applied.
+     *
+     * @return array<int,array{own:int,mic:int,p24:?string,pp:?string}> keyed by p24_suburbs.id; p24 / pp = newest advert seen ('Y-m-d H:i:s')
+     */
+    public function derived(int $agencyId): array
     {
+        if ($agencyId <= 0) {
+            return [];
+        }
+        // Tests read straight after writing, so they skip the cache; everywhere else it is 5 minutes.
+        if (app()->environment('testing')) {
+            return $this->computeDerived($agencyId);
+        }
+
+        return Cache::remember('rts:derived-areas:' . $agencyId, self::DERIVED_CACHE_SECONDS, fn () => $this->computeDerived($agencyId));
+    }
+
+    public static function forgetDerived(int $agencyId): void
+    {
+        Cache::forget('rts:derived-areas:' . $agencyId);
+    }
+
+    private function computeDerived(int $agencyId): array
+    {
+        $out  = [];
+        $bump = function (int $id, string $field, int $n) use (&$out): void {
+            $out[$id] ??= ['own' => 0, 'mic' => 0, 'p24' => null, 'pp' => null];
+            $out[$id][$field] += $n;
+        };
+        $seen = function (int $id, string $portal, ?string $at) use (&$out): void {
+            if ($at === null || ! in_array($portal, ['p24', 'pp'], true)) {
+                return;
+            }
+            $out[$id] ??= ['own' => 0, 'mic' => 0, 'p24' => null, 'pp' => null];
+            if ($out[$id][$portal] === null || $at > $out[$id][$portal]) {
+                $out[$id][$portal] = $at;
+            }
+        };
+        $byName = []; // rows with no suburb id: [city id][lowered name] => [[field, n, portal, at]]
+
+        // (a) the agency's own stock (Other Agency Stock is another agency's advert and never counts)
+        $stock = DB::table('properties')->where('agency_id', $agencyId)->whereNull('deleted_at')
+            ->where(fn ($q) => $q->whereNull('status')->orWhere('status', '!=', Property::STATUS_OTHER_AGENCY_STOCK));
+        foreach ((clone $stock)->whereNotNull('p24_suburb_id')->selectRaw('p24_suburb_id as sid, COUNT(*) as n')->groupBy('p24_suburb_id')->get() as $r) {
+            $bump((int) $r->sid, 'own', (int) $r->n);
+        }
+        foreach ((clone $stock)->whereNull('p24_suburb_id')->whereNotNull('p24_city_id')->whereNotNull('suburb')
+            ->selectRaw('p24_city_id as cid, LOWER(TRIM(suburb)) as k, COUNT(*) as n')->groupBy('p24_city_id', DB::raw('LOWER(TRIM(suburb))'))->get() as $r) {
+            $byName[(int) $r->cid][(string) $r->k][] = ['own', (int) $r->n, null, null];
+        }
+
+        // (b) Market Intelligence: every advert captured for the agency, placed by its tracked property's suburb id
+        $loose = []; // no suburb id and no city: attached only to a suburb already in the pool whose name is unique there
+        foreach (DB::table('prospecting_listings as pl')
+            ->leftJoin('tracked_properties as tp', 'tp.id', '=', 'pl.tracked_property_id')
+            ->where('pl.agency_id', $agencyId)->whereNull('pl.deleted_at')
+            ->selectRaw('tp.p24_suburb_id as sid, tp.p24_city_id as cid, LOWER(TRIM(pl.suburb)) as k, pl.portal_source as src, COUNT(*) as n, MAX(pl.last_seen_at) as newest')
+            ->groupBy('tp.p24_suburb_id', 'tp.p24_city_id', DB::raw('LOWER(TRIM(pl.suburb))'), 'pl.portal_source')->get() as $r) {
+            $at = $r->newest ? (string) $r->newest : null;
+            if ($r->sid !== null) {
+                $bump((int) $r->sid, 'mic', (int) $r->n);
+                $seen((int) $r->sid, (string) $r->src, $at);
+            } elseif ($r->cid !== null && $r->k !== null && $r->k !== '') {
+                $byName[(int) $r->cid][(string) $r->k][] = ['mic', (int) $r->n, (string) $r->src, $at];
+            } elseif ($r->k !== null && $r->k !== '') {
+                $loose[] = [(string) $r->k, (int) $r->n, (string) $r->src, $at];
+            }
+        }
+
+        // rows with a city but no suburb id: the suburb is the ONE suburb of that city with that name
+        if ($byName !== []) {
+            $names = [];
+            foreach (DB::table('p24_suburbs')->whereNull('deleted_at')->whereIn('p24_city_id', array_keys($byName))->get(['id', 'name', 'p24_city_id']) as $s) {
+                $names[(int) $s->p24_city_id][mb_strtolower(trim((string) $s->name))][] = (int) $s->id;
+            }
+            foreach ($byName as $cid => $byKey) {
+                foreach ($byKey as $k => $entries) {
+                    $ids = $names[$cid][$k] ?? [];
+                    if (count($ids) !== 1) {
+                        continue; // unknown or ambiguous: never guessed
+                    }
+                    foreach ($entries as [$field, $n, $portal, $at]) {
+                        $bump($ids[0], $field, $n);
+                        if ($portal !== null) {
+                            $seen($ids[0], $portal, $at);
+                        }
+                    }
+                }
+            }
+        }
+
+        // adverts with no id and no city: attach to a suburb already in the pool when its name is unique among the pool's
+        if ($loose !== [] && $out !== []) {
+            $unique = [];
+            foreach (DB::table('p24_suburbs')->whereIn('id', array_keys($out))->get(['id', 'name']) as $s) {
+                $unique[mb_strtolower(trim((string) $s->name))][] = (int) $s->id;
+            }
+            foreach ($loose as [$k, $n, $portal, $at]) {
+                if (count($unique[$k] ?? []) === 1) {
+                    $bump($unique[$k][0], 'mic', $n);
+                    $seen($unique[$k][0], $portal, $at);
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /** @return array{suburbs:int[],cities:int[]} what an administrator has hidden from Road to Sold */
+    public function hiddenSets(int $agencyId, string $track = RtsSetting::TRACK_SALES): array
+    {
+        $rows = DB::table('rts_hidden_areas')->where('agency_id', $agencyId)->where('track', $track)->whereNull('deleted_at')->get(['kind', 'p24_suburb_id', 'p24_city_id']);
+
+        return [
+            'suburbs' => $rows->where('kind', RtsHiddenArea::KIND_SUBURB)->pluck('p24_suburb_id')->filter()->map(fn ($i) => (int) $i)->values()->all(),
+            'cities'  => $rows->where('kind', RtsHiddenArea::KIND_TOWN)->pluck('p24_city_id')->filter()->map(fn ($i) => (int) $i)->values()->all(),
+        ];
+    }
+
+    /** @return int[] the suburb ids that reach the agency's minimum (hidden ones are removed in poolQuery). */
+    public function candidateIds(int $agencyId, string $track = RtsSetting::TRACK_SALES): array
+    {
+        $min = SettingsService::forAgency($agencyId, $track)->minAreaProperties();
+
+        return collect($this->derived($agencyId))->filter(fn ($r) => ($r['own'] + $r['mic']) >= $min)->keys()->map(fn ($i) => (int) $i)->all();
+    }
+
+    /** Query over the agency's pool: columns id, name, p24_city_id, town_name (the P24 town the suburb sits in). */
+    public function poolQuery(int $agencyId, string $track = RtsSetting::TRACK_SALES): Builder
+    {
+        $hidden = $this->hiddenSets($agencyId, $track);
+
         return DB::table('p24_suburbs as s')
+            ->leftJoin('p24_cities as c', 'c.id', '=', 's.p24_city_id')
             ->whereNull('s.deleted_at')
-            ->whereNotNull('s.p24_id')
-            ->where(function ($q) use ($agencyId) {
-                $q->whereIn('s.p24_city_id', function ($sub) use ($agencyId) {
-                    $sub->select('t.p24_city_id')->from('towns as t')
-                        ->where('t.agency_id', $agencyId)->whereNull('t.deleted_at')->whereNotNull('t.p24_city_id');
-                })->orWhereIn('s.id', function ($sub) use ($agencyId) {
-                    $sub->select('m.p24_suburb_id')->from('minion_capture_areas as m')
-                        ->where('m.agency_id', $agencyId)->whereNull('m.deleted_at');
-                });
-            })
-            ->selectRaw(
-                's.id, s.name, s.p24_city_id, ('
-                . 'select t2.name from towns t2 where t2.agency_id = ? and t2.p24_city_id = s.p24_city_id and t2.deleted_at is null '
-                . 'order by t2.display_order, t2.id limit 1) as town_name',
-                [$agencyId]
-            );
+            ->whereIn('s.id', $this->candidateIds($agencyId, $track) ?: [0])
+            ->when($hidden['suburbs'] !== [], fn ($q) => $q->whereNotIn('s.id', $hidden['suburbs']))
+            ->when($hidden['cities'] !== [], fn ($q) => $q->where(fn ($w) => $w->whereNull('s.p24_city_id')->orWhereNotIn('s.p24_city_id', $hidden['cities'])))
+            ->selectRaw('s.id, s.name, s.p24_city_id, c.name as town_name');
     }
 
     /** @param int[] $suburbIds @return int[] the ids that really are in this agency's pool */
-    public function idsInPool(int $agencyId, array $suburbIds): array
+    public function idsInPool(int $agencyId, array $suburbIds, string $track = RtsSetting::TRACK_SALES): array
     {
         $suburbIds = array_values(array_unique(array_filter(array_map('intval', $suburbIds), fn ($i) => $i > 0)));
         if ($suburbIds === []) {
             return [];
         }
 
-        return $this->poolQuery($agencyId)->whereIn('s.id', $suburbIds)->pluck('s.id')->map(fn ($i) => (int) $i)->all();
+        return $this->poolQuery($agencyId, $track)->whereIn('s.id', $suburbIds)->pluck('s.id')->map(fn ($i) => (int) $i)->all();
     }
 
     /**
-     * The agency's towns that map to a P24 city (for the town filter / grouping).
+     * The towns that have at least one suburb in the pool (for the town filter / grouping): id = the P24 town id.
      *
      * @return Collection<int,object{id:int,name:string,p24_city_id:int}>
      */
-    public function towns(int $agencyId): Collection
+    public function towns(int $agencyId, string $track = RtsSetting::TRACK_SALES): Collection
     {
-        return DB::table('towns')->where('agency_id', $agencyId)->whereNull('deleted_at')
-            ->whereNotNull('p24_city_id')->orderBy('display_order')->orderBy('name')
-            ->get(['id', 'name', 'p24_city_id']);
+        return $this->poolQuery($agencyId, $track)->whereNotNull('s.p24_city_id')->get()
+            ->unique('p24_city_id')
+            ->map(fn ($r) => (object) ['id' => (int) $r->p24_city_id, 'name' => (string) ($r->town_name ?? 'Unknown town'), 'p24_city_id' => (int) $r->p24_city_id])
+            ->sortBy(fn ($t) => mb_strtolower($t->name))->values();
+    }
+
+    /** True when something is hidden from Road to Sold for this agency (the empty state then offers Restore). */
+    public function hiddenCount(int $agencyId, string $track = RtsSetting::TRACK_SALES): int
+    {
+        return DB::table('rts_hidden_areas')->where('agency_id', $agencyId)->where('track', $track)->whereNull('deleted_at')->count();
+    }
+
+    /**
+     * Hide a suburb or a whole town from Road to Sold (soft - restoreHidden() brings it back).
+     *
+     * @param  'suburb'|'town' $kind
+     */
+    public function hide(int $agencyId, string $track, string $kind, int $id, ?int $byUserId, ?string $reason = null): RtsHiddenArea
+    {
+        $column = $kind === RtsHiddenArea::KIND_TOWN ? 'p24_city_id' : 'p24_suburb_id';
+        $row = RtsHiddenArea::withTrashed()->where('agency_id', $agencyId)->where('track', $track)->where('kind', $kind)->where($column, $id)->first();
+        if ($row && ! $row->trashed()) {
+            return $row;
+        }
+        if ($row) {
+            $row->restore();
+            $row->forceFill(['hidden_by_user_id' => $byUserId, 'reason' => $reason])->save();
+
+            return $row;
+        }
+
+        return RtsHiddenArea::create(['agency_id' => $agencyId, 'track' => $track, 'kind' => $kind, $column => $id, 'hidden_by_user_id' => $byUserId, 'reason' => $reason]);
     }
 
     // ── Assignment reads ──────────────────────────────────────────────────
 
-    /** @return int[] the user's active p24_suburb_ids (still in the pool or not — see idsInPool). */
+    /** @return int[] the user's active p24_suburb_ids, minus anything an administrator has hidden (in the pool or not — see idsInPool). */
     public function suburbIdsFor(User $user, string $track = RtsSetting::TRACK_SALES): array
     {
         $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
@@ -91,8 +249,24 @@ class AreaService
             ->where('agency_id', $agencyId)->where('track', $track)->where('user_id', (int) $user->ownershipUserId())
             ->pluck('p24_suburb_id')->map(fn ($i) => (int) $i)->unique()->values()->all();
 
-        // Ignore assignments whose suburb has since left the agency's Prospecting Setup (spec §6).
-        return $this->idsInPool($agencyId, $ids);
+        // An assignment is kept even when its suburb has since dropped out of the derived pool (nothing is deleted - the
+        // Areas screen flags it); only a suburb (or town) an administrator has HIDDEN stops feeding the agent's lists.
+        return $this->withoutHidden($agencyId, $track, $ids);
+    }
+
+    /** @param int[] $ids @return int[] */
+    private function withoutHidden(int $agencyId, string $track, array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+        $hidden = $this->hiddenSets($agencyId, $track);
+        if ($hidden['suburbs'] === [] && $hidden['cities'] === []) {
+            return $ids;
+        }
+        $city = DB::table('p24_suburbs')->whereIn('id', $ids)->pluck('p24_city_id', 'id');
+
+        return array_values(array_filter($ids, fn ($id) => ! in_array($id, $hidden['suburbs'], true) && ! in_array((int) ($city[$id] ?? 0), $hidden['cities'], true)));
     }
 
     /** Suburb names in the tracked-property normalised form (tracked_properties.suburb_normalised). @return string[] */
@@ -121,10 +295,18 @@ class AreaService
         }
         $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
 
-        $counts = $this->poolQuery($agencyId)->get(['s.id', 's.name'])
-            ->countBy(fn ($r) => mb_strtolower(trim((string) $r->name)));
+        // The agent's own suburbs are read straight (an assigned suburb may have dropped below the minimum); "unique" is judged
+        // against the whole pool PLUS those suburbs.
+        $mine = DB::table('p24_suburbs as s')->leftJoin('p24_cities as c', 'c.id', '=', 's.p24_city_id')
+            ->whereNull('s.deleted_at')->whereIn('s.id', $ids)->orderBy('s.name')
+            ->get(['s.id', 's.name', 's.p24_city_id', DB::raw('c.name as town_name')]);
+        $known  = $this->poolQuery($agencyId, $track)->get(['s.id', 's.name'])->keyBy('id');
+        foreach ($mine as $r) {
+            $known[$r->id] = $r;
+        }
+        $counts = $known->countBy(fn ($r) => mb_strtolower(trim((string) $r->name)));
 
-        return $this->poolQuery($agencyId)->whereIn('s.id', $ids)->orderBy('s.name')->get()
+        return $mine
             ->map(function ($r) use ($counts) {
                 $lower = mb_strtolower(trim((string) $r->name));
 
@@ -217,63 +399,31 @@ class AreaService
     // ── Freshness ("last captured") ───────────────────────────────────────
 
     /**
-     * Newest capture per suburb per portal, for the whole agency in two small queries.
-     * P24 = newer of minion_capture_areas.last_captured_at and the newest P24 listing seen;
-     * PP  = newest PP listing seen. null = never captured.
+     * Newest capture per suburb per portal. P24 = newer of minion_capture_areas.last_captured_at and the newest P24 advert
+     * seen; PP = newest PP advert seen. null = never captured. Read from the same derived facts as the pool.
      *
      * @param  int[]|null $suburbIds limit to these (null = every pool suburb)
      * @return array<int,array{p24:?Carbon,pp:?Carbon}> keyed by p24_suburb_id
      */
-    public function lastCaptured(int $agencyId, ?array $suburbIds = null): array
+    public function lastCaptured(int $agencyId, ?array $suburbIds = null, string $track = RtsSetting::TRACK_SALES): array
     {
-        // The whole pool is read (one query) so a name shared by two pool suburbs is known to be shared,
-        // even when only some suburbs were asked for.
-        $all   = $this->poolQuery($agencyId)->get(['s.id', 's.name', 's.p24_city_id']);
-        $dups  = $all->countBy(fn ($r) => mb_strtolower(trim((string) $r->name)));
-        $wanted = $suburbIds === null ? null : array_flip(array_map('intval', $suburbIds));
-        $pool  = $all->filter(fn ($r) => $wanted === null || isset($wanted[(int) $r->id]))->values();
+        $ids = $suburbIds === null
+            ? $this->poolQuery($agencyId, $track)->pluck('s.id')->map(fn ($i) => (int) $i)->all()
+            : array_values(array_unique(array_map('intval', $suburbIds)));
+        if ($ids === []) {
+            return [];
+        }
 
-        $names = $pool->map(fn ($r) => mb_strtolower(trim((string) $r->name)))->unique()->values()->all();
-
-        // Newest listing per (suburb text, portal, the tracked property's suburb id and city).
-        $seen = DB::table('prospecting_listings as pl')
-            ->leftJoin('tracked_properties as tp', 'tp.id', '=', 'pl.tracked_property_id')
-            ->where('pl.agency_id', $agencyId)->whereNull('pl.deleted_at')->whereNotNull('pl.suburb')
-            ->when($suburbIds !== null, fn ($q) => $q->where(fn ($w) => $w
-                ->whereIn(DB::raw('LOWER(TRIM(pl.suburb))'), $names === [] ? ['-'] : $names)
-                ->orWhereIn('tp.p24_suburb_id', array_keys($wanted ?? []) ?: [0])))
-            ->selectRaw('LOWER(TRIM(pl.suburb)) as k, pl.portal_source, tp.p24_suburb_id as tp_suburb, tp.p24_city_id as tp_city, MAX(pl.last_seen_at) as newest')
-            ->groupBy(DB::raw('LOWER(TRIM(pl.suburb))'), 'pl.portal_source', 'tp.p24_suburb_id', 'tp.p24_city_id')
-            ->get();
-
-        $minion = DB::table('minion_capture_areas')->where('agency_id', $agencyId)->whereNull('deleted_at')
-            ->when($suburbIds !== null, fn ($q) => $q->whereIn('p24_suburb_id', array_keys($wanted ?? []) ?: [0]))
-            ->pluck('last_captured_at', 'p24_suburb_id');
+        $derived = $this->derived($agencyId);
+        $minion  = DB::table('minion_capture_areas')->where('agency_id', $agencyId)->whereNull('deleted_at')
+            ->whereIn('p24_suburb_id', $ids)->pluck('last_captured_at', 'p24_suburb_id');
 
         $out = [];
-        foreach ($pool as $r) {
-            $id    = (int) $r->id;
-            $key   = mb_strtolower(trim((string) $r->name));
-            $city  = $r->p24_city_id !== null ? (int) $r->p24_city_id : null;
-            $p24   = null;
-            $pp    = null;
-            foreach ($seen as $row) {
-                $byId   = $row->tp_suburb !== null && (int) $row->tp_suburb === $id;
-                // No suburb id on the row: by name, and the row's city must not contradict this suburb's city.
-                // A row with no city at all counts only when the name is unique in the pool.
-                $byName = $row->tp_suburb === null && $row->k === $key
-                    && ($row->tp_city !== null ? (int) $row->tp_city === $city : ($dups[$key] ?? 0) <= 1);
-                if (! $byId && ! $byName) {
-                    continue;
-                }
-                $at = $row->newest ? Carbon::parse($row->newest) : null;
-                if ($row->portal_source === 'p24') {
-                    $p24 = ($p24 === null || ($at && $at->greaterThan($p24))) ? $at : $p24;
-                } elseif ($row->portal_source === 'pp') {
-                    $pp = ($pp === null || ($at && $at->greaterThan($pp))) ? $at : $pp;
-                }
-            }
-            $m = $minion->get($id);
+        foreach ($ids as $id) {
+            $d   = $derived[$id] ?? null;
+            $p24 = ($d['p24'] ?? null) ? Carbon::parse($d['p24']) : null;
+            $pp  = ($d['pp'] ?? null) ? Carbon::parse($d['pp']) : null;
+            $m   = $minion->get($id);
             if ($m) {
                 $m   = Carbon::parse($m);
                 $p24 = ($p24 === null || $m->greaterThan($p24)) ? $m : $p24;

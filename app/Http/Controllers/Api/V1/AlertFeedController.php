@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Services\CommandCenter\AlertSwitchService;
 use App\Services\CommandCenter\NotificationPreferenceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,16 +16,24 @@ use Illuminate\Support\Carbon;
  * session cookie is not accepted by api.php's token-only mobile routes (that route answered every poll with 401).
  *
  * Efficiency contract: this is hit every 15-30 seconds by every open staff tab, so it NEVER counts or loads a user's unread
- * history. It returns only the user's unread alerts created at or after `after`, newest first, at most MAX (+1 to say there
- * are more), through the index (notifiable_type, notifiable_id, created_at) = notifications_feed_index. Without `after`
- * (the first poll of a page = the baseline) it runs no notifications query at all: it just hands back the server's "now"
- * as the cursor, so whatever was already waiting is never popped up.
+ * history. It returns only the user's unread alerts created at or after a point in time, newest first, at most MAX (+1 to say
+ * there are more), through the index (notifiable_type, notifiable_id, created_at) = notifications_feed_index.
+ *
+ * Which point in time (14 Oct 2026 - an alert must never be missed because the agent changed page):
+ *  - with `after` (the browser tab's own "last checked" cursor, kept in the tab across page loads): that cursor, less a few
+ *    seconds of overlap so a row that committed just after the previous poll's query is still seen - the browser's
+ *    never-show-twice list absorbs the repeats;
+ *  - without one (a new tab, a new sign-in): the last N minutes, N = the agency's "show alerts still unread from the last"
+ *    setting (default 10), so an alert that arrived a moment before the tab opened still pops up.
+ * Either way, never further back than MAX_LOOKBACK_HOURS.
  */
 class AlertFeedController extends Controller
 {
     public const MAX = 20;
     /** A browser that slept for days must not ask for days of history. */
     public const MAX_LOOKBACK_HOURS = 24;
+    /** A row can commit a moment after the previous poll's query ran; ask a little earlier than the cursor. */
+    public const CURSOR_OVERLAP_SECONDS = 5;
 
     public function unread(Request $request, NotificationPreferenceService $prefs): JsonResponse
     {
@@ -40,10 +49,15 @@ class AlertFeedController extends Controller
         }
 
         $after = $this->parseAfter($request->query('after'), $serverTime);
+        $catchup = $after === null;
+        if ($catchup) {
+            $minutes = app(AlertSwitchService::class)->catchupMinutesFor($user->effectiveAgencyId());
+            $after = $serverTime->copy()->subMinutes($minutes);
+        }
         $items = collect();
         $hasMore = false;
 
-        if ($inApp && $after !== null) {
+        if ($inApp) {
             $rows = $user->unreadNotifications()
                 ->where('created_at', '>=', $after)
                 ->orderByDesc('created_at')
@@ -69,11 +83,12 @@ class AlertFeedController extends Controller
             'in_app' => $inApp,
             'items' => $items,
             'has_more' => $hasMore,
+            'catchup' => $catchup,
             'cursor' => $serverTime->toIso8601String(),
         ]);
     }
 
-    /** null = no (or an unreadable) cursor = the baseline poll. Never older than the look-back cap. */
+    /** null = no (or an unreadable) cursor = a fresh tab. Never older than the look-back cap; a little earlier than asked (the overlap). */
     private function parseAfter(mixed $raw, Carbon $now): ?Carbon
     {
         if (! is_string($raw) || trim($raw) === '') {
@@ -85,6 +100,7 @@ class AlertFeedController extends Controller
             return null;
         }
         $floor = $now->copy()->subHours(self::MAX_LOOKBACK_HOURS);
+        $after = $after->copy()->subSeconds(self::CURSOR_OVERLAP_SECONDS);
 
         return $after->lt($floor) ? $floor : $after;
     }

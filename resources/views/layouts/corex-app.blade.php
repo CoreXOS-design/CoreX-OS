@@ -178,6 +178,8 @@
         {{-- Portal Leads real-time toast (P24 + PP). Spec: .ai/specs/portal-leads.md --}}
         @include('components.portal-lead-toast')
         @include('components.reminder-toast')
+        {{-- AT-451 — live popup for a new alert, same shared include as layouts/corex. This layout has no toast of its own, so it brings one (without turning session flash into toasts). --}}
+        @include('layouts.partials._staff-alerts', ['withToast' => true])
 
         {{-- In-page PDF / image viewer behind every "View" button in a CoreX drive.
              Spec: .ai/specs/document-inline-view.md --}}

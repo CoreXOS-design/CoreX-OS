@@ -14,8 +14,8 @@ const blade = fs.readFileSync(path.join(here, '../../resources/views/rentals/por
 const scriptRaw = blade.slice(blade.lastIndexOf('<script>') + 8, blade.lastIndexOf('</script>')).replace('@json($branding ?? null)', 'null');
 
 /** A stub browser; `calls` records every network request. */
-function boot({ fetchImpl, search = '', storage = {}, linkedEmail = null, linkedContactId = null } = {}) {
-  const script = scriptRaw.replace('@json($linkedEmail ?? null)', JSON.stringify(linkedEmail)).replace('@json($linkedContactId ?? null)', JSON.stringify(linkedContactId));   // the address the SERVER read from a mail link's signed reference
+function boot({ fetchImpl, search = '', storage = {}, linkedEmail = null, linkedContactId = null, qaLinkSignin = false, session = {}, hash = '' } = {}) {
+  const script = scriptRaw.replace('@json($linkedEmail ?? null)', JSON.stringify(linkedEmail)).replace('@json($linkedContactId ?? null)', JSON.stringify(linkedContactId)).replace('@json($qaLinkSignin ?? false)', JSON.stringify(qaLinkSignin));   // the address the SERVER read from a mail link's signed reference
   const calls = { xhr: [], fetch: [], reloaded: false };
   const urls = new Set();
   class FakeXHR {
@@ -28,9 +28,12 @@ function boot({ fetchImpl, search = '', storage = {}, linkedEmail = null, linked
   FakeXHR.auto = true; FakeXHR.status = 201; FakeXHR.reply = { fault_report: { id: 7 } };
   const sandbox = {
     window: {
-      location: { search, reload: () => { calls.reloaded = true; } }, crypto: null, confirm: () => true,
+      location: { search, hash, pathname: '/portal', origin: 'https://qa.example', reload: () => { calls.reloaded = true; } }, crypto: null, confirm: () => true, history: { replaceState: () => {} },
       localStorage: { getItem: (k) => (k in storage ? storage[k] : null), setItem: (k, v) => { storage[k] = String(v); } },
+      // sessionStorage is PER TAB: pass the same `session` object to simulate a reload of one tab; omit it for a brand-new tab
+      sessionStorage: { getItem: (k) => (k in session ? session[k] : null), setItem: (k, v) => { session[k] = String(v); }, removeItem: (k) => { delete session[k]; } },
     },
+    sessionStorage: { getItem: (k) => (k in session ? session[k] : null), setItem: (k, v) => { session[k] = String(v); }, removeItem: (k) => { delete session[k]; } },
     document: { cookie: 'XSRF-TOKEN=tok', createElement: () => ({}) },
     fetch: async (url, opts) => { calls.fetch.push({ url, opts }); return fetchImpl ? fetchImpl(url, opts) : { ok: true, status: 200, json: async () => ({}) }; },
     XMLHttpRequest: FakeXHR, URL: Object.assign(function () {}, { createObjectURL: () => { const u = 'blob:' + urls.size; urls.add(u); return u; }, revokeObjectURL: (u) => urls.delete(u) }),
@@ -260,11 +263,19 @@ test('the Home FAQ opens one answer at a time per question', () => {
 });
 
 // ── Johan, 8 Oct 2026: who is signed in, links made for somebody else, and the Tenant / Owner switch ──
+// `me` is the person this BROWSER has signed in (what the server remembers for a new tab). A tab with no token of its own asks /client-auth/tab-token:
+// it is handed one for the link's person when that is the remembered person, and refused (401) for anybody else - the page then offers the sign-in.
+// §28.5: every portal call after that carries the tab's bearer token, and /client/me answers for that token.
 function portalApi({ me, leases = [], properties = [], faultOk = true, calls = [] } = {}) {
   return async (url, opts) => {
     calls.push(url);
     const reply = (ok, data, status = ok ? 200 : 404) => ({ ok, status, json: async () => data });
-    if (url.endsWith('/api/v1/client/me')) return me ? reply(true, me) : reply(false, {}, 401);
+    if (url.endsWith('/api/v1/client-auth/tab-token')) {
+      const asked = JSON.parse((opts && opts.body) || '{}');
+      const same = me && (!asked.email || String(asked.email).toLowerCase() === String(me.client.email).toLowerCase() || (asked.contact_id && me.owns_linked_contact === true));
+      return same ? reply(true, { token: 'TAB-' + me.client.id, client: me.client }) : reply(false, { message: 'Sign in to continue.', needs_signin: true }, 401);
+    }
+    if (url.endsWith('/api/v1/client/me')) { const bearer = ((opts && opts.headers) || {}).Authorization || ''; return me && bearer === 'Bearer TAB-' + me.client.id ? reply(true, me) : reply(false, {}, 401); }
     if (url.endsWith('/rentals/leases')) return reply(true, { leases });
     if (url.endsWith('/rentals/landlord/properties')) return reply(true, { properties });
     if (/\/landlord\/fault-reports\/\d+$/.test(url)) return faultOk ? reply(true, { fault_report: { id: 50, title: 'Power tripping', awaiting_decision: true } }) : reply(false, { message: 'not found' });
@@ -285,16 +296,15 @@ test('the header always says who is signed in and which side is on screen', asyn
   assert.equal(o.p.roleLabel(), 'Owner');
 });
 
-test('a link for ANOTHER email never shows the signed-in person\'s portal: it says who is signed in and whose link it is', async () => {
+test('a link for ANOTHER person is never shown as the browser\'s other person: the tab is offered the sign-in for the link\'s person, and nothing of the other person is loaded', async () => {
   const calls = [];
   const { p } = boot({ search: '?email=ndlovu5308%40gmail.com', fetchImpl: portalApi({ me: TENANT_ME, leases: [{ id: 94 }], calls }) });
   await p.init(); await settle();
-  assert.equal(p.linkIssue.kind, 'email');
-  assert.equal(p.linkIssue.masked, 'n******8@gmail.com');
+  assert.equal(p.session.authenticated, false, '§28.5: no "this link is not for this account" dead end - the link signs THIS tab in as its own person');
+  assert.equal(p.linkIssue, null);
+  assert.equal(p.login.email, 'ndlovu5308@gmail.com', 'the sign-in is pre-filled for the person the link is for');
   assert.equal(p.roles.length, 0, 'no portal data was loaded for the wrong person');
   assert.ok(!calls.some((u) => u.endsWith('/rentals/leases')), 'the tenant\'s leases were not even fetched');
-  assert.equal(p.whoName(), 'Tina Tenant');
-  assert.equal(p.roleLabel(), '', 'no role is claimed while the link does not match');
 });
 
 test('the same email on the link (any capitals) is the normal portal', async () => {
@@ -375,15 +385,15 @@ test('init() runs once even though Alpine AND x-init both call it: one /me check
   assert.equal(p.roles.join(','), 'tenant');
 });
 
-test('a link for another email, with the page\'s double init and a slow session check, still ends on the card - never on a blank page', async () => {
+test('a link for another email, with the page\'s double init and a slow session check, still ends on the sign-in - never on a blank page', async () => {
   const slowApi = portalApi({ me: TENANT_ME, leases: [{ id: 94 }] });
   const { p } = boot({ search: '?email=ndlovu5308%40gmail.com', fetchImpl: async (url, opts) => { await new Promise((r) => setTimeout(r, 120)); return slowApi(url, opts); } });
   const done = Promise.all([p.init(), p.init()]);
   const first = await Promise.race([done.then(() => 'done'), new Promise((r) => setTimeout(() => r('hung'), 3000))]);
   assert.equal(first, 'done', 'init() settles - nothing waits forever');
   assert.equal(p.loading, false);
-  assert.equal(p.linkIssue.kind, 'email');
-  assert.equal(p.whoName(), 'Tina Tenant');
+  assert.equal(p.session.authenticated, false, 'ends on the sign-in for the link\'s person');
+  assert.equal(p.login.email, 'ndlovu5308@gmail.com');
 });
 
 // ── 8 Oct 2026, 20:05 — Johan could not sign in: the Continue button was DISABLED on every signed-out page ──
@@ -410,7 +420,8 @@ function authApi({ me = null, requiresPassword = true, exists = true, leases = [
     if (url.endsWith('/client-auth/lookup')) { calls.push(url); return exists ? reply(true, { exists: true, requires_password: requiresPassword }) : reply(false, { message: 'We could not find that email.' }, 404); }
     if (url.endsWith('/client-auth/otp/send')) { calls.push(url); return reply(true, { sent: true }); }
     if (url.endsWith('/client-auth/otp/verify')) { calls.push(url); return body.code === '123456' ? reply(true, { activation_token: 'tok' }) : reply(false, { message: 'Invalid code.' }); }
-    if (url.endsWith('/client-auth/password/set') || url.endsWith('/client-auth/login') || url.endsWith('/client-auth/logout')) { calls.push(url); return reply(true, {}); }
+    if (url.endsWith('/client-auth/password/set') || url.endsWith('/client-auth/login')) { calls.push(url); return reply(true, me ? { token: 'TAB-' + me.client.id } : {}); }   // §28.5: the sign-in hands the TAB its own token
+    if (url.endsWith('/client-auth/logout')) { calls.push(url); return reply(true, {}); }
     return base(url, opts);
   };
 }
@@ -501,7 +512,7 @@ test('after Log out, and after "Sign out and sign in as...", the reloaded page i
   const calls = [];
   const signed = boot({ search: '?email=ndlovu5308%40gmail.com', fetchImpl: authApi({ me: TENANT_ME, leases: [{ id: 94 }], calls }) });
   await signed.p.init(); await settle();
-  assert.equal(signed.p.linkIssue.kind, 'email');
+  assert.equal(signed.p.session.authenticated, false, 'the link is for somebody else: this tab is offered their sign-in');
   await signed.p.logout();
   assert.equal(signed.calls.reloaded, true);
   assert.ok(calls.some((u) => u.endsWith('/client-auth/logout')));
@@ -580,13 +591,12 @@ test('a record the person has no part in is told so - never somebody else\'s por
   assert.equal(tenantOnly.p.linkIssue.wanted, 'landlord');
 });
 
-test('somebody ELSE is signed in on the device: the card names whose link it is (read from the mail\'s signed reference), and nothing of theirs is loaded', async () => {
+test('somebody ELSE is signed in on the device: the link (read from the mail\'s signed reference) signs in its OWN person on this tab, and nothing of the other person is loaded', async () => {
   const calls = [];
   const { p } = boot({ search: '?as=tenant&wo=4', linkedEmail: 'ayanda@example.com', fetchImpl: linkApi({ me: OWNER_ME, properties: [{ id: 6 }], calls }) });
   await p.init(); await settle();
-  assert.equal(p.linkIssue.kind, 'email');
-  assert.equal(p.linkIssue.masked, 'a****a@example.com');
-  assert.equal(p.whoName(), 'Siyabonga Simamane');
+  assert.equal(p.session.authenticated, false);
+  assert.equal(p.login.email, 'ayanda@example.com', 'pre-filled for the mail\'s recipient');
   assert.ok(!calls.some((u) => /landlord|work-orders|fault-reports|leases/.test(u)), 'no portal data was loaded for the wrong person: ' + calls.join(','));
   assert.equal(p.roleLabel(), '');
 });
@@ -720,15 +730,15 @@ const LINKS = [
   ['owner fault', '?as=owner&fault=9'], ['owner work order', '?as=owner&wo=4'], ['owner inspection', '?as=owner&insp=3'], ['owner documents', '?as=owner&docs=1'], ['owner home (invite)', '?as=owner'],
 ];
 
-test('every entry-point link, opened while ANOTHER portal person is signed in, shows the card for the link\'s person and loads nothing of the signed-in person', async () => {
+test('every entry-point link, opened while ANOTHER portal person is signed in on the browser, offers the link\'s person the sign-in and loads nothing of the other person', async () => {
   for (const [label, search] of LINKS) {
     for (const [who, me, extra] of [['tenant signed in', AYANDA_ME, { leases: [{ id: 21 }] }], ['owner signed in', SIYA_ME, { properties: [{ id: 6 }] }]]) {
       const calls = [];
       const forWho = search.includes('as=owner') ? 'owner@example.com' : 'tenant@example.com';
       const { p } = boot({ search, linkedEmail: forWho, linkedContactId: 77, fetchImpl: linkApi({ me, calls, ...extra }) });
       await p.init(); await settle();
-      assert.equal(p.linkIssue && p.linkIssue.kind, 'email', `${label} / ${who}: the card`);
-      assert.match(p.linkIssue.masked, /@example\.com$/, `${label} / ${who}: names whose link it is`);
+      assert.equal(p.session.authenticated, false, `${label} / ${who}: this tab is not the other person`);
+      assert.equal(p.login.email, forWho, `${label} / ${who}: the sign-in is for the link's person`);
       assert.equal(p.roleLabel(), '', `${label} / ${who}: no side claimed`);
       assert.ok(!calls.some((u) => /landlord|work-orders|fault-reports|leases|documents|overview/.test(u)), `${label} / ${who}: nothing of the signed-in person was loaded: ${calls.join(',')}`);
     }
@@ -793,7 +803,8 @@ test('the link names a contact the signed-in login OWNS but on another address (
   // ...but a contact that is NOT theirs, on another address, is still somebody else
   const other = boot({ search: '?as=tenant&wo=4', linkedEmail: 'ayanda.old@example.com', linkedContactId: 8966, fetchImpl: linkApi({ me: { ...AYANDA_ME, owns_linked_contact: false }, leases: [{ id: 21 }] }) });
   await other.p.init(); await settle();
-  assert.equal(other.p.linkIssue.kind, 'email');
+  assert.equal(other.p.session.authenticated, false, 'a contact that is NOT theirs on another address: this tab is not signed in as them');
+  assert.equal(other.p.login.email, 'ayanda.old@example.com');
 });
 
 test('signing in ON the page re-checks the link: a link for A, signed into as B, shows the card - and the header says who just signed in', async () => {
@@ -838,40 +849,105 @@ test('signing in ON the page as the person the link is for: the header names the
   assert.equal(p.tenantTab, 'jobs');
 });
 
-test('two tabs, one browser: every request says which login the page is acting as, and a refusal turns the page into "someone else signed in"', async () => {
+test('two tabs, one browser (§28.5): every request carries THIS tab\'s own login as a bearer token, never the shared cookie\'s expectation; the other tab is not touched', async () => {
   const seen = [];
   const base = linkApi({ me: AYANDA_ME, leases: [{ id: 21 }] });
-  let refuse = false;
-  const api = async (url, opts) => {
-    seen.push({ url, expect: (opts && opts.headers && opts.headers['X-Portal-Expect']) || null });
-    if (refuse && /rentals\//.test(url)) return { ok: false, status: 409, json: async () => ({ session_changed: true, message: 'Someone else has signed in' }) };
-    return base(url, opts);
-  };
-  const { p } = boot({ fetchImpl: api });
-  await p.init(); await settle();
-  assert.equal(p.me.client.id, 29);
-  assert.ok(seen.filter((s) => /rentals\//.test(s.url)).every((s) => s.expect === '29'), 'every portal request carries the login the page believes it is');
-  assert.equal(p.sessionChanged, false);
+  const api = async (url, opts) => { seen.push({ url, auth: (opts && opts.headers && opts.headers.Authorization) || null, expect: (opts && opts.headers && opts.headers['X-Portal-Expect']) || null }); return base(url, opts); };
+  const tab1 = boot({ fetchImpl: api });
+  await tab1.p.init(); await settle();
+  assert.equal(tab1.p.me.client.id, 29);
+  assert.ok(seen.filter((s) => /rentals\//.test(s.url)).every((s) => s.auth === 'Bearer TAB-29' && s.expect === null), 'every portal request is the tab\'s own token');
+  assert.equal(tab1.p.sessionChanged, false);
 
-  refuse = true;                                  // another tab has signed somebody else in
-  await p.loadTenantLeases(); await settle();
-  assert.equal(p.sessionChanged, true, 'the page stops acting as Ayanda');
+  // a second tab (another person) signs in on the same browser: this tab has its OWN token, so nothing happens to it
+  const seen2 = [];
+  const base2 = linkApi({ me: SIYA_ME, properties: [{ id: 6 }] });
+  const tab2 = boot({ fetchImpl: async (url, opts) => { seen2.push((opts && opts.headers && opts.headers.Authorization) || null); return base2(url, opts); } });
+  await tab2.p.init(); await settle();
+  assert.equal(tab2.p.me.client.id, 30);
+  assert.ok(seen2.filter(Boolean).every((a) => a === 'Bearer TAB-30'));
+  await tab1.p.loadTenantLeases(); await settle();
+  assert.equal(tab1.p.sessionChanged, false, 'the first tab is still Ayanda');
+  assert.equal(tab1.p.me.client.id, 29);
 });
 
-test('coming back to a tab re-checks who is signed in: a different person, or nobody, ends the page', async () => {
+test('a tab\'s token is kept in sessionStorage (per tab), so a reload of the same tab stays signed in without asking the server again', async () => {
+  const session = {};
+  const calls = [];
+  const a = boot({ session, fetchImpl: portalApi({ me: TENANT_ME, leases: [{ id: 94 }], calls }) });
+  await a.p.init(); await settle();
+  assert.equal(session['portal.tab.token'], 'TAB-29');
+  const before = calls.filter((u) => u.endsWith('/client-auth/tab-token')).length;
+  const b = boot({ session, fetchImpl: portalApi({ me: TENANT_ME, leases: [{ id: 94 }], calls }) });   // the same tab, reloaded
+  await b.p.init(); await settle();
+  assert.equal(b.p.session.authenticated, true);
+  assert.equal(calls.filter((u) => u.endsWith('/client-auth/tab-token')).length, before, 'no new token was asked for');
+  // a brand-new tab has no token yet and asks once
+  const c = boot({ fetchImpl: portalApi({ me: TENANT_ME, leases: [{ id: 94 }], calls }) });
+  await c.p.init(); await settle();
+  assert.equal(calls.filter((u) => u.endsWith('/client-auth/tab-token')).length, before + 1);
+});
+
+test('a link for a DIFFERENT person opened in a tab that already holds a login drops that tab\'s login and signs in the link\'s person (the other tabs keep theirs)', async () => {
+  const session = { 'portal.tab.token': 'TAB-29' };
+  const calls = [];
+  const { p } = boot({ session, search: '?email=ndlovu5308%40gmail.com', fetchImpl: portalApi({ me: TENANT_ME, leases: [{ id: 94 }], calls }) });
+  await p.init(); await settle();
+  assert.equal(session['portal.tab.token'], undefined, 'this tab no longer holds the tenant\'s login');
+  assert.equal(p.session.authenticated, false);
+  assert.equal(p.login.email, 'ndlovu5308@gmail.com');
+  assert.ok(!calls.some((u) => u.endsWith('/client-auth/logout')), 'no server-side sign-out: only this tab let go of it');
+});
+
+test('QA1 only: an emailed link signs its tab straight in (no code, no password) when the server says the QA sign-in exists, and the tab is fixed to the link\'s side', async () => {
+  const session = {};
+  const calls = [];
+  const me = { client: { id: 41, email: 'dee@example.com' }, contact: { id: 9, full_name: 'Dee Owner' } };
+  const base = portalApi({ me, properties: [{ id: 6 }], calls });
+  const api = async (url, opts) => {
+    if (url.endsWith('/client-auth/tab-token')) return { ok: false, status: 401, json: async () => ({ needs_signin: true }) };   // nobody signed in here yet
+    if (url.endsWith('/client-auth/qa-link-signin')) { calls.push(url); return { ok: true, status: 200, json: async () => ({ token: 'TAB-41', client: me.client }) }; }
+    return base(url, opts);
+  };
+  const { p } = boot({ session, qaLinkSignin: true, search: '?email=dee%40example.com&r=SIGNED.REF&as=owner', fetchImpl: api });
+  await p.init(); await settle();
+  assert.ok(calls.some((u) => u.endsWith('/client-auth/qa-link-signin')));
+  assert.equal(p.session.authenticated, true);
+  assert.equal(p.activeRole, 'landlord');
+  assert.equal(p.demoTab, true, 'the tab is fixed to the owner side');
+  assert.equal(session['portal.demo.role'], 'owner');
+  // gate closed (any other environment): the page never even tries
+  const calls2 = [];
+  const off = boot({ qaLinkSignin: false, search: '?email=dee%40example.com&r=SIGNED.REF&as=owner', fetchImpl: async (url, opts) => { calls2.push(url); return api(url, opts); } });
+  await off.p.init(); await settle();
+  assert.ok(!calls2.some((u) => u.endsWith('/qa-link-signin')), 'outside QA1 the emailed link alone signs nobody in');
+  assert.equal(off.p.session.authenticated, false);
+});
+
+test('the demo sign-in link hands its token over in the URL fragment: the tab keeps it and uses it, without asking the server for another', async () => {
+  const session = {};
+  const calls = [];
+  const { p } = boot({ session, hash: '#tt=TAB-41', search: '?email=dee%40example.com&as=owner&demo=1', fetchImpl: portalApi({ me: { client: { id: 41, email: 'dee@example.com' }, contact: { id: 9, full_name: 'Dee Owner' } }, properties: [{ id: 6 }], calls }) });
+  await p.init(); await settle();
+  assert.equal(session['portal.tab.token'], 'TAB-41');
+  assert.equal(p.session.authenticated, true);
+  assert.ok(!calls.some((u) => u.endsWith('/client-auth/tab-token')), 'the token from the fragment was used as it came');
+});
+
+test('coming back to a tab re-checks who is signed in: a different person ends the page; a login that ran out starts the sign-in again', async () => {
   const mk = async (meNow) => {
     const first = linkApi({ me: AYANDA_ME, leases: [{ id: 21 }] });
     let phase = 'load';
     const api = async (url, opts) => (phase === 'back' && url.endsWith('/client/me') ? (meNow ? { ok: true, status: 200, json: async () => meNow } : { ok: false, status: 401, json: async () => ({}) }) : first(url, opts));
-    const { p } = boot({ fetchImpl: api });
+    const { p, calls } = boot({ fetchImpl: api });
     await p.init(); await settle();
     phase = 'back';
     await p.recheckSession(); await settle();
-    return p;
+    return { p, calls };
   };
-  assert.equal((await mk(AYANDA_ME)).sessionChanged, false, 'same person: nothing happens');
-  assert.equal((await mk(SIYA_ME)).sessionChanged, true, 'another tab signed Siyabonga in');
-  assert.equal((await mk(null)).sessionChanged, true, 'another tab signed out');
+  assert.equal((await mk(AYANDA_ME)).p.sessionChanged, false, 'same person: nothing happens');
+  assert.equal((await mk(SIYA_ME)).p.sessionChanged, true, 'a different person answering (an older, cookie-session tab)');
+  assert.equal((await mk(null)).calls.reloaded, true, 'this tab\'s own login ran out: the page starts again (signs in) instead of showing a dead end');
 });
 
 test('the page shows the "someone else signed in" card instead of the portal, and hides Log out', () => {

@@ -8350,6 +8350,22 @@
                     } catch (e) { this.error = e.message; return; }
                     this.trayTagRoomChoice = '';
                 },
+                // The sign-off bar's one line (13 Oct 2026): where this inspection stands, in plain words.
+                signSummary(section) {
+                    const insp = this.currentInspection(section);
+                    if (!insp) return '';
+                    if (insp.status === 'completed') return 'Completed';
+                    if (insp.status !== 'awaiting_signature') {
+                        const p = this.inspectionProgress(section);
+                        return p.recorded + '/' + p.total + ' recorded' + (p.recorded < p.total ? ' - ' + (p.total - p.recorded) + ' to go' : ' - ready to sign');
+                    }
+                    const tenants = this.inspectionTenants(section);
+                    let done = tenants.filter(t => this.tenantDisposition(section, t.contact_id)).length;
+                    let total = tenants.length;
+                    if (this.landlordContact) { total++; if (this.landlordDisposition(section)) done++; }
+                    total++; if (this.agentDisposition(section)) done++;
+                    return 'Open for signing - ' + done + ' of ' + total + ' signed';
+                },
                 inspectionProgress(section) {
                     const items = this.activeItems();
                     // AT-436, 2026-09-27 — same correction as roomProgress()

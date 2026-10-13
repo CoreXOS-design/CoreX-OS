@@ -143,7 +143,7 @@ class RoadToSoldController extends Controller
             'tracked_property_id.required'   => 'Pick the property again.',
             'outcome_definition_id.required' => 'Pick an outcome.',
             'next_action_at.date'            => 'We could not read that date. Pick it again.',
-            'appointment_at.date'            => 'We could not read the valuation date and time. Pick it again.',
+            'appointment_at.date'            => 'We could not read the evaluation date and time. Pick it again.',
             'note.max'                       => 'Keep the note under 5000 characters.',
         ]);
 
@@ -209,7 +209,7 @@ class RoadToSoldController extends Controller
             return $m . ' That is ' . $o->no_answer_streak . ' no-answers in a row, so it comes off your list and goes on the manager\'s report.';
         }
         if ($o->valuation_booked) {
-            return $m . ' The valuation is in your calendar.';
+            return $m . ' The evaluation is in your calendar.';
         }
         if ($o->next_action_at) {
             return $m . ' It comes back on ' . $o->next_action_at->format('j M Y') . '.';
