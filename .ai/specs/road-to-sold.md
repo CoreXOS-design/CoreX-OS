@@ -420,6 +420,9 @@ Sidebar link "Road to Sold" (Real Estate group, `@feature('road-to-sold')`). Ser
 * **Contacted client popup:** outcome list (active only, agency order); date picker only for outcomes that need one; "Valuation booked" tick (conversations) → date-and-time; note; Save. Errors re-open the popup with the message.
 * **History popup:** the property's last 10 outcomes the viewer may see (own = own calls, branch = branch, agency = all): outcome, attempt or conversation, valuation booked, date, who, back-on date, note. Read through `OutcomeService::historyForPage()` (one query for the whole page, `RtsContactOutcome::scopeVisibleTo`). The same outcome is also a note on the owner contact (Notes tab) - history on the property and on the contact.
 * **Layout rule (Johan):** screen space is for data and controls only - no explanatory paragraphs under headings or empty states; every field, dropdown and button on the page, the report and the outcome settings is the same height (`road-to-sold/_controls.blade.php`, class `rts-page`).
+* **Track:** every Road to Sold request carries a track (`RoadToSold\Track::fromRequest()` - route default or `track` field; anything unknown = sales). The page, outcome list, capture, add-to-day, summary bar, report, print/PDF/XLSX and drill-down all use it; links and forms keep it (`Track::params()` - nothing is added for sales). The three feed blocks are sales work and are not shown on another track. Open: the on-demand list build in `RoadToSoldController::buildIfMissing()` and `RtsListItem::forDay` do not take a track yet - that block is cc4's current fix and was left alone.
+* **Dates in the past:** an agent-picked return date and a valuation date-and-time are refused with a plain message when they are before today / before now (`OutcomeService`).
+* **Report vs drill:** the call-log drill left-joins `tracked_properties`, so a call on an archived property is in the drill exactly as it is in the report; the row reads "(property archived)".
 * **Add to my day:** selection + count → `ListBuilderService::addToDay()` (lane 2).
 * **Blocks under the list (not counted against the target), each own-scoped and correct (not the Today-page queries):** buyer follow-ups (`contacts.agent_id` in the agent's identity — **not** `created_by_user_id` — stale beyond the agency's buyer-warm/cold days, newest risk score only, no hard-coded 14 days); lead follow-ups (`LeadResponseService::results()` waiting/overdue for the agent); expiring mandates (`MandateExpiryPolicy` window for the agent's own listings).
 
@@ -462,6 +465,13 @@ Sidebar link "Road to Sold" (Real Estate group, `@feature('road-to-sold')`). Ser
 * **Q10 (data):** Other agencies' mandate **end dates** are not stored anywhere, so "expiry date if known else agent-picked" is always agent-picked today.
 * **Q11 (process):** lane 3 lands on `origin/QA1` itself (conductor, 13 Oct) although Standard −1l says only cc1 does; acted on the conductor's word.
 
+
+### 10.9 Call history on the property and the tracked-property page (BUILT, 14 Oct)
+- Rule (section 1): every outcome is history on the property and on the owner contact. The contact side is the contact note written by `OutcomeService`; this is the property side.
+- `<x-road-to-sold.history-panel :property-id>` on the property page (Overview tab, under the owner/showdays grid) and `:tracked-property-id` on the tracked-property (MIC) detail page. Heading "Road to Sold calls". Columns: When, Who, Outcome, Note, Next action. Newest first, 10 a page (`?rts_page=`, Previous/Next). Empty state is one line: "No Road to Sold calls on this property yet." No helper text.
+- Reads `PropertyHistoryService` (viewer-scoped and paged; `OutcomeService::historyForProperty` stays the unscoped read behind the call page). Scoping is in the query through `RtsContactOutcome::visibleTo()`: agent = own calls, branch manager = the branch, admin = the agency; agency is always pinned.
+- The property page shows calls logged on the property (`property_id`) and on the tracked property it was promoted from (`promoted_to_property_id`). Works with no owner contact.
+- Renders nothing without the `road-to-sold` feature or `access_road_to_sold`. Tests: `tests/Feature/RoadToSold/PropertyHistoryTest.php`.
 
 ## 10. Wizard step as built (lane 1, step 5)
 

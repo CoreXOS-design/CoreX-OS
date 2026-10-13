@@ -451,6 +451,9 @@
         </section>
     @endif
 
+    {{-- AT-454 - Road to Sold calls logged on this tracked property (scoped own / branch / agency in the query). --}}
+    <div style="margin-bottom: 16px;"><x-road-to-sold.history-panel :tracked-property-id="$tp->id" /></div>
+
     {{-- Market data placeholder for Phase F --}}
     <section style="margin-bottom: 24px; padding: 12px 16px; background: color-mix(in srgb, var(--brand-button) 5%, transparent);
                     border: 1px dashed var(--brand-button); border-radius: 6px;">

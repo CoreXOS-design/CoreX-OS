@@ -25,11 +25,11 @@
                 <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $scopeLabel }} · {{ $period->label }}</div>
             </div>
             <div class="flex items-end gap-2 flex-wrap">
-                <a href="{{ route('road-to-sold.index') }}" class="corex-btn-outline corex-btn-xs">Back to Road to Sold</a>
+                <a href="{{ route('road-to-sold.index', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Back to Road to Sold</a>
                 <a href="{{ $exportUrl('road-to-sold.report.print') }}" target="_blank" class="corex-btn-outline corex-btn-xs">Print</a>
                 <a href="{{ $exportUrl('road-to-sold.report.pdf') }}" class="corex-btn-outline corex-btn-xs">PDF</a>
                 <a href="{{ $exportUrl('road-to-sold.report.xlsx') }}" class="corex-btn-outline corex-btn-xs">Excel</a>
-                @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes])
+                @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes, 'hiddenFields' => \App\Services\RoadToSold\Track::params($track)])
             </div>
         </div>
     </div>
@@ -52,7 +52,7 @@
     @include('road-to-sold._controls')
     {{-- Filters --}}
     <form method="GET" class="flex items-end gap-3 flex-wrap">
-        @foreach(['period', 'start', 'end', 'compare', 'compare_start', 'compare_end'] as $keep)
+        @foreach(['track', 'period', 'start', 'end', 'compare', 'compare_start', 'compare_end'] as $keep)
             @if(request()->filled($keep))<input type="hidden" name="{{ $keep }}" value="{{ request($keep) }}">@endif
         @endforeach
         <div>

@@ -70,6 +70,9 @@ class OutcomeService
             if (! $appointmentAt) {
                 throw new RoadToSoldException('Pick the date and time of the valuation.');
             }
+            if ($appointmentAt->lt(now()->startOfMinute())) {
+                throw new RoadToSoldException('The valuation cannot be booked in the past. Pick a date and time from now on.');
+            }
         }
 
         $outcome = DB::transaction(function () use ($actor, $agencyId, $agentId, $trackedPropertyId, $def, $input, $track, $note, $occurredAt, $wantsValuation, $appointmentAt, $settings) {
