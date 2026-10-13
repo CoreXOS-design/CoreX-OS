@@ -43,7 +43,7 @@ final class TenantCheckNeverBlocksClosingTest extends TestCase
         $this->workOrder->forceFill(['reported_fault_report_id' => $this->fault->id])->save();
 
         $raw = app(RentalSecureAccessTokenService::class)->issueForJobCard($this->card, $this->admin)['raw_token'];
-        $this->post("/secure/job-cards/{$raw}/complete", ['full_name' => 'Sipho Dlamini', 'confirm' => '1'])->assertSessionHasNoErrors();
+        $this->post("/secure/job-cards/{$raw}/complete", ['full_name' => 'Sipho Dlamini', 'confirm' => '1', 'found_text' => 'A toy was stuck in the trap', 'cause_note' => 'Foreign object'])->assertSessionHasNoErrors();   // AT-452 22.13.2: a job from a fault says what was found and what caused it
         $this->round = RentalWorkCompletionRound::withoutGlobalScopes()->where('rental_work_order_id', $this->workOrder->id)->orderByDesc('round_no')->firstOrFail();
     }
 
