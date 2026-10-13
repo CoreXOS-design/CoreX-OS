@@ -166,11 +166,13 @@ class AgreementFlowTest extends TestCase
         $this->actingAs($owner)->post(route('platform-esign.agreements.store'), ['name' => '', 'email' => 'nope'])->assertSessionHasErrors(['name', 'email']);
     }
 
-    public function test_the_variation_must_be_described_and_is_rr_side_only(): void
+    public function test_the_discount_needs_no_typed_description_because_the_document_states_it_in_words(): void
     {
-        $owner = $this->owner();
-        $this->expectException(\DomainException::class);
-        $this->send($owner, ['variation_amount' => '500']);
+        // Was: the sender had to describe a rand discount. Since the structured discount (AgreementDiscountTest) the agreement itself states
+        // the discount in words and numbers, so the note is optional.
+        $doc = $this->send($this->owner(), ['variation_amount' => '500']);
+        $this->assertSame('500', $doc->rr_data['variation_amount']);
+        $this->assertArrayNotHasKey('variation_text', (array) $doc->rr_data);
     }
 
     // ── Recipient page: scoping ────────────────────────────────────────────

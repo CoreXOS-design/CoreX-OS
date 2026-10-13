@@ -11,6 +11,8 @@
         <span class="text-xs" style="color: var(--text-muted);">{{ $doc->wording?->label() }}</span>
     </div>
     <div class="px-5 py-4 space-y-3 text-sm">
+        @php $discWords = \App\Services\PlatformEsign\Agreement\AgreementDiscount::summary((array) $doc->rr_data); @endphp
+        @if($discWords)<div>Agreed discount: <strong>{{ $discWords }}</strong> <span style="color: var(--text-muted);">(off the whole monthly bill)</span></div>@endif
         @include('platform-esign.agreement._take-on-warning', ['doc' => $doc, 'lapse' => app(\App\Services\PlatformEsign\Agreement\AgreementService::class)->takeOnLapse($doc)])
         <div>Status: <strong>{{ $doc->statusLabel() }}</strong>@unless($doc->wetinkFiles()->exists()) · agency has initialled {{ $agencyDone }} of {{ $total }} pages @if($doc->form_rev > 0)· {{ $doc->form_rev }} {{ \Illuminate\Support\Str::plural('save', $doc->form_rev) }} @endif @endunless</div>
         @if($link)

@@ -402,7 +402,13 @@ class AgreementRenderer
             $text = $this->mode === 'canon' ? '0 000' : ($this->applies($line) && $n !== null ? AgreementPricing::number((float) $n) : '');
         }
 
-        return '<span data-calc="amt:' . e($line) . '">' . e($text) . '</span>';
+        $note = '';
+        if ($line === 'total' && $this->mode !== 'canon' && ($d = $this->structuredDiscount()) && $d['months']) {
+            // A time-limited discount: say which months the Monthly total is for (the fee after them is stated in section 3).
+            $note = ' <span data-disc-note="1"' . ($this->hasPlan() ? '' : ' hidden') . '>(' . ($d['months'] === 1 ? 'month 1' : 'months 1 to ' . $d['months']) . ')</span>';
+        }
+
+        return '<span data-calc="amt:' . e($line) . '">' . e($text) . '</span>' . $note;
     }
 
     private function applies(string $line): bool
@@ -426,14 +432,47 @@ class AgreementRenderer
             return '<span class="val">' . str_repeat('x', $key === 'variation_text' ? 60 : 18) . '</span>';
         }
         $v = $this->value($key, 'rr');
+        $disc = $this->structuredDiscount();
         if ($key === 'variation_amount') {
+            if ($disc && ($disc['type'] === 'percent' || $this->hasPlan())) {
+                // A percentage (or a capped rand amount) is the rand figure worked out on the monthly fees in the table below.
+                return $this->hasPlan() ? '<span class="val" data-calc="disc:off">' . e(AgreementPricing::number((float) ($this->ctx['calc']['variation'] ?? 0))) . '</span>' : '<span class="blank" data-calc="disc:off">&nbsp;</span>';
+            }
+
             return $v === '' ? '<span class="blank">&nbsp;</span>' : '<span class="val">' . e(AgreementPricing::number((float) $v)) . '</span>';
+        }
+        if ($key === 'variation_text' && $disc) {
+            // The discount in plain words and numbers, whatever the sender typed as a note (spec §11.7a). Figures follow the recipient's entries live.
+            $note = $v === '' ? '' : '<span class="val">' . nl2br(e($v)) . '</span><br>';
+
+            return $note . $this->discountStatement($disc);
         }
         if ($key === 'rr_date' && $v !== '') {
             $v = $this->date($v);
         }
 
         return $v === '' ? '<span class="blank">&nbsp;</span>' : '<span class="val">' . nl2br(e($v)) . '</span>';
+    }
+
+    /** The discount of an agreement sent with the structured discount (an older agreement renders as it always did), or null. */
+    private function structuredDiscount(): ?array
+    {
+        $d = AgreementDiscount::fromRr((array) ($this->ctx['rr'] ?? []));
+
+        return $d && $d['structured'] ? $d : null;
+    }
+
+    private function hasPlan(): bool
+    {
+        return !empty($this->ctx['values']['plan']) && (float) ($this->ctx['calc']['subtotal'] ?? 0) > 0;
+    }
+
+    /** headline + figures (blank until a plan is chosen) + closing sentence. The figures sit in their own span so the form can refill them live. */
+    private function discountStatement(array $d): string
+    {
+        $figs = $this->hasPlan() ? implode(' ', AgreementDiscount::figures($d, (float) $this->ctx['calc']['subtotal'])) : '';
+
+        return '<span data-disc-stmt="1">' . e(AgreementDiscount::headline($d)) . ' <span data-disc-figs="1">' . e($figs) . '</span> ' . e(AgreementDiscount::footnote($d)) . '</span>';
     }
 
     private function rrInput(string $key, array $f): string

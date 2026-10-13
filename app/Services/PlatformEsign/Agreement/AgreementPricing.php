@@ -19,7 +19,7 @@ class AgreementPricing
     ];
 
     /** @return array{lines:array<string,array{qty:int,rate:float,amount:float}>,subtotal:float,variation:float,total:float,over_quote_threshold:bool} */
-    public static function compute(string $plan, int $agents, int $extraBranches, float $variation, array $rates): array
+    public static function compute(string $plan, int $agents, int $extraBranches, float $variation, array $rates, ?array $discount = null): array
     {
         $rates = array_merge(self::DEFAULT_RATES, $rates);
         $agents = max(0, $agents);
@@ -43,10 +43,13 @@ class AgreementPricing
             $lines['branches'] = $line($extraBranches, $rates['branch']);
         }
         $subtotal = round(array_sum(array_column($lines, 'amount')), 2);
-        $variation = max(0, min($variation, $subtotal));
+        // A percentage is worked out on the whole monthly subtotal (every recurring line); a rand amount is capped at it.
+        $variation = $discount ? AgreementDiscount::amountFor($subtotal, $discount) : max(0, min($variation, $subtotal));
 
         return [
             'lines' => $lines, 'subtotal' => $subtotal, 'variation' => $variation, 'total' => round($subtotal - $variation, 2),
+            // The discount spec and what is payable AFTER a time-limited discount ends (= the normal monthly fee).
+            'discount' => $discount, 'discount_months' => $discount['months'] ?? null, 'full_total' => $subtotal,
             'over_quote_threshold' => $plan === 'agency' && $agents > (int) $rates['quote_above_agents'],
         ];
     }
@@ -81,7 +84,9 @@ class AgreementPricing
         $plan = self::planFor($agents, $forced, $rates);
         $extra = $plan === 'agency' ? max($branches - 1, 0) : 0; // the first branch is included in the base fee
 
-        return self::compute($plan, $agents, $extra, (float) ($rr['variation_amount'] ?? 0), $rates)
+        $spec = AgreementDiscount::fromRr($rr);
+
+        return self::compute($plan, $agents, $extra, (float) ($rr['variation_amount'] ?? 0), $rates, $spec)
             + ['plan' => $plan, 'extra_branches' => $extra, 'forced' => $forced !== null];
     }
 
