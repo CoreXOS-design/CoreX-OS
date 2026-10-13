@@ -65,7 +65,7 @@ class AgreementService
     // ── Send ───────────────────────────────────────────────────────────────
 
     /**
-     * @param array{name:string,email:string,cell?:?string,agency_id?:?int,note?:?string,variation_text?:?string,variation_amount?:?string,plan?:?string,take_on_month?:?string} $d
+     * @param array{name:string,email:string,cell?:?string,agency_id?:?int,note?:?string,variation_text?:?string,variation_amount?:?string,variation_type?:?string,variation_value?:?string,variation_months?:?string,plan?:?string,take_on_month?:?string} $d
      * @throws \DomainException
      */
     public function send(array $d, int $userId): Document
@@ -80,13 +80,10 @@ class AgreementService
         $agency = !empty($d['agency_id']) ? Agency::withoutGlobalScopes()->find($d['agency_id']) : null;
 
         $varText = trim((string) ($d['variation_text'] ?? ''));
-        $varAmount = trim(str_replace([' ', ','], ['', '.'], (string) ($d['variation_amount'] ?? '')));
-        if ($varAmount !== '' && !preg_match('/^\d{1,9}(\.\d{1,2})?$/', $varAmount)) {
-            throw new \DomainException('The agreed discount must be an amount in rand.');
-        }
-        if ((float) $varAmount > 0 && $varText === '') {
-            throw new \DomainException('Describe the agreed variation next to the discount amount.');
-        }
+        // The discount (spec §11.7a): a type (percentage | rand amount), a value and an optional duration in months. The old single field
+        // `variation_amount` is still accepted as a rand amount for the whole term. The document states the discount in words itself, so the
+        // free-text note is optional.
+        $discount = AgreementDiscount::parseInput($d['variation_type'] ?? null, $d['variation_value'] ?? ($d['variation_amount'] ?? null), $d['variation_months'] ?? null);
 
         $name = trim($d['name']);
         $email = strtolower(trim($d['email']));
@@ -101,12 +98,12 @@ class AgreementService
         }
         // Optional owner-only override for a negotiated case: the recipient then sees that plan fixed whatever the number of agents.
         $forcedPlan = in_array($d['plan'] ?? '', ['team', 'agency'], true) ? $d['plan'] : '';
-        $rr = array_filter(['variation_text' => $varText, 'variation_amount' => $varAmount, 'plan_forced' => $forcedPlan, 'take_on_month' => $takeOn, 'single_entry' => '1'], fn ($v) => $v !== '');
+        $rr = array_filter(['variation_text' => $varText] + $discount + ['plan_forced' => $forcedPlan, 'take_on_month' => $takeOn, 'single_entry' => '1'], fn ($v) => $v !== '');
         if ($takeOn !== '') {
             $values = $values + AgreementTakeOn::values($takeOn);
         }
 
-        $doc = DB::transaction(function () use ($version, $tpl, $agency, $name, $email, $d, $values, $rr, $sender, $userId, $forcedPlan, $takeOn) {
+        $doc = DB::transaction(function () use ($version, $tpl, $agency, $name, $email, $d, $values, $rr, $sender, $userId, $forcedPlan, $takeOn, $discount) {
             $doc = Document::create([
                 'template_id' => $tpl->id, 'template_version' => (int) $tpl->version, 'wording_version_id' => $version->id,
                 'agency_id' => $agency?->id, 'title' => 'CoreX Subscription Agreement — ' . ($agency?->name ?: $name),
@@ -129,6 +126,9 @@ class AgreementService
             if ($takeOn !== '') {
                 $t = AgreementTakeOn::derive($takeOn);
                 $this->esign->log($doc, 'take_on_set', 'Take-on month ' . AgreementTakeOn::label($takeOn) . ' set by ' . $sender->name . ' — agreement starts ' . Carbon::parse($t['start_date'])->format('j F Y') . ', billing starts ' . Carbon::parse($t['billing_start'])->format('j F Y'), null, $userId);
+            }
+            if ($discount) {
+                $this->esign->log($doc, 'discount_set', 'Discount agreed by ' . $sender->name . ': ' . AgreementDiscount::short(AgreementDiscount::fromRr($rr)) . ' (applied to the whole monthly bill) — the agreement states it in words', null, $userId);
             }
             if ($forcedPlan !== '') {
                 $this->esign->log($doc, 'plan_forced', 'Plan fixed by ' . $sender->name . ' to CoreX ' . ucfirst($forcedPlan) . ' (negotiated) — the recipient sees it fixed', null, $userId);

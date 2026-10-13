@@ -34,6 +34,13 @@
     // ── live pricing (mirrors AgreementPricing::derive; the server recomputes) ─────
     function money(n) { var w = Math.abs(n % 1) < 1e-9; var s = (w ? n.toFixed(0) : n.toFixed(2)); var p = s.split('.'); p[0] = p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' '); return p.join('.'); }
     var lastPlan = '';
+    function discFigures(D, sub, off) {
+        var r = function (n) { return 'R' + money(n); }, m = D.months, now = Math.round((sub - off) * 100) / 100;
+        var L = ['Normal monthly fee: ' + r(sub) + '.', 'Discount: ' + r(off) + ' a month.'];
+        if (!m) { L.push('Monthly fee after the discount: ' + r(now) + '.'); }
+        else { L.push('Monthly fee for ' + (m === 1 ? 'month 1' : 'months 1 to ' + m) + ': ' + r(now) + '.'); L.push('Monthly fee from month ' + (m + 1) + ': ' + r(sub) + '.'); }
+        return L.join(' ');
+    }
     function calc() {
         if (mode !== 'form') { return 0; } // RR/preview screens print the server's figures; there are no entries here to recalculate from
         var R = C.rates, agents = parseInt(val('agents') || '0', 10) || 0, branches = parseInt(val('branches') || '0', 10) || 0, vari = parseFloat(C.variation || '0') || 0;
@@ -51,16 +58,22 @@
             L.agency_t3[0] = Math.max(agents - R.agency_t2_max, 0); L.branches[0] = extra;
         }
         var sub = 0; Object.keys(L).forEach(function (k) { sub += L[k][0] * L[k][1]; });
+        var D = C.discount || null;
+        if (D) { vari = D.type === 'percent' ? Math.round((sub * D.value / 100 + 1e-9) * 100) / 100 : D.value; }
         vari = Math.max(0, Math.min(vari, sub));
         var applies = plan === 'team' ? ['team_seats'] : (plan === 'agency' ? ['agency_base', 'agency_t1', 'agency_t2', 'agency_t3', 'branches'] : []);
         $$('[data-calc]').forEach(function (s) {
             var d = s.getAttribute('data-calc').split(':'), kind = d[0], key = d[1], t = '';
             if (kind === 'q') { t = applies.indexOf(key) > -1 ? String(L[key][0]) : ''; }
             else if (kind === 'amt') { if (key === 'total') { t = plan ? money(sub - vari) : ''; } else { t = applies.indexOf(key) > -1 ? money(L[key][0] * L[key][1]) : ''; } }
+            else if (kind === 'disc') { t = plan && sub > 0 ? money(vari) : ''; }
             else if (kind === 'note') { t = (plan === 'agency' && agents > R.quote_above_agents) ? ('For more than ' + R.quote_above_agents + ' agents a quoted rate is recorded under “Agreed variations” — we will confirm it with you.') : ''; }
             if (s.tagName !== 'INPUT') { s.textContent = t; }
         });
         $$('[data-mirror="total"]').forEach(function (m) { m.value = plan ? 'R ' + money(sub - vari) : ''; });
+        // The agreed discount in words (mirrors AgreementDiscount::figures): the figures follow the entries; nothing is shown until a plan is chosen.
+        $$('[data-disc-figs]').forEach(function (f) { f.textContent = (D && D.structured && plan && sub > 0) ? discFigures(D, sub, vari) : ''; });
+        $$('[data-disc-note]').forEach(function (n) { n.hidden = !(plan && sub > 0); });
         return sub - vari;
     }
 

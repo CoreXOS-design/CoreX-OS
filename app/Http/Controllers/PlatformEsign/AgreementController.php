@@ -53,6 +53,7 @@ class AgreementController extends Controller
             'start' => $prefill[$agencyId] ?? ['name' => '', 'email' => '', 'cell' => ''],
             'version' => $version, 'expiryDays' => AgreementService::expiryDays(),
             'takeOnOptions' => \App\Services\PlatformEsign\Agreement\AgreementTakeOn::options(),
+            'exampleFee' => (float) (($version->rates_json ?? [])['agency_base'] ?? \App\Services\PlatformEsign\Agreement\AgreementPricing::DEFAULT_RATES['agency_base']),
         ]);
     }
 
@@ -63,6 +64,7 @@ class AgreementController extends Controller
             'name' => 'required|string|max:255', 'email' => 'required|email|max:255', 'cell' => 'nullable|string|max:40',
             'agency_id' => 'nullable|integer|exists:agencies,id', 'note' => 'nullable|string|max:490',
             'variation_text' => 'nullable|string|max:500', 'variation_amount' => 'nullable|string|max:14',
+            'variation_type' => 'nullable|in:amount,percent', 'variation_value' => 'nullable|string|max:14', 'variation_months' => 'nullable|string|max:6',
             'plan' => 'nullable|in:team,agency',
             'take_on_month' => ['required', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/', function ($attribute, $value, $fail) {
                 if (!\App\Services\PlatformEsign\Agreement\AgreementTakeOn::valid((string) $value)) {
