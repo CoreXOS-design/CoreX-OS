@@ -415,13 +415,13 @@ final class AreasTest extends TestCase
         $this->assertSame('2026-09-20', $one['pp']->format('Y-m-d'));
     }
 
-    public function test_needs_refresh_fires_only_when_neither_portal_was_captured_within_the_window(): void
+    public function test_needs_refresh_fires_when_either_portal_is_stale_or_never_captured(): void
     {
         $svc = app(AreaService::class);
         $this->assertTrue($svc->needsRefresh(['p24' => null, 'pp' => null], 7), 'never captured needs a refresh');
-        $this->assertFalse($svc->needsRefresh(['p24' => now()->subDays(2), 'pp' => null], 7));
-        $this->assertFalse($svc->needsRefresh(['p24' => now()->subDays(30), 'pp' => now()->subDays(1)], 7), 'the newer portal counts');
-        $this->assertTrue($svc->needsRefresh(['p24' => now()->subDays(30), 'pp' => now()->subDays(20)], 7));
+        $this->assertTrue($svc->needsRefresh(['p24' => now()->subDays(2), 'pp' => null], 7), 'a fresh P24 capture does not hide a missing PP one');
+        $this->assertTrue($svc->needsRefresh(['p24' => now()->subDays(30), 'pp' => now()->subDays(1)], 7), 'a fresh PP capture does not hide a stale P24 one');
+        $this->assertFalse($svc->needsRefresh(['p24' => now()->subDays(2), 'pp' => now()->subDays(3)], 7));
     }
 
     // ── settings-page warning ─────────────────────────────────────────────

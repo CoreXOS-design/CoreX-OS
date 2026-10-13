@@ -161,6 +161,15 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // AT-454 - Road to Sold settings are memoised for seconds only, and dropped at the start of every
+        // queued job and artisan command, so the nightly build (one long process) never works from a stale copy.
+        \Illuminate\Support\Facades\Event::listen(\Illuminate\Queue\Events\JobProcessing::class, fn () => \App\Services\RoadToSold\SettingsService::forget());
+        \Illuminate\Support\Facades\Event::listen(\Illuminate\Console\Events\CommandStarting::class, fn () => \App\Services\RoadToSold\SettingsService::forget());
+        // The settings screens build their links from where they are mounted (sales now, rentals later).
+        \Illuminate\Support\Facades\View::composer('road-to-sold.settings.*', function ($view) {
+            $view->with(['rb' => \App\Services\RoadToSold\Support\Routing::base(), 'rtsTrack' => \App\Services\RoadToSold\Support\Routing::track()]);
+        });
+
         // ── DESTRUCTIVE-SCHEMA GUARD (post-incident 2026-08-05: hfc_staging wiped by a
         // migrate:fresh run directly against it) ────────────────────────────────────────
         // Hard-block the destructive schema commands — migrate:fresh, migrate:refresh,

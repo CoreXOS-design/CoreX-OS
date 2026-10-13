@@ -8,6 +8,7 @@ use App\Services\RoadToSold\Adapters\LaneAreaProvider;
 use App\Services\RoadToSold\Adapters\LaneWorkCalendar;
 use App\Services\RoadToSold\Adapters\LaneFollowUpSource;
 use App\Services\RoadToSold\Adapters\LaneSuggestionGuard;
+use App\Services\RoadToSold\Contracts\AreaMatchProvider;
 use App\Services\RoadToSold\Contracts\AreaProvider;
 use App\Services\RoadToSold\Contracts\FollowUpSource;
 use App\Services\RoadToSold\Contracts\SuggestionGuard;
@@ -176,6 +177,8 @@ class ListBuilderService
     private function context(User $user, int $agencyId, Carbon $day, string $track, BuilderSettings $settings): SelectionContext
     {
         $items = RtsListItem::query()->forDay($user, $day, $track)->get(['tracked_property_id', 'prospecting_listing_id', 'property_id']);
+        // Areas by suburb id + town when the provider can say so (never by bare name: two towns share names).
+        $matches = $this->areas instanceof AreaMatchProvider ? $this->areas->suburbMatchesFor($user, $track) : [];
 
         return new SelectionContext(
             user: $user,
@@ -185,12 +188,13 @@ class ListBuilderService
             settings: $settings,
             guard: $this->guard,
             areaSuburbIds: $this->areas->suburbIdsFor($user, $track),
-            areaSuburbNames: $this->areas->suburbNamesNormalisedFor($user, $track),
-            areaSuburbNamesLower: $this->areas->suburbNamesLowerTrimFor($user, $track),
+            areaSuburbNames: $matches === [] ? $this->areas->suburbNamesNormalisedFor($user, $track) : [],
+            areaSuburbNamesLower: $matches === [] ? $this->areas->suburbNamesLowerTrimFor($user, $track) : [],
             identityIds: $user->dataIdentityIds(),
             excludeTrackedIds: $items->pluck('tracked_property_id')->filter()->map(fn ($v) => (int) $v)->values()->all(),
             excludeListingIds: $items->pluck('prospecting_listing_id')->filter()->map(fn ($v) => (int) $v)->values()->all(),
             excludePropertyIds: $items->pluck('property_id')->filter()->map(fn ($v) => (int) $v)->values()->all(),
+            areaMatches: $matches,
         );
     }
 

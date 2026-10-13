@@ -18,6 +18,7 @@ final class SelectionContext
      * @param int[]    $excludeTrackedIds    already on this day's list
      * @param int[]    $excludeListingIds
      * @param int[]    $excludePropertyIds
+     * @param array    $areaMatches          the agent's suburbs with city/town, for AreaService::matchSql() (id + town aware)
      */
     public function __construct(
         public readonly User $user,
@@ -33,12 +34,13 @@ final class SelectionContext
         public readonly array $excludeTrackedIds = [],
         public readonly array $excludeListingIds = [],
         public readonly array $excludePropertyIds = [],
+        public readonly array $areaMatches = [],
     ) {
     }
 
     public function hasAreas(): bool
     {
-        return $this->areaSuburbIds !== [] || $this->areaSuburbNames !== [] || $this->areaSuburbNamesLower !== [];
+        return $this->areaMatches !== [] || $this->areaSuburbIds !== [] || $this->areaSuburbNames !== [] || $this->areaSuburbNamesLower !== [];
     }
 
     /** "Lock agents to their areas" is on — only the agent's own suburbs. */

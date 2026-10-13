@@ -13,7 +13,8 @@ use Carbon\CarbonInterface;
  * AT-454 — which days an agent owes a target, and how much.
  * Contract: .ai/specs/road-to-sold.md §2.2. Lanes 2 and 3 code against these methods.
  *
- * A day carries NO target when it is a public holiday (PublicHolidayService), when the agent is on
+ * A day carries NO target when it is a public holiday (PublicHolidayService, in the country the agency chose
+ * under Road to Sold settings - default ZA), when the agent is on
  * approved whole-day leave (leave_applications status approved/taken), or when the agent's weekday
  * number is 0. Approved HALF-day leave keeps the full target unless the agency switched
  * "half-day leave halves the target" on, in which case that day's target is halved (rounded to the
@@ -53,7 +54,7 @@ class WorkdayService
     {
         $day = $this->day($date);
 
-        if ($this->isPublicHoliday($day)) {
+        if ($this->isPublicHoliday($day, SettingsService::forUser($user, $track)->holidayCountry())) {
             return 0;
         }
 
@@ -121,7 +122,7 @@ class WorkdayService
         return ($date instanceof CarbonInterface ? Carbon::instance($date) : Carbon::parse($date))->startOfDay();
     }
 
-    private function isPublicHoliday(Carbon $day, string $country = 'ZA'): bool
+    private function isPublicHoliday(Carbon $day, string $country): bool
     {
         $key = $day->format('Y-m') . '|' . $country;
         if (! isset($this->holidayMemo[$key])) {

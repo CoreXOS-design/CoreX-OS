@@ -173,6 +173,9 @@ abstract class MicPoolSelection implements Selection
     /** @return array{0:string,1:array} SQL fragment (1 when the listing is in the agent's areas) + bindings */
     private function areaSql(SelectionContext $ctx): array
     {
+        if ($ctx->areaMatches !== []) {
+            return \App\Services\RoadToSold\AreaService::matchSql($ctx->areaMatches, 'tp', 'pl');
+        }
         $terms = [];
         $bindings = [];
         if ($ctx->areaSuburbIds !== []) {
