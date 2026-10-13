@@ -101,11 +101,11 @@ class RentalWorkOrderQuoteController extends Controller
                 return "Quote captured. It is above what you may authorise (or the owner has not set a repair limit), so {$who} must approve it on the portal (the approval email is switched off for this agency, so tell them).";
             }
 
-            return "Quote captured and sent to {$who} for approval. The work order can be sent to the contractor once they approve.";
+            return "Quote captured. It is above the owner's limit and has gone to {$who}.";
         }
         // section 22.6: nothing is approved by itself - say what is left to do
         if (! app(\App\Services\Rentals\RentalAuthorisationService::class)->hasCostAuthority($workOrder)) {
-            return 'Quote captured and selected. Nothing is approved yet - authorise its cost under "Approve the cost" (it is inside the owner\'s repair limit), then send the work order to the contractor.';
+            return 'Quote captured. Authorise its cost under "Approve the cost".';
         }
 
         return 'Quote captured and selected.';

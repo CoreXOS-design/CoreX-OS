@@ -582,6 +582,8 @@ class RentalWorkOrderService
             'agency_id' => $workOrder->agency_id, 'update_type' => 'tenant_progress',
             'note' => 'Tenant ' . $name . ' says it is NOT fixed: ' . $note . ($photos ? ' (' . count($photos) . ' photo' . (count($photos) === 1 ? '' : 's') . ')' : '') . ' - the job stays open.',
         ]);
+        // the SAME tenant-check fields every other tenant answer writes (the agent's Next line reads them): not fixed, who, when, the reason
+        $workOrder->mirrorCompletionAnswer(false, $note, $tenant->id);
         $this->storeTenantPhotos($workOrder, $photos);
         $this->notifyAgentOfOwnerAction($workOrder->fresh(), 'rental_work_order.owner_progress', 'Tenant says it is not fixed - ' . $address, mb_substr($note, 0, 240), now());
     }

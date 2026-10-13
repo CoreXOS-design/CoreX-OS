@@ -96,6 +96,13 @@
     .wo-panel-body .wo-embedded-title { display: none; }
     .wo-btnrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .wo-btnrow .corex-btn-primary, .wo-btnrow .corex-btn-outline, .wo-next .corex-btn-primary, .wo-next .corex-btn-outline, .wo-foot .corex-btn-outline { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; }
+    .wo-lbl { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+    .wo-ctl { height: 38px; box-sizing: border-box; width: 100%; padding: 0 10px; font-size: 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface, #fff); color: var(--text-primary); }
+    .wo-ctl.wo-ta { height: auto; min-height: 62px; padding: 8px 10px; }
+    .wo-grid-3 { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: end; }
+    .wo-grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: end; }
+    .wo-grid-2 { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+    @media (max-width: 760px) { .wo-grid-3, .wo-grid-4, .wo-grid-2 { grid-template-columns: 1fr; } }
     .wo-appt-form { display: grid; grid-template-columns: minmax(440px, 2.4fr) minmax(170px, 1fr) auto; gap: 12px; align-items: end; }
     @media (max-width: 760px) { .wo-appt-form { grid-template-columns: 1fr; } }
     .wo-foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-top: 4px; }
@@ -120,7 +127,7 @@
     <div class="flex flex-wrap items-center justify-between gap-2">
         <div>
             <h1 class="text-lg font-semibold">{{ $workOrder->title }}</h1>
-            <span class="ds-badge {{ $statusBadgeClass }}" title="{{ $workOrder->statusLabel() }}">{{ $workOrder->stageLabel('agent') }}</span>
+            <span class="ds-badge {{ $statusBadgeClass }}" title="{{ $workOrder->statusLabel() }}" data-stage-badge>{{ ($screen['goAheadSent'] && $workOrder->status === \App\Models\RentalWorkOrder::STATUS_ORDERED && ! $workOrder->isOwnerContractor()) ? 'Go-ahead sent' : $workOrder->stageLabel('agent') }}</span>
             <span class="text-xs" style="color: var(--text-muted);">{{ $workOrder->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $workOrder->property?->trashed() ? ' (archived)' : '' }}{{ $workOrder->trashed() ? ' - this work order is archived' : '' }}</span>
         </div>
         @include('partials.header-actions-style')
@@ -154,6 +161,8 @@
          @if($woNext['key'] === 'reported_finished') data-reported-finished-step @endif
          @if($woNext['key'] === 'owner_arranges') data-owner-route @endif>
         <div class="wo-next-text"><span class="wo-next-label">Next</span><span data-next-text>{{ $woNext['text'] }}</span></div>
+        @php $nb2 = $woNext['secondary'] ?? null; @endphp
+        <div class="wo-btnrow">
         @if($nb)
             @if($nb['kind'] === 'form')
                 <button type="submit" form="{{ $nb['form'] }}" class="corex-btn-primary text-xs" data-next-button>{{ $nb['label'] }}</button>
@@ -163,6 +172,8 @@
                 <a href="{{ $panelHref($nb['panel']) }}" class="corex-btn-primary text-xs" data-wo-go="{{ $nb['panel'] }}" @if($nb['click']) data-wo-click="{{ $nb['click'] }}" @endif data-next-button @if($nb['panel'] === 'cost') data-go-to-cost @endif>{{ $nb['label'] }}</a>
             @endif
         @endif
+        @if($nb2)<button type="submit" form="{{ $nb2['form'] }}" class="corex-btn-outline text-xs" data-next-secondary>{{ $nb2['label'] }}</button>@endif
+        </div>
     </div>
 
     {{-- D. the two summary cards: facts only --}}
@@ -548,51 +559,54 @@
             </div>
         @endif
         @if(! $woReportedFinished)
-        <details data-capture-quote @if($workOrder->quotes->isEmpty() || $errors->has('amount') || $errors->has('quote_date')) open @endif>
-            <summary class="corex-btn-outline text-xs cursor-pointer" style="display:inline-flex; align-items:center; min-height:34px; list-style:none;" data-capture-quote-toggle>Capture a quote</summary>
-        <form method="POST" action="{{ route('corex.rental-work-orders.quotes.store', $workOrder) }}" enctype="multipart/form-data" class="space-y-2 pt-3">
-            @csrf
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div>
-                    <label class="text-xs">Supplier</label><br>
-                    @php $quotePickList = \App\Models\DealV2\AgencyServiceProvider::active()->maintenanceContractors()->pickerOrder()->get(); @endphp
-                    <div x-data="{ chosen: '{{ (int) old('agency_service_provider_id', $workOrder->agency_service_provider_id) ?: '' }}' }" class="space-y-1">
-                    <select name="agency_service_provider_id" required x-model="chosen" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
-                        <option value="">Select…</option>
-                        @foreach($quotePickList as $provider)
-                            <option value="{{ $provider->id }}" @selected((int) old('agency_service_provider_id', $workOrder->agency_service_provider_id) === (int) $provider->id)>{{ $provider->name }} - {{ $provider->calloutFeeSuffix() }}</option>
-                        @endforeach
-                    </select>
-                    @include('partials.contractor-inspect-choice', ['notices' => \App\Models\DealV2\AgencyServiceProvider::noticeMap($quotePickList), 'model' => 'chosen'])
+        @php
+            $captureCollapsed = $workOrder->quotes->isNotEmpty() && ! $errors->has('amount') && ! $errors->has('quote_date');
+            $quotePickList = \App\Models\DealV2\AgencyServiceProvider::active()->maintenanceContractors()->pickerOrder()->get();
+        @endphp
+        <details data-capture-quote @unless($captureCollapsed) open @endunless>
+            <summary class="corex-btn-outline text-xs cursor-pointer" style="{{ $captureCollapsed ? 'display:inline-flex; align-items:center; min-height:34px; list-style:none;' : 'display:none;' }}" data-capture-quote-toggle>Capture a quote</summary>
+            <form method="POST" action="{{ route('corex.rental-work-orders.quotes.store', $workOrder) }}" enctype="multipart/form-data" class="space-y-3 pt-3" x-data="{ chosen: '{{ (int) old('agency_service_provider_id', $workOrder->agency_service_provider_id) ?: '' }}' }" data-quote-form>
+                @csrf
+                <div class="wo-grid-3">
+                    <div>
+                        <label class="wo-lbl" for="wo-quote-supplier">Supplier</label>
+                        <select id="wo-quote-supplier" name="agency_service_provider_id" required x-model="chosen" class="wo-ctl">
+                            <option value="">Select…</option>
+                            @foreach($quotePickList as $provider)
+                                <option value="{{ $provider->id }}" @selected((int) old('agency_service_provider_id', $workOrder->agency_service_provider_id) === (int) $provider->id)>{{ $provider->name }} - {{ $provider->calloutFeeSuffix() }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div>
+                        <label class="wo-lbl" for="wo-quote-amount">Amount (R)</label>
+                        <input id="wo-quote-amount" type="number" name="amount" required min="0" step="0.01" value="{{ old('amount') }}" class="wo-ctl" data-quote-amount>
+                    </div>
+                    <div>
+                        <label class="wo-lbl" for="wo-quote-date">Quote date</label>
+                        <input id="wo-quote-date" type="date" name="quote_date" required value="{{ old('quote_date', \Illuminate\Support\Carbon::now($woTz)->format('Y-m-d')) }}" class="wo-ctl">
                     </div>
                 </div>
-                <div>
-                    <label class="text-xs">Amount (R)</label>
-                    <input type="number" name="amount" required min="0" step="0.01" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
-                </div>
-                <div>
-                    <label class="text-xs">Quote date</label>
-                    <input type="date" name="quote_date" required class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
-                </div>
-                <div>
-                    <label class="text-xs">Document (optional)</label>
-                    <input type="file" name="document" accept=".pdf,image/*" class="w-full text-xs mt-1">
-                </div>
-                <div class="sm:col-span-2">
-                    <label class="text-xs">Details (optional &mdash; required if no document attached)</label>
-                    <textarea name="detail_text" rows="2" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);"></textarea>
+                @include('partials.contractor-inspect-choice', ['notices' => \App\Models\DealV2\AgencyServiceProvider::noticeMap($quotePickList), 'model' => 'chosen'])
+                <div class="wo-grid-2">
+                    <div>
+                        <label class="wo-lbl" for="wo-quote-details">Details (optional &mdash; required if no document attached)</label>
+                        <textarea id="wo-quote-details" name="detail_text" rows="2" class="wo-ctl wo-ta">{{ old('detail_text') }}</textarea>
+                    </div>
+                    <div>
+                        <label class="wo-lbl" for="wo-quote-doc">Document (optional)</label>
+                        <input id="wo-quote-doc" type="file" name="document" accept=".pdf,image/*" class="w-full text-xs">
+                    </div>
                 </div>
                 @if($selectedQuote)
-                    <label class="flex items-center gap-2 text-xs sm:col-span-2">
+                    <label class="flex items-center gap-2 text-xs">
                         <input type="checkbox" name="is_selected" value="1">
                         Use this quote instead of the selected one
                     </label>
                 @elseif($workOrder->quotes->whereNull('declined_at')->isEmpty())
-                    <p class="text-xs sm:col-span-2" style="color: var(--text-muted);" data-quote-autoselect>The first quote is selected for you.</p>
+                    <p class="text-xs" style="color: var(--text-muted);" data-quote-autoselect>The first quote is selected for you.</p>
                 @endif
-            </div>
-            <button type="submit" class="corex-btn-outline text-xs">Capture quote</button>
-        </form>
+                <div><button type="submit" class="corex-btn-primary text-xs" style="height:38px;">Capture quote</button></div>
+            </form>
         </details>
         @endif
         @endpermission
@@ -884,10 +898,14 @@
 // section 24 - the Next bar's button, and any "#..." link, opens the collapsed panel that holds its target, scrolls there, and (for "Authorise", "Record the owner's decision" ...) presses the control that was already on the page.
 (function () {
     function openAround(el) { for (var d = el; d; d = d.parentElement) { if (d.tagName === 'DETAILS') { d.open = true; } } }
-    function press(root, sel) {
-        var t = root.querySelector(sel) || document.querySelector(sel);
-        if (!t) return;
-        if (t.tagName === 'SUMMARY') { t.parentElement.open = true; } else { t.click(); }
+    function press(root, list) {
+        list.split(';').map(function (x) { return x.trim(); }).filter(Boolean).forEach(function (sel) {
+            var t = root.querySelector(sel) || document.querySelector(sel);
+            if (!t) return;
+            if (t.tagName === 'SUMMARY') { t.parentElement.open = true; }
+            else if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT') { t.focus(); }
+            else { t.click(); }
+        });
     }
     document.addEventListener('click', function (e) {
         var go = e.target.closest ? e.target.closest('[data-wo-go]') : null;
