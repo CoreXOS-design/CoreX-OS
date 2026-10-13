@@ -111,6 +111,8 @@ final class LaneThreeIntegrationTest extends TestCase
         }
         $new = $this->tp();
         $this->listing(['first_seen_at' => '2026-03-01', 'address' => '9 New Rd'], $new);
+        $this->listing(['first_seen_at' => '2026-03-01', 'address' => '10 New Rd']);
+        $this->listing(['first_seen_at' => '2026-03-01', 'address' => '11 New Rd']);
 
         $this->outcome($this->agent->id, $fu->id, ['next_action_at' => '2026-10-14', 'outcome_label' => 'Spoke - call back']);
         $this->outcome($this->agent->id, $late->id, ['next_action_at' => '2026-10-09']);                       // overdue: still due
@@ -119,6 +121,11 @@ final class LaneThreeIntegrationTest extends TestCase
         $this->outcome($this->agent->id, $never->id, ['next_action' => 'never_again', 'next_action_at' => null]);
         $this->outcome($this->agent->id, $mates->id, ['is_current' => false]);                                   // superseded by a newer outcome
         $this->outcome($this->mate->id, $mates->id, ['next_action_at' => '2026-10-14']);                        // someone else's follow-up
+
+        // capturing an outcome always gives the agent a hold (lane 3's OutcomeService); mirror that
+        foreach ([$fu, $late, $future, $dropped, $never] as $tp) {
+            $this->hold($tp->id, $this->agent->id);
+        }
 
         $items = $this->build($this->agent);
 
