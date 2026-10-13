@@ -237,7 +237,10 @@ class FicaPublicController extends Controller
         // AT-173 — encrypt on write (private disk) via the FICA storage seam.
         $path = app(\App\Services\Compliance\FicaDocumentStorage::class)->putUploaded($file, $dir);
 
+        // An applicant on a public link is not logged in, so BelongsToAgency has no user to stamp the agency
+        // from: it comes from the submission this token resolves to - never a default.
         $doc = FicaDocument::create([
+            'agency_id'          => $submission->agency_id,
             'fica_submission_id' => $submission->id,
             'document_type'      => $request->input('document_type'),
             'file_path'          => $path,
