@@ -34,7 +34,7 @@
     <div class="flex flex-wrap items-center gap-2">
         <div>
             <h2 class="text-sm font-semibold">Approve the cost</h2>
-            <p class="text-xs" style="color: var(--text-muted);">Nothing is approved until you press a button.</p>
+            @unless($cdAuthorised || $cdLegacy || $cdEmActive)<p class="text-xs" style="color: var(--text-muted);" data-nothing-approved>Nothing is approved until you press a button.</p>@endunless
         </div>
         @if($cdAuthorised)
             <span class="ds-badge ds-badge-success" data-cost-status="authorised">Cost authorised</span>
@@ -54,7 +54,7 @@
     @error('cost_decision')<div class="text-xs" style="color: var(--ds-crimson);" data-cost-error>{{ $message }}</div>@enderror
 
     @if($cdAuthorised)
-        <p class="text-sm" data-cost-authorised>Authorised up to <strong>R{{ number_format((float) $costActive->amount_up_to, 2) }}</strong>. Anything above this goes to the owner as a request for the extra.@if($costActive->owner_told_at) The owner was told on {{ $costActive->owner_told_at->copy()->setTimezone($cdTz)->format('j M Y H:i') }}.@endif</p>
+        <p class="text-sm" data-cost-authorised>Anything above the authorised amount goes to the owner as a request for the extra.@if($costActive->owner_told_at) The owner was told on {{ $costActive->owner_told_at->copy()->setTimezone($cdTz)->format('j M Y H:i') }}.@endif</p>
     @elseif($cdLegacy || $cdEmActive)
         <p class="text-sm" data-cost-legacy>This cost was approved before authorisation records were kept: {{ $workOrder->approvalBasisLabel() ?? 'approved' }}@if($workOrder->approved_amount !== null) &mdash; R{{ number_format((float) $workOrder->approved_amount, 2) }}@endif.</p>
     @endif
@@ -74,13 +74,17 @@
         <div class="text-sm" data-cost-owner-limits>
             <div class="grid gap-x-3 gap-y-0.5" style="grid-template-columns: max-content 1fr;">
                 <span style="color: var(--text-muted);">Repairs you may authorise:</span>
-                <span data-limit-repair>{{ $cdRepair !== null ? 'up to R' . number_format($cdRepair, 2, '.', ' ') : 'not set - ask the owner' }}</span>
+                <span data-limit-repair>{{ $cdRepair !== null ? 'up to R' . number_format($cdRepair, 2) : 'not set - ask the owner' }}</span>
                 <span style="color: var(--text-muted);">Emergency repairs you may authorise:</span>
-                <span data-limit-emergency>{{ $cdEmerg !== null ? 'up to R' . number_format($cdEmerg, 2, '.', ' ') : 'not set - ask the owner' }}</span>
+                <span data-limit-emergency>{{ $cdEmerg !== null ? 'up to R' . number_format($cdEmerg, 2) : 'not set - ask the owner' }}</span>
             </div>
             <div class="text-xs mt-1" style="color: var(--text-muted);" data-limit-status>{{ $cdStatusLine }}
                 @if($workOrder->property_id) &middot; <a class="underline" href="{{ route('corex.properties.show', ['property' => $workOrder->property_id, 'tab' => 'rental']) }}#owner-fault-settings-panel" data-owner-fault-settings-link>Owner's fault settings</a>@endif</div>
         </div>
+    @endif
+
+    @if(($cdDeclined || $workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_DECLINED) && $isOpen)
+        <p class="text-sm" data-cost-declined-guidance>The owner declined this. Capture another quote and approve its cost, or cancel the work order.</p>
     @endif
 
     @if($costBlock !== null && ! $cdAuthorised && ! $cdLegacy)
@@ -94,7 +98,7 @@
                 emergency: {{ old('emergency') ? 'true' : 'false' }}, reason: @js(old('emergency_reason', '')), typed: @js(old('typed_amount', '')),
                 open: {{ $errors->has('cost_owner_decision') ? 'true' : 'false' }}, decision: @js(old('decision', 'approved')), upTo: @js(old('approved_up_to', $cdMeasure)),
                 busy: false,
-                money(n) { return 'R' + Number(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ' '); },
+                money(n) { return 'R' + Number(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); },
                 get amount() { if (this.measure !== null) { return Number(this.measure); } const t = parseFloat(this.typed); return t > 0 ? t : null; },
                 get limit() { return this.emergency ? this.emerg : this.repair; },
                 get word() { return this.emergency ? 'emergency limit' : 'repair limit'; },
@@ -224,7 +228,7 @@
                 <li @if($cr->superseded_at) style="opacity:.65" @endif data-cost-record="{{ $cr->id }}" data-cost-basis="{{ $cr->basis }}">
                     <strong>{{ $cr->isAuthorised() ? 'Authorised' : 'Declined' }}</strong> &mdash; {{ $cdSvc->recordTextFor($cr) }}
                     @if($cr->note && $cr->basis === \App\Models\RentalAuthorisation::BASIS_OWNER_INSTRUCTION)<em>&ldquo;{{ $cr->note }}&rdquo;</em>@endif
-                    <span style="color: var(--text-muted);">&middot; at stage: {{ ucfirst(str_replace('_', ' ', (string) $cr->stage)) ?: '-' }}@if($cr->superseded_at) &middot; <em>replaced by a newer record</em>@else &middot; <em>this is the one that stands</em>@endif</span>
+                    <span style="color: var(--text-muted);">&middot; job was: {{ $cdSvc->stageWords($cr) ?: '-' }}@if($cr->superseded_at) &middot; <em>replaced by a newer record</em>@else &middot; <em>this is the one that stands</em>@endif</span>
                 </li>
             @endforeach
         </ul>

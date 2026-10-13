@@ -26,6 +26,18 @@ class RentalApproval extends Model
     public const EVIDENCE_WHATSAPP = 'whatsapp';
     public const EVIDENCE_EMAIL = 'email';
     public const EVIDENCE_VERBAL_NOTE = 'verbal_note';
+
+    /** How the owner told us, in the words a person uses ("verbal note" is what an agent's phone call is stored as). */
+    public static function evidenceLabel(?string $evidence): string
+    {
+        return match ($evidence) {
+            self::EVIDENCE_VERBAL_NOTE => 'phone call',
+            self::EVIDENCE_WHATSAPP => 'WhatsApp',
+            self::EVIDENCE_EMAIL => 'email',
+            self::EVIDENCE_PORTAL => 'their link',
+            default => str_replace('_', ' ', (string) $evidence),
+        };
+    }
     /** AT-445 — the landlord decided directly through the portal; the click itself is the evidence. */
     public const EVIDENCE_PORTAL = 'portal';
 

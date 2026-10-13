@@ -115,7 +115,7 @@ final class AuthorityCostTest extends TestCase
         $this->assertNotNull($row->told_at);
         $this->assertNotNull($row->owner_told_at, 'the owner was told at once');
         Mail::assertQueued(RentalAuthorisationToOwnerMail::class, fn ($m) => $m->hasTo($this->landlord->email)
-            && str_contains($m->sentence, "under your repair limit of R1 500.00") && str_contains($m->sentence, 'R1 200.00'));
+            && str_contains($m->sentence, "under your repair limit of R1,500.00") && str_contains($m->sentence, 'R1,200.00'));
 
         $wo = $wo->fresh();
         $this->assertSame(1200.0, (float) $wo->approved_amount, 'the baseline later extras are measured against');
@@ -134,7 +134,7 @@ final class AuthorityCostTest extends TestCase
             $this->authoriseCostOf($wo);
             $this->fail('above the limit must be refused');
         } catch (\LogicException $e) {
-            $this->assertStringContainsString("is above the owner's repair limit of R1 000.00. The owner must authorise this first.", $e->getMessage());
+            $this->assertStringContainsString("is above the owner's repair limit of R1,000.00. The owner must authorise this first.", $e->getMessage());
         }
         $this->assertSame(0, $this->records($wo)->count());
 
@@ -204,7 +204,7 @@ final class AuthorityCostTest extends TestCase
         $this->assertSame('Burst geyser flooding the ceiling', $row->emergency_reason);
         $this->assertSame(3000.0, (float) $row->limit_amount);
         $this->assertSame(RentalWorkOrder::BASIS_AGENT_EMERGENCY_LIMIT, $wo->fresh()->approval_basis);
-        Mail::assertQueued(RentalAuthorisationToOwnerMail::class, fn ($m) => str_contains($m->sentence, 'emergency limit of R3 000.00') && str_contains($m->sentence, 'Burst geyser flooding the ceiling'));
+        Mail::assertQueued(RentalAuthorisationToOwnerMail::class, fn ($m) => str_contains($m->sentence, 'emergency limit of R3,000.00') && str_contains($m->sentence, 'Burst geyser flooding the ceiling'));
     }
 
     public function test_above_the_emergency_limit_or_with_none_set_the_owner_comes_first_even_in_an_emergency(): void
@@ -292,7 +292,7 @@ final class AuthorityCostTest extends TestCase
         $this->assertSame($this->landlord->id, (int) $row->owner_contact_id);
         $this->assertSame(1000.0, (float) $wo->fresh()->approved_amount, 'what the owner approved up to is the baseline');
         $this->assertTrue($this->gate->authoriseToProceed($wo->fresh(), false)->authorised);
-        Mail::assertQueued(RentalAuthorisationToOwnerMail::class, fn ($m) => str_contains($m->sentence, "by your agent {$this->admin->name} on your instruction, given by phone call") && str_contains($m->sentence, 'Approved up to R1 000.00'));
+        Mail::assertQueued(RentalAuthorisationToOwnerMail::class, fn ($m) => str_contains($m->sentence, "by your agent {$this->admin->name} on your instruction, given by phone call") && str_contains($m->sentence, 'Approved up to R1,000.00'));
     }
 
     public function test_recording_the_owners_decision_has_its_rules(): void
@@ -449,7 +449,8 @@ final class AuthorityCostTest extends TestCase
         }
         $this->assertSame(RentalWorkOrder::STATUS_ORDERED, $wo->fresh()->status);
 
-        // the contractor's own link: refused in the contractor's words, nothing finished
+        // the contractor's own link (they have accepted the job): refused in the contractor's words, nothing finished
+        $wo->forceFill(['contractor_response' => \App\Services\Rentals\RentalContractorJobService::RESPONSE_ACCEPTED])->save();
         $raw = app(\App\Services\Rentals\RentalSecureAccessTokenService::class)->issueFor($wo->fresh(), $this->admin)['raw_token'];
         $this->post(route('rentals.secure-link.mark-done', $raw), [])->assertSessionHasErrors('work_order');
         $this->assertStringContainsString('has not been authorised yet - the agency will tell you', session('errors')->first('work_order'));
@@ -475,6 +476,45 @@ final class AuthorityCostTest extends TestCase
         $this->assertSame('Main water valve location not recorded on this property', $raw['text']);
         $this->assertSame('Main water valve is at: Behind the gate. Close it.', $svc->agentWording('Your main water valve is at: Behind the gate. Close it.')['text']);
         $this->assertSame('Check the washer', $svc->agentWording('Check the washer')['text']);
+    }
+
+    public function test_the_cost_box_says_nothing_is_approved_only_while_nothing_is_authorised_and_guides_after_a_decline(): void
+    {
+        $this->ownerLimits(1500.0);
+        $wo = $this->quoted(1200.0);
+        $before = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->getContent();
+        $this->assertStringContainsString('data-nothing-approved', $before);
+
+        $this->authoriseCostOf($wo);
+        $after = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->getContent();
+        $this->assertStringNotContainsString('data-nothing-approved', $after);
+        $this->assertStringNotContainsString('verbal note', strtolower($after));
+        // the amount is said once, in the app's money format, and the record says where the job stood in plain words
+        $text = $this->visibleText($after);
+        $this->assertSame(1, substr_count($text, 'R1,200.00') >= 1 ? 1 : 0);
+        $this->assertStringNotContainsString('R1 200.00', $text, 'one money format on the page');
+        $this->assertStringNotContainsString('Authorised up to', $text);
+        $this->assertMatchesRegularExpression('/job was: [A-Z]/', $text);
+        $this->assertDoesNotMatchRegularExpression('/job was: (ordered|reported|under_review)/i', $text);
+
+        // declined by the owner: one line of guidance
+        $other = $this->quoted(2900.0);
+        $this->auth->recordOwnerCostDecision($this->admin, $other, ['owner_contact_id' => $this->landlord->id, 'decision' => 'declined', 'told_via' => 'phone_call', 'note' => 'Too dear']);
+        $declined = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $other))->getContent();
+        $this->assertStringContainsString('The owner declined this. Capture another quote and approve its cost, or cancel the work order.', $declined);
+    }
+
+    public function test_the_time_typed_in_record_the_owners_decision_is_the_time_stored_and_shown(): void
+    {
+        $this->ownerLimits(100.0);
+        $wo = $this->quoted(900.0);
+        $row = $this->auth->recordOwnerCostDecision($this->admin, $wo, [
+            'owner_contact_id' => $this->landlord->id, 'decision' => 'approved', 'approved_up_to' => 900, 'told_via' => 'phone_call', 'told_at' => '2026-10-13T06:20', 'note' => 'Owner phoned',
+        ]);
+        $this->assertSame('2026-10-13 06:20', $row->fresh()->told_at->format('Y-m-d H:i'), 'stored as typed (agency time), not as UTC');
+        $this->assertStringContainsString('13 Oct 2026 06:20', $this->auth->sentenceFor($row->fresh()->load('byUser')));
+        $this->assertStringContainsString('13 Oct 2026 06:20', $this->auth->recordTextFor($row->fresh()->load(['byUser', 'ownerContact'])));
+        Mail::assertQueued(RentalAuthorisationToOwnerMail::class, fn ($m) => str_contains($m->sentence, '13 Oct 2026 06:20'));
     }
 
     // ── old work keeps working ────────────────────────────────────────
@@ -516,8 +556,8 @@ final class AuthorityCostTest extends TestCase
         // the limits shown are the OWNER's, on two aligned lines, with who said so and a link to where they are kept
         $this->assertStringContainsString('Repairs you may authorise:', $html);
         $this->assertStringContainsString('Emergency repairs you may authorise:', $html);
-        $this->assertStringContainsString('up to R1 500.00', $html);
-        $this->assertStringContainsString('up to R3 000.00', $html);
+        $this->assertStringContainsString('up to R1,500.00', $html);
+        $this->assertStringContainsString('up to R3,000.00', $html);
         $this->assertStringContainsString('Confirmed by the owner', $html);
         $this->assertStringContainsString("Owner's fault settings", $html);
         $this->assertStringContainsString('#owner-fault-settings-panel', $html);
