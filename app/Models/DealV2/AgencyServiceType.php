@@ -98,7 +98,7 @@ class AgencyServiceType extends Model
     {
         // A from-scratch migrate runs the original create_agency_service_types backfill BEFORE the groups migration exists:
         // seed the plain list then (no groups, no roles); the groups migration adds both for every agency afterwards.
-        if (! Schema::hasTable('agency_service_type_groups') || ! Schema::hasColumn('agency_service_types', 'group_id')) {
+        if (! static::groupsReady()) {
             foreach (self::DEFAULTS as $i => $row) {
                 static::withoutGlobalScopes()->firstOrCreate(
                     ['agency_id' => $agencyId, 'code' => $row['code']],
@@ -167,6 +167,12 @@ class AgencyServiceType extends Model
         return $bestScore >= 1 ? $best : null;
     }
 
+    /** False only while a from-scratch migrate is still before the groups migration (an older migration seeds service types through this model). */
+    private static function groupsReady(): bool
+    {
+        return Schema::hasTable('agency_service_type_groups') && Schema::hasColumn('agency_service_types', 'group_id');
+    }
+
     protected static function booted(): void
     {
         // A new agency-added type gets a stable code slugged from its label
@@ -176,7 +182,7 @@ class AgencyServiceType extends Model
                 $t->code = Str::limit(Str::slug($t->label, '_'), 40, '');
             }
             // every service type belongs to a group: when none is given it falls into the agency's "Your trades"
-            if (empty($t->group_id) && $t->agency_id) {
+            if (empty($t->group_id) && $t->agency_id && static::groupsReady()) {
                 $t->group_id = AgencyServiceTypeGroup::tradesIdFor((int) $t->agency_id);
             }
         });
