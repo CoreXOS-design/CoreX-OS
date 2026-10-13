@@ -239,6 +239,39 @@ class ListBuilderService
     }
 
     /**
+     * THE never-suggest gate, shared by every path that puts a property on a day (auto, follow-up, rollover,
+     * add-to-day). For that agent on that list DAY a property is refused when it is another agent's CoreX
+     * stock, or when the suggestion guard blocks it: held by another agent, marked do-not-contact, or parked by
+     * the agent's own outcome until a later date. The day is passed in so a follow-up that is due that day is
+     * never mistaken for a parked one.
+     */
+    private function mayPlace(User $user, int $agencyId, Carbon $day, string $track, Candidate $c): bool
+    {
+        $this->stock ??= new OtherAgentStock($agencyId, $user->dataIdentityIds());
+        if ($this->stock->candidateOwnedByAnother($c)) {
+            return false;
+        }
+
+        return ! $c->trackedPropertyId || $this->guard->blockedFor($user, [(int) $c->trackedPropertyId], $track, $day) === [];
+    }
+
+    /** Is that property already on this agent's list for the day? (tracked property first, else listing, else property) */
+    private function onDay(User $user, Carbon $day, string $track, Candidate $c): bool
+    {
+        return RtsListItem::query()->forDay($user, $day, $track)->where(function ($q) use ($c) {
+            if ($c->trackedPropertyId) {
+                $q->orWhere('tracked_property_id', $c->trackedPropertyId);
+            }
+            if (! $c->trackedPropertyId && $c->prospectingListingId) {
+                $q->orWhere('prospecting_listing_id', $c->prospectingListingId);
+            }
+            if (! $c->trackedPropertyId && ! $c->prospectingListingId && $c->propertyId) {
+                $q->orWhere('property_id', $c->propertyId);
+            }
+        })->exists();
+    }
+
+    /**
      * Put one property on the day's list. Returns the item, or null when that property is already on
      * the list (one property, once per agent per day — the unique index is the backstop).
      */
@@ -248,9 +281,8 @@ class ListBuilderService
             return null; // nothing identifies the property — never write an unidentifiable row
         }
 
-        // The last gate on EVERY path (auto, follow-up, rollover, added): never another agent's stock.
-        $this->stock ??= new OtherAgentStock($agencyId, $user->dataIdentityIds());
-        if ($this->stock->candidateOwnedByAnother($c)) {
+        // The last gate on EVERY path (auto, follow-up, rollover, added): never another agent's stock ...
+        if (! $this->mayPlace($user, $agencyId, $day, $track, $c)) {
             return null;
         }
 
@@ -264,24 +296,13 @@ class ListBuilderService
                 return null; // could not be given a tracked property: not placed (logged by the resolver)
             }
             $c = new Candidate($tid, $c->prospectingListingId, $c->propertyId, $c->selection, $c->reason, $c->hasAddress, $c->inArea);
-            if ($this->stock->candidateOwnedByAnother($c)) {
+            if (! $this->mayPlace($user, $agencyId, $day, $track, $c)) {
                 return null;
             }
         }
 
         $base = RtsListItem::query()->forDay($user, $day, $track);
-        $already = (clone $base)->where(function ($q) use ($c) {
-            if ($c->trackedPropertyId) {
-                $q->orWhere('tracked_property_id', $c->trackedPropertyId);
-            }
-            if (! $c->trackedPropertyId && $c->prospectingListingId) {
-                $q->orWhere('prospecting_listing_id', $c->prospectingListingId);
-            }
-            if (! $c->trackedPropertyId && ! $c->prospectingListingId && $c->propertyId) {
-                $q->orWhere('property_id', $c->propertyId);
-            }
-        })->exists();
-        if ($already) {
+        if ($this->onDay($user, $day, $track, $c)) {
             return null;
         }
 
@@ -412,15 +433,18 @@ class ListBuilderService
                         hasAddress: true,
                         inArea: true,
                     );
-                    // It has become another agent's stock since it was listed: it is not carried, only closed.
-                    if ($this->stock->candidateOwnedByAnother($candidate)) {
+                    // Carried only if the next list may have it: not another agent's stock, not held by another
+                    // agent, not do-not-contact, not parked by the agent's own outcome past that day. Otherwise it
+                    // is closed as missed - the same gate as every other path (mayPlace).
+                    $placed = $this->mayPlace($user, $agencyId, $target, $track, $candidate)
+                        ? $this->insert($user, $agencyId, $target, $track, $candidate, RtsListItem::ORIGIN_ROLLOVER, $item->id)
+                        : null;
+                    if ($placed === null && ! $this->onDay($user, $target, $track, $candidate)) {
                         $item->forceFill(['status' => RtsListItem::STATUS_MISSED, 'status_changed_at' => now()])->save();
                         $result['missed']++;
                         continue;
                     }
-                    $this->insert($user, $agencyId, $target, $track, $candidate, RtsListItem::ORIGIN_ROLLOVER, $item->id);
-                    // Rolled whether or not a copy was needed: if the property is already on that day's
-                    // list (a follow-up, say) it is covered there.
+                    // Rolled: placed, or already on that day's list (a follow-up, say) where it is covered.
                     $item->forceFill(['status' => RtsListItem::STATUS_ROLLED, 'status_changed_at' => now()])->save();
                     $result['rolled']++;
                     continue;
