@@ -278,8 +278,9 @@ class AgencySetupWizardTest extends TestCase
         $admin  = $this->admin($agency);
         $this->setupFor($agency);
 
-        // Every step renders inline — no "Open ... editor" deep-links anywhere.
-        foreach (\App\Models\AgencyOnboardingSetup::STEPS as $step) {
+        // Every step renders inline — no "Open ... editor" deep-links anywhere. (Only the steps switched on for this agency render: a step whose
+        // feature is off - e.g. Auctions, default off - is deliberately skipped by the wizard and redirects.)
+        foreach (\App\Models\AgencyOnboardingSetup::activeSteps($agency) as $step) {
             $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => $step]))
                 ->assertOk()
                 ->assertDontSee('Open Commission')
@@ -356,6 +357,9 @@ class AgencySetupWizardTest extends TestCase
         foreach (\App\Models\AgencyOnboardingSetup::STEPS as $step) {
             $what = config("agency-onboarding-copy.$step.what");
             $this->assertNotEmpty($what, "Step [$step] must explain itself before asking for config.");
+            if (! \App\Models\AgencyOnboardingSetup::stepIsActive($step, $agency)) {
+                continue;   // a step whose feature is off for this agency (e.g. Auctions) is skipped by the wizard, not rendered
+            }
             $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => $step]))
                 ->assertOk()
                 ->assertSee($what['title']);
@@ -444,8 +448,9 @@ class AgencySetupWizardTest extends TestCase
         // 11 original steps + the 'roles' explainer + the 'capabilities' feature
         // switchboard inserted at position 2 (switchboard spec §5/§7), + AT-379's
         // 'proforma' (after commission), 'market_intelligence' (after matches),
-        // and 'welcome' (the new first step), + AT-395's 'outgoing_mail' and the leases-spec 'leases' step = 18.
-        $this->assertSame(18, \App\Models\AgencyOnboardingSetup::totalSteps());
+        // and 'welcome' (the new first step), + AT-395's 'outgoing_mail' and the leases-spec 'leases' step = 18,
+        // + AT-432's 'auctions' step (after properties; gated on the auctions feature) = 19.
+        $this->assertSame(19,\App\Models\AgencyOnboardingSetup::totalSteps());
 
         $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'properties']))
             ->assertOk()

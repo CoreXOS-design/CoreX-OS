@@ -205,11 +205,11 @@ final class CreateWorkOrderActionTest extends TestCase
     public function test_the_fault_screen_offers_one_create_work_order_button_and_explains_a_refusal(): void
     {
         $open = $this->faultReport();
-        // 8 Oct 2026: a fault the owner has not decided on offers the work order only as the clearly labelled early step; the three
-        // routes are named in plain words and there is no title / description to fill in.
+        // Section 22.4 (12 Oct 2026): a fault the owner has not decided on no longer offers an early work order. The agent decides WHO GOES TO LOOK
+        // first (two equal buttons) and there is no title / description to fill in.
         $this->actingAs($this->admin)->get(route('corex.rental-fault-reports.show', $open))
-            ->assertOk()->assertSee('Start a work order before the owner decides')->assertSee('Our own maintenance crew')->assertSee("One of the agency's contractors", false)
-            ->assertSee("The owner's own contractor", false)->assertDontSee('Raise work order')->assertDontSee('name="title"', false);
+            ->assertOk()->assertSee('Who goes to look first?')->assertSee('Our own crew')->assertSee('Send to owner to authorise')
+            ->assertDontSee('Start a work order before the owner decides')->assertDontSee('Raise work order')->assertDontSee('name="title"', false);
 
         $declined = $this->faultReport(['status' => RentalFaultReport::STATUS_DECLINED, 'title' => 'Declined one']);
         $this->actingAs($this->admin)->get(route('corex.rental-fault-reports.show', $declined))

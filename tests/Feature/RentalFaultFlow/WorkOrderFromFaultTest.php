@@ -93,14 +93,14 @@ final class WorkOrderFromFaultTest extends TestCase
     }
 
     /** A fault with the agent-sanitised owner version saved, sent, and (optionally) decided. */
-    private function approved(string $route = 'agency_appoints', array $contractor = [], array $faultOver = []): RentalFaultReport
+    private function approved(string $route = 'agency_appoints', array $contractor = [], array $faultOver = [], ?User $recordedBy = null): RentalFaultReport
     {
         $fault = $this->fault($faultOver);
         $shared = RentalFaultReportPhoto::create(['agency_id' => $this->agency->id, 'rental_fault_report_id' => $fault->id, 'storage_path' => '/storage/ff/owner-sees.jpg', 'uploaded_by_user_id' => $this->agent->id]);
         RentalFaultReportPhoto::create(['agency_id' => $this->agency->id, 'rental_fault_report_id' => $fault->id, 'storage_path' => '/storage/ff/tenant-only.jpg', 'uploaded_by_user_id' => $this->agent->id]);
         $fault->saveOwnerVersion(['owner_title' => 'Kitchen tap leaking', 'owner_description' => 'A tap in the kitchen drips.', 'owner_agent_note' => 'Plumber needed', 'owner_photo_ids' => [$shared->id]], $this->agent);
         $fault->fresh()->requestApproval($this->agent);
-        $fault->fresh()->recordApproval($this->agent, array_merge([
+        $fault->fresh()->recordApproval($recordedBy ?? $this->agent, array_merge([
             'decision' => 'approved', 'approval_route' => $route, 'evidence_type' => 'verbal_note', 'evidence_text' => 'Owner agreed.',
         ], $contractor));
 
@@ -298,7 +298,10 @@ final class WorkOrderFromFaultTest extends TestCase
 
     public function test_the_agent_is_told_when_the_owner_approves_and_the_row_opens_the_action_then_leaves_when_it_is_done(): void
     {
-        $fault = $this->approved();   // recorded by the agent: the owner-side agent for this lease is the property's agent (= $this->agent)
+        // AT-451 round 2: whoever RECORDS the decision is never told about it (they already know). So a colleague captures it; the owner-side
+        // agent for this lease is the property's agent (= $this->agent), and that is the person who must hear it.
+        $colleague = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+        $fault = $this->approved('agency_appoints', [], [], $colleague);
 
         $note = $this->agent->notifications()->get()->first(fn ($n) => str_contains((string) json_encode($n->data), 'Owner approved - appoint contractor'));
         $this->assertNotNull($note, 'the agent got "Owner approved - appoint contractor"');
