@@ -78,6 +78,7 @@ Namespace `App\Services\RoadToSold\`. Every method takes/returns plain PHP types
 |---|---|---|---|
 | `lockAgentsToAreas()` | bool | `false` | lane 2 |
 | `areaRefreshWarnDays()` | int (1–365) | `7` | lane 1 screen, lane 3 page |
+| `halfDayLeaveHalvesTarget()` | bool | `false` | `WorkdayService` (conductor 13 Oct: half-day leave keeps the full target unless this is on) |
 | `missedItemsMode()` | `'show_missed'`\|`'roll_over'` | `'show_missed'` | lane 2, lane 3 |
 | `rollsOver()` | bool (`missedItemsMode()==='roll_over'`) | `false` | lane 2 |
 | `selections()` | ordered list of `['key','label','enabled']` | all nine on, default order below | lane 2 |
@@ -116,7 +117,7 @@ Defaults that the brief did not state and lane 1 chose (all are editable agency 
 | `monthTarget(User $u, CarbonInterface\|string $date, string $track='sales'): int` | Sum of `targetFor` over the whole month (full-month figure beside the to-date one). |
 | `nextWorkday(User $u, CarbonInterface\|string $from, string $track='sales'): ?Carbon` | First date **after** `$from` where `isWorkday` is true, searching up to 60 days; `null` if none (e.g. a new agent with every weekday at 0). Needed by lane 2 (overnight build, roll-over). |
 
-Sources: `PublicHolidayService::isPublicHoliday` (global table `public_holidays`, country `ZA` — the service default; the table is South-Africa-only today, noted for the second-agency test); `leave_applications` (`user_id`, `status IN ('approved','taken')`, `deleted_at IS NULL`, `start_date <= d <= end_date`). Half-day leave: see open question Q1.
+Sources: `PublicHolidayService::isPublicHoliday` (global table `public_holidays`, country `ZA` — the service default; the table is South-Africa-only today, noted for the second-agency test); `leave_applications` (`user_id`, `status IN ('approved','taken')`, `deleted_at IS NULL`, `start_date <= d <= end_date`). Half-day approved leave (`leave_applications.is_half_day`): full target unless `SettingsService::halfDayLeaveHalvesTarget()` is on, in which case that day's target is halved (rounded to the nearest whole number).
 
 ### 2.3 `AreaService`
 
@@ -140,8 +141,8 @@ All tables: `agency_id` NOT NULL FK + `BelongsToAgency`; `branch_id` nullable + 
 
 ### 3.1 `rts_settings` — one row per (agency, track)
 `id`, `agency_id`, `track`, then:
-`lock_agents_to_areas` tinyint(1) default 0; `area_refresh_warn_days` smallint default 7; `missed_items_mode` varchar(20) default `show_missed`; `selections` json (ordered `[{key,enabled}]`); `new_on_market_days` smallint default 14; `long_on_market_days` smallint default 90; `owner_known_quantity` smallint default 3; `stuck_stock_min_days` smallint default 60; `stuck_stock_max_views` smallint default 30; `stuck_stock_max_leads` smallint default 2; `no_answer_drop_after` smallint default 3; `hold_days` smallint default 30; `summary_steps` json (ordered `[{key,enabled}]`); `summary_green_from_pct` smallint default 90; `summary_red_below_pct` smallint default 70; `default_weekday_targets` json (`{"1":5,…,"7":0}`); `updated_by_user_id` nullable.
-Unique `(agency_id, track)` (soft delete is not used on this table — it is a singleton; "reset to defaults" overwrites the values, no archive). Missing row ⇒ `SettingsService` returns defaults and creates the row on first save, never on read. Every change is written to the audit log with before/after (same helper the other agency settings use — confirmed at build).
+`lock_agents_to_areas` tinyint(1) default 0; `half_day_leave_halves_target` tinyint(1) default 0; `area_refresh_warn_days` smallint default 7; `missed_items_mode` varchar(20) default `show_missed`; `selections` json (ordered `[{key,enabled}]`); `new_on_market_days` smallint default 14; `long_on_market_days` smallint default 90; `owner_known_quantity` smallint default 3; `stuck_stock_min_days` smallint default 60; `stuck_stock_max_views` smallint default 30; `stuck_stock_max_leads` smallint default 2; `no_answer_drop_after` smallint default 3; `hold_days` smallint default 30; `summary_steps` json (ordered `[{key,enabled}]`); `summary_green_from_pct` smallint default 90; `summary_red_below_pct` smallint default 70; `default_weekday_targets` json (`{"1":5,…,"7":0}`); `updated_by_user_id` nullable.
+Unique `(agency_id, track)` (soft delete is not used on this table — it is a singleton; "reset to defaults" overwrites the values, no archive). Missing row ⇒ `SettingsService` returns defaults and creates the row on first save, never on read. Every change is appended to `rts_settings_audit` (`agency_id`, `track`, `changed_by_user_id`, `old_values` json, `new_values` json, `changed_at`) — append-only, never edited or deleted, same shape as `core_match_buyer_state_audit`. A save that changes nothing writes nothing.
 
 ### 3.2 `rts_agent_areas` — agent ↔ suburb
 `id`, `agency_id`, `branch_id` (copied from the agent at write time), `track`, `user_id` FK users, `p24_suburb_id` bigint unsigned (matches the project's existing no-FK convention on `tracked_properties.p24_suburb_id`; validated against the pool in code), `assigned_by_user_id`, `deleted_at`.
@@ -271,10 +272,11 @@ Deploys: after each numbered piece, via cc1 (`git push origin HEAD:QA1` then `sc
 
 ---
 
-## 8. Open questions (lane 1 → conductor; each has a default so building is not blocked)
+## 8. Decisions recorded (conductor, 13 Oct 2026)
 
-- **Q1 (business):** An agent on a **half-day** of approved leave — does the half day carry the full target, half, or none? *Default built:* half-day leave still carries the full target (only whole-day leave zeroes it). Easy to change in one place.
-- **Q2 (business):** "Green on/ahead, amber under 90%, red under 70%" — read as green at 90% and above, amber from 70% up to just under 90%, red below 70%. *Default built:* as stated, both numbers editable.
-- **Q3 (rule 10a):** Which settings stay out of the wizard step? *Default built:* the wizard shows lock, refresh days, missed-items mode, agency default targets, no-answer count and hold days; selections order, thresholds and colour limits are on the settings page only. This is Johan's call; recorded here as the proposed "Deliberately NOT in the wizard" list until he says otherwise.
-- **Q4 (data):** PP last-refreshed has no dedicated table (only P24 has `minion_capture_areas.last_captured_at`). *Default built:* PP (and P24 where no minion row exists) is derived from the newest captured listing for that suburb (`prospecting_listings.last_seen_at`). If Johan wants a recorded PP refresh date, that needs a separate piece of work.
-- **Q5 (process, for the conductor):** STANDARDS −1l says only cc1 writes to `origin/QA1`, but the brief tells lanes 2 and 3 to "merge to QA1". This spec assumes lanes 2 and 3 push their own branches and cc1 lands them; confirm.
+- **Half-day leave:** keeps the full target by default; an agency setting "Half-day leave halves the target" (default off) halves it. Built as `half_day_leave_halves_target`.
+- **Colour bands:** green at or above the green line (90), red below the red line (70), amber between; both numbers are agency settings.
+- **Wizard:** main settings in the wizard step; selection order, selection thresholds and colour limits on the settings page only. Recorded as the "Deliberately NOT in the wizard" list (rule 10a) for this feature: selections order/on-off, the six limits for the sources, the colour lines, and the per-person data (areas, each agent's own numbers).
+- **PP/P24 refresh date:** derived from the newest captured listing per suburb, labelled **"last captured"** in the UI (P24 may also use `minion_capture_areas.last_captured_at` when present).
+- **Landing on QA1:** each lane lands and deploys its own work to QA1, as the rentals lanes do today; one lane tests at a time (`scripts/lane-test.sh`). Note for the record: STANDARDS.md Standard −1l ("Only cc1 writes to origin/QA1") says otherwise, in the line *"The rule, stated without the gap this time: only cc1 writes to `origin/QA1`. No other lane pushes to `origin/QA1`, ever, for any reason, however small the change"*. The conductor's instruction on 13 Oct overrides it for this build; this lane has not acted on −1l.
+- **Defaults chosen by lane 1 and accepted:** owner-known quantity 3; stuck stock 60 days / 30 views / 2 leads; agency default weekday targets stored in the settings row.

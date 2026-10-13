@@ -605,8 +605,16 @@ return [
         // gets a Role Manager own/branch/agency scope selector from day one. ──
         ['key' => 'buyer_pipeline.view',         'label' => 'View',                        'section' => 'buyer-pipeline',   'type' => 'action',  'module' => 'buyer_pipeline',   'sort_order' => 10],
 
+        // ── Road to Sold (AT-454, .ai/specs/road-to-sold.md section 4) ──
+        // road_to_sold.view is the data-breadth key (own / branch / agency via scope_defaults + Role Manager).
+        ['key' => 'access_road_to_sold',           'label' => 'Access Road to Sold',           'section' => 'road-to-sold',     'type' => 'access',  'module' => 'road_to_sold',     'sort_order' => 1],
+        ['key' => 'road_to_sold.view',             'label' => 'View',                          'section' => 'road-to-sold',     'type' => 'action',  'module' => 'road_to_sold',     'sort_order' => 10],
+        ['key' => 'road_to_sold.manage_settings',  'label' => 'Manage Road to Sold settings',  'section' => 'road-to-sold',     'type' => 'action',  'module' => 'road_to_sold',     'sort_order' => 11],
+        ['key' => 'road_to_sold.manage_areas',     'label' => 'Assign areas to agents',        'section' => 'road-to-sold',     'type' => 'action',  'module' => 'road_to_sold',     'sort_order' => 12],
+        ['key' => 'road_to_sold.manage_targets',   'label' => 'Set agents\' weekday targets',  'section' => 'road-to-sold',     'type' => 'action',  'module' => 'road_to_sold',     'sort_order' => 13],
+
         // ── Core Matches ──
-        ['key' => 'access_core_matches',         'label' => 'Access Core Matches',         'section' => 'core-matches',     'type' => 'access',  'module' => 'core_matches',     'sort_order' => 1],
+        ['key' => 'access_core_matches',        'label' => 'Access Core Matches',         'section' => 'core-matches',     'type' => 'access',  'module' => 'core_matches',     'sort_order' => 1],
         ['key' => 'core_matches.view',           'label' => 'View',                        'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 10],
         ['key' => 'core_matches.create',         'label' => 'Create',                      'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 11],
         ['key' => 'core_matches.delete',         'label' => 'Delete',                      'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 12],
@@ -1240,6 +1248,8 @@ return [
                 'contacts.view', 'contacts.create', 'contacts.edit', 'contacts.archive',
                 'contacts.delete', 'contacts.whatsapp', 'contacts.email', 'contacts.export',
                 'contacts.reassign_agent', // AT-118 hardening — managers reassign contact agents
+                // AT-454 — Road to Sold: branch managers see their branch and assign areas / set targets for it.
+                'access_road_to_sold', 'road_to_sold.view', 'road_to_sold.manage_areas', 'road_to_sold.manage_targets',
                 'access_core_matches',
                 'core_matches.view', 'core_matches.create', 'core_matches.delete', 'core_matches.manage', 'core_matches.convert_to_deal',
                 'buyer_notes.view', // who may read notes on a buyer — own/branch/agency via scope_defaults + Role Manager
@@ -1384,6 +1394,7 @@ return [
                 'access_contacts',
                 'contacts.view', 'contacts.create', 'contacts.edit',
                 'contacts.whatsapp', 'contacts.email', 'contacts.export',
+                'access_road_to_sold', 'road_to_sold.view', // AT-454 — an agent works their own Road to Sold list
                 'access_core_matches',
                 'core_matches.view', 'core_matches.create', 'core_matches.delete', 'core_matches.manage', 'core_matches.convert_to_deal',
                 'buyer_notes.view', // who may read notes on a buyer — own/branch/agency via scope_defaults + Role Manager

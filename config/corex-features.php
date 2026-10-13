@@ -201,6 +201,16 @@ return [
         'nav_permission' => ['access_prospecting'], 'sidebar_section' => 'real-estate',
         'settings_section' => null, 'route_prefixes' => ['prospecting', 'corex/market-intelligence', 'corex/tracked-properties'], 'global_flag' => null,
     ],
+    'road-to-sold' => [
+        'label' => 'Road to Sold', 'category' => 'Prospecting & Outreach',
+        'explain' => 'A daily list of properties each agent phones to win stock, measured against a target for each weekday that your agency sets per agent.',
+        'affects' => 'Whether the Road to Sold page and its settings (areas, targets, call outcomes) appear for your agents and managers. Off hides them; calls already logged are kept.',
+        'default' => true, 'core' => false, 'depends_on' => ['prospecting'],
+        'nav_permission' => ['access_road_to_sold'], 'sidebar_section' => 'real-estate',
+        'settings_section' => null, 'route_prefixes' => [], 'global_flag' => null,
+        'route_names' => ['road-to-sold.*'],
+        'view_dirs' => ['road-to-sold/'],
+    ],
     'portal-leads' => [
         'label' => 'Portal Leads', 'category' => 'Prospecting & Outreach',
         'explain' => 'The inbox of buyer enquiries that arrive from Property24 and Private Property, ready to be actioned and assigned.',
