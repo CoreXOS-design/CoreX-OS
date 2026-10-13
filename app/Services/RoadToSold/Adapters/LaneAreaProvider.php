@@ -27,6 +27,19 @@ final class LaneAreaProvider implements AreaProvider
         return $svc ? array_values(array_map('strval', (array) $svc->suburbNamesNormalisedFor($user, $track))) : [];
     }
 
+    public function suburbNamesLowerTrimFor(User $user, string $track): array
+    {
+        $svc = $this->service();
+        if (! $svc) {
+            return [];
+        }
+        $names = method_exists($svc, 'suburbNamesLowerTrimFor')
+            ? (array) $svc->suburbNamesLowerTrimFor($user, $track)
+            : array_map(fn ($n) => mb_strtolower(trim((string) $n)), (array) $svc->suburbNamesNormalisedFor($user, $track));
+
+        return array_values(array_map('strval', $names));
+    }
+
     public function hasAreas(User $user, string $track): bool
     {
         return $this->suburbIdsFor($user, $track) !== [] || $this->suburbNamesNormalisedFor($user, $track) !== [];

@@ -69,6 +69,7 @@ trait RtsFixtures
             guard: $guard ?? new NullSuggestionGuard(),
             areaSuburbIds: $areaIds,
             areaSuburbNames: $areaNames,
+            areaSuburbNamesLower: array_map(fn ($n) => mb_strtolower(trim($n)), $areaNames),
             identityIds: $user->dataIdentityIds(),
             excludeTrackedIds: $excludeTracked,
             excludeListingIds: $excludeListings,

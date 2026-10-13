@@ -175,10 +175,12 @@ abstract class MicPoolSelection implements Selection
             array_push($bindings, ...array_map('intval', $ctx->areaSuburbIds));
         }
         if ($ctx->areaSuburbNames !== []) {
-            $marks = implode(',', array_fill(0, count($ctx->areaSuburbNames), '?'));
-            $terms[] = "tp.suburb_normalised IN ({$marks})";
-            $terms[] = "LOWER(TRIM(pl.suburb)) IN ({$marks})";
-            array_push($bindings, ...$ctx->areaSuburbNames, ...$ctx->areaSuburbNames);
+            $terms[] = 'tp.suburb_normalised IN (' . implode(',', array_fill(0, count($ctx->areaSuburbNames), '?')) . ')';
+            array_push($bindings, ...$ctx->areaSuburbNames);
+        }
+        if ($ctx->areaSuburbNamesLower !== []) {
+            $terms[] = 'LOWER(TRIM(pl.suburb)) IN (' . implode(',', array_fill(0, count($ctx->areaSuburbNamesLower), '?')) . ')';
+            array_push($bindings, ...$ctx->areaSuburbNamesLower);
         }
         if ($terms === []) {
             return ['0', []];

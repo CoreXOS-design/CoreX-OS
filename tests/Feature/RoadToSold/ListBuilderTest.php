@@ -63,6 +63,7 @@ final class ListBuilderTest extends TestCase
             public function __construct(private array $n, private array $i) {}
             public function suburbIdsFor(User $u, string $t): array { return $this->i; }
             public function suburbNamesNormalisedFor(User $u, string $t): array { return $this->n; }
+            public function suburbNamesLowerTrimFor(User $u, string $t): array { return array_map(fn ($x) => mb_strtolower(trim($x)), $this->n); }
             public function hasAreas(User $u, string $t): bool { return $this->i !== [] || $this->n !== []; }
         };
         $followUps = new class($o['followUps'] ?? []) implements FollowUpSource {

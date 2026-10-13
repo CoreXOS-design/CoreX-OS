@@ -186,6 +186,7 @@ class ListBuilderService
             guard: $this->guard,
             areaSuburbIds: $this->areas->suburbIdsFor($user, $track),
             areaSuburbNames: $this->areas->suburbNamesNormalisedFor($user, $track),
+            areaSuburbNamesLower: $this->areas->suburbNamesLowerTrimFor($user, $track),
             identityIds: $user->dataIdentityIds(),
             excludeTrackedIds: $items->pluck('tracked_property_id')->filter()->map(fn ($v) => (int) $v)->values()->all(),
             excludeListingIds: $items->pluck('prospecting_listing_id')->filter()->map(fn ($v) => (int) $v)->values()->all(),
