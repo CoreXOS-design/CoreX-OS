@@ -11384,6 +11384,9 @@
 // Property page: unsaved-changes guard (self-contained, no Alpine deps)
 // ─────────────────────────────────────────────────────────────────────
 (function () {
+    // A property that does not exist yet keeps everything (including the contact to be linked) on this one page and creates it
+    // on Save, so moving between its tabs never needs the "save first?" question; leaving the page still does.
+    var isNewProperty = {{ $isNew ? 'true' : 'false' }};
     var dirty = false;
     var pending = null; // { type: 'tab'|'url', value: string }
     var initialSnapshot = null;
@@ -11457,6 +11460,7 @@
 
         var tabBtn = e.target.closest && e.target.closest('[data-prop-tab]');
         if (tabBtn) {
+            if (isNewProperty) return;
             // ignore click on already-active tab
             var key = tabBtn.getAttribute('data-prop-tab');
             var rootEl = document.querySelector('[x-data*="activeTab"]');
@@ -12431,7 +12435,7 @@ function _lbRender() {
 }
 document.addEventListener('keydown', function(e) {
     var lb = document.getElementById('lightbox');
-    if (lb.classList.contains('hidden')) return;
+    if (!lb || lb.classList.contains('hidden')) return; // a NEW property has no gallery, so no viewer: nothing to close
     if (e.key === 'Escape')       closeLightbox();
     if (e.key === 'ArrowLeft')    lightboxNav(-1);
     if (e.key === 'ArrowRight')   lightboxNav(1);
@@ -13091,7 +13095,7 @@ function propertyMapWidget(cfg) {
             this.geocoding = true;
             try {
                 const data = await window.CoreX.api.fetch(
-                    '/api/v1/properties/' + this.propertyId + '/geocode',
+                    '/corex/properties/' + this.propertyId + '/geocode',
                     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
                 );
                 if (data && data.ok && data.latitude !== null && data.longitude !== null) {
