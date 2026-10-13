@@ -76,6 +76,23 @@ final class GoAheadTest extends TestCase
         $this->assertStringContainsString('Lenny', $line);
     }
 
+    public function test_the_link_the_contractor_already_has_keeps_working_after_the_go_ahead_email(): void
+    {
+        $this->ownerLimits(500.0);
+        $supplier = $this->supplier('Acme Plumbing', 'acme@example.invalid');
+        $wo = $this->externalWorkOrder(['agency_service_provider_id' => $supplier->id, 'status' => RentalWorkOrder::STATUS_ORDERED, 'ordered_at' => now()]);
+        $quote = $wo->recordQuote(['agency_service_provider_id' => $supplier->id, 'amount' => 850, 'quote_date' => now()->toDateString(), 'detail_text' => 'x'], $this->admin);
+        $wo->selectQuote($quote, $this->admin);
+        $before = app(\App\Services\Rentals\RentalSecureAccessTokenService::class)->issueFor($wo->fresh(), $this->admin)['raw_token'];
+
+        $wo->fresh()->recordApproval($this->landlord, ['decision' => 'approved', 'evidence_type' => 'portal', 'evidence_text' => 'ok', 'approved_up_to' => 850.0]);
+
+        $this->assertCount(1, $this->goAheads());
+        $this->get(route('rentals.secure-link.show', $before))->assertOk()->assertSee('You may go ahead');   // the OLD link now shows the unlocked page
+        $this->assertStringNotContainsString($before, (string) $this->goAheads()[0]->jobUrl, 'the email carries its own link');
+        $this->get((string) $this->goAheads()[0]->jobUrl)->assertOk()->assertSee('You may go ahead');
+    }
+
     public function test_the_wording_is_explicit_and_names_the_contractors_own_quote(): void
     {
         $this->ownerLimits(500.0);

@@ -811,7 +811,12 @@ class RentalWorkOrderService
         $words = $goAhead->wordsFor($workOrder);
         $url = $expires = null;
         try {
-            $issued = app(RentalSecureAccessTokenService::class)->issueFor($workOrder, $sender ?? $by ?? User::withoutGlobalScopes()->where('agency_id', $workOrder->agency_id)->orderBy('id')->firstOrFail());
+            // an ADDITIONAL link: the one the contractor already has (from the job email, possibly open on their phone right now) keeps working - issueFor() would have killed it
+            $issued = app(RentalSecureAccessTokenService::class)->issueExtra(
+                $workOrder, \App\Models\RentalSecureAccessToken::PURPOSE_CONTRACTOR_WORK_ORDER,
+                $sender ?? $by ?? User::withoutGlobalScopes()->where('agency_id', $workOrder->agency_id)->orderBy('id')->firstOrFail(),
+                \App\Models\RentalPortalSetting::contractorSecureLinkExpiryDaysFor($workOrder->agency_id),
+            );
             $url = route('rentals.secure-link.show', $issued['raw_token']);
             $expires = $issued['token']->expires_at?->format('j M Y');
         } catch (\Throwable $e) {
