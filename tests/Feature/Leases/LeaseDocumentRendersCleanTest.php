@@ -27,8 +27,8 @@ final class LeaseDocumentRendersCleanTest extends TestCase
     {
         // The shared letterhead component looks the agency up by this slug and several templates then read it
         // (privacy-policy link) — without a row they cannot render at all. A fixture row, nothing more.
-        static $agency = null;
-        $agency ??= Agency::query()->where('slug', 'hfc-coastal')->first()
+        // Looked up on every call: each test's rows are rolled back, so a value kept from an earlier test points at nothing.
+        $agency = Agency::query()->where('slug', 'hfc-coastal')->first()
             ?? Agency::create(['name' => 'Cape Rentals', 'slug' => 'hfc-coastal', 'phone' => '021 555 0100', 'email' => 'hello@caperentals.test']);
 
         return view($view, ['agency' => $agency] + $data)->render();
@@ -92,6 +92,66 @@ final class LeaseDocumentRendersCleanTest extends TestCase
         }
 
         $this->assertSame([], $bad, 'Rendered document shows template syntax: ' . implode('; ', $bad));
+    }
+
+    /** `<div` opens vs `</div>` closes in what a person would read (PHP, <script> and <style> bodies removed). */
+    private function divCounts(string $html): array
+    {
+        $html = preg_replace('/<\?php.*?\?>/s', '', $html);
+        $html = preg_replace('/<(script|style)\b.*?<\/\1>/is', '', $html);
+
+        return [preg_match_all('/<div\b/i', $html), preg_match_all('/<\/div>/i', $html)];
+    }
+
+    public function test_the_div_counter_catches_a_stray_closer(): void
+    {
+        $this->assertSame([2, 3], $this->divCounts('<div><div>a</div></div></div>'));
+        $this->assertSame([1, 1], $this->divCounts('<div>a</div><script>var s = "<div></div></div>";</script>'));
+    }
+
+    /**
+     * 14 Oct 2026 (cc2 found three: sales-mandatory-disclosure, cds/template-115, cds/template-117, each with one `</div>` too many
+     * after the signature lines). The Fill & Review preview parses the document inside a wrapper div, so an extra closer ends the
+     * wrapper early and the browser drops everything after it. Every web template, not only lease / letting ones.
+     */
+    public function test_every_web_template_renders_with_balanced_divs(): void
+    {
+        $bad = [];
+        foreach ($this->templates() as $file) {
+            [$open, $close] = $this->divCounts($this->render($this->viewName($file)));
+            if ($open !== $close) {
+                $bad[] = substr($file, strlen(resource_path('views/docuperfect/web-templates/'))) . " ({$open} <div, {$close} </div>)";
+            }
+        }
+
+        $this->assertSame([], $bad, 'Unbalanced <div> would cut the Fill & Review preview short: ' . implode('; ', $bad));
+    }
+
+    /** @return array<string, array{0: string}> */
+    public static function previewRepairedTemplates(): array
+    {
+        return [
+            'sales mandatory disclosure' => ['docuperfect.web-templates.sales-mandatory-disclosure'],
+            'cds 115' => ['docuperfect.web-templates.cds.template-115'],
+            'cds 117' => ['docuperfect.web-templates.cds.template-117'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('previewRepairedTemplates')]
+    public function test_the_preview_of_a_repaired_template_keeps_every_clause_and_the_signature_block(string $view): void
+    {
+        $html = $this->render($view);
+        $body = preg_match('/<body[^>]*>(.*)<\/body>/si', $html, $m) ? trim($m[1]) : $html;
+        $out = app(RoleBlockNormalizer::class)->normalize($body);
+
+        $clauses = substr_count($body, 'corex-clause ');
+        $this->assertGreaterThan(5, $clauses);
+        $this->assertSame($clauses, substr_count($out, 'corex-clause '), 'a clause was lost between the template and the preview');
+        $this->assertGreaterThan(0, substr_count($body, 'sig-inline-line'), 'the template prints its signature lines');
+        $this->assertSame(substr_count($body, 'sig-inline-line'), substr_count($out, 'sig-inline-line'), 'a signature line was lost');
+        $this->assertGreaterThan(strlen($body) * 0.9, strlen($out), 'preview lost content');
+        $this->assertGreaterThan(0, substr_count($body, 'sig-cell'), 'the template prints its signature block');
+        $this->assertSame(substr_count($body, 'sig-cell'), substr_count($out, 'sig-cell'), 'the signature block did not reach the preview whole');
     }
 
     /** @return array<string, array{0: string}> */
