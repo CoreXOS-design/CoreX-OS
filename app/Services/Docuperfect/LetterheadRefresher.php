@@ -2,6 +2,8 @@
 
 namespace App\Services\Docuperfect;
 
+use App\Support\Docuperfect\DocumentAgencyContext;
+
 /**
  * Re-resolves the shared company-header (letterhead) inside a stored
  * web-template `merged_html` at signing/serve time.
@@ -14,7 +16,7 @@ namespace App\Services\Docuperfect;
  *
  * components/company-header.blade.php resolves the agency live at render
  * time. Re-rendering it now (unauthenticated signing → it resolves the
- * current hfc-coastal agency row) and swapping the baked block guarantees
+ * DOCUMENT's own agency, passed in by the caller) and swapping the baked block guarantees
  * the signing view always shows CURRENT agency data without a destructive
  * data migration. Idempotent, fail-open (any error → original HTML).
  *
@@ -27,7 +29,7 @@ class LetterheadRefresher
      *  div (components/company-header.blade.php). */
     private const HEADER_STYLE_NEEDLE = 'border:1px solid #000; padding:4px 8px 4px 8px';
 
-    public static function refresh(?string $html): string
+    public static function refresh(?string $html, ?int $agencyId = null, ?int $branchId = null): string
     {
         $html = (string) $html;
         if (trim($html) === '' || ! str_contains($html, self::HEADER_STYLE_NEEDLE)) {
@@ -35,7 +37,13 @@ class LetterheadRefresher
         }
 
         try {
-            $fresh = trim((string) view('docuperfect.web-templates.components.company-header')->render());
+            // The document's own agency, never "whichever agency has no signed-in user to name": at signing time
+            // nobody is signed in, and this used to resolve the hfc-coastal row for EVERY agency's document.
+            $fresh = trim((string) DocumentAgencyContext::with(
+                $agencyId,
+                $branchId,
+                fn () => view('docuperfect.web-templates.components.company-header')->render()
+            ));
             if ($fresh === '') {
                 return $html;
             }

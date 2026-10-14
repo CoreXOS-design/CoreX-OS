@@ -46,6 +46,16 @@ class SigningController extends Controller
             ->with(['template.document', 'template.markers.signatures', 'template.creator'])
             ->firstOrFail();
 
+        // Public page, nobody signed in: the letterhead and the agency wording in the document are the DOCUMENT's own
+        // agency (else its creator's, the same order getAgencyBranding() uses for the page chrome) — never a default one.
+        $signingDocument = $signingRequest->template?->document;
+        \App\Support\Docuperfect\DocumentAgencyContext::enter(
+            $signingDocument?->agency_id
+                ? (int) $signingDocument->agency_id
+                : ($signingRequest->template?->creator?->agency_id ? (int) $signingRequest->template->creator->agency_id : null),
+            $signingDocument?->branch_id ? (int) $signingDocument->branch_id : null
+        );
+
         // Already completed — show enhanced summary.
         // Johan, 2026-08-24 — checked BEFORE isSigningBlocked() now (was
         // after). A recipient's own completion is the most specific, most
@@ -424,7 +434,7 @@ class SigningController extends Controller
             // Re-resolve the letterhead so a stored merged_html snapshot
             // never serves stale agency data ("The Mandate Company /
             // Margate") at signing — always show CURRENT agency.
-            $webTemplateHtml = LetterheadRefresher::refresh($webTemplateHtml);
+            $webTemplateHtml = LetterheadRefresher::refresh($webTemplateHtml, $signingDocument?->agency_id ? (int) $signingDocument->agency_id : null, $signingDocument?->branch_id ? (int) $signingDocument->branch_id : null);
 
             // Phase 1B.5 — replace `~~~~MARKER~~~~` tokens with styled
             // insertable-block partials. Recipient context wires the

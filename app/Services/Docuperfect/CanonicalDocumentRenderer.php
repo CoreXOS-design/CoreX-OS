@@ -102,7 +102,7 @@ class CanonicalDocumentRenderer
         $html = SignatureSurfaceNormalizer::normalize($html);
 
         // 2) Letterhead — resolve to the CURRENT agency once, at compose time.
-        $html = LetterheadRefresher::refresh($html);
+        $html = LetterheadRefresher::refresh($html, $document->agency_id ? (int) $document->agency_id : null, $document->branch_id ? (int) $document->branch_id : null);
 
         // 3) Insertable blocks — VIEWER-AGNOSTIC context (structural slots only,
         //    no per-token recipient add-condition wiring; that is a display

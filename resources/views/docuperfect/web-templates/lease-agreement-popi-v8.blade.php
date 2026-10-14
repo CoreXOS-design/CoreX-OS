@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lease Agreement — Home Finders Coastal</title>
+    <title>Lease Agreement{{ !empty($docAgency['name']) ? ' — ' . $docAgency['name'] : '' }}</title>
     <style>
         /* ============================================================
            Lease Agreement POPI V8 — Print-quality A4 document
@@ -411,11 +411,11 @@
         <div class="sub-clause">2.2 The Rental: being the amount referred to in 4.1 or 5.2.2 as escalated
             in terms of 4.2.</div>
 
-        <div class="sub-clause">2.3 The Estate Agent being: The firm: Home Finders Coastal</div>
+        <div class="sub-clause">2.3 The Estate Agent being: The firm: {{ $docAgency['name'] }}</div>
 
         <div class="sub-clause">2.4 The Deposit: as referred to in clause 6.</div>
 
-        <div class="sub-clause">2.5 Home Finders Coastal is the Agent, not the Landlord, and can only act
+        <div class="sub-clause">2.5 {{ $docAgency['name'] }} is the Agent, not the Landlord, and can only act
             on the instructions of the Landlord.</div>
 
         <div class="sub-clause">2.6 The LANDLORD remains the responsible party for any concerns, disputes
@@ -1040,7 +1040,7 @@
     </div>
 
     {{-- Section 21: Sale of the Property --}}
-    <div class="section-heading">21. Sale of the Property / Lease of Property Not Through Home Finders Coastal</div>
+    <div class="section-heading">21. Sale of the Property / Lease of Property Not Through {{ $docAgency['name'] }}</div>
 
     <div class="clause">
         <div class="sub-clause">21.1 Should the Lessee or nominee enter into an agreement to purchase the
@@ -1055,7 +1055,7 @@
             terminated.)</div>
 
         <div class="sub-clause">21.3 Should the Lessor attempt to sell or rent the property during the
-            duration of this lease, it is agreed that Home Finders Coastal will
+            duration of this lease, it is agreed that {{ $docAgency['name'] }} will
             have the Sole Mandate to market and/or rent the property.</div>
 
         <div class="sub-clause">21.4 The Lessee hereby confirms having been made aware that the Lessor may

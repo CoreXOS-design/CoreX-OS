@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Letting Mandate — Home Finders Coastal</title>
+    <title>Letting Mandate{{ !empty($docAgency['name']) ? ' — ' . $docAgency['name'] : '' }}</title>
     <style>
         /* ============================================================
            Letting Mandate V5 — Print-quality A4 document
@@ -318,7 +318,7 @@
 
     <p>The Owner/s: <span class="field" data-field="lessor_name">{{ $lessor_name ?? '' }}</span>@if(!empty($lessor_name_2)) &amp; <span class="field" data-field="lessor_name_2">{{ $lessor_name_2 }}</span>@endif</p>
 
-    <p style="margin-top: 6pt;">Home Finders Coastal (Agent): <span class="field" data-field="agent_name">{{ $agent_name ?? '' }}</span></p>
+    <p style="margin-top: 6pt;">{{ $docAgency['name'] }} (Agent): <span class="field" data-field="agent_name">{{ $agent_name ?? '' }}</span></p>
 
     {{-- Clause 1 --}}
     <div class="clause">

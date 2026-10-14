@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Marketing Permission — Home Finders Coastal</title>
+    <title>Marketing Permission{{ !empty($docAgency['name']) ? ' — ' . $docAgency['name'] : '' }}</title>
     <style>
         /* ============================================================
            Letting Marketing Permission V7 — Print-quality A4 document
@@ -331,7 +331,7 @@
         <p><span class="field" data-field="district">{{ $district ?? '' }}</span> (District)</p>
 
         <p>together with all fixtures and fittings of a permanent nature pertaining to the
-            property, do hereby, irrevocably, grant to Home Finders Coastal the marketing
+            property, do hereby, irrevocably, grant to {{ $docAgency['name'] }} the marketing
             permission, right and authority to rent the abovementioned property.</p>
     </div>
 
@@ -363,7 +363,7 @@
 
     {{-- To Let Board Consent --}}
     <div class="clause">
-        <p>The Lessor hereby gives consent to Home Finders Coastal to place a &ldquo;To Let&rdquo;
+        <p>The Lessor hereby gives consent to {{ $docAgency['name'] }} to place a &ldquo;To Let&rdquo;
             board on the Property.</p>
 
         <p style="margin-top: 6pt;">Other: <span class="field field-wide" data-field="other_notes_1">{{ $other_notes_1 ?? '' }}</span></p>
