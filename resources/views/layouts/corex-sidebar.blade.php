@@ -240,7 +240,7 @@
         // list OR detail pages even though their nav links live in this same panel.
         // 'corex.rental-notices.*' had the identical gap (sidebar-active-item
         // audit, 2026-10-05) — its own link already lives in this panel too.
-        || request()->routeIs('corex.leases.*', 'corex.rental-inspections.*', 'corex.rental-fault-types.*', 'corex.rental-fault-reports.*', 'corex.rental-work-orders.*', 'corex.rental-notices.*', 'corex.rentals.take-on-import.*')
+        || request()->routeIs('corex.leases.*', 'corex.rental-inspections.*', 'corex.rental-fault-types.*', 'corex.rental-fault-reports.*', 'corex.rental-work-orders.*', 'corex.rental-notices.*', 'corex.breaches.*', 'corex.lease-notices.*', 'corex.rentals.take-on-import.*')
         // rentals-faults-work-orders.md section 20.8 - the Rentals menu's "Suppliers & contractors" link opens the SAME Supplier Directory screen
         // with ?nav=rentals so the Rentals panel stays open; the Deal Register Settings link (no ?nav) still opens its own panel below.
         || (request()->routeIs('deals-v2.suppliers.*') && request()->query('nav') === 'rentals')
@@ -303,6 +303,8 @@
         'corex.settings*',
         'corex.features.*',
         'admin.users*',
+        // AT-451 - the agency's "alerts switched off" list is opened from the Users page (spec notification-system-overview.md section 14B2).
+        'corex.alerts-off.*',
         'admin.settings.document-types.*',
         'admin.p24-suburbs.*',
         'deals-v2.settings.service-types.*'
@@ -1031,7 +1033,7 @@
                 @feature('road-to-sold')
                 @permission('access_road_to_sold')
                 @if(\Illuminate\Support\Facades\Route::has('road-to-sold.index'))
-                <a href="{{ route('road-to-sold.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.*') ? 'active' : '' }}">Road to Sold</a>
+                <a href="{{ route('road-to-sold.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.index', 'road-to-sold.drilldown', 'road-to-sold.report', 'road-to-sold.report.*', 'road-to-sold.add-to-day', 'road-to-sold.outcomes.*') ? 'active' : '' }}">Road to Sold</a>
                 @endif
                 @endpermission
                 @endfeature
@@ -1482,7 +1484,7 @@
                 </button>
                 <div class="corex-nav-panel-title">Auctions</div>
 
-                <a href="{{ route('corex.auctions.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.index', 'corex.auctions.show', 'corex.auctions.create', 'corex.auctions.edit', 'corex.auctions.lots.show') ? 'active' : '' }}">Auction Diary</a>
+                <a href="{{ route('corex.auctions.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.index', 'corex.auctions.show', 'corex.auctions.create', 'corex.auctions.edit', 'corex.auctions.lots.show', 'corex.auctions.bidders.*', 'corex.auctions.room.*', 'corex.auctions.document') ? 'active' : '' }}">Auction Diary</a>
 
                 {{-- Entry point into the SAME Properties screen as Real Estate →
                      Properties, sale_method locked to 'auction' server-side
@@ -1502,7 +1504,7 @@
                      reached from the auction's own catalogue-builder page
                      (corex.auctions.show) instead, where that link already lives. --}}
                 @permission('auctions.results.view')
-                <a href="{{ route('corex.auctions.results') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.results') ? 'active' : '' }}">Results</a>
+                <a href="{{ route('corex.auctions.results') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.results', 'corex.auctions.results.export') ? 'active' : '' }}">Results</a>
                 @endpermission
 
             </div>
@@ -2964,7 +2966,7 @@
 
                 {{-- Users — user management (/admin/users). Johan 2026-10-12: a dedicated entry in the Settings sub menu. --}}
                 @permission('manage_users')
-                <a href="{{ route('admin.users') }}" class="corex-nav-subitem {{ request()->routeIs('admin.users*') ? 'active' : '' }}">Users</a>
+                <a href="{{ route('admin.users') }}" class="corex-nav-subitem {{ request()->routeIs('admin.users*', 'corex.alerts-off.*') ? 'active' : '' }}">Users</a>
                 @endpermission
             </div>
         </div>

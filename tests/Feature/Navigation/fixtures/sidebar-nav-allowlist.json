@@ -804,6 +804,13 @@
     ],
     "reason": "Duplicate sidebar links: this route has a link in BOTH the 'Deals' panel (pre-reorg) and the 'Deal Register Settings' panel (post Johan reorg comment at corex-sidebar.blade.php ~line 268). The resolver opens Deal Register Settings. Flagged for Johan: decide whether the old Deals-panel link should be removed. Not fixed here (Step 2 forbids moving/removing menu items without explicit authorization)."
   },
+  "deals-v2.suppliers.trade-picker": {
+    "flags": [
+      "MULTI_MATCH",
+      "WRONG_GROUP"
+    ],
+    "reason": "Not a screen: the JSON that fills the 'pick a contractor for this trade' popup on the fault / work order pages (14 Oct 2026). It sits in the Supplier Directory route family, so it inherits the same accepted duplicate-link cause as deals-v2.suppliers.index and .search (links in the Deals panel and the Deal Register Settings panel); nobody navigates to it."
+  },
   "deposit-interest-calculator.show": {
     "flags": [
       "NO_ITEM"
