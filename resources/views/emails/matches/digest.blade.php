@@ -65,7 +65,7 @@
     </div>
 
     <div style="text-align: center; padding: 12px; color: #999; font-size: 11px;">
-        <p style="margin: 0;">Sent by CoreX OS &mdash; Core Matches</p>
+        <p style="margin: 0;">Sent by Core Matches</p>
     </div>
 
 </body>

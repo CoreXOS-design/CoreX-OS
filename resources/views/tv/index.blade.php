@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TV Display — {{ config('app.name') }}</title>
+<title>TV Display — {{ \App\Support\ClientBrand::NEUTRAL }}</title>
 <style>
 html, body {
     margin: 0;
@@ -112,7 +112,7 @@ html, body {
 
 <div class="container">
     <div class="card">
-        <div class="logo">{{ config('app.name') }}</div>
+        <div class="logo">{{ \App\Support\ClientBrand::NEUTRAL }}</div>
         <div class="logo-sub">Branch TV Display</div>
 
         <div class="label">Enter 6-digit code</div>

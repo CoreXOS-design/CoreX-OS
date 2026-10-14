@@ -116,7 +116,7 @@
 <body>
 
     <div class="header">
-        <div class="agency">{{ $agency->name ?? config('app.name', 'CoreX OS') }}</div>
+        <div class="agency">{{ $agency->name ?? \App\Support\ClientBrand::NEUTRAL }}</div>
         <div class="title">Street &amp; Complex Search</div>
         <div class="meta">
             {{ $total }} {{ \Illuminate\Support\Str::plural('contact', $total) }} matching
@@ -217,7 +217,7 @@
     @endif
 
     <div class="footer">
-        {{ $agency->name ?? config('app.name', 'CoreX OS') }} · CoreX OS · Street &amp; Complex Search · {{ $generatedAt->format('d M Y H:i') }}
+        {{ $agency->name ?? \App\Support\ClientBrand::NEUTRAL }} · Street &amp; Complex Search · {{ $generatedAt->format('d M Y H:i') }}
     </div>
 
 </body>

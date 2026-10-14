@@ -274,6 +274,67 @@ class WorkOrderFlowTest extends TestCase
         $this->assertContains('Appointment changed', $actions);
     }
 
+    public function test_the_agents_private_note_for_the_contractor_never_reaches_the_tenant_or_the_owner(): void
+    {
+        $wo = $this->ownerContractorWorkOrder();
+        $secret = 'Please phone the tenant first - gate code 7788';
+
+        $this->actingAs($this->agent)->post(route('corex.rental-work-orders.appointment.store', $wo), [
+            'appointment_at' => now()->addDays(3)->format('Y-m-d') . 'T09:00', 'appointment_note' => 'Plumber calls first', 'appointment_contractor_note' => $secret,
+        ])->assertRedirect();
+
+        $wo = $wo->fresh();
+        $this->assertSame($secret, $wo->appointment_contractor_note);
+        $this->assertSame('Plumber calls first', $wo->appointment_note, 'the tenant-visible note is the other field');
+
+        // the tenant's email: the tenant note, never the contractor note
+        Mail::assertQueued(RentalWorkOrderAppointmentMail::class, function ($m) use ($secret) {
+            $html = $m->render();
+            $this->assertStringContainsString('Plumber calls first', $html);
+            $this->assertStringNotContainsString('Please phone the tenant first', $html);
+            $this->assertStringNotContainsString('7788', $html);
+
+            return $m->hasTo($this->tenant->email);
+        });
+
+        // the tenant's portal and the owner's portal (list + detail + the staff-facing payload built for each audience)
+        Sanctum::actingAs($this->clientUserFor($this->tenant), ['client']);
+        $tenantBodies = [$this->getJson('/api/v1/client/rentals/work-orders/' . $wo->id)->assertOk()->getContent(), $this->getJson('/api/v1/client/rentals/work-orders')->assertOk()->getContent()];
+        Sanctum::actingAs($this->clientUserFor($this->landlord), ['client']);
+        $ownerBodies = [$this->getJson('/api/v1/client/rentals/landlord/work-orders/' . $wo->id)->assertOk()->getContent(), $this->getJson('/api/v1/client/rentals/landlord/work-orders')->assertOk()->getContent()];
+        foreach (array_merge($tenantBodies, $ownerBodies) as $body) {
+            $this->assertStringContainsString('Plumber calls first', $body);
+            $this->assertStringNotContainsString('phone the tenant first', $body);
+            $this->assertStringNotContainsString('appointment_contractor_note', $body);
+        }
+        foreach (['tenant', 'landlord'] as $audience) {
+            $this->assertStringNotContainsString('phone the tenant first', json_encode(app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->payload($wo, $audience)));
+            $this->assertStringNotContainsString('phone the tenant first', json_encode(app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->summary($wo, $audience)));
+        }
+        // and the portal page itself has no way to show it
+        $this->assertStringNotContainsString('appointment_contractor_note', file_get_contents(base_path('resources/views/rentals/portal/shell.blade.php')));
+
+        // the agent's own screen shows both, labelled
+        $page = $this->actingAs($this->agent)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
+        $this->assertStringContainsString($secret, $page);
+    }
+
+    public function test_changing_only_the_contractor_note_is_a_change_and_the_owner_portal_save_keeps_it(): void
+    {
+        $wo = $this->ownerContractorWorkOrder();
+        $svc = app(\App\Services\Rentals\RentalWorkOrderService::class);
+        $at = now()->addDays(3)->setTime(9, 0);
+        $this->assertTrue($svc->setAppointment($wo->fresh(), $at, 'Public', $this->agent, null, 'Private one'));
+        $this->assertFalse($svc->setAppointment($wo->fresh(), $at, 'Public', $this->agent, null, 'Private one'), 'nothing changed');
+        $this->assertTrue($svc->setAppointment($wo->fresh(), $at, 'Public', $this->agent, null, 'Private two'), 'only the private note changed');
+        // a caller that knows nothing about the private note (the job card's booking, the owner's portal) leaves it alone
+        $this->assertTrue($svc->setAppointment($wo->fresh(), now()->addDays(4)->setTime(9, 0), 'Public', $this->agent));
+        $this->assertSame('Private two', $wo->fresh()->appointment_contractor_note);
+        // clearing it
+        $svc->setAppointment($wo->fresh(), now()->addDays(4)->setTime(9, 0), 'Public', $this->agent, null, '');
+        $this->assertNull($wo->fresh()->appointment_contractor_note);
+    }
+
     public function test_no_appointment_mail_when_the_agency_has_tenant_notifications_off_or_the_work_order_is_closed(): void
     {
         $wo = $this->ownerContractorWorkOrder();

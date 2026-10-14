@@ -20,6 +20,6 @@
     @if($errors->any())<div class="rounded bg-red-50 text-red-800 px-3 py-2 text-sm mb-4">{{ $errors->first() }}</div>@endif
     @yield('content')
 </main>
-<footer class="px-6 py-6 text-center text-xs text-slate-400">Powered by CoreX OS</footer>
+<footer class="px-6 py-6 text-center text-xs text-slate-400">&copy; {{ date('Y') }} {{ $agency->name }}</footer>
 </body>
 </html>

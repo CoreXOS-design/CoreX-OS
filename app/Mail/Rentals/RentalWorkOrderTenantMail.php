@@ -30,7 +30,7 @@ class RentalWorkOrderTenantMail extends Mailable implements ShouldQueue
     {
         $this->onQueue('mail');
         $this->tenantName = $tenantName ?: 'there';
-        $this->agencyName = \App\Models\Agency::displayNameFor($workOrder->property?->agency, (string) config('mail.from.name', 'CoreX OS'));
+        $this->agencyName = \App\Models\Agency::displayNameFor($workOrder->property?->agency, \App\Support\ClientBrand::NEUTRAL_RENTALS);
         $this->propertyAddress = $workOrder->property?->buildDisplayAddress() ?: ('Property #' . $workOrder->property_id);
     }
 

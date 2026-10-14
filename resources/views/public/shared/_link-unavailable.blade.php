@@ -58,7 +58,7 @@
                 <img src="{{ asset('storage/' . $agency->logo_path) }}" alt="{{ $agency->name }}"
                      style="max-height: 38px; max-width: 190px; object-fit: contain;">
             @else
-                <div class="text-lg font-bold tracking-tight text-white">{{ $agency->name ?? 'CoreX OS' }}</div>
+                <div class="text-lg font-bold tracking-tight text-white">{{ $agency->name ?? \App\Support\ClientBrand::NEUTRAL }}</div>
             @endif
         </div>
     </header>

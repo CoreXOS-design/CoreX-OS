@@ -288,7 +288,7 @@
     <div class="footer">
         <p>This document is a completion record of FICA compliance verification for {{ $personal['full_name'] ?? $submission->contact?->full_name ?? 'the client' }}, generated at approval.</p>
         <p style="margin-top: 3px;">FICA valid until {{ $submission->fica_expires_at?->format('d M Y') ?? '—' }}.</p>
-        <p style="margin-top: 3px;">{{ $agency->name ?? 'CoreX OS' }} — Generated {{ now()->format('d M Y H:i') }}</p>
+        <p style="margin-top: 3px;">{{ $agency->name ?? \App\Support\ClientBrand::NEUTRAL }} — Generated {{ now()->format('d M Y H:i') }}</p>
     </div>
 </body>
 </html>

@@ -141,7 +141,8 @@ class LeaseController extends Controller
             ->when($leaseContextPropertyId > 0, fn ($q) => $q->where('leases.property_id', $leaseContextPropertyId));
         $tileCounts = [
             'total' => $leaseTileBase()->count(),
-            'draft' => $leaseTileBase()->where('leases.status', Lease::STATUS_DRAFT)->count(),
+            'draft' => $leaseTileBase()->draftNotSignedRenewal()->count(),
+            'signed_awaiting_start' => $leaseTileBase()->signedRenewalAwaitingStart()->count(),
             'active' => $leaseTileBase()->where('leases.status', Lease::STATUS_ACTIVE)->count(),
             'expired' => $leaseTileBase()->where('leases.status', Lease::STATUS_EXPIRED)->count(),
             'cancelled' => $leaseTileBase()->where('leases.status', Lease::STATUS_CANCELLED)->count(),
@@ -208,7 +209,12 @@ class LeaseController extends Controller
         }
 
         if ($status = $request->get('status')) {
-            $query->where('leases.status', $status);
+            // the list's "Draft" and "Signed - starts later" are the two halves of the draft status, split exactly as each lease's own page reads it
+            match ($status) {
+                'draft' => $query->draftNotSignedRenewal(),
+                'signed_awaiting_start' => $query->signedRenewalAwaitingStart(),
+                default => $query->where('leases.status', $status),
+            };
         }
 
         // LEASE-AGREEMENT BEGIN (leases.md §15.13 — Build L2): the "Agreement" filter — where the lease's own
@@ -355,7 +361,7 @@ class LeaseController extends Controller
             $out['Search'] = $q;
         }
         if ($status = $request->get('status')) {
-            $out['Status'] = ucfirst($status);
+            $out['Status'] = $status === 'signed_awaiting_start' ? 'Signed - starts later' : ucfirst($status);
         }
         if (is_string($agreement = $request->get('agreement')) && isset(Lease::SIGNING_LABELS[$agreement])) {
             $out['Agreement'] = Lease::SIGNING_LABELS[$agreement];
@@ -407,7 +413,7 @@ class LeaseController extends Controller
             $lease->landlordNames(),
             $lease->ownerAgent?->name ?? '',
             $lease->tenantAgent?->name ?? '',
-            ucfirst($lease->status),
+            $lease->displayStatus(),
             $lease->start_date?->format('Y-m-d') ?? '',
             $lease->end_date?->format('Y-m-d') ?? ($lease->is_month_to_month ? 'Month-to-month' : ''),
             number_format((float) $lease->rental_amount, 2),

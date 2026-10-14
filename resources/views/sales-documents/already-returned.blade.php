@@ -1,9 +1,10 @@
+@php($brandName = \App\Support\ClientBrand::nameForId($send->agency_id ?? null))
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Already Returned — {{ config('app.name') }}</title>
+    <title>Already Returned — {{ $brandName }}</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="bg-slate-50 min-h-screen flex items-center justify-center p-4">
@@ -24,7 +25,7 @@
         </div>
 
         <div class="text-center mt-4 text-xs text-slate-400">
-            {{ config('app.name') }} &mdash; Document Management
+            {{ $brandName }} &mdash; Document Management
         </div>
     </div>
 </body>

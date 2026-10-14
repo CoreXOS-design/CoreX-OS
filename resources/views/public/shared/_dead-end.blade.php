@@ -140,7 +140,7 @@
                 @if(!empty($agency) && $agency->logo_path)
                     <img src="{{ asset('storage/' . $agency->logo_path) }}" alt="{{ $agency->name }}">
                 @else
-                    <div class="text-lg font-bold tracking-tight" style="color:#fff;">{{ $agency->name ?? 'CoreX' }}</div>
+                    <div class="text-lg font-bold tracking-tight" style="color:#fff;">{{ $agency->name ?? \App\Support\ClientBrand::NEUTRAL }}</div>
                 @endif
             </div>
 
@@ -255,7 +255,7 @@
     @else
     <footer class="page-footer" style="justify-content:center;">
         <div style="text-align:center; width:100%;">
-            <div class="fname">CoreX</div>
+            <div class="fname">{{ \App\Support\ClientBrand::NEUTRAL }}</div>
         </div>
     </footer>
     @endif

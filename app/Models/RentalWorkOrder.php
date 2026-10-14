@@ -104,6 +104,7 @@ class RentalWorkOrder extends Model
         'contractor_phone',
         'appointment_at',
         'appointment_note',
+        'appointment_contractor_note',
         'appointment_set_at',
         'appointment_set_by_user_id',
         'appointment_set_by_contact_id',

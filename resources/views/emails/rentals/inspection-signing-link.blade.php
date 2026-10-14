@@ -26,7 +26,7 @@
                 Open it on your phone or computer, go through the rooms and photos, and when you are happy with it you can sign it right there.
             @else
                 The {{ strtolower($inspectionLabel) }} report for <strong>{{ $propertyAddress }}</strong> is ready to read.
-                This link is for reading it only - the agent signs inside CoreX, with their own login and signing PIN.
+                This link is for reading it only - the agent signs with their own login and signing PIN.
             @endif
         </p>
 
@@ -47,7 +47,7 @@
     </div>
 
     <div style="text-align: center; padding: 15px; color: #999; font-size: 11px;">
-        <p style="margin: 0;">This email was sent by {{ $agentFooter['agency_name'] ?? config('app.name') }}.</p>
+        <p style="margin: 0;">This email was sent by {{ $agentFooter['agency_name'] ?? \App\Support\ClientBrand::NEUTRAL }}.</p>
     </div>
 
 </body>

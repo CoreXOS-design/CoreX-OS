@@ -85,7 +85,7 @@ class IcsCalendarInvite
         }
 
         if ($organiserEmail !== null && trim($organiserEmail) !== '') {
-            $lines[] = 'ORGANIZER;CN=' . self::escapeText($organiserName ?: 'CoreX OS')
+            $lines[] = 'ORGANIZER;CN=' . self::escapeText($organiserName ?: \App\Support\ClientBrand::NEUTRAL)
                      . ':mailto:' . $organiserEmail;
         }
 

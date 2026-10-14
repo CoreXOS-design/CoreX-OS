@@ -234,6 +234,26 @@ class Lease extends Model
                 || $this->signing_status === self::SIGNING_SIGNED_ON_PAPER);
     }
 
+    /**
+     * Ruling 14 Oct 2026 (cc5 re-walk, lease 119): the SQL twin of isSignedRenewalAwaitingStart() - the list's tile and filter use THIS so they can never
+     * disagree with the status the lease's own page shows ("Signed - starts <date>").
+     */
+    public function scopeSignedRenewalAwaitingStart($query)
+    {
+        return $query->where('leases.status', self::STATUS_DRAFT)
+            ->whereNotNull('leases.previous_lease_id')
+            ->whereNotNull('leases.start_date')
+            ->whereDate('leases.start_date', '>', now()->toDateString())
+            ->where(fn ($q) => $q->where(fn ($s) => $s->where('leases.signing_status', self::SIGNING_SIGNED)->whereNotNull('leases.accepted_at'))
+                ->orWhere('leases.signing_status', self::SIGNING_SIGNED_ON_PAPER));
+    }
+
+    /** A draft as the list calls "Draft": every draft except a signed renewal that is only waiting for its start date. */
+    public function scopeDraftNotSignedRenewal($query)
+    {
+        return $query->where('leases.status', self::STATUS_DRAFT)->whereNot(fn ($q) => $q->signedRenewalAwaitingStart());
+    }
+
     /** The status as a person reads it: a signed renewal waiting for its start date says so instead of "Draft". */
     public function displayStatus(): string
     {

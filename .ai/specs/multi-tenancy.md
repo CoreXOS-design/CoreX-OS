@@ -287,3 +287,6 @@ auto-provision their role set on creation (`Agency::created` →
 `RoleProvisioningService`). Full spec: `.ai/specs/roles-permissions.md`. When
 adding a permission-seeding migration, make it agency-aware — never write a
 `role_permissions` row without an `agency_id` for a tenant role.
+
+## Client-facing branding - the agency, never CoreX (Johan, 14 Oct 2026)
+Anything a CLIENT (tenant, landlord, buyer, seller, applicant, contractor) reads - pages, mail, PDFs, ad images - names the AGENCY: the document / property / lease agency, else the portal / public-link agency, else a neutral label (`App\Support\ClientBrand::NEUTRAL` "Property Portal", `NEUTRAL_RENTALS` "My Rentals"). `config('app.name')` and `config('mail.from.name')` are CoreX's own names and are NEVER a client-facing fallback. No "Powered by CoreX" line (there is no agency setting for one; adding one needs Johan). Staff screens, CoreX-to-agency mail (invites, billing, demo, onboarding), the platform Subscription Agreement and CoreX's own legal pages keep CoreX. Guard test: `tests/Feature/Branding/ClientFacingNeverSaysCoreXTest.php` - a new client-facing file under its registry fails the build if it says CoreX. Audit: `.ai/audits/2026-10-14-client-facing-corex-branding.md`.

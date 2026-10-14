@@ -107,7 +107,7 @@
 </div>
 
 <div class="mt-6 text-center text-xs" style="color: var(--text-muted);">
-    Powered by CoreX · {{ now()->format('Y') }}
+    &copy; {{ now()->format('Y') }} {{ $ld->agencyName }}
 </div>
 
 @endsection

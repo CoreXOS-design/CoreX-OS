@@ -532,7 +532,7 @@ class PresentationPdfService
         // logo above, never a hardcoded tenant. $agencyAddress is null (not a
         // fallback string) when unresolved, so the address line is omitted
         // rather than leaking another tenant's location.
-        $agencyName = $agency->name ?? config('app.name');
+        $agencyName = $agency->name ?? \App\Support\ClientBrand::NEUTRAL;
         $agencyAddress = $agency->address ?? null;
         if ($agency && $agency->logo_path) {
             $logoFile = storage_path('app/public/' . $agency->logo_path);

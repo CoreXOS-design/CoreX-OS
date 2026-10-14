@@ -103,6 +103,7 @@ class ContractorSecureLinkController extends Controller
             'authorisedAmount' => $ceiling,
             'appointmentText' => $workOrder->appointment_at ? $workOrder->appointment_at->copy()->setTimezone($tz)->format('l j F Y, H:i') : null,
             'appointmentNote' => trim((string) $workOrder->appointment_note) ?: null,
+            'appointmentContractorNote' => trim((string) $workOrder->appointment_contractor_note) ?: null,   // the agent's private word to the contractor
             'invoices' => $unlocked ? $workOrder->invoices()->orderBy('id')->get() : collect(),
             'invoiceLimits' => $invoiceService->limitsText($workOrder->agency_id),
             'extraOpen' => $variations->first(fn ($v) => $v->isAwaitingOwner()),

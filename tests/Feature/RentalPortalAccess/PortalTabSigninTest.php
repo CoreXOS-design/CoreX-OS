@@ -246,6 +246,10 @@ final class PortalTabSigninTest extends TestCase
             ->assertStatus(401)->assertJsonPath('needs_signin', true);
         // a browser that has signed nobody in has nothing to resume
         $this->browser('POST', '/api/v1/client-auth/tab-token', [])->assertStatus(401);
+        // the portal page's own PROBE (every first open asks "is anyone signed in here?") gets a plain 200 "nobody yet" - never a red 401 in the console - and still no token
+        $probe = $this->browser('POST', '/api/v1/client-auth/tab-token', ['probe' => true])->assertOk()->assertJsonPath('needs_signin', true)->assertJsonPath('token', null);
+        $this->assertArrayNotHasKey('client', $probe->json());
+        $this->browser('POST', '/api/v1/client-auth/tab-token', ['probe' => true, 'email' => $stranger['owner']->email, 'contact_id' => $stranger['ownerContact']->id], $cookie)->assertOk()->assertJsonPath('token', null);
     }
 
     public function test_a_portal_session_from_before_per_tab_sign_in_is_still_honoured_for_a_new_tab(): void

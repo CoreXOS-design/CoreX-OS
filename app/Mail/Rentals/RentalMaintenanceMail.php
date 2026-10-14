@@ -44,7 +44,7 @@ abstract class RentalMaintenanceMail extends BaseSignatureMail
     {
         $agency = $this->workOrderForMail()->agency ?? $this->workOrderForMail()->property?->agency;
 
-        return \App\Models\Agency::displayNameFor($agency, (string) config('mail.from.name', 'Your agency'));
+        return \App\Models\Agency::displayNameFor($agency, \App\Support\ClientBrand::NEUTRAL_RENTALS);
     }
 
     protected function address(): string

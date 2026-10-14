@@ -39,6 +39,7 @@
     @php
         $currentTile = null;
         if (($filters['status'] ?? '') === 'draft') { $currentTile = 'draft'; }
+        elseif (($filters['status'] ?? '') === 'signed_awaiting_start') { $currentTile = 'signed_awaiting_start'; }
         elseif (($filters['status'] ?? '') === 'active') { $currentTile = 'active'; }
         elseif (($filters['status'] ?? '') === 'expired') { $currentTile = 'expired'; }
         elseif (($filters['status'] ?? '') === 'cancelled') { $currentTile = 'cancelled'; }
@@ -48,6 +49,8 @@
         $tileDefs = [
             'total' => ['label' => 'Total', 'params' => []],
             'draft' => ['label' => 'Draft', 'params' => ['status' => 'draft']],
+            // a signed renewal waiting for its start date is NOT a draft (its page says "Signed - starts <date>") - the tile counts it on its own
+            'signed_awaiting_start' => ['label' => 'Signed - starts later', 'params' => ['status' => 'signed_awaiting_start']],
             'active' => ['label' => 'Active', 'params' => ['status' => 'active']],
             'expired' => ['label' => 'Expired', 'params' => ['status' => 'expired']],
             'cancelled' => ['label' => 'Cancelled', 'params' => ['status' => 'cancelled']],
@@ -92,8 +95,8 @@
             <label class="text-xs" style="color: var(--text-muted);">Status</label><br>
             <select name="status" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
                 <option value="">All</option>
-                @foreach(['draft', 'active', 'expired', 'cancelled'] as $s)
-                    <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ ucfirst($s) }}</option>
+                @foreach(['draft', 'signed_awaiting_start', 'active', 'expired', 'cancelled'] as $s)
+                    <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ $s === 'signed_awaiting_start' ? 'Signed - starts later' : ucfirst($s) }}</option>
                 @endforeach
             </select>
         </div>

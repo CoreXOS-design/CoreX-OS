@@ -37,7 +37,7 @@ class RentalApplicationMoreInfoRequestMail extends Mailable implements ShouldQue
         // redeclaration; see RentalApplicationReturnedMail's own note).
         $this->onQueue('mail');
         $this->contactName = $application->contact->full_name ?: 'there';
-        $this->agencyName  = $application->agency->name ?? config('mail.from.name', 'CoreX OS');
+        $this->agencyName  = $application->agency->name ?? \App\Support\ClientBrand::NEUTRAL_RENTALS;
         $this->onlineUrl   = route('rental-applications.public.show', $application->token);
         $this->note        = $note;
     }

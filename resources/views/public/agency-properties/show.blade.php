@@ -112,7 +112,7 @@
 
 </section>
 
-<footer class="px-6 py-6 text-center text-xs text-muted">Powered by CoreX OS</footer>
+<footer class="px-6 py-6 text-center text-xs text-muted">&copy; {{ date('Y') }} {{ $agency->name }}</footer>
 
 </body>
 </html>

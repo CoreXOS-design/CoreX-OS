@@ -45,10 +45,10 @@ class OtpMail extends Mailable
         return new Envelope(
             from: new Address(
                 env('MAIL_OTP_FROM_ADDRESS', 'Otp@corexos.co.za'),
-                $agencyName ?? env('MAIL_OTP_FROM_NAME', 'CoreX OS')
+                $agencyName ?? \App\Support\ClientBrand::NEUTRAL
             ),
             replyTo: $replyTo,
-            subject: $this->subjectLine ?? ($agencyName ? ('Your verification code — ' . $agencyName) : ('Your CoreX code: ' . $this->code)),
+            subject: $this->subjectLine ?? ($agencyName ? ('Your verification code — ' . $agencyName) : ('Your verification code: ' . $this->code)),
         );
     }
 

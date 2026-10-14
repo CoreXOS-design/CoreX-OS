@@ -135,7 +135,7 @@ class ViewingPackBuyerPdfService
             'buyerName'     => $this->buyerName($pack) ?: 'the buyer',
             'propertyCount' => $pack->viewingPackProperties->count(),
             'date'          => now()->format('j F Y'),
-            'agencyName'    => $agency?->name ?: 'CoreX',
+            'agencyName'    => $agency?->name ?: \App\Support\ClientBrand::NEUTRAL,
             'agentName'     => $agent?->name ?: ($agency?->name ?: ''),
             'agentPhone'    => $agent ? ($agent->cell ?? $agent->phone ?? '') : '',
             'agentEmail'    => $agent?->email ?: '',
