@@ -143,6 +143,43 @@ class RentalFaultPhotoAnnotationService
     }
 
     /**
+     * "Photos of the problem" on the contractor's private link: EVERY photo of the fault behind the work order (tenant's, owner's, the
+     * office's - read-only, with the office's marks and notes), plus any photo the office put on the work order itself as a reported one.
+     * Rental re-walk, 14 Oct 2026: a work order only started with the photos the agent ticked "Share" for the OWNER, so a fault whose
+     * photos were never ticked - or that gained one after the work order was made - sent the contractor to a page with no pictures even
+     * though the fault holds them. The owner's own view is untouched: it still shows only what the agent shared with them.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public function contractorProblemPhotos(\App\Models\RentalWorkOrder $workOrder): array
+    {
+        $reported = $workOrder->photos()->withoutGlobalScopes()->where('photo_type', \App\Models\RentalWorkOrder::PHOTO_REPORTED)->orderBy('id')->get();
+        $out = $this->workOrderPayload($workOrder, $reported, self::AUDIENCE_CONTRACTOR);
+
+        $fault = RentalFaultReport::withoutGlobalScopes()->where('agency_id', $workOrder->agency_id)->where('rental_work_order_id', $workOrder->id)->first();
+        if (! $fault) {
+            return $out;
+        }
+        $have = $reported->pluck('storage_path')->all();
+        $more = RentalFaultReportPhoto::withoutGlobalScopes()
+            ->where('agency_id', $fault->agency_id)->where('rental_fault_report_id', $fault->id)
+            ->whereNotIn('storage_path', $have ?: [''])->orderBy('id')->get();
+        if ($more->isEmpty()) {
+            return $out;
+        }
+
+        $n = count($out);
+        foreach ($this->payload($fault, $more, self::AUDIENCE_CONTRACTOR) as $row) {
+            $n++;
+            $row['type'] = \App\Models\RentalWorkOrder::PHOTO_REPORTED;
+            $row['alt'] = 'Reported photo ' . $n;
+            $out[] = $row;
+        }
+
+        return $out;
+    }
+
+    /**
      * What the crew / contractor is shown for a job card: the photos of the fault behind it (the ones the owner saw), with the agent's marks and
      * notes - they help the repair. Empty when the card is not tied to a fault.
      *

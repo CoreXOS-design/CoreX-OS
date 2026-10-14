@@ -87,6 +87,11 @@ class LeaseSigningLauncher
             $street = trim((string) $property->address) !== '' ? trim((string) $property->address) : trim($property->buildDisplayAddress());
         }
 
+        // The erf is kept in TWO columns: `erf_number` (the title-deed / SG figure; also what search and the CoC request read) and
+        // `property_number` (the form's "Property / Erf Number" box). The snapshot read only the second, so a property whose erf was
+        // recorded in the first printed an empty "Erf no" on the agreement.
+        $erf = trim((string) ($property->erf_number ?? '')) !== '' ? trim((string) $property->erf_number) : trim((string) ($property->property_number ?? ''));
+
         $snapshot = [
             'property_id' => $property->id,
             '_property_source' => 'properties',
@@ -97,8 +102,9 @@ class LeaseSigningLauncher
             'suburb' => $property->suburb ?? '',
             'town' => $property->town ?? '',
             'city' => $property->city ?? '',
-            'erf' => $property->property_number ?? '',
-            'erf_no' => $property->property_number ?? '',
+            'erf' => $erf,
+            'erf_no' => $erf,
+            'erf_number' => $erf,
             'property_number' => $property->property_number ?? '',
             'complex_name' => $property->complex_name ?? '',
             'unit_number' => $property->unit_number ?? '',
