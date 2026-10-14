@@ -7,7 +7,7 @@
     </div>
     <div style="padding: 30px 20px; background-color: #ffffff; border: 1px solid #e0e0e0; border-top: none;">
         <p>Hi {{ $recipientName }},</p>
-        <p>Your CoreX portal is ready. In it you can:</p>
+        <p>Your portal is ready. In it you can:</p>
         <ul style="margin: 0 0 16px 18px; padding: 0;">
             @foreach($offers as $offer)
                 <li>{{ ucfirst($offer) }}.</li>

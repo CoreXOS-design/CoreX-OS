@@ -2515,8 +2515,10 @@ class ESignWizardController extends Controller
     private function buildFillReviewSigningParties(array $stepData, Template $template, $user): array
     {
         $propSource = $stepData['property']['_property_source'] ?? null;
-        $isSalesContext = ($propSource === 'properties')
-            || (! $propSource && str_contains(strtolower($template->name ?? ''), 'sell'));
+        // The TEMPLATE decides sale vs lease (signing parties > category/type > property
+        // source > name). The property source alone never does: a lease is built on a
+        // property in agency stock too, so 'properties' used to print Seller/Buyer on it.
+        $isSalesContext = $template->isSalesDocument($propSource);
         $parties = [['role' => 'agent', 'name' => $user->name, 'display' => $user->name]];
         foreach ($stepData['recipients']['recipients'] ?? [] as $r) {
             $role = $r['role'] ?? 'party';
@@ -3050,8 +3052,8 @@ class ESignWizardController extends Controller
             // Resolve generic roles (owner_party, acquiring_party) to concrete roles
             // based on property source so downstream code uses seller/landlord/buyer/tenant
             $propSource = $stepData['property']['_property_source'] ?? null;
-            $isSalesContext = ($propSource === 'properties')
-                || (!$propSource && str_contains(strtolower($template->name ?? ''), 'sell'));
+            // The TEMPLATE decides sale vs lease — see buildFillReviewSigningParties().
+            $isSalesContext = $template->isSalesDocument($propSource);
             $partiesForSigning = [];
             $partiesForSigning[] = [
                 'role' => 'agent',

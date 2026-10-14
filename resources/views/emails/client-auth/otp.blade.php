@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Your CoreX sign-in code</title>
+    <title>{{ !empty($agencyName) ? 'Your '.$agencyName.' sign-in code' : 'Your sign-in code' }}</title>
 </head>
 <body style="margin:0; padding:0; background:#f4f6fb; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
 
@@ -14,9 +14,9 @@
 
                     <tr>
                         <td align="center" style="padding-bottom:32px;">
-                            <div style="font-size:1.75rem; font-weight:800; letter-spacing:-0.04em; color:#0b2a4a; line-height:1;">
-                                CoreX <span style="color:#00b4d8;">Os</span>
-                            </div>
+                            @if(!empty($agencyName))
+                                @include('emails.partials.agency-otp-header')
+                            @endif
                         </td>
                     </tr>
 
@@ -44,9 +44,9 @@
 
                     <tr>
                         <td align="center" style="padding-top:24px;">
-                            <p style="margin:0; font-size:0.6875rem; color:#9ca3af;">
-                                &copy; {{ date('Y') }} CoreX OS. All rights reserved.
-                            </p>
+                            @if(!empty($agencyName))
+                                @include('emails.partials.agency-otp-footer')
+                            @endif
                         </td>
                     </tr>
 
