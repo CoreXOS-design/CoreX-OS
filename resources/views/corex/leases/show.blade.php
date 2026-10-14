@@ -124,6 +124,13 @@
                 <a href="{{ route('corex.rental-work-orders.create', array_filter(['property_id' => $lease->property_id, 'lease_id' => $lease->id])) }}" class="corex-btn-outline text-xs">Work order</a>
                 @endfeature
             @endpermission
+            @feature('rental-notices')
+            @permission('rental_breaches.manage')
+                @if($lease->status === 'active')
+                    <a href="{{ route('corex.leases.breaches.create', $lease) }}" class="corex-btn-outline text-xs" data-qa="lease-breach-button">Breach notice</a>
+                @endif
+            @endpermission
+            @endfeature
             @permission('rental_notices.create')
                 <a href="{{ route('corex.leases.notices.create', $lease) }}" class="corex-btn-outline text-xs">Send notice</a>
             @endpermission
@@ -300,45 +307,67 @@
 
             @if(!$lease->hasActiveNotice())
                 <x-modal name="lease-dialog-tenant-notice" :show="$openDialog === 'tenant-notice'" focusable>
-                    <form method="POST" action="{{ route('corex.leases.renewal.tenant-notice', $lease) }}" class="p-6 space-y-3">
+                    <form method="POST" action="{{ route('corex.leases.renewal.tenant-notice', $lease) }}" enctype="multipart/form-data" class="p-6 space-y-3">
                         @csrf
                         <input type="hidden" name="_lease_action" value="tenant-notice">
                         <h2 class="text-lg font-medium">Tenant gave notice</h2>
+                        <p class="text-sm" style="color: var(--text-muted);">Records the notice for your review. Nothing is sent to the landlord until you have checked it against the lease and the law and accepted it.</p>
                         <div>
-                            <label class="text-xs font-medium">Move-out date (required)</label>
-                            <input type="date" name="move_out_date" required min="{{ now()->toDateString() }}" max="{{ now()->addYears(2)->toDateString() }}" value="{{ $isReopening('tenant-notice') ? old('move_out_date') : '' }}" class="prop-input mt-1">
-                            <x-input-error :messages="$isReopening('tenant-notice') ? $errors->get('move_out_date') : []" class="mt-1" />
+                            <label class="text-xs font-medium">Date notice was given (required)</label>
+                            <input type="date" name="notice_date" required max="{{ now()->toDateString() }}" value="{{ $isReopening('tenant-notice') ? old('notice_date') : now()->toDateString() }}" class="prop-input mt-1">
+                            <x-input-error :messages="$isReopening('tenant-notice') ? $errors->get('notice_date') : []" class="mt-1" />
                         </div>
                         <div>
-                            <label class="text-xs font-medium">Note (optional)</label>
-                            <textarea name="note" maxlength="500" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ $isReopening('tenant-notice') ? old('note') : '' }}</textarea>
+                            <label class="text-xs font-medium">Move-out / end date they gave (required)</label>
+                            <input type="date" name="intended_end_date" required max="{{ now()->addYears(2)->toDateString() }}" value="{{ $isReopening('tenant-notice') ? old('intended_end_date') : '' }}" class="prop-input mt-1">
+                            <x-input-error :messages="$isReopening('tenant-notice') ? $errors->get('intended_end_date') : []" class="mt-1" />
                         </div>
-                        @include('corex.leases._notice-outcome-fields', ['isReopening' => $isReopening('tenant-notice'), 'showAvailableFromOnPortals' => $showAvailableFromOnPortals])
+                        <div>
+                            <label class="text-xs font-medium">Reason given (optional)</label>
+                            <textarea name="reason" maxlength="2000" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ $isReopening('tenant-notice') ? old('reason') : '' }}</textarea>
+                        </div>
+                        <div>
+                            <label class="text-xs font-medium">Attach their letter or email (optional - PDF, image or Word, up to 10 MB)</label>
+                            <input type="file" name="attachment" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" class="block text-xs mt-1">
+                            <x-input-error :messages="$isReopening('tenant-notice') ? $errors->get('attachment') : []" class="mt-1" />
+                        </div>
+                        <x-input-error :messages="$isReopening('tenant-notice') ? $errors->get('lease') : []" class="mt-1" />
                         <div class="flex justify-end gap-2">
                             <button type="button" class="corex-btn-outline text-xs" x-on:click="$dispatch('close')">Cancel</button>
-                            <button type="submit" class="corex-btn-primary text-xs">Confirm</button>
+                            <button type="submit" class="corex-btn-primary text-xs">Record and review</button>
                         </div>
                     </form>
                 </x-modal>
 
                 <x-modal name="lease-dialog-landlord-notice" :show="$openDialog === 'landlord-notice'" focusable>
-                    <form method="POST" action="{{ route('corex.leases.renewal.landlord-notice', $lease) }}" class="p-6 space-y-3">
+                    <form method="POST" action="{{ route('corex.leases.renewal.landlord-notice', $lease) }}" enctype="multipart/form-data" class="p-6 space-y-3">
                         @csrf
                         <input type="hidden" name="_lease_action" value="landlord-notice">
-                        <h2 class="text-lg font-medium">Landlord not renewing</h2>
+                        <h2 class="text-lg font-medium">Landlord gave notice (not renewing)</h2>
+                        <p class="text-sm" style="color: var(--text-muted);">Records the notice for your review. Nothing is sent to the tenant until you have checked it against the lease and the law and accepted it.</p>
                         <div>
-                            <label class="text-xs font-medium">Move-out date (required)</label>
-                            <input type="date" name="move_out_date" required min="{{ now()->toDateString() }}" max="{{ now()->addYears(2)->toDateString() }}" value="{{ $isReopening('landlord-notice') ? old('move_out_date') : '' }}" class="prop-input mt-1">
-                            <x-input-error :messages="$isReopening('landlord-notice') ? $errors->get('move_out_date') : []" class="mt-1" />
+                            <label class="text-xs font-medium">Date notice was given (required)</label>
+                            <input type="date" name="notice_date" required max="{{ now()->toDateString() }}" value="{{ $isReopening('landlord-notice') ? old('notice_date') : now()->toDateString() }}" class="prop-input mt-1">
+                            <x-input-error :messages="$isReopening('landlord-notice') ? $errors->get('notice_date') : []" class="mt-1" />
                         </div>
                         <div>
-                            <label class="text-xs font-medium">Note (optional)</label>
-                            <textarea name="note" maxlength="500" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ $isReopening('landlord-notice') ? old('note') : '' }}</textarea>
+                            <label class="text-xs font-medium">Move-out / end date they gave (required)</label>
+                            <input type="date" name="intended_end_date" required max="{{ now()->addYears(2)->toDateString() }}" value="{{ $isReopening('landlord-notice') ? old('intended_end_date') : '' }}" class="prop-input mt-1">
+                            <x-input-error :messages="$isReopening('landlord-notice') ? $errors->get('intended_end_date') : []" class="mt-1" />
                         </div>
-                        @include('corex.leases._notice-outcome-fields', ['isReopening' => $isReopening('landlord-notice'), 'showAvailableFromOnPortals' => $showAvailableFromOnPortals])
+                        <div>
+                            <label class="text-xs font-medium">Reason given (optional)</label>
+                            <textarea name="reason" maxlength="2000" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ $isReopening('landlord-notice') ? old('reason') : '' }}</textarea>
+                        </div>
+                        <div>
+                            <label class="text-xs font-medium">Attach their letter or email (optional - PDF, image or Word, up to 10 MB)</label>
+                            <input type="file" name="attachment" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" class="block text-xs mt-1">
+                            <x-input-error :messages="$isReopening('landlord-notice') ? $errors->get('attachment') : []" class="mt-1" />
+                        </div>
+                        <x-input-error :messages="$isReopening('landlord-notice') ? $errors->get('lease') : []" class="mt-1" />
                         <div class="flex justify-end gap-2">
                             <button type="button" class="corex-btn-outline text-xs" x-on:click="$dispatch('close')">Cancel</button>
-                            <button type="submit" class="corex-btn-primary text-xs">Confirm</button>
+                            <button type="submit" class="corex-btn-primary text-xs">Record and review</button>
                         </div>
                     </form>
                 </x-modal>
@@ -454,6 +483,8 @@
             @endif
 
             {{-- LEASE-AGREEMENT BEGIN (leases.md §15.13 — Build L3a) --}}
+            @include('corex.leases._notice-panel')
+            @include('corex.leases._breach-panel')
             @include('corex.leases._agreement-card')
             {{-- LEASE-AGREEMENT END --}}
 

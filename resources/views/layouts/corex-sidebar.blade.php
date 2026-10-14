@@ -1220,7 +1220,7 @@
         {{-- Gate = ANY permission that puts an item in this panel (cross-cutting audit 2026-10-08): it used to be
              applications-only, so a user with leases / work orders / inspections access but no applications
              access never saw the Rentals menu at all. --}}
-        @if($user && ($user->hasAnyPermission(['rental_applications.view', 'rental_applications.view_returned', 'leases.view', 'rental_command_centre.view', 'rental_reports.view', 'rental_inspections.view', 'rental_fault_reports.view', 'rental_fault_types.view', 'rental_work_orders.view', 'rental_job_cards.view', 'rental_notices.create', 'rental_catalogue.view', 'rentals_take_on_import.view']) || $user->isRentalApplicationAuthoriser()))
+        @if($user && ($user->hasAnyPermission(['rental_applications.view', 'rental_applications.view_returned', 'leases.view', 'rental_command_centre.view', 'rental_reports.view', 'rental_inspections.view', 'rental_fault_reports.view', 'rental_fault_types.view', 'rental_work_orders.view', 'rental_job_cards.view', 'rental_notices.create', 'rental_notices.review', 'rental_breaches.view', 'rental_catalogue.view', 'rentals_take_on_import.view']) || $user->isRentalApplicationAuthoriser()))
         @feature('rentals')
         <div>
             <button type="button" @click="push('rental-applications')"
@@ -1345,6 +1345,12 @@
                 {{-- AT-445 — .ai/specs/rental-portal-access.md §10. Same-day
                      nav entry per non-negotiable #2. --}}
                 @feature('rental-notices')
+                @permission('rental_notices.review')
+                <a href="{{ route('corex.lease-notices.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.lease-notices.*') ? 'active' : '' }}">Notices Received</a>
+                @endpermission
+                @permission('rental_breaches.view')
+                <a href="{{ route('corex.breaches.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.breaches.*') ? 'active' : '' }}">Breach Register</a>
+                @endpermission
                 @permission('rental_notices.create')
                 <a href="{{ route('corex.rental-notices.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-notices.*') ? 'active' : '' }}">Rental Notices</a>
                 @endpermission

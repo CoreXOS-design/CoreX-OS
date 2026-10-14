@@ -201,48 +201,37 @@ class LeaseRenewalController extends Controller
         return $this->recordNotice($request, $lease, Lease::NOTICE_BY_LANDLORD);
     }
 
+    /**
+     * lease-notices.md (Johan, 14 Oct 2026): a notice given by the tenant or the landlord is NOT recorded straight onto the lease any more.
+     * It becomes a case that waits for the agent's review (the lease's terms and the law beside it); the move-out date is set only when the
+     * agent accepts it (LeaseNoticeService::accept -> recordNotice()). Nothing goes to the other party from here.
+     */
     private function recordNotice(Request $request, Lease $lease, string $givenBy): RedirectResponse
     {
         $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
         $validated = $request->validate([
-            // AT-444 follow-up 2 (2026-10-05) — a bare 'date' rule accepts
-            // anything Carbon can parse, including a mistyped 6-digit year
-            // (e.g. "202611-03-01") that slips past the dialog's own
-            // min/max attributes when typed on a keyboard instead of
-            // picked. No agency setting exists for "how far ahead can a
-            // move-out date be" (CLAUDE.md non-negotiable: reuse a window
-            // setting if one exists, never invent one for this) — 2 years
-            // is a fixed, generous sanity bound, not a configurable rule.
-            'move_out_date' => ['required', 'date', 'before_or_equal:' . now()->addYears(2)->toDateString()],
-            'note' => ['nullable', 'string', 'max:500'],
-            // .ai/specs/rental-renewals.md §19 — Johan's ruling 2026-10-05:
-            // the agent picks exactly one of the three, every time; nothing
-            // pre-selected, nothing defaulted server-side either.
-            'notice_outcome' => ['required', 'in:' . Lease::NOTICE_OUTCOME_READVERTISE . ',' . Lease::NOTICE_OUTCOME_WITHDRAW . ',' . Lease::NOTICE_OUTCOME_LEAVE],
-            'show_available_from_on_portals' => ['nullable', 'boolean'],
+            'notice_date' => ['required', 'date', 'before_or_equal:today'],
+            // a bare 'date' rule accepts a mistyped 6-digit year; the 2-year bound is a fixed sanity limit, not a configurable rule
+            'intended_end_date' => ['required', 'date', 'before_or_equal:' . now()->addYears(2)->toDateString()],
+            'reason' => ['nullable', 'string', 'max:2000'],
+            'attachment' => ['nullable', 'file', 'max:' . \App\Services\Rentals\LeaseNoticeService::ATTACHMENT_MAX_KB, 'mimes:' . \App\Services\Rentals\LeaseNoticeService::ATTACHMENT_MIMES],
         ], [
-            'move_out_date.before_or_equal' => 'Move-out date is too far in the future.',
-            'notice_outcome.required' => 'Choose what happens to the property.',
+            'intended_end_date.before_or_equal' => 'The end date is too far in the future.',
+            'notice_date.before_or_equal' => 'The date notice was given cannot be in the future.',
         ]);
 
-        // Only meaningful (and only ever rendered by the dialog) for the
-        // "readvertise" outcome — has() tells apart "box present and
-        // unticked" from "this outcome doesn't render the field at all".
-        $showAvailableFromOnPortals = $validated['notice_outcome'] === Lease::NOTICE_OUTCOME_READVERTISE && $request->has('show_available_from_on_portals')
-            ? $request->boolean('show_available_from_on_portals')
-            : null;
-
         try {
-            app(LeaseRenewalService::class)->recordNotice($lease, $givenBy, $validated['move_out_date'], $validated['note'] ?? null, $request->user(), $validated['notice_outcome'], $showAvailableFromOnPortals);
+            $notice = app(\App\Services\Rentals\LeaseNoticeService::class)->give($lease, $givenBy, $validated, \App\Models\LeaseNotice::VIA_AGENT, null, $request->user(), $request->file('attachment'));
         } catch (ValidationException $e) {
-            // AT-444 follow-up (2026-10-05) — the Lease Hub's notice dialogs
-            // reopen with the entered values on error; withInput() is needed
-            // here because this is a manually-caught service-level
-            // exception, not the auto-flashed $request->validate() path.
+            // the Lease Hub's notice dialogs reopen with the entered values on error
             return back()->withInput()->withErrors($e->errors());
         }
 
-        return redirect()->route('corex.leases.show', $lease)->with('success', 'Notice recorded.');
+        if ($request->user()->hasPermission('rental_notices.review')) {
+            return redirect()->route('corex.lease-notices.show', $notice->id)->with('success', 'Notice recorded. Review it below - nothing has gone to the other party.');
+        }
+
+        return redirect()->route('corex.leases.show', $lease)->with('success', 'Notice recorded and waiting for review.');
     }
 
     /**

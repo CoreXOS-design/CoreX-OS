@@ -42,8 +42,10 @@ class RentalPortalDocumentService
     public const KIND_LEASE = 'lease_agreement';
     public const KIND_INSPECTION = 'inspection_report';
     public const KIND_SHARED = 'shared_document';
+    // lease-notices.md §5.5 - a final notice the agent sent to this person (the other party to a notice, or the giver for an acknowledgement)
+    public const KIND_NOTICE = 'notice';
 
-    public const KINDS = [self::KIND_LEASE => 'Lease agreement', self::KIND_INSPECTION => 'Inspection report', self::KIND_SHARED => 'Other document'];
+    public const KINDS = [self::KIND_LEASE => 'Lease agreement', self::KIND_INSPECTION => 'Inspection report', self::KIND_NOTICE => 'Notice', self::KIND_SHARED => 'Other document'];
 
     /** Rendered in the browser tab; everything else is forced to a download. */
     private const INLINE_MIMES = ['application/pdf', 'image/jpeg', 'image/png'];
@@ -96,6 +98,23 @@ class RentalPortalDocumentService
                 $rows->push($this->inspectionRow($inspection, $document, $properties->get($inspection->property_id), $leaseById->get($inspection->lease_id)));
             }
         }
+
+        // lease-notices.md - notices the agent SENT to this side of the lease (never one that was only received or not yet sent)
+        $noticeColumn = $tenant ? 'sent_to_tenant' : 'sent_to_landlord';
+        \App\Models\RentalNotice::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)->whereNull('deleted_at')->where($noticeColumn, true)->whereNotNull('document_id')
+            ->whereIn('lease_id', $leases->pluck('id')->all())
+            ->with(['document' => fn ($q) => $q->withoutGlobalScopes()->whereNull('deleted_at')])->get()
+            ->each(function (\App\Models\RentalNotice $notice) use ($rows, $properties, $leaseById) {
+                if (! $notice->document) {
+                    return;
+                }
+                $lease = $leaseById->get($notice->lease_id);
+                $property = $lease ? $properties->get($lease->property_id) : null;
+                $address = $property?->buildDisplayAddress() ?: ('Lease #' . $notice->lease_id);
+                $label = \App\Models\RentalNoticeTemplate::labelFor($notice->notice_type);
+                $rows->push($this->row($notice->document, self::KIND_NOTICE, 'Notice', $label, "{$label} — {$address}", $notice->sent_at ?? $notice->document->created_at, $property, $lease));
+            });
 
         foreach ($shared as $document) {
             $rows->push($this->sharedRow($document));

@@ -58,6 +58,8 @@ class RentalCommandCentreService
         'inactive' => 'Inactive / off market',
         'expiring' => 'Expiring in window',
         'notice_given' => 'Notice given',
+        // lease-notices.md §5.2 - a tenant or landlord gave notice and no agent has reviewed it yet
+        'notice_review' => 'Notice received - needs review',
         'renewals_in_progress' => 'Renewals in progress',
         'month_to_month' => 'Month-to-month',
         'open_faults' => 'Open faults',
@@ -322,6 +324,11 @@ class RentalCommandCentreService
                 . 'AND ri2.deleted_at IS NULL AND ri2.type = ? AND ri2.status = ?) as active_lease_completed_in_inspections',
                 [RentalInspection::TYPE_IN, RentalInspection::STATUS_COMPLETED]
             )
+            // lease-notices.md - notices given on the active lease that no agent has reviewed yet (the SQL mirror of LeaseNotice::STATUS_RECEIVED)
+            ->selectRaw(
+                '(SELECT COUNT(*) FROM lease_notices ln WHERE ln.lease_id = active_lease.id AND ln.deleted_at IS NULL AND ln.status = ?) as notices_to_review_count',
+                [\App\Models\LeaseNotice::STATUS_RECEIVED]
+            )
             ->selectRaw(
                 '(SELECT COUNT(*) FROM rental_inspections ri3 WHERE ri3.property_id = properties.id '
                 . 'AND ri3.deleted_at IS NULL AND ri3.status NOT IN (?, ?)) as open_inspections_count',
@@ -383,7 +390,7 @@ class RentalCommandCentreService
      * logic that merely happens to agree today.
      */
     private const TILE_KEYS_FOR_AGGREGATE = [
-        'occupied', 'unoccupied', 'inactive', 'expiring', 'notice_given',
+        'occupied', 'unoccupied', 'inactive', 'expiring', 'notice_given', 'notice_review',
         'renewals_in_progress', 'month_to_month', 'open_faults', 'open_work_orders',
         'inspections_due',
     ];
@@ -413,6 +420,7 @@ class RentalCommandCentreService
             'inactive' => ["active_lease_id IS NULL AND LOWER(COALESCE(status, '')) NOT IN ({$activeStatusPlaceholders})", $activeStatusesLower],
             'expiring' => ['active_lease_id IS NOT NULL AND active_end_date BETWEEN ? AND ?', [$today, $windowEnd]],
             'notice_given' => ['active_lease_id IS NOT NULL AND active_notice_date IS NOT NULL', []],
+            'notice_review' => ['active_lease_id IS NOT NULL AND notices_to_review_count > 0', []],
             'renewals_in_progress' => ['active_lease_id IS NOT NULL AND pending_renewal_draft_count > 0', []],
             'month_to_month' => ['active_lease_id IS NOT NULL AND active_end_date IS NULL AND active_month_to_month = 1', []],
             // Round 7 — the LIST side of these two tiles has always meant
@@ -1002,6 +1010,28 @@ class RentalCommandCentreService
                     . ' · Tenant: ' . $lease->tenantNames(),
                 'route' => 'corex.leases.show',
                 'route_params' => ['lease' => $lease->id],
+            ]);
+        });
+
+        // J — a notice given by the tenant or the landlord that no agent has reviewed yet (lease-notices.md §5.2). The row opens the review.
+        \App\Models\LeaseNotice::query()->where('status', \App\Models\LeaseNotice::STATUS_RECEIVED)
+            ->whereIn('lease_id', $this->applyPropertyIdScope(Lease::query()->where('status', Lease::STATUS_ACTIVE)->select('leases.id'), $user, $scope, 'property_id'))
+            ->when($propertyId, fn (Builder $q) => $q->whereIn('lease_id', fn ($l) => $l->select('id')->from('leases')->where('property_id', $propertyId)))
+            ->when($dateFrom, fn (Builder $q) => $q->whereDate('notice_date', '>=', $dateFrom))
+            ->when($dateTo, fn (Builder $q) => $q->whereDate('notice_date', '<=', $dateTo))
+            ->with(['lease.property' => fn ($q) => $q->withTrashed(), 'lease.tenants.contact'])
+            ->get()->each(function (\App\Models\LeaseNotice $notice) use (&$items, $today) {
+            $items->push([
+                'type' => 'notice_needs_review',
+                'urgency' => 2,
+                'age_days' => (int) abs($today->diffInDays($notice->created_at->copy()->startOfDay())),
+                'item_date' => $notice->notice_date,
+                'property' => $notice->lease?->property,
+                'lease' => $notice->lease,
+                'label' => 'Notice received - needs review',
+                'detail' => $notice->givenByLabel() . ' gave notice on ' . $notice->notice_date->format('j M Y') . ', ends ' . $notice->intended_end_date->format('j M Y') . ' · Tenant: ' . ($notice->lease?->tenantNames() ?? ''),
+                'route' => 'corex.lease-notices.show',
+                'route_params' => ['id' => $notice->id],
             ]);
         });
 

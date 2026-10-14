@@ -164,10 +164,21 @@
     }
     </script>
 
+    {{-- .ai/specs/rental-notices.md §6 - tick leases and issue breach notices for all of them from one screen --}}
+    @feature('rental-notices')
+    @permission('rental_breaches.manage')
+        <form id="leases-bulk-form" method="GET" action="{{ route('corex.breaches.bulk') }}" class="flex items-center gap-3 text-xs" data-qa="leases-bulk-bar">
+            <button type="submit" class="corex-btn-outline text-xs">Breach notice for ticked leases</button>
+            <span style="color: var(--text-muted);">Tick the leases (running leases only), then choose this. You fill in the amount owing on the next screen.</span>
+        </form>
+    @endpermission
+    @endfeature
+
     <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
         <table class="w-full text-sm">
             <thead>
                 <tr style="border-bottom: 1px solid var(--border);">
+                    @permission('rental_breaches.manage')<th class="px-3 py-2 w-8"><input type="checkbox" aria-label="Tick all running leases" onclick="document.querySelectorAll('input[name=&quot;leases[]&quot;]').forEach(c => c.checked = this.checked)"></th>@endpermission
                     <th class="text-left px-4 py-2"><a href="{{ $sortLink('property') }}" style="color: var(--text-muted);">Property{{ $sortIndicator('property') }}</a></th>
                     <th class="text-left px-4 py-2">Tenant(s)</th>
                     <th class="text-left px-4 py-2">Agents</th>
@@ -181,6 +192,7 @@
             <tbody>
                 @forelse($leases as $lease)
                 <tr style="border-bottom: 1px solid var(--border);" data-qa="lease-row-{{ $lease->id }}">
+                    @permission('rental_breaches.manage')<td class="px-3 py-2">@if($lease->status === 'active' && !$lease->trashed())<input type="checkbox" name="leases[]" value="{{ $lease->id }}" form="leases-bulk-form" aria-label="Tick this lease">@endif</td>@endpermission
                     <td class="px-4 py-2">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $lease->property?->trashed() ? ' (archived)' : '' }}</td>
                     <td class="px-4 py-2">
                         <div>{{ $lease->tenantNames() }}</div>
@@ -232,7 +244,7 @@
                     </td>
                 </tr>
                 @empty
-                <tr><td colspan="8" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
+                <tr><td colspan="9" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
                     @if($showArchived)
                         No archived leases on this agency.
                     @elseif(!$hasAnyLeases)

@@ -271,6 +271,9 @@ return [
         // ── Rental Portal Access (AT-445, .ai/specs/rental-portal-access.md §9) ──
         ['key' => 'rental_portal.manage_settings', 'label' => 'Manage Rental Portal Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_portal', 'sort_order' => 1],
         ['key' => 'rental_notices.create', 'label' => 'Draft & Send Rental Notices', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_notices', 'sort_order' => 1],
+        ['key' => 'rental_notices.review', 'label' => 'Review & Decide Notices Received, Send to the Other Party', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_notices', 'sort_order' => 3],
+        ['key' => 'rental_breaches.view', 'label' => 'View the Breach Register', 'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_breaches', 'sort_order' => 1],
+        ['key' => 'rental_breaches.manage', 'label' => 'Issue Breach Notices & Notices to Vacate, Mark Remedied', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_breaches', 'sort_order' => 2],
         ['key' => 'rental_notice_templates.manage_settings', 'label' => 'Manage Rental Notice Templates', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_notices', 'sort_order' => 2],
 
         // ── Rental Reports (AT-443) — .ai/specs/rentals-reports.md. Access-only —
@@ -1164,7 +1167,7 @@ return [
                 // full working set incl. cancel/approval/resolve powers; the
                 // manage_settings keys stay admin-only, like every sibling module.
                 // properties.syndication.manage_approvers is deliberately NOT here.
-                'leases.view', 'leases.create', 'leases.renew', 'leases.cancel', 'lease_notice_terms.edit',
+                'leases.view', 'leases.create', 'leases.renew', 'leases.cancel', 'lease_notice_terms.edit', 'rental_notices.review', 'rental_breaches.view', 'rental_breaches.manage',
                 'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.record_attendance', 'rental_inspections.manage_planned_dates', 'rental_inspections.resolve_discrepancy',
                 'rental_inspections.edit_details', 'rental_inspections.archive', 'rental_inspections.restore', 'rental_inspections.cancel', 'rental_inspections.reschedule', 'rental_inspections.public_link', 'rental_inspections.export', 'rental_inspections.archive_completed',
                 // sign_on_behalf deliberately NOT granted (owner's ruling 2026-09-30: admin only).
@@ -1338,7 +1341,7 @@ return [
                 // resolution, sign-on-behalf and every manage_settings stay with
                 // branch managers/admin. properties.syndication.manage_approvers
                 // stays admin-only.
-                'leases.view', 'leases.create', 'leases.renew', 'lease_notice_terms.edit',
+                'leases.view', 'leases.create', 'leases.renew', 'lease_notice_terms.edit', 'rental_notices.review', 'rental_breaches.view', 'rental_breaches.manage',
                 'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.record_attendance', 'rental_inspections.manage_planned_dates',
                 'rental_inspections.edit_details', 'rental_inspections.archive', 'rental_inspections.restore', 'rental_inspections.cancel', 'rental_inspections.reschedule', 'rental_inspections.public_link', 'rental_inspections.export',
                 'rental_fault_reports.view', 'rental_fault_reports.create', 'rental_fault_reports.send_to_owner', 'rental_fault_reports.raise_work_order',

@@ -19,7 +19,21 @@ class RentalNoticeTemplate extends Model
     public const TYPE_BREACH = 'breach';
     public const TYPE_NOTICE_TO_VACATE = 'notice_to_vacate';
 
-    public const TYPES = [self::TYPE_BREACH, self::TYPE_NOTICE_TO_VACATE];
+    // .ai/specs/rental-notices.md §3 - the agency's own uploaded notice templates. 'breach' is the older single breach template (kept; read as "other").
+    public const TYPE_BREACH_PAYMENT = 'breach_payment';
+    public const TYPE_BREACH_OTHER = 'breach_other';
+    public const TYPES = [self::TYPE_BREACH_PAYMENT, self::TYPE_BREACH_OTHER, self::TYPE_NOTICE_TO_VACATE, self::TYPE_BREACH];
+    public const TYPE_LABELS = [
+        self::TYPE_BREACH_PAYMENT => 'Breach notice (payment)',
+        self::TYPE_BREACH_OTHER => 'Breach notice (other)',
+        self::TYPE_NOTICE_TO_VACATE => 'Notice to vacate',
+        self::TYPE_BREACH => 'Breach notice (older template)',
+    ];
+
+    public static function labelFor(?string $type): string
+    {
+        return self::TYPE_LABELS[$type] ?? ucfirst(str_replace('_', ' ', (string) $type));
+    }
 
     protected $fillable = [
         'agency_id',
@@ -28,6 +42,8 @@ class RentalNoticeTemplate extends Model
         'body_html',
         'is_active',
         'created_by_user_id',
+        'source_file_name',
+        'source_file_path',
     ];
 
     protected $casts = [

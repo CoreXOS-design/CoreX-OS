@@ -3812,9 +3812,48 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
         // AT-445 — .ai/specs/rental-portal-access.md §8/§10. Draft/send a
         // notice from this specific lease.
+        // rental-notices.md §6 - a one-off breach notice from this lease.
+        Route::middleware('permission:rental_breaches.manage')->group(function () {
+            Route::get('/{lease}/breaches/create', [\App\Http\Controllers\CoreX\LeaseBreachController::class, 'create'])->name('corex.leases.breaches.create');
+            Route::post('/{lease}/breaches', [\App\Http\Controllers\CoreX\LeaseBreachController::class, 'store'])->name('corex.leases.breaches.store');
+        });
+        // lease-notices.md §5.1 - the agent records a notice on the tenant's / landlord's behalf (the lease screen's dialogs post here).
+        Route::post('/{lease}/notice-cases', [\App\Http\Controllers\CoreX\LeaseNoticeController::class, 'store'])
+            ->middleware('permission:rental_notices.review')->name('corex.leases.notice-cases.store');
         Route::middleware('permission:rental_notices.create')->group(function () {
             Route::get('/{lease}/notices/create', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'create'])->name('corex.leases.notices.create');
             Route::post('/{lease}/notices', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'store'])->name('corex.leases.notices.store');
+        });
+    });
+
+    // .ai/specs/lease-notices.md — a notice given by the tenant / landlord: list, review, decide, send to the other party.
+    Route::prefix('lease-notices')->middleware('permission:rental_notices.review')->group(function () {
+        $c = \App\Http\Controllers\CoreX\LeaseNoticeController::class;
+        Route::get('/', [$c, 'index'])->name('corex.lease-notices.index');
+        Route::get('/{id}', [$c, 'show'])->whereNumber('id')->name('corex.lease-notices.show');
+        Route::put('/{id}', [$c, 'update'])->whereNumber('id')->name('corex.lease-notices.update');
+        Route::post('/{id}/accept', [$c, 'accept'])->whereNumber('id')->name('corex.lease-notices.accept');
+        Route::post('/{id}/reject', [$c, 'reject'])->whereNumber('id')->name('corex.lease-notices.reject');
+        Route::get('/{id}/attachment', [$c, 'attachment'])->whereNumber('id')->name('corex.lease-notices.attachment');
+        Route::post('/{id}/archive', [$c, 'archive'])->whereNumber('id')->name('corex.lease-notices.archive');
+        Route::post('/{id}/restore', [$c, 'restore'])->whereNumber('id')->name('corex.lease-notices.restore');
+    });
+
+    // .ai/specs/rental-notices.md — breach notices, notices to vacate and the breach register.
+    Route::prefix('breaches')->group(function () {
+        $c = \App\Http\Controllers\CoreX\LeaseBreachController::class;
+        Route::middleware('permission:rental_breaches.view')->group(function () use ($c) {
+            Route::get('/', [$c, 'index'])->name('corex.breaches.index');
+            Route::get('/{id}', [$c, 'show'])->whereNumber('id')->name('corex.breaches.show');
+            Route::get('/{id}/document/{kind}', [$c, 'document'])->whereNumber('id')->whereIn('kind', ['breach', 'vacate'])->name('corex.breaches.document');
+        });
+        Route::middleware('permission:rental_breaches.manage')->group(function () use ($c) {
+            Route::get('/bulk/new', [$c, 'bulk'])->name('corex.breaches.bulk');
+            Route::post('/bulk/send', [$c, 'bulkStore'])->name('corex.breaches.bulk.store');
+            Route::post('/{id}/remedy', [$c, 'remedy'])->whereNumber('id')->name('corex.breaches.remedy');
+            Route::post('/{id}/vacate', [$c, 'vacate'])->whereNumber('id')->name('corex.breaches.vacate');
+            Route::post('/{id}/archive', [$c, 'archive'])->whereNumber('id')->name('corex.breaches.archive');
+            Route::post('/{id}/restore', [$c, 'restore'])->whereNumber('id')->name('corex.breaches.restore');
         });
     });
 

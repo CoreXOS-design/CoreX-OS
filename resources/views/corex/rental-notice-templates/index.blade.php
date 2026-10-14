@@ -29,7 +29,7 @@
             <select name="notice_type" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
                 <option value="">All</option>
                 @foreach(\App\Models\RentalNoticeTemplate::TYPES as $t)
-                    <option value="{{ $t }}" @selected(request('notice_type') === $t)>{{ ucfirst(str_replace('_', ' ', $t)) }}</option>
+                    <option value="{{ $t }}" @selected(request('notice_type') === $t)>{{ \App\Models\RentalNoticeTemplate::labelFor($t) }}</option>
                 @endforeach
             </select>
         </div>
@@ -60,7 +60,7 @@
                 @forelse($templates as $template)
                     <tr style="border-top: 1px solid var(--border);">
                         <td class="px-4 py-2">{{ $template->name }}</td>
-                        <td class="px-4 py-2">{{ ucfirst(str_replace('_', ' ', $template->notice_type)) }}</td>
+                        <td class="px-4 py-2">{{ \App\Models\RentalNoticeTemplate::labelFor($template->notice_type) }}</td>
                         <td class="px-4 py-2 text-right space-x-2">
                             @permission('rental_notice_templates.manage_settings')
                                 @if($status === 'archived')

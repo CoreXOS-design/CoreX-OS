@@ -12,7 +12,7 @@
         </div>
     @endif
 
-    <form method="POST" action="{{ route('corex.rental-notice-templates.update', $template) }}" class="space-y-4">
+    <form method="POST" action="{{ route('corex.rental-notice-templates.update', $template) }}" class="space-y-4" enctype="multipart/form-data">
         @csrf
         @method('PUT')
         @include('corex.rental-notice-templates.partials._form')

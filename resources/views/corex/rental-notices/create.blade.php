@@ -13,7 +13,7 @@
     @endif
 
     @if($templates->isEmpty())
-        <p class="text-sm" style="color: var(--text-muted);">No active notice templates yet. Add one under Rentals → Settings → Notice Templates.</p>
+        <p class="text-sm" style="color: var(--text-muted);" data-qa="notice-no-templates">Your agency has not added any notice templates yet. Notices are your own documents - upload your breach notice, notice to vacate and any other notice (a Word document with placeholders) under <a href="{{ route('corex.rental-notice-templates.index') }}" style="color: var(--brand-icon, #0ea5e9);">Settings &rarr; Rental Notice Templates</a>, then come back here.</p>
     @else
         <form method="POST" action="{{ route('corex.leases.notices.store', $lease) }}" class="space-y-4" x-data="{ templateId: '{{ old('rental_notice_template_id') }}' }">
             @csrf
@@ -22,7 +22,7 @@
                 <select name="rental_notice_template_id" x-model="templateId" required class="prop-input">
                     <option value="">Choose…</option>
                     @foreach($templates as $t)
-                        <option value="{{ $t->id }}">{{ $t->name }} ({{ ucfirst(str_replace('_', ' ', $t->notice_type)) }})</option>
+                        <option value="{{ $t->id }}">{{ $t->name }} ({{ \App\Models\RentalNoticeTemplate::labelFor($t->notice_type) }})</option>
                     @endforeach
                 </select>
             </div>
@@ -38,8 +38,24 @@
                 <label class="text-sm"><input type="checkbox" name="send_to_landlord" value="1"> Send to landlord</label>
             </div>
 
-            <button type="submit" class="corex-btn-primary text-sm">Send notice</button>
+            <div class="flex gap-2">
+                <button type="submit" name="intent" value="preview" class="corex-btn-outline text-sm">Preview</button>
+                <button type="submit" name="intent" value="send" class="corex-btn-primary text-sm" onclick="return confirm('Send this notice now?')">Send notice</button>
+            </div>
+            <details class="text-xs" style="color: var(--text-muted);"><summary class="cursor-pointer">Placeholders filled from the lease for you</summary>
+                <ul class="list-disc list-inside">@foreach($autoPlaceholders as $k => $label)<li><code>&#123;&#123;{{ $k }}&#125;&#125;</code> - {{ $label }}</li>@endforeach</ul>
+            </details>
         </form>
+
+        @if($preview)
+            <div class="rounded-md p-4 text-sm" style="border: 1px dashed var(--border); background: #fff; color: #111;" data-qa="notice-preview">
+                <p class="text-xs mb-2" style="color: #666;">Preview - {{ $preview['template'] }}</p>
+                @if(!empty($preview['missing']))
+                    <p class="text-xs mb-2" style="color: #b91c1c;" data-qa="notice-preview-missing">Still to fill in before this can be sent: {{ implode(', ', $preview['missing']) }}</p>
+                @endif
+                {!! $preview['html'] !!}
+            </div>
+        @endif
     @endif
 
     @feature('rental-leases')

@@ -229,16 +229,17 @@ class LeaseRenewalService
      * reverseNotice()/changeNoticeOutcome() below know exactly which
      * property-side effect (if any) must be undone/replaced.
      */
-    public function recordNotice(Lease $lease, string $givenBy, string $moveOutDate, ?string $note, User $user, string $outcome, ?bool $showAvailableFromOnPortals = null): Lease
+    public function recordNotice(Lease $lease, string $givenBy, string $moveOutDate, ?string $note, User $user, string $outcome, ?bool $showAvailableFromOnPortals = null, ?string $noticeDate = null): Lease
     {
         if (!in_array($givenBy, [Lease::NOTICE_BY_TENANT, Lease::NOTICE_BY_LANDLORD], true)) {
             throw ValidationException::withMessages(['notice_given_by' => 'Invalid notice source.']);
         }
         $this->guardNoticeOutcome($outcome);
 
-        return DB::transaction(function () use ($lease, $givenBy, $moveOutDate, $note, $user, $outcome, $showAvailableFromOnPortals) {
+        return DB::transaction(function () use ($lease, $givenBy, $moveOutDate, $note, $user, $outcome, $showAvailableFromOnPortals, $noticeDate) {
             $lease->update([
-                'notice_date' => now()->toDateString(),
+                // lease-notices.md: an accepted notice carries the date it was GIVEN; the one-click path (no date) keeps "today"
+                'notice_date' => $noticeDate ?: now()->toDateString(),
                 'notice_given_by' => $givenBy,
                 'move_out_date' => $moveOutDate,
                 'notice_note' => $note,
@@ -303,6 +304,8 @@ class LeaseRenewalService
             ]);
 
             $this->logEvent($lease, LeaseEvent::TYPE_NOTICE_REVERSED, 'Notice reversed', $user);
+            // lease-notices.md: the accepted case this notice came from is withdrawn (kept, never erased)
+            app(LeaseNoticeService::class)->withdrawAcceptedFor($lease, $user);
 
             $this->reverseOutcomeEffect($lease, $outcome, $user);
 

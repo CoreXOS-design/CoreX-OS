@@ -284,6 +284,18 @@ class Lease extends Model
         return $this->hasOne(LeaseAgreementTerms::class);
     }
 
+    /** .ai/specs/lease-notices.md - every notice given on this lease (the cases), newest first. */
+    public function leaseNotices(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(LeaseNotice::class)->latest('id');
+    }
+
+    /** .ai/specs/rental-notices.md - every breach notice issued on this lease, newest first. */
+    public function breaches(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(LeaseBreach::class)->latest('id');
+    }
+
     /** The lease agreement template (docuperfect_templates) this lease's document was made from. */
     public function agreementTemplate(): BelongsTo
     {

@@ -114,6 +114,24 @@
                     </p>
                 </div>
                 <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Business days' notice a tenant may cancel a fixed term on (Consumer Protection Act)</label>
+                    <input type="number" name="cpa_early_cancel_business_days" value="{{ old('cpa_early_cancel_business_days', $cpaEarlyCancelBusinessDays) }}"
+                           min="1" max="365" class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is {{ $cpaEarlyCancelBusinessDaysDefault }}. When a tenant gives notice to end a fixed-term lease early, the notice review checks the end date against this many business days
+                        (weekends and public holidays do not count). Leave blank for the default.
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Business days a tenant has to put a breach right (before a notice to vacate)</label>
+                    <input type="number" name="breach_remedy_business_days" value="{{ old('breach_remedy_business_days', $breachRemedyBusinessDays) }}"
+                           min="1" max="365" class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is {{ $breachRemedyBusinessDaysDefault }}. After a breach notice is issued, a notice to vacate is only offered once this many business days have passed
+                        and the breach is still not remedied. The lease screen shows the deadline. Leave blank for the default.
+                    </p>
+                </div>
+                <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Notice may not be given before (months into the lease)</label>
                     <input type="number" name="default_earliest_notice_months" value="{{ old('default_earliest_notice_months', $earliestNoticeMonths) }}"
                            min="0" max="60" placeholder="No rule"

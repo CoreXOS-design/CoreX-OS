@@ -46,6 +46,14 @@ class LeaseSetting extends Model
     // legal minimum CoreX enforces; an agency-configurable sensible default.
     public const DEFAULT_TENANT_NOTICE_PERIOD_DAYS = 30;
 
+    // .ai/specs/lease-notices.md §7 - business days' written notice the Consumer Protection Act gives a tenant to cancel a fixed-term
+    // lease early. An agency setting (the review flags read it); this is only the starting value.
+    public const DEFAULT_CPA_EARLY_CANCEL_BUSINESS_DAYS = 20;
+
+    // .ai/specs/rental-notices.md §5 - business days a breach notice gives to put the breach right before a notice to vacate is allowed
+    // (the Consumer Protection Act's 20 business days). An agency setting; this is only the starting value.
+    public const DEFAULT_BREACH_REMEDY_BUSINESS_DAYS = 20;
+
     // .ai/specs/leases.md §18.2 — the agency's DEFAULT notice / early-cancellation terms, written onto a new lease (editable
     // per lease) and onto old leases by `leases:backfill-notice-terms`. Neutral, configurable, nothing hardcoded elsewhere.
     public const NOTICE_UNITS = ['days', 'weeks', 'months'];
@@ -94,6 +102,8 @@ class LeaseSetting extends Model
         'show_lease_type_field',
         'default_deposit_months',
         'tenant_notice_period_days',
+        'cpa_early_cancel_business_days',
+        'breach_remedy_business_days',
         'tenant_notice_period_unit',
         'default_earliest_notice_months',
         'default_early_cancellation_allowed',
@@ -117,6 +127,8 @@ class LeaseSetting extends Model
         'show_lease_type_field' => 'boolean',
         'default_deposit_months' => 'decimal:2',
         'tenant_notice_period_days' => 'integer',
+        'cpa_early_cancel_business_days' => 'integer',
+        'breach_remedy_business_days' => 'integer',
         'default_earliest_notice_months' => 'integer',
         'default_early_cancellation_notice' => 'integer',
         'month_to_month_after_end_days' => 'integer',
@@ -171,6 +183,28 @@ class LeaseSetting extends Model
         $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
 
         return $row?->tenant_notice_period_days ?? self::DEFAULT_TENANT_NOTICE_PERIOD_DAYS;
+    }
+
+    /** Business days' notice a tenant may cancel a fixed-term lease on under the Consumer Protection Act (lease-notices.md §7). */
+    public static function cpaEarlyCancelBusinessDaysFor(?int $agencyId): int
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_CPA_EARLY_CANCEL_BUSINESS_DAYS;
+        }
+        $v = self::withoutGlobalScopes()->where('agency_id', $agencyId)->value('cpa_early_cancel_business_days');
+
+        return is_numeric($v) && (int) $v > 0 ? (int) $v : self::DEFAULT_CPA_EARLY_CANCEL_BUSINESS_DAYS;
+    }
+
+    /** Business days a breach notice allows to remedy the breach before a notice to vacate may be issued (rental-notices.md §5). */
+    public static function breachRemedyBusinessDaysFor(?int $agencyId): int
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_BREACH_REMEDY_BUSINESS_DAYS;
+        }
+        $v = self::withoutGlobalScopes()->where('agency_id', $agencyId)->value('breach_remedy_business_days');
+
+        return is_numeric($v) && (int) $v > 0 ? (int) $v : self::DEFAULT_BREACH_REMEDY_BUSINESS_DAYS;
     }
 
     /** Days after a lease's end date before it goes month-to-month on its own (leases.md §5.3). */

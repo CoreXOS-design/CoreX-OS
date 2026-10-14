@@ -222,6 +222,9 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
         Route::middleware('rental-portal.enabled:tenant')->group(function () {
             // §20 — the portal home: agent contact, inspection dates, lease end / renewal status.
             Route::get('/overview', [ClientTenantRentalsController::class, 'overview'])->name('overview');
+            // lease-notices.md - the tenant gives notice (it goes to the agent for review; nothing goes to the landlord)
+            Route::get('/notices', [\App\Http\Controllers\Api\V1\ClientRentalNoticesController::class, 'tenantIndex'])->name('notices.index');
+            Route::post('/notices', [\App\Http\Controllers\Api\V1\ClientRentalNoticesController::class, 'tenantStore'])->name('notices.store');
             Route::get('/leases', [ClientTenantRentalsController::class, 'leases'])->name('leases.index');
             Route::get('/leases/{lease}', [ClientTenantRentalsController::class, 'leaseShow'])->name('leases.show');
             Route::get('/documents', [ClientTenantRentalsController::class, 'documents'])->name('documents.index');
@@ -249,6 +252,9 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
         // Landlord rentals.
         Route::prefix('landlord')->name('landlord.')->middleware('rental-portal.enabled:landlord')->group(function () {
             Route::get('/overview', [ClientLandlordRentalsController::class, 'overview'])->name('overview');
+            // lease-notices.md - the owner gives notice (it goes to the agent for review; nothing goes to the tenant)
+            Route::get('/notices', [\App\Http\Controllers\Api\V1\ClientRentalNoticesController::class, 'landlordIndex'])->name('notices.index');
+            Route::post('/notices', [\App\Http\Controllers\Api\V1\ClientRentalNoticesController::class, 'landlordStore'])->name('notices.store');
             Route::get('/properties', [ClientLandlordRentalsController::class, 'properties'])->name('properties.index');
             Route::get('/properties/{property}', [ClientLandlordRentalsController::class, 'propertyShow'])->name('properties.show');
             // §15 (AT-447 follow-up) — "Request work / report a problem."
