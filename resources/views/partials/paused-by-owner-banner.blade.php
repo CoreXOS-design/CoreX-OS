@@ -9,7 +9,7 @@
         <div class="font-semibold" style="color: var(--ds-crimson);">PAUSED BY OWNER</div>
         <div data-paused-line>{{ $pbSvc->stopLine($pbHold) }}</div>
         <div class="text-xs" style="color: var(--text-muted);">Nothing can be sent, approved or started while it is on hold.
-            @if($pbFault) <a class="underline" href="{{ route('corex.rental-fault-reports.show', $pbFault->id) }}">Open the fault to resume it</a>.@endif
+            @if($pbFault) @feature('rental-faults')<a class="underline" href="{{ route('corex.rental-fault-reports.show', $pbFault->id) }}">Open the fault to resume it</a>.@endfeature @endif
         </div>
     </div>
 @endif
