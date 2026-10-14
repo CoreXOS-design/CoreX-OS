@@ -7984,10 +7984,36 @@
 
                 // Latest observation recorded for this item WITHIN this inspection —
                 // null means nothing recorded yet on this event.
+                //
+                // 14 Oct 2026 (spec §58): every one of these readers used to scan the WHOLE observations array for ONE
+                // item, once per binding per item - 68 items x ~30 bindings x 136 observations after "All Good" -
+                // and that made the render after "All Good" a multi-second block that grows with a slow machine. The
+                // observations of an inspection are grouped by item ONCE per change (observations are append-only,
+                // so length + array identity is the whole change signal) and every reader looks its item up. The cache
+                // lives in a plain WeakMap OUTSIDE Alpine's reactive state (writing to it must never re-trigger a
+                // render); reading `observations.length` is what still subscribes the calling binding to changes.
+                _observationsByItem(insp) {
+                    const list = insp.observations || [];
+                    const stamp = list.length;
+                    const store = (window.__rirObsIndex = window.__rirObsIndex || new WeakMap());
+                    let entry = store.get(insp);
+                    if (!entry || entry.stamp !== stamp || entry.list !== list) {
+                        const byItem = new Map();
+                        list.forEach(o => {
+                            const k = o.rental_inspection_item_id;
+                            if (!byItem.has(k)) byItem.set(k, []);
+                            byItem.get(k).push(o);
+                        });
+                        entry = { stamp, list, byItem };
+                        store.set(insp, entry);
+                    }
+                    return entry.byItem;
+                },
+                _observationsForItem(insp, itemId) { return this._observationsByItem(insp).get(itemId) || []; },
                 conditionFor(section, itemId) {
                     const insp = this.currentInspection(section);
                     if (!insp) return null;
-                    const mine = insp.observations.filter(o => o.rental_inspection_item_id === itemId);
+                    const mine = this._observationsForItem(insp, itemId);
                     if (!mine.length) return null;
                     return mine.reduce((a, b) => (a.created_at > b.created_at ? a : b));
                 },
@@ -8010,7 +8036,7 @@
                 // corex-photo-batch-uploader.js's own roomPhotos() exactly.
                 conditionForInspection(insp, itemId) {
                     if (!insp) return null;
-                    const mine = (insp.observations || []).filter(o => o.rental_inspection_item_id === itemId);
+                    const mine = this._observationsForItem(insp, itemId);
                     if (!mine.length) return null;
                     return mine.reduce((a, b) => (a.created_at > b.created_at ? a : b));
                 },
@@ -8029,9 +8055,7 @@
                 // instance needed for a historical, non-current inspection.
                 itemPhotosForInspection(insp, itemId) {
                     if (!insp) return [];
-                    return (insp.observations || [])
-                        .filter(o => o.rental_inspection_item_id === itemId)
-                        .flatMap(o => o.photos || []);
+                    return this._observationsForItem(insp, itemId).flatMap(o => o.photos || []);
                 },
 
                 obsForm: {},
@@ -8205,7 +8229,7 @@
                 itemPhotosFor(section, item) {
                     const insp = this.currentInspection(section);
                     if (!insp) return [];
-                    const obsIds = insp.observations.filter(o => o.rental_inspection_item_id === item.id).map(o => o.id);
+                    const obsIds = this._observationsForItem(insp, item.id).map(o => o.id);
                     return this.photoUploader(section).itemPhotos(obsIds);
                 },
                 // Item 7 — recorded/total + photo count, per room and for
@@ -8868,10 +8892,17 @@
                     this.markGoodBusy[room.id] = false;
                 },
                 markAllGoodBusy: false,
-                async markAllGood(section) {
+                // 14 Oct 2026 (spec §58) - the question is asked in the page, not in a native confirm(): a native
+                // dialog blocks the whole tab's renderer until it is answered (and a dialog that is hidden behind
+                // another window, or that browser automation cannot see, looks exactly like a frozen tab - nothing
+                // is sent, nothing is saved). Same replacement the contacts unlink already got (2026-09-13).
+                markAllGoodAsk: false,
+                markAllGoodQuestion() { return 'Mark every unrecorded item in this inspection as ' + this.conditionLabel(this.baselineConditionKey) + '? Items already recorded are left exactly as they are.'; },
+                async markAllGood(section, confirmed = false) {
                     const insp = this.currentInspection(section);
                     if (!insp) return;
-                    if (!window.confirm('Mark every unrecorded item in this inspection as ' + this.conditionLabel(this.baselineConditionKey) + '? Items already recorded are left exactly as they are.')) return;
+                    if (!confirmed) { this.markAllGoodAsk = true; return; }
+                    this.markAllGoodAsk = false;
                     this.markAllGoodBusy = true;
                     await this._autosave(async () => {
                         const result = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/mark-all-good`, {});
