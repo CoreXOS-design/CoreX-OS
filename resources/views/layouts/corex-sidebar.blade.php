@@ -775,8 +775,12 @@
                 <div class="corex-nav-panel-title">Dashboard</div>
 
                 <a href="{{ route('command-center.today') }}" class="corex-nav-subitem {{ request()->routeIs('corex.dashboard', 'command-center.today') ? 'active' : '' }}">Today</a>
+                @permission('command_center.calendar.view')
                 <a href="{{ route('command-center.calendar') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.calendar') ? 'active' : '' }}">Calendar</a>
+                @endpermission
+                @permission('command_center.tasks.view')
                 <a href="{{ route('command-center.tasks') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.tasks*') ? 'active' : '' }}">Tasks</a>
+                @endpermission
                 @feature('performance-dashboards')
                 <a href="{{ route('command-center.reporting.agent') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.reporting.agent') ? 'active' : '' }}">My Performance</a>
                 @endfeature
@@ -791,7 +795,7 @@
                 @if(auth()->user() && in_array(auth()->user()->role, ['admin', 'super_admin', 'owner']))
                 <a href="{{ route('command-center.reporting.agency') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.reporting.agency') ? 'active' : '' }}">Agency Report</a>
                 @endif
-                @if(auth()->user() && in_array(auth()->user()->role, ['admin', 'super_admin', 'owner']))
+                @if(auth()->user() && in_array(auth()->user()->role, ['admin', 'super_admin', 'owner']) && auth()->user()->hasPermission('command_center.settings'))
                 <a href="{{ route('command-center.lost-deals') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.lost-deals') ? 'active' : '' }}">Lost Deals</a>
                 @endif
                 @permission('dashboard.oversight.view')
@@ -1049,7 +1053,7 @@
 
                 @feature('core-matches')
                 @permission('access_core_matches')
-                @if(\Illuminate\Support\Facades\Route::has('corex.core-matches.index') && \App\Models\PerformanceSetting::get('matches_enabled', 1))
+                @if(\Illuminate\Support\Facades\Route::has('corex.core-matches.index') && \App\Models\PerformanceSetting::get('matches_enabled', 1) && auth()->user()?->hasPermission('access_contacts'))
                 {{-- AT-401 — corex.contacts.matches.* (Edit/Results/etc.) is shared
                      with the Rentals → Core Matches entry point, no rentals-prefixed
                      variant exists for those. session('corex.lens.core_matches')
@@ -1417,7 +1421,9 @@
                      opened from this list (session('corex.lens.properties') —
                      see the Real Estate → Properties item above). --}}
                 @permission('properties.view')
+                @permission('access_properties')
                 <a href="{{ route('corex.rentals.properties.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.properties.index') || (request()->routeIs('corex.properties.*') && session('corex.lens.properties', false)) ? 'active' : '' }}">Properties</a>
+                @endpermission
                 @endpermission
 
                 {{-- AT-401 — entry point into the SAME Buyer Pipeline board as
@@ -1492,7 +1498,9 @@
                      highlighted on a property opened from this list
                      (session('corex.lens.auctions') — set on the way in). --}}
                 @permission('properties.view')
+                @permission('access_properties')
                 <a href="{{ route('corex.auctions.properties.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.properties.index') || (request()->routeIs('corex.properties.*') && session('corex.lens.auctions', false)) ? 'active' : '' }}">Properties</a>
+                @endpermission
                 @endpermission
 
                 {{-- AT-432 Phase 3 — Results is genuinely auction-independent (it
@@ -1574,7 +1582,9 @@
                 @endpermission
                 @permission('communications.capture_review')
                 {{-- AT-136/AT-274 — BM/admin review of agents' capture decisions (declaration, never content). --}}
+                @permission('access_communication')
                 <a href="{{ route('communications.capture.review') }}" class="corex-nav-subitem {{ request()->routeIs('communications.capture.review') ? 'active' : '' }}">WhatsApp Consent — Review</a>
+                @endpermission
                 @endpermission
                 @permission('manage_communication_mailboxes')
                 {{-- Email is mailbox-level (no per-contact choice): which mailboxes are imported. --}}
@@ -1609,7 +1619,9 @@
                 <div style="{{ $navSection }}">WhatsApp</div>
                 @permission('access_communication')
                 {{-- AT-156 — self-link QR lives on My Portal → Tools; deep-link to that tab. --}}
+                @permission('access_my_portal')
                 <a href="{{ route('agent.portal') }}#tools" class="corex-nav-subitem">Link My WhatsApp</a>
+                @endpermission
                 {{-- Capture decisions (My WhatsApp Capture / Capture Review) moved up to the
                      Capture section (AT-195). This section is the WhatsApp CONNECTION setup. --}}
                 <a href="{{ route('communications.wa-devices.index') }}" class="corex-nav-subitem {{ request()->routeIs('communications.wa-devices.*') ? 'active' : '' }}">WhatsApp Capture (Browser Extension)</a>
@@ -1695,7 +1707,9 @@
                 <div class="corex-nav-sublabel">My Performance</div>
                 @permission('view_daily_activity')
                 <div class="corex-nav-sublabel">Daily Activities</div>
+                @permission('access_daily_activity')
                 <a href="{{ route('agent.daily') }}" class="corex-nav-subitem {{ request()->routeIs('agent.daily') ? 'active' : '' }}">My Daily Activity</a>
+                @endpermission
                 <a href="{{ route('agent.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('agent.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
                 @endpermission
                 @if(auth()->user()?->hasPermission('manage_targets') || auth()->user()?->hasPermission('manage_activity_mappings'))
@@ -1719,7 +1733,9 @@
                 <a href="{{ route('bm.my.dashboard') }}" class="corex-nav-subitem {{ request()->routeIs('bm.my.dashboard') ? 'active' : '' }}">My Agent Dashboard</a>
                 @endpermission
                 @permission('view_deals')
+                @permission('create_deals')
                 <a href="{{ route('admin.deals') }}" class="corex-nav-subitem {{ request()->routeIs('admin.deals*') ? 'active' : '' }}">Deal Register</a>
+                @endpermission
                 @if(\Illuminate\Support\Facades\Route::has('deals-dr2.index'))
                 <a href="{{ route('deals-dr2.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-dr2.*') ? 'active' : '' }}">Deal Register (DR2)</a>
                 @endif
@@ -1843,7 +1859,9 @@
                 @permission('view_daily_activity')
                 <div class="corex-nav-sublabel">Daily Activities</div>
                 @if($effectiveBranchId)
+                @permission('access_daily_activity')
                 <a href="{{ route('agent.daily') }}" class="corex-nav-subitem {{ request()->routeIs('agent.daily') && !request()->routeIs('agent.daily.summary*') ? 'active' : '' }}">Daily Activity Capture</a>
+                @endpermission
                 @endif
                 <a href="{{ route('bm.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('bm.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
                 @endpermission
@@ -1891,7 +1909,9 @@
                 @endif
                 @endpermission
                 @permission('view_deals')
+                @permission('create_deals')
                 <a href="{{ route('admin.deals') }}" class="corex-nav-subitem {{ request()->routeIs('admin.deals*') ? 'active' : '' }}">Deal Register</a>
+                @endpermission
                 @if(\Illuminate\Support\Facades\Route::has('deals-dr2.index'))
                 <a href="{{ route('deals-dr2.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-dr2.*') ? 'active' : '' }}">Deal Register (DR2)</a>
                 @endif
@@ -1914,7 +1934,9 @@
                 @if(false)
                 <a href="{{ route('admin.listings.import') }}" class="corex-nav-subitem {{ request()->routeIs('admin.listings.import*') ? 'active' : '' }}">Import Listings</a>
                 @endif
+                @permission('access_settings')
                 <a href="{{ route('admin.minion.setup') }}" class="corex-nav-subitem {{ request()->routeIs('admin.minion.*') ? 'active' : '' }}">P24 Auto-Import</a>
+                @endpermission
                 @endpermission
                 {{-- Daily Activities group — summary + merged Setup. De-dupe: the Branch
                      "Setup" section above already renders the Setup link for users with
@@ -1999,6 +2021,7 @@
                 </button>
                 <div class="corex-nav-panel-title">Documents</div>
                 @permission('create_docuperfect_docs')
+                @permission('access_docuperfect')
                 <a href="{{ route('docuperfect.create') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.create') ? 'active' : '' }}">Create Document</a>
                 <a href="{{ route('docuperfect.esign.create') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.create') ? 'active' : '' }}">E-Sign Document</a>
                 <a href="{{ route('docuperfect.esign.myDocuments') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.myDocuments') && request()->query('filter') !== 'authorisation' ? 'active' : '' }}">My E-Sign Documents</a>
@@ -2006,15 +2029,20 @@
                 <a href="{{ route('docuperfect.esign.myDocuments', ['filter' => 'authorisation']) }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.myDocuments') && request()->query('filter') === 'authorisation' ? 'active' : '' }}">Authorise Documents</a>
                 @endif
                 @endpermission
+                @endpermission
                 @permission('access_docuperfect')
                 <a href="{{ route('docuperfect.dashboard') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.dashboard') ? 'active' : '' }}">My Documents</a>
                 @endpermission
                 @permission('access_docuperfect_packs')
+                @permission('access_docuperfect')
                 <a href="{{ route('docuperfect.packs.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.packs.*') ? 'active' : '' }}">Packs</a>
                 <a href="{{ route('docuperfect.web-packs.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.web-packs.*') ? 'active' : '' }}">Web Packs</a>
                 @endpermission
+                @endpermission
                 @permission('access_clause_library')
+                @permission('access_docuperfect')
                 <a href="{{ route('docuperfect.clauses.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.clauses.*') ? 'active' : '' }}">Clause Library</a>
+                @endpermission
                 @endpermission
                 @permission('esign.compiler.view')
                 <a href="{{ route('docuperfect.compiler.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.compiler.*') ? 'active' : '' }}">Compile Studio</a>
@@ -2025,11 +2053,13 @@
                 <a href="{{ route('docuperfect.esign.settings.finalization') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.settings.finalization*') ? 'active' : '' }}">Finalisation Settings</a>
                 @endpermission
                 @permission('manage_templates')
+                @permission('access_docuperfect')
                 <a href="{{ route('docuperfect.templates.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.templates.*') ? 'active' : '' }}">Template Management</a>
                 <a href="{{ route('docuperfect.field-groups.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.field-groups.*') ? 'active' : '' }}">Field Groups</a>
                 <a href="{{ route('docuperfect.settings.namedFields') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.settings.namedFields*') ? 'active' : '' }}">Named Fields</a>
                 <a href="{{ route('docuperfect.settings.types') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.settings.types*') ? 'active' : '' }}">Document Types</a>
                 <a href="{{ route('docuperfect.import.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.import.*') ? 'active' : '' }}">Import Document</a>
+                @endpermission
                 @endpermission
                 @if(auth()->user()->isOwnerRole())
                 @permission('templates.transfer')
@@ -2088,7 +2118,9 @@
                 <a href="{{ route('compliance.policy.dashboard.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.policy.dashboard.*') ? 'active' : '' }}">Policy Register</a>
                 @endpermission
                 @permission('manage_employee_screenings')
+                @permission('access_compliance_dashboard')
                 <a href="{{ route('compliance.screening.dashboard.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.screening.*') || request()->routeIs('compliance.screenings.*') ? 'active' : '' }}">Staff Screening</a>
+                @endpermission
                 @endpermission
                 @if($isOwner || $effectiveRole === 'super_admin')
                 @php $nonCompliantAgents = \App\Models\User::where('is_active', true)->whereNull('deleted_at')->whereNull('ffc_number')->count(); @endphp
@@ -2117,9 +2149,9 @@
                 @permission('manage_agency_compliance')
                 <a href="{{ route('compliance.document-types.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.document-types.*') ? 'active' : '' }}">Document Types</a>
                 @endpermission
-                @if(auth()->user()->hasPermission('manage_agency_compliance') || auth()->user()->hasPermission('manage_branch_compliance'))
+                @permission('manage_agency_compliance')
                 <a href="{{ route('compliance.agency-settings.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.agency-settings.*') ? 'active' : '' }}">Agency Documents</a>
-                @endif
+                @endpermission
                 @permission('compliance.whistleblow.view')
                 {{-- Perf (2026-08-23): was cache()->remember(60s) — ~24ms/7 queries cold,
                      vs ~10-12ms/5 queries computed directly (measured); a warm hit is only
@@ -2365,7 +2397,9 @@
                         </button>
                         <div class="corex-nav-panel-title">Documents</div>
 
+                        @permission('ppra_employment_letters.manage')
                         <a href="{{ route('admin.ppra-employment-letters.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.ppra-employment-letters.*') ? 'active' : '' }}">PPRA FFC Letter</a>
+                        @endpermission
                     </div>
                 </div>
                 @endfeature
@@ -2857,7 +2891,7 @@
 
         {{-- Contact Governance + Leave Visibility (admin/super_admin/owner) --}}
         @feature('contact-governance')
-        @if($user && in_array($user->role, ['admin', 'super_admin', 'owner']))
+        @if($user && in_array($user->role, ['admin', 'super_admin', 'owner']) && $user->hasPermission('command_center.settings'))
         <a href="{{ route('command-center.settings.contact-governance') }}" class="corex-nav-item {{ request()->routeIs('command-center.settings.contact-governance*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
@@ -2926,7 +2960,9 @@
                 <a href="{{ route('admin.settings.deal-distribution-rules.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.settings.deal-distribution-rules.*') ? 'active' : '' }}">Distribution Rules</a>
                 @endif
                 @if(\Illuminate\Support\Facades\Route::has('admin.settings.deal-property-sync.index'))
+                @permission('access_settings')
                 <a href="{{ route('admin.settings.deal-property-sync.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.settings.deal-property-sync.*') ? 'active' : '' }}">Deal → Property Sync</a>
+                @endpermission
                 @endif
                 @endpermission
             </div>
