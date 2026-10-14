@@ -4243,6 +4243,8 @@ good enough, or does an agent need to manually reorder an already-paired set?**
 
 ### 24.5 Auto-pair — proposed rule, not built anywhere today
 
+> **RULING CHANGED 14 Oct 2026 — see §56.** "Exactly one photo each side, anything else proposes nothing" no longer applies to photos tagged to an ITEM: they now pair by position. The text below is the history.
+
 `grep -i "auto-pair"` across the entire spec returns zero hits before this section — confirmed nothing
 resembling this exists, on QA1 or in any prior design record.
 
@@ -7921,3 +7923,25 @@ From cc5's walk of an incoming inspection:
 **Settings and wizard (CLAUDE.md 10a).** Settings -> Rental Inspections -> "Standard rooms for a new property" (saver `RentalInspectionSettingsController::updateRoomTemplates`, marker `room_templates_submitted`, only the kinds posted are touched, an emptied kind posts a `_present` marker so it saves empty) and the Setup Wizard's Rentals -> inspection lists partial (saver `RentalListsWizardSaver::inspectionRoomTemplates`, no-op without the marker). Fold-in rules live in `RentalInspectionSetting::mergeRoomTemplates` so both screens apply identical ones (unknown type, blank and a repeated type in one list are dropped; counts 1-20).
 
 **Tests.** `RentalInspectionStandardRoomsTest` (16): which list a type name uses, defaults for two agencies with nothing stored, house list with items in walking order, own figures win, flat list, existing rooms untouched, pressed twice builds once, retired room counts, empty list says so, plain form post, another agency's property refused, settings change with a second agency on defaults, the agency's own type in a list, settings page, wizard saver no-op / save, wizard config.
+
+
+## 56. Photo pairing by position, the item note stops starving the photos, the Photo compare chips tell the truth (14 Oct 2026; Johan, property 21222; QA1 only)
+
+**What Johan saw (Entrance Hall > Ceiling / Walls on a move-out).** Out photos sat beside "NO MATCH" tiles although the move-in had photos on the same item; the "Auto-pair" button did nothing and said nothing; the move-in photo strip on Ceiling was a ~15 px sliver; and the Photo compare viewer read "Ceiling 0 / 0", "Walls 3 / 0".
+
+**Causes.**
+1. *No pairs existed.* `RentalInspectionPhotoAutoPairService::runFor()` only paired an item when there was **exactly one** photo on each side (§24.5's "propose nothing rather than guess"). Ceiling was 3 in / 4 out, Walls 3 in / 3 out, so nothing was ever paired; the strip (`pairedRows()`, show.blade.php) then lists every unpaired photo on its own row, in-only and out-only alternating - which is exactly "[1 NO MATCH][2 photo][3 NO MATCH][4 photo]".
+2. *Auto-pair silent.* The controller returned only `created_count`; the page ignored it. With rule 1 it created zero groups, so nothing moved and nothing was said.
+3. *Sliver.* In `rental-inspection-item-cell.blade.php` the read-only item note lived inside the `flex:none` condition-buttons column. A `flex:none` column is as wide as its widest child, so a long note widened the column (measured 502 px against the normal 185 px) and the strip beside it (`flex:1; min-width:0`) was left with 50 px. Same cause as item 4 on the same screen: the Damaged/Good buttons turning into full-width text buttons.
+4. *Viewer counts.* `compareViewerChipCounts()` read `conditionForInspection(...).photos` - only the **newest** observation of the item - for both sides (the IN Ceiling's newest observation is the photo-less "Damaged" re-assessment, so 0), and the current inspection was read from the payload as loaded with the page, so any photo uploaded after the page opened counted as 0 (Walls 3 / 0). The strips read every observation, and the tail through the live uploader cache. Same class as §40.
+
+**Rules now.**
+- **Auto-pair (explicit button and the automatic first-view run) pairs the photos of the same room+item by position** - 1st in with 1st out, 2nd with 2nd, in upload (id) order. Extras on the longer side stay unpaired and show "NO MATCH". Photos that were ever in a match, active or removed, are never reconsidered (an agent's explicit unmatch is respected; re-running is a no-op). Photos tagged to a **room but no item** keep the old cautious rule (paired only when exactly one each side) - there is nothing to say they are the same thing. Same linking primitive (`RentalInspectionPhotoMatchGroup::linkPhotos()`), same same-item guard.
+- **The button always answers.** The response now carries `created_count`, `unmatched_count` and `message`; the button shows it next to itself for 12 s: "Paired 6 photos, 1 without a match." / "No new pairs. 1 photo without a match." / "Nothing new to pair - every photo that has a twin is already paired." (`unmatched_count` = tagged photos on either inspection, in a room/item that has photos on both sides, with no active match.) The silent on-open run shows nothing.
+- **A read-only item note renders below the buttons+strip row**, spanning the item's width and wrapping (`min-width:0; overflow-wrap:anywhere`). The buttons column keeps its fixed size on both sides. The editable (out) side's note is an input inside the column; typed text never widens an input, checked on a ZZ record with a long out note.
+- **One photo resolver for the Photo compare viewer**: `compareViewerSidePhotos(side, kind, roomId, itemId)` (show.blade.php) feeds both the rails and the chip counts - the previous inspection through every observation's photos, the current inspection through `itemPhotosFor()/roomPhotosFor()` (the same source the strips use). A chip can no longer disagree with what the strip or the rail shows.
+
+**Files.** `app/Services/RentalInspectionPhotoAutoPairService.php`, `app/Http/Controllers/CoreX/RentalInspectionRecordingController.php` (`autoPairPhotoMatches`), `resources/views/corex/properties/show.blade.php` (`runAutoPair(explicit)`, `autoPairMessage`, `compareViewerSidePhotos`, `compareViewerChipCounts`), `resources/views/corex/properties/partials/rental-inspection-item-cell.blade.php`.
+
+**Tests.** `RentalInspectionRecordingControllerTest::test_auto_pair_pairs_the_photos_of_one_item_by_position_and_reports_the_result` (3 in / 4 out and 3 in / 3 out: pairs by position, 4th out photo unpaired, message and counts, second press is a no-op). Browser proof on a ZZ property (headless Chromium, QA1, 1600 and 1366 wide): before/after screenshots listed in the commit report.
+

@@ -5591,11 +5591,13 @@
                                  AND a tail to compare, same precondition
                                  runAutoPair() itself checks. --}}
                             <div x-show="chainTail && chainPredecessor" x-cloak class="flex items-center gap-2 flex-none flex-wrap lg:flex-nowrap pr-3">
-                                <button type="button" data-qa="auto-pair" :disabled="autoPairBusy" @click="runAutoPair()"
+                                <button type="button" data-qa="auto-pair" :disabled="autoPairBusy" @click="runAutoPair(true)"
                                         class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
-                                        title="Link any obviously-matching photos between this inspection and its predecessor.">
+                                        title="Pair the photos of each item with the same item's photos on the previous inspection, first with first, second with second.">
                                     <span x-text="autoPairBusy ? 'Pairing…' : 'Auto-pair'"></span>
                                 </button>
+                                {{-- 2026-10-14 — the button used to give no sign it had run. --}}
+                                <span x-show="autoPairMessage" x-cloak data-qa="auto-pair-result" class="text-xs font-semibold" style="color:var(--text-secondary);" x-text="autoPairMessage"></span>
                             </div>
                             <div x-show="chainTail" x-cloak class="flex items-center gap-2 flex-none flex-wrap lg:flex-nowrap pr-3">
                                 <span x-show="nextError" x-cloak class="text-xs" style="color:#ef4444;" x-text="nextError"></span>
@@ -6679,6 +6681,8 @@
                 // without a full page reload) must get its own run.
                 _autoPairedForPair: null,
                 autoPairBusy: false,
+                autoPairMessage: '',
+                _autoPairMessageTimer: null,
                 async maybeAutoPairPhotos() {
                     if (!this.autoPairPhotosEnabled) return;
                     if (!this.chainPredecessor || !this.chainTail) return;
@@ -6689,9 +6693,12 @@
                     this._autoPairedForPair = key;
                     await this.runAutoPair();
                 },
-                async runAutoPair() {
+                // `explicit` is true only for the button press: that one reports its result
+                // ("Paired 6 photos, 2 without a match."); the silent on-open run never does.
+                async runAutoPair(explicit = false) {
                     if (!this.chainPredecessor || !this.chainTail) return;
                     this.autoPairBusy = true;
+                    if (explicit) this.autoPairMessage = '';
                     try {
                         const res = await fetch(this.inspectionUrls.photoMatchesAutoPair, {
                             method: 'POST',
@@ -6706,6 +6713,11 @@
                         (data.groups || []).forEach(group => {
                             this._applyGroupPatch(group, (group.members || []).map(m => m.photo_id));
                         });
+                        if (explicit) {
+                            this.autoPairMessage = data.message || '';
+                            clearTimeout(this._autoPairMessageTimer);
+                            this._autoPairMessageTimer = setTimeout(() => { this.autoPairMessage = ''; }, 12000);
+                        }
                     } finally {
                         this.autoPairBusy = false;
                     }
@@ -6884,9 +6896,35 @@
                     // observation, not just the latest) showed them fine.
                     // Same source both sides now use everywhere else in
                     // this file for item photos.
-                    const photos = this.compareViewer.kind === 'room'
-                        ? this.roomPhotosForInspection(insp, this.compareViewer.roomId)
-                        : this.itemPhotosForInspection(insp, this.compareViewer.itemId);
+                    return this.compareViewerSidePhotos(side, this.compareViewer.kind, this.compareViewer.roomId, this.compareViewer.itemId);
+                },
+                // 2026-10-14 (Johan, property 21222: the viewer chips read
+                // "Ceiling 0 / 0", "Walls 3 / 0" while the strips showed 3 IN
+                // and 4 OUT photos on Ceiling) — ONE resolver for "which
+                // photos does this side have for this room/item", used by
+                // the rails AND the chip counts, and reading the SAME
+                // sources the strips read: the predecessor through the
+                // plain inspection object (every observation's photos), the
+                // current (tail) inspection through the live uploader cache
+                // (itemPhotosFor()/roomPhotosFor(), exactly what
+                // pairedStripRows() uses for the tail). The tail used to be
+                // read off chainTail.observations[].photos — the payload as
+                // loaded with the page — so any photo uploaded after page
+                // load, and any item whose newest observation was a
+                // photo-less re-assessment, silently counted as zero.
+                compareViewerSidePhotos(side, kind, roomId, itemId) {
+                    const insp = side === 'left' ? this.chainPredecessor : this.chainTail;
+                    if (!insp) return [];
+                    let photos;
+                    if (side === 'right' && this.photoUploader(this.tailSection())) {
+                        photos = kind === 'room'
+                            ? this.roomPhotosFor(this.tailSection(), { id: roomId })
+                            : this.itemPhotosFor(this.tailSection(), { id: itemId });
+                    } else {
+                        photos = kind === 'room'
+                            ? this.roomPhotosForInspection(insp, roomId)
+                            : this.itemPhotosForInspection(insp, itemId);
+                    }
                     return (photos || []).filter(p => p && p.storage_path);
                 },
                 // §24.11, AT-433 Part B follow-up, 2026-09-27 — pairs first
@@ -7127,13 +7165,11 @@
                     this.compareViewerResetZoom();
                 },
                 // The chip's own "2 / 1" count — IN side / CURRENT side.
+                // Same resolver as the rails (compareViewerSidePhotos()), so the
+                // number on a chip can never disagree with what the rail lists.
                 compareViewerChipCounts(itemId) {
-                    const countFor = (insp) => {
-                        if (!insp) return 0;
-                        if (!itemId) return this.roomPhotosForInspection(insp, this.compareViewer.roomId).length;
-                        return ((this.conditionForInspection(insp, itemId) || {}).photos || []).length;
-                    };
-                    return countFor(this.chainPredecessor) + ' / ' + countFor(this.chainTail);
+                    const countFor = (side) => this.compareViewerSidePhotos(side, itemId ? 'item' : 'room', this.compareViewer.roomId, itemId).length;
+                    return countFor('left') + ' / ' + countFor('right');
                 },
                 // §27.1 — was a hardcoded conditionKey === 'good' /
                 // indexOf('damag') string check: only ever correct for an

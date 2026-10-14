@@ -70,19 +70,14 @@
 @endif
             </template>
         </div>
-@if($readOnly)
-        <div x-show="conditionForInspection({{ $inspectionJs }}, item.id)?.notes"
-             class="text-xs mt-0.5 rir-note-callout"
-             :class="'rir-note-callout-' + noteCalloutTone(conditionForInspection({{ $inspectionJs }}, item.id)?.condition)"
-             x-text="conditionForInspection({{ $inspectionJs }}, item.id)?.notes"></div>
-@else
+@unless($readOnly)
         <input type="text"
                x-show="selectedConditionFor({{ $inspectionJs }}, item) && conditionRequiresNotes(selectedConditionFor({{ $inspectionJs }}, item))"
                x-model="obsField({{ $inspectionJs }}, item.id).notes"
                @input="onNotesInput({{ $inspectionJs }}, item)"
                placeholder="Notes (required)"
                class="prop-input w-full">
-@endif
+@endunless
     </div>
 
     {{-- §27.1.2 — the global "Photos: shown/hidden" toggle wraps this whole
@@ -352,3 +347,21 @@
         </div>
     </div>
 </div>
+
+@if($readOnly)
+{{-- BUG FIX, 2026-10-14 (Johan, property 21222 Ceiling): the read-only item
+     note used to sit INSIDE the `flex:none` condition-buttons column above.
+     A flex:none column sizes to its widest child, so a long note widened the
+     column to the note's full intrinsic width — the two-column button grid
+     stretched into full-width text buttons and the photo strip beside it
+     (flex:1; min-width:0) was squeezed to a ~15px sliver. The note now lives
+     here, a sibling BELOW the buttons+strip row: it spans the item's own
+     width, wraps inside it (min-width:0 + overflow-wrap), and can no longer
+     take width from the buttons or the photos. The buttons column keeps its
+     natural, fixed size on both sides. --}}
+<div x-show="conditionForInspection({{ $inspectionJs }}, item.id)?.notes"
+     class="text-xs rir-note-callout"
+     style="min-width:0; max-width:100%; overflow-wrap:anywhere;"
+     :class="'rir-note-callout-' + noteCalloutTone(conditionForInspection({{ $inspectionJs }}, item.id)?.condition)"
+     x-text="conditionForInspection({{ $inspectionJs }}, item.id)?.notes"></div>
+@endif
