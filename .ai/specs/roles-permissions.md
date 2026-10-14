@@ -387,3 +387,24 @@ no deal-register access), `documents.edit` (edits other people's documents), `co
 Retired keys HFC still holds and nothing reads: `view_rentals`, `access_rental_signatures`, `ppra_employment_letters.sign_as_principal`.
 
 Tests: `tests/Feature/Permissions/NewAgencyDefaultMatrixTest.php`.
+
+
+### Amendment (2026-10-14, later the same day) — every role gets everything HFC's corresponding role holds
+
+Johan on the held-back keys: **"each gets everything - they decide in setup what they want and need."** This
+supersedes the 12 Oct "bare minimum" default (§6) and the "Deliberately NOT added" list above. The canonical
+`role_defaults` now carries, for branch_manager, agent, viewer and office_admin, every key HFC's same-named role holds
+(agent +102, branch_manager +43, viewer +230, office_admin +313 on top of the first batch; admin was already complete
+via all-minus-exclude; assistant stays a zero-grant label). Only exclusions: the platform-owner-only keys (admin's
+`exclude` list — none of them is held by any HFC role) and the three retired keys. A new agency starts exactly where HFC
+is and trims per role in Role Manager.
+- Where this reaches past an older, narrower ruling it is knowingly the newer ruling that wins: AT-283 (settlement /
+  payroll / deal register are admin-only) — office_admin and viewer now default to `manage_payroll`, `run_payroll`,
+  `view_payroll_reports`, `deals_v2.*`, viewer also `access_deal_register(_v2)` and `branches.switch`; agent gets
+  `deals_v2.create/archive/override_dates` and `create_deals`.
+- Rollout consequence: `deploy:sync-reference-data` adds these keys additively to EVERY existing agency's roles on the
+  next deploy of an environment (an un-ticked/soft-deleted grant is respected; a key an agency simply never had is
+  added). QA1 gets it with this change; Staging/live only when promoted.
+- The setup wizard's Roles step is explainer-only (no grants, no tick boxes; `agency-setup/steps/roles.blade.php`) and its
+  worked example still says an agent "cannot ... approve a FICA pack" — now untrue for a fresh agency. Trimming happens
+  in Role Manager. Reported to Johan; not changed (out of this task's scope).
