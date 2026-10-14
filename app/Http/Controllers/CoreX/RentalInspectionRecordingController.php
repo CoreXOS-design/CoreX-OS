@@ -1423,10 +1423,22 @@ class RentalInspectionRecordingController extends Controller
         $predecessor = $tail->previousInspection ?? RentalInspection::inferredPredecessorFor($tail);
         abort_if(! $predecessor, 422, 'No predecessor inspection to compare against yet.');
 
-        $groups = app(RentalInspectionPhotoAutoPairService::class)->runFor($predecessor, $tail, $request->user());
+        $service = app(RentalInspectionPhotoAutoPairService::class);
+        $groups = $service->runFor($predecessor, $tail, $request->user());
+        $unmatched = $service->unmatchedCount($predecessor, $tail);
+
+        // The explicit "Auto-pair" button always says what happened — 2026-10-14, it used to do nothing visible.
+        $paired = $groups->count();
+        $message = match (true) {
+            $paired === 0 && $unmatched === 0 => 'Nothing new to pair — every photo that has a twin is already paired.',
+            $paired === 0 => 'No new pairs. ' . $unmatched . ' photo' . ($unmatched === 1 ? '' : 's') . ' without a match.',
+            default => 'Paired ' . $paired . ' photo' . ($paired === 1 ? '' : 's') . ', ' . $unmatched . ' without a match.',
+        };
 
         return response()->json([
-            'created_count' => $groups->count(),
+            'created_count' => $paired,
+            'unmatched_count' => $unmatched,
+            'message' => $message,
             'groups' => $groups->map->toComparePayload()->values(),
         ]);
     }

@@ -1903,6 +1903,46 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         );
     }
 
+    /**
+     * 2026-10-14 (Johan, property 21222) — same item, several photos each side: paired by position (1st with 1st,
+     * 2nd with 2nd ...), extras stay unpaired, the button's response says what happened, and a re-run is a no-op.
+     */
+    public function test_auto_pair_pairs_the_photos_of_one_item_by_position_and_reports_the_result(): void
+    {
+        $room = $this->makeRoom();
+        $ceiling = $this->makeItem();
+        $walls = RentalInspectionItem::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'kind' => RentalInspectionItem::KIND_SPACE, 'label' => 'Walls', 'created_by_user_id' => $this->agent->id,
+        ]);
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $out = RentalInspection::startNext($in, RentalInspection::TYPE_OUT, $this->agent);
+
+        $inCeiling = array_map(fn () => $this->makePhotoForItem($in, $ceiling, $room), [1, 2, 3]);
+        $outCeiling = array_map(fn () => $this->makePhotoForItem($out, $ceiling, $room), [1, 2, 3, 4]);
+        $inWalls = array_map(fn () => $this->makePhotoForItem($in, $walls, $room), [1, 2, 3]);
+        $outWalls = array_map(fn () => $this->makePhotoForItem($out, $walls, $room), [1, 2, 3]);
+
+        $response = $this->postJson(route('corex.properties.rental-inspection-photo-matches.auto-pair', $this->property))->assertOk();
+
+        $response->assertJson(['created_count' => 6, 'unmatched_count' => 1, 'message' => 'Paired 6 photos, 1 without a match.']);
+        foreach ([[$inCeiling, $outCeiling], [$inWalls, $outWalls]] as [$ins, $outs]) {
+            foreach ([0, 1, 2] as $i) {
+                $this->assertSame(
+                    \App\Models\RentalInspectionPhotoMatchGroup::forPhoto($ins[$i])->id,
+                    \App\Models\RentalInspectionPhotoMatchGroup::forPhoto($outs[$i])->id,
+                    "photo " . ($i + 1) . " pairs with photo " . ($i + 1)
+                );
+            }
+        }
+        $this->assertNull(\App\Models\RentalInspectionPhotoMatchGroup::forPhoto($outCeiling[3]), 'the 4th out photo has no twin');
+
+        // Idempotent: nothing new on a second press, and it still says so.
+        $this->postJson(route('corex.properties.rental-inspection-photo-matches.auto-pair', $this->property))
+            ->assertOk()
+            ->assertJson(['created_count' => 0, 'unmatched_count' => 1]);
+    }
+
     public function test_tab_payload_exposes_the_compare_pair_and_its_matches_once_an_out_inspection_exists(): void
     {
         [$photoIn, $photoOut] = $this->makeMatchablePair();

@@ -1272,6 +1272,26 @@ final class RentalInspectionSigningLinkTest extends TestCase
         $this->get($link->url())->assertOk()->assertDontSee('data-qa="sign-unavailable"', false)->assertSee('Sign the report');
     }
 
+    // ═══ 14 Oct 2026 (Johan): the drawing pad was dead on load until the "I have read" box was ticked ═══
+
+    public function test_the_signature_pad_is_built_on_page_load_and_only_the_sign_button_waits_for_the_read_box(): void
+    {
+        $inspection = $this->inspection(RentalInspection::TYPE_IN);
+        $link = $this->liveLinkOn($inspection);
+        $this->guest();
+
+        $html = $this->get($link->url())->assertOk()->getContent();
+
+        // Alpine calls init() itself: a second x-init="init()" bound two pads to one canvas
+        $this->assertStringNotContainsString('x-init="init()"', $html);
+        // the pad is sized on load, resize, rotation and whenever the canvas changes size, and waits for the library
+        foreach (['syncPad', "'load'", "'resize'", "'orientationchange'", 'ResizeObserver', 'libTimer'] as $needle) {
+            $this->assertStringContainsString($needle, $html);
+        }
+        // the checkbox gates the button, never the pad
+        $this->assertStringContainsString(":disabled=\"busy || (action === 'sign' && !readConfirmed)\"", $html);
+    }
+
     // ═══ 13 Oct 2026 (Sherry walk): the inspection screens ═══
 
     public function test_a_property_with_no_rooms_is_said_so_at_the_top_of_the_inspection_page_with_the_way_to_fix_it(): void
