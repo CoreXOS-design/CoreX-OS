@@ -27,7 +27,7 @@ class PartySignedNotificationMail extends Mailable
 
         return new Envelope(
             from: new Address(
-                config('mail.from.address'),
+                \App\Support\PlatformSender::address(),
                 \App\Support\ClientBrand::NEUTRAL
             ),
             subject: "{$roleLabel} has signed: {$this->documentName} — Review Required",

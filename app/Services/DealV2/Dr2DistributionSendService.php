@@ -96,7 +96,7 @@ class Dr2DistributionSendService
         // reassignable human label); regex /\[CX-D(\d+)\]/ recovers it on the way
         // back. See .ai/specs/at231-inbound-attorney-comms-filing.md §3.1.
         $dealToken  = '[CX-D' . $deal->id . ']';
-        $mailDomain = strtolower(Str::after((string) config('mail.from.address', ''), '@'));
+        $mailDomain = \App\Support\PlatformSender::domain();
         if ($mailDomain === '') {
             $mailDomain = 'corexos.co.za';
         }
