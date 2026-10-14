@@ -262,6 +262,11 @@ by oversight — do not reinstate them without asking:
 
 - **"Who looks at faults first" (per-property / per-owner first responders, `rental_first_responders`)** (2026-10-12, qa1 AT-452 family; **recorded for Johan**). It is per-property and per-owner DATA with a change log - like the owner's work terms, which are not wizard controls either - not an agency setting, so there is nothing to switch on in onboarding. Spec `rentals-faults-work-orders.md` §21.4.
 
+- **`lease_settings.allow_advance_as_of_date` - "run a lease's date checks as if today were another day"** (2026-10-14, qa1; the brief itself says the
+  setting is hidden unless APP_ENV is not production). A testing aid for QA / Staging boxes that have no scheduler
+  (rental-renewals.md §22.1). The wizard is what a NEW agency on the live system walks through, and the control does not exist
+  there, so it cannot be a wizard step. Default off.
+
 - **`lease_settings.default_pre_let_status` — "the status that means back on the market"** (2026-10-08, qa1-cc2, **pending
   Johan's confirmation**). It is a pick from the agency's OWN property statuses, which a wizard control cannot list (wizard
   `options` are static config; a closure would break `config:cache`). It is on Settings → Leases, default `active`, valid for

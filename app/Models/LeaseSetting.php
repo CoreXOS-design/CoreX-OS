@@ -85,6 +85,9 @@ class LeaseSetting extends Model
     // depending on any agency having configured a 'to_let'-style item.
     public const DEFAULT_PRE_LET_STATUS = 'active';
 
+    /** rental-renewals.md §22.1 - testing knob (QA / Staging only): off unless an admin switches it on; never read on a production install. */
+    public const DEFAULT_ALLOW_ADVANCE_AS_OF_DATE = false;
+
     protected $fillable = [
         'agency_id',
         'expiry_notice_window_days',
@@ -101,6 +104,7 @@ class LeaseSetting extends Model
         'require_end_or_month_to_month_for_signing',
         'restore_end_date_on_leaving_month_to_month',
         'signed_copy_not_live_note',
+        'allow_advance_as_of_date',
         'auto_readvertise_on_notice',
         'auto_restore_status_on_lease_ended',
         'auto_restore_status_on_lease_cancelled',
@@ -118,6 +122,7 @@ class LeaseSetting extends Model
         'month_to_month_after_end_days' => 'integer',
         'require_end_or_month_to_month_for_signing' => 'boolean',
         'restore_end_date_on_leaving_month_to_month' => 'boolean',
+        'allow_advance_as_of_date' => 'boolean',
         'auto_readvertise_on_notice' => 'boolean',
         'auto_restore_status_on_lease_ended' => 'boolean',
         'auto_restore_status_on_lease_cancelled' => 'boolean',
@@ -200,6 +205,18 @@ class LeaseSetting extends Model
         $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
 
         return $row?->restore_end_date_on_leaving_month_to_month ?? self::DEFAULT_RESTORE_END_DATE_ON_LEAVING_MONTH_TO_MONTH;
+    }
+
+    /** The raw setting (rental-renewals.md §22.1). Callers on a screen / route go through LeaseTermAdvanceService::asOfDateAllowed(), which also checks the environment. */
+    public static function allowAdvanceAsOfDateFor(?int $agencyId): bool
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_ALLOW_ADVANCE_AS_OF_DATE;
+        }
+
+        $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
+
+        return $row?->allow_advance_as_of_date ?? self::DEFAULT_ALLOW_ADVANCE_AS_OF_DATE;
     }
 
     /** The sentence for the signed-copy mail ('' = the agency chose to say nothing extra). */

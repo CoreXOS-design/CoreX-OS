@@ -470,6 +470,11 @@ reload php-fpm → restart the queue worker. The reference-data step is
 non-optional: it is the only thing that carries seeder-owned GLOBAL reference
 rows across environments.
 
+**Scheduler check (every promotion):** the target must have `schedule:run` in cron (`crontab -l`,
+`/etc/cron.d`) - several date-driven rental jobs depend on it, notably `leases:advance-terms` (00:35: signed
+renewals go active, tenancies end - rental-renewals.md §22). Staging's cron was switched off on 2026-08-21; if the
+target has none, say so in the promotion report (the lease screen's admin button is the stand-in on a test box).
+
 ### Env-parity check (every promotion) — extensions AND PHP version
 
 CoreX deploys are `git pull` (code only), never provisioning. So a PHP
