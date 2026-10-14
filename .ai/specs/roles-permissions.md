@@ -353,3 +353,37 @@ key that is not in the map has no breadth reader at all (plain on/off).
 stored scope are not shown in the matrix.
 
 Tests: `tests/Feature/RoleManager/RoleManagerDefaultsDisplayTest.php`.
+
+
+## The default matrix must be able to do the job — new-agency go-live blocker (2026-10-14)
+
+**The defect.** cc3's new-agency walk on QA1 (agency 205): the agent role had 193 grants against HFC's 316, branch_manager
+321 vs 384, viewer 73 vs 308. The new agency's agent got 403 on Calendar and Tasks and could not create/edit/archive a
+listing. Cause: provisioning was correct (a new agency equals `role_defaults` exactly — 193/321/504/73/13/0 matched the
+config key-for-key) but `role_defaults` itself was too thin — the Command Centre keys appeared in NO role's list, and
+`listings.create/edit/archive`, `rentals.archive`, `daily_activity.archive` etc. were only ever ticked by hand in HFC's
+Role Manager. Nothing is "copied from agency 1" — HFC simply held keys the canonical list never named.
+
+**The one canonical matrix** is `role_defaults` in `config/corex-permissions.php`. It is applied (1) on agency creation
+(`RoleProvisioningService`, via `Agency::created`) and (2) additively on every deploy to every agency's roles
+(`deploy:sync-reference-data` → `corex:sync-permissions --merge-defaults`; a soft-deleted/un-ticked grant is seen and never
+resurrected, custom roles and extra grants are never touched). There are no `is_locked`/`customised` flags — the Role
+Manager's soft-delete IS the customisation record.
+
+**Added to the defaults (2026-10-14).**
+- agent: `command_center.view`, `.scorecards.own`, `.calendar.view/create/edit/delete`, `.tasks.view/create/edit/delete`;
+  `listings.create/edit/archive`, `rentals.archive`, `daily_activity.archive`, `create_presentations`
+  (property page "Presentation" button), `contact_rental_history.view`, `buyer_pipeline.view`.
+- branch_manager: the same, plus `command_center.tasks.assign`, `command_center.health.view`, `view_own_stats`.
+- viewer: read-only `command_center.view`, `.calendar.view`, `.tasks.view`.
+- admin: unchanged (all-minus-exclude already complete). office_admin/assistant: unchanged (Johan's 12 Oct bare-minimum ruling).
+
+**Deliberately NOT added** (HFC holds them; manager/officer/admin or HFC-specific — Johan's call per key):
+compliance (`compliance.fica.review/approve`, `approve_rmcp`, `approve_policy`, whistleblow configure/approve), finance/users/roles/
+settings views, `contacts.delete/import/reassign_agent`, `properties.archive`/`delete_properties`, `contacts.archive`,
+client-app logins, `agency_api.*`, `testimonials.publish`, marketing suppressions, P24 manage, remote-access authorisation,
+TV messages, targets, branch assignments, deeds capture, MIC admin keys, `deals_v2.create`/`create_deals` (AT-283: agents have
+no deal-register access), `documents.edit` (edits other people's documents), `command_center.automation.manage`.
+Retired keys HFC still holds and nothing reads: `view_rentals`, `access_rental_signatures`, `ppra_employment_letters.sign_as_principal`.
+
+Tests: `tests/Feature/Permissions/NewAgencyDefaultMatrixTest.php`.

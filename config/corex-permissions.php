@@ -1315,6 +1315,15 @@ return [
                 'market_intelligence.view', 'outreach_canvassing.view',
                 // MIC property row comments — agency-wide visibility per Johan's spec.
                 'mic.comments.view', 'mic.comments.add',
+                // 2026-10-14 (go-live: new-agency walk) — the manager's working surface that HFC held only
+                // through hand-ticked grants, so a freshly provisioned agency's manager got a 403 on Calendar
+                // and Tasks: the whole Command Centre, plus archive of the records the role already creates.
+                // (tasks.assign + health.view are the manager-only extras; automation.manage stays admin.)
+                'command_center.view', 'command_center.scorecards.own', 'command_center.health.view',
+                'command_center.calendar.view', 'command_center.calendar.create', 'command_center.calendar.edit', 'command_center.calendar.delete',
+                'command_center.tasks.view', 'command_center.tasks.create', 'command_center.tasks.edit', 'command_center.tasks.assign', 'command_center.tasks.delete',
+                'listings.archive', 'rentals.archive', 'daily_activity.archive',
+                'create_presentations', 'contact_rental_history.view', 'buyer_pipeline.view', 'view_own_stats',
             ],
         ],
 
@@ -1462,6 +1471,16 @@ return [
                 // see and add comments (Johan's explicit ask — cross-agent
                 // visibility on a specific property).
                 'mic.comments.view', 'mic.comments.add',
+                // 2026-10-14 (go-live: new-agency walk) — the agent's day-to-day surface. HFC's agents held
+                // these only through hand-ticked grants that never reached this list, so a new agency's agent
+                // got a 403 on Calendar and Tasks and could not create/edit/archive a listing. Everything
+                // here is the agent's OWN work: no tasks.assign (assigning to others), no health.view /
+                // automation.manage (manager/admin), no compliance, finance, user or settings keys.
+                'command_center.view', 'command_center.scorecards.own',
+                'command_center.calendar.view', 'command_center.calendar.create', 'command_center.calendar.edit', 'command_center.calendar.delete',
+                'command_center.tasks.view', 'command_center.tasks.create', 'command_center.tasks.edit', 'command_center.tasks.delete',
+                'listings.create', 'listings.edit', 'listings.archive', 'rentals.archive', 'daily_activity.archive',
+                'create_presentations', 'contact_rental_history.view', 'buyer_pipeline.view',
             ],
         ],
 
@@ -1511,6 +1530,8 @@ return [
                 // default -> a viewer captures nothing). scope_defaults gives
                 // viewer 'branch', consistent with every other .view key it holds.
                 'market_intelligence.view',
+                // 2026-10-14 — read-only Calendar / Tasks (a viewer who cannot open the calendar is locked out of the day's plan).
+                'command_center.view', 'command_center.calendar.view', 'command_center.tasks.view',
                 // Sidebar sections
                 'sidebar.section.agents', 'sidebar.section.tools',
             ],

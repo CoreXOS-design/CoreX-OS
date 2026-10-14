@@ -234,7 +234,7 @@ final class FeatureOffBehaviourTest extends TestCase
         $this->setFeature('rentals', true);
 
         $this->assertSame($before, RolePermission::where('agency_id', $this->agency->id)->count(), 'no grant rows added or removed');
-        $this->assertSame(403, $this->gate($this->agent, 'rentals.archive'), 'a feature being ON never grants a permission the role lacks');
+        $this->assertSame(403, $this->gate($this->agent, 'leases.cancel'), 'a feature being ON never grants a permission the role lacks');
     }
 
     // ── Role Manager ────────────────────────────────────────────────────────
@@ -276,7 +276,7 @@ final class FeatureOffBehaviourTest extends TestCase
         $this->actAs($this->admin);
         app(RoleManagerController::class)->savePermissions(Request::create('/x', 'POST', [
             'role'        => $role,
-            'permissions' => array_fill_keys(array_merge($visible, ['rentals.archive']), '1'),   // rentals.archive = crafted
+            'permissions' => array_fill_keys(array_merge($visible, ['leases.cancel']), '1'),   // leases.cancel = crafted
         ]));
 
         $this->assertTrue(
@@ -284,7 +284,7 @@ final class FeatureOffBehaviourTest extends TestCase
             'the hidden grant must survive a save of the role'
         );
         $this->assertFalse(
-            RolePermission::where('role', $role)->where('agency_id', $agencyId)->where('permission_key', 'rentals.archive')->exists(),
+            RolePermission::where('role', $role)->where('agency_id', $agencyId)->where('permission_key', 'leases.cancel')->exists(),
             'a crafted post cannot grant a frozen permission'
         );
 
