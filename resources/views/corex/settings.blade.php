@@ -173,6 +173,9 @@
                         ? ['key'=>'coc-service-types', 'label'=>'COC / Service Types', 'type'=>'link', 'href'=>route('deals-v2.settings.service-types.index'), 'keywords'=>'coc certificate compliance electrical gas beetle plumbing electric fence supplier work order service type deal pipeline certificates']
                         : null,
                     ['key'=>'leave-visibility',      'label'=>'Leave Visibility',      'type'=>'section', 'keywords'=>'leave calendar matrix roles branch'],
+                    ($u && $u->hasFeature('leave') && $can('manage_leave_types'))
+                        ? ['key'=>'leave-types', 'label'=>'Leave Types', 'type'=>'section', 'keywords'=>'leave types annual sick family responsibility bcea entitlement accrual cycle public holidays']
+                        : null,
                     $can('compliance.whistleblow.configure') ? ['key'=>'whistleblow-settings', 'label'=>'Compliance Reporting', 'type'=>'section', 'keywords'=>'whistleblower ppra approver complaints'] : null,
                     $can('ppra_inspection_pack.configure') ? ['key'=>'ppra-inspection-pack-settings', 'label'=>'PPRA Inspection Pack', 'type'=>'section', 'keywords'=>'ppra inspection pack financial year s25'] : null,
                     $can('ppra_employment_letters.manage') ? ['key'=>'ppra-employment-letter-settings', 'label'=>'PPRA FFC Employment Letter', 'type'=>'section', 'keywords'=>'ppra employment letter confirmation ffc renewal principal reminder'] : null,
@@ -4027,6 +4030,30 @@
 
             </div>{{-- /dashboard --}}
 
+        </div>
+
+        {{-- ============================================================
+             LEAVE TYPES (Operations) — AT-455, moved here from Leave Management
+             ============================================================ --}}
+        <div x-show="activeSection === 'leave-types'" x-cloak class="p-6 space-y-5">
+            @if(!empty($leaveTypes))
+                @if(session('success'))
+                    <div class="px-4 py-2.5 rounded-md text-sm font-medium"
+                         style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">
+                        {{ session('success') }}
+                    </div>
+                @endif
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted); border-left:3px solid var(--brand-icon, #0ea5e9); padding-left:10px;">Leave Types</h3>
+                    <p class="text-xs mt-2" style="color:var(--text-secondary);">
+                        The kinds of leave staff can book and how each one accrues. BCEA-mandated types are system-locked; add your own for anything else.
+                        Public holidays are managed under <a href="{{ route('payroll.leave.public-holidays.index') }}" class="font-medium hover:underline" style="color: var(--brand-icon, #0ea5e9);">Leave Management → Public Holidays</a>.
+                    </p>
+                </div>
+                @include('payroll.leave.types._list', $leaveTypes)
+            @else
+                <p class="text-sm" style="color: var(--text-muted);">Leave types are managed by users who can manage leave types, with the Leave feature switched on.</p>
+            @endif
         </div>
 
         {{-- ============================================================

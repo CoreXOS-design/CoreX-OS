@@ -12,7 +12,10 @@
     per UI_DESIGN_SYSTEM.md §5.10.
 --}}
 
-<div x-data="{ shown: !localStorage.getItem('corex.mi.intro.dismissed.v1') }"
+{{-- AT-455 (Andre, 2026-10-14): no longer shown on its own. Opens from the
+     "About this page" link in the buyer-match legend row and closes with ×. --}}
+<div x-data="{ shown: false }"
+     @mic-intro-toggle.window="shown = !shown"
      x-show="shown"
      x-cloak
      x-transition:enter="transition opacity ease-out duration-300"
@@ -59,7 +62,7 @@
 
     {{-- Dismiss --}}
     <button type="button"
-            @click="localStorage.setItem('corex.mi.intro.dismissed.v1', '1'); shown = false"
+            @click="shown = false"
             aria-label="Dismiss introduction"
             title="Dismiss this introduction. It will not show again on this device."
             style="background: none; border: none; cursor: pointer;

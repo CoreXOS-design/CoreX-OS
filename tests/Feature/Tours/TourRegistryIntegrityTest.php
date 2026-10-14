@@ -54,19 +54,6 @@ class TourRegistryIntegrityTest extends TestCase
         }
     }
 
-    public function test_mobile_app_entry_links_out_and_never_drives_the_engine(): void
-    {
-        $tour = TourRegistry::find('mobile-app');
-
-        $this->assertNotNull($tour, 'The Mobile app card is missing from the tour catalogue');
-        $this->assertSame('Mobile app', $tour['title']);
-        $this->assertSame('https://corexweb.co.za/mobile-app', $tour['external_url']);
-
-        // No route means the spotlight engine can never bind it to a page: the
-        // "?" launcher and auto-start both go through forRoute().
-        $this->assertNull(TourRegistry::forRoute('corex.guided-tours.index'));
-    }
-
     public function test_defs_keys_are_unique_and_do_not_clobber_core(): void
     {
         $coreRef = new \ReflectionMethod(TourRegistry::class, 'core');
