@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -14,7 +16,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class LeaseNotice extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToAgency, BelongsToBranch, InheritsBranchFromParent, SoftDeletes;
 
     public const STATUS_RECEIVED = 'received';
     public const STATUS_ACCEPTED = 'accepted';
@@ -111,5 +113,11 @@ class LeaseNotice extends Model
     public function hasAttachment(): bool
     {
         return $this->attachment_path !== null && $this->attachment_path !== '';
+    }
+
+    /** Branch Split: a child sits in its parent's branch, never the acting user's (branch-isolation-spec §7a). */
+    protected function branchParent(): array
+    {
+        return [\App\Models\Lease::class, 'lease_id'];
     }
 }

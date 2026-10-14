@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 use App\Services\PermissionService;
 use App\Services\Syndication\SyndicationApprovalService;
 use Illuminate\Database\Eloquent\Builder;
@@ -25,6 +27,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class PropertySyndicationApproval extends Model
 {
     use BelongsToAgency;
+    use BelongsToBranch, InheritsBranchFromParent;
     use SoftDeletes;
 
     public const STATUS_PENDING   = 'pending';
@@ -125,5 +128,11 @@ class PropertySyndicationApproval extends Model
         }
 
         return $scope ?? 'own';
+    }
+
+    /** Branch Split: a child sits in its parent's branch, never the acting user's (branch-isolation-spec §7a). */
+    protected function branchParent(): array
+    {
+        return [\App\Models\Property::class, 'property_id'];
     }
 }

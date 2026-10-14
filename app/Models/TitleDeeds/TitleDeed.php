@@ -4,6 +4,7 @@ namespace App\Models\TitleDeeds;
 
 use App\Models\Branch;
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
 use App\Models\Document;
 use App\Models\Property;
 use App\Models\User;
@@ -24,7 +25,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class TitleDeed extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToAgency, BelongsToBranch, SoftDeletes;
 
     protected $table = 'title_deeds';
 

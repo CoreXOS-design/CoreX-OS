@@ -6,6 +6,7 @@ namespace App\Models\Compliance;
 
 use App\Models\Branch;
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
 use App\Models\User;
 use App\Services\PermissionService;
 use Illuminate\Database\Eloquent\Builder;
@@ -34,7 +35,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class PpraEmploymentLetter extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToAgency, BelongsToBranch, SoftDeletes;
 
     protected $table = 'ppra_employment_letters';
 

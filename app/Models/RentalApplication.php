@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -20,7 +22,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class RentalApplication extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToAgency, BelongsToBranch, InheritsBranchFromParent, SoftDeletes;
 
     public const STATUSES = [
         'draft', 'sent', 'in_progress', 'returned', 'reopened', 'under_assessment', 'approved', 'declined', 'withdrawn',
@@ -1540,5 +1542,11 @@ class RentalApplication extends Model
             'over' => round($rent - $approved, 2),
             'mode' => RentalApplicationQualifyingSetting::rentAboveApprovedModeFor((int) $this->agency_id),
         ];
+    }
+
+    /** Branch Split: a child sits in its parent's branch, never the acting user's (branch-isolation-spec §7a). */
+    protected function branchParent(): array
+    {
+        return [\App\Models\Property::class, 'property_id'];
     }
 }

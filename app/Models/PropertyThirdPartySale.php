@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -25,7 +27,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class PropertyThirdPartySale extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToAgency, BelongsToBranch, InheritsBranchFromParent, SoftDeletes;
 
     /**
      * Why we lost it.
@@ -152,5 +154,11 @@ class PropertyThirdPartySale extends Model
     public function isComparable(): bool
     {
         return $this->sold_price !== null && $this->sold_date !== null;
+    }
+
+    /** Branch Split: a child sits in its parent's branch, never the acting user's (branch-isolation-spec §7a). */
+    protected function branchParent(): array
+    {
+        return [\App\Models\Property::class, 'property_id'];
     }
 }
