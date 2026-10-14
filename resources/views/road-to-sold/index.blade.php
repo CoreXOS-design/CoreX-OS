@@ -235,7 +235,7 @@
     {{-- Other work, not counted against today's target --}}
     @php
         $feedBlocks = [
-            ['key' => 'buyers',   'title' => 'Buyers to follow up', 'empty' => 'No buyers are waiting for contact.',      'all' => route('command-center.buyers.pipeline')],
+            ['key' => 'buyers',   'title' => 'Buyers to follow up', 'empty' => 'No buyers are waiting for contact.',      'all' => feature('buyer-pipeline') ? route('command-center.buyers.pipeline') : null],
             ['key' => 'leads',    'title' => 'Enquiries waiting',   'empty' => 'No enquiries are waiting for a response.', 'all' => null],
             ['key' => 'mandates', 'title' => 'Mandates ending soon', 'empty' => 'No mandates end soon.',                      'all' => route('corex.properties.index')],
         ];

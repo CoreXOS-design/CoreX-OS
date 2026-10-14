@@ -17,6 +17,8 @@
     @else
         <div class="text-sm" style="color: var(--text-muted);">No ruling yet.</div>
     @endif
-    <a class="text-xs underline" href="{{ route('corex.rental-work-orders.show', $wpWo) }}#who-pays">Open the work order</a>
+    @feature('rental-work-orders')
+        <a class="text-xs underline" href="{{ route('corex.rental-work-orders.show', $wpWo) }}#who-pays">Open the work order</a>
+    @endfeature
 </div>
 @endif
