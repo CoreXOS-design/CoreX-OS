@@ -91,7 +91,7 @@ class MarketReportTypesSeeder extends Seeder
             ],
             [
                 'key'             => 'cma_info_property_valuation',
-                'display_name'    => 'CMA Info — Property Valuation (Full)',
+                'display_name'    => 'CMA Info — Property Evaluation (Full)',
                 'parser_class'    => 'App\\Services\\MarketReports\\Parsers\\CmaInfoPropertyValuationParser',
                 'auto_approve'    => true,
                 'expected_fields' => [

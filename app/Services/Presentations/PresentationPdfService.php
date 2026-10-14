@@ -1193,7 +1193,7 @@ td.num, th.num { text-align: right; }
 .metric-card.success { border-color: var(--success); }
 .metric-card.success .value { color: var(--success); }
 
-/* ── VALUATION BAR ───────────────────────────────────────────────────── */
+/* ── EVALUATION BAR ───────────────────────────────────────────────────── */
 .val-bar-container { margin: 16px 0; position: relative; }
 .val-bar {
     display: flex;
@@ -2355,7 +2355,7 @@ a:hover { text-decoration: underline; }
 </div>
 
 <?php if ($cmaLower || $cmaMiddle || $cmaUpper): ?>
-<h3 style="margin-bottom:10px;color:var(--brand);">CMA Valuation Range</h3>
+<h3 style="margin-bottom:10px;color:var(--brand);">CMA Evaluation Range</h3>
 
 <div class="metric-grid">
     <div class="metric-card">
@@ -2363,7 +2363,7 @@ a:hover { text-decoration: underline; }
         <div class="value"><?= $zar($cmaLower) ?></div>
     </div>
     <div class="metric-card highlight">
-        <div class="label">CMA Valuation</div>
+        <div class="label">CMA Evaluation</div>
         <div class="value"><?= $zar($cmaMiddle) ?></div>
     </div>
     <div class="metric-card">
@@ -2374,7 +2374,7 @@ a:hover { text-decoration: underline; }
 
 <?php if ($subject['municipal_value']): ?>
 <p style="font-size:11px;color:var(--text-muted);margin:8px 0;">
-    Municipal Valuation<?php if ($subject['municipal_year']): ?> (<?= $esc($subject['municipal_year']) ?>)<?php endif ?>:
+    Municipal Evaluation<?php if ($subject['municipal_year']): ?> (<?= $esc($subject['municipal_year']) ?>)<?php endif ?>:
     <strong><?= $zar($subject['municipal_value']) ?></strong>
 </p>
 <?php endif ?>
@@ -3240,7 +3240,7 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
 
 <div class="section-intro avoid-break">
     This brings everything together into a recommendation. The range reflects what the
-    evidence supports — recent sales, the valuation band, current competition, and the
+    evidence supports — recent sales, the evaluation band, current competition, and the
     cost of waiting. The <strong>final decision is yours</strong>; our role is to make
     sure it's an informed one.
 </div>
@@ -3337,7 +3337,7 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
         <?php endif ?>
         <?php if ($subject['municipal_value']): ?>
         <tr>
-            <td>Municipal Valuation</td>
+            <td>Municipal Evaluation</td>
             <td class="num"><?= $zar($subject['municipal_value']) ?></td>
             <td><span class="cmp-badge cmp-warning">Reference</span></td>
         </tr>
@@ -3638,7 +3638,7 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
     Prepared by <?= $esc($agentName) ?> &middot; <?= $esc($agencyName) ?> &middot; <?= $compiledAt ?>
     &middot; Version #<?= $version->id ?>
     <br>
-    This report is based on publicly available data and independent CMA valuation.
+    This report is based on publicly available data and independent CMA evaluation.
     All values are in South African Rand (ZAR). Data sources include CMA Info and Property24.
 </div>
 </div>

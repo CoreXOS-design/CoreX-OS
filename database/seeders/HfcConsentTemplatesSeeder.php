@@ -214,7 +214,7 @@ Good day, {seller_surname}.
 
 I hope you're doing well. My name is {agent_name}, a {agent_designation} (PPRA registered) with {agency_name}. I'm reaching out regarding your property at {property_address}.
 
-From time to time I share complimentary property-related services with homeowners in {property_suburb} — market insights, a market-related valuation, professional photography and video, and guidance on selling or renting in the current market.
+From time to time I share complimentary property-related services with homeowners in {property_suburb} — market insights, a market-related evaluation, professional photography and video, and guidance on selling or renting in the current market.
 
 If you'd be happy for me to be in touch by WhatsApp, SMS or email, simply reply OPT IN and I'll reach out when it's relevant. If you'd prefer not to be contacted, reply OPT OUT and I'll respect that.
 
@@ -238,7 +238,7 @@ Good day, {seller_surname}. I hope you're well.
 
 My name is {agent_name} from {agency_name}, a PPRA-registered agency on the KZN South Coast. I'm reaching out regarding your property at {property_address}, to introduce our services should you ever consider selling — now or down the line.
 
-There's no obligation at all. It would simply be my pleasure to offer a complimentary, market-related valuation and share what's happening in your local market.
+There's no obligation at all. It would simply be my pleasure to offer a complimentary, market-related evaluation and share what's happening in your local market.
 
 If you'd like me to be in touch by WhatsApp, SMS or email, reply OPT IN. If you'd rather not, reply OPT OUT and I won't contact you about this again.
 
@@ -266,7 +266,7 @@ Good day, {seller_surname}. I hope you're doing well.
 
 My name is {agent_name}, a {agent_designation} (PPRA registered) with {agency_name}. I'm reaching out regarding your property at {property_address}.{?matching_buyer_count} We're currently working with {matching_buyer_count} active buyer(s) looking for a property like yours in {property_suburb} — and your home is the kind they have in mind.{/matching_buyer_count}
 
-With your permission, I'd love to share what buyers are looking for near you, along with a market-related valuation and our marketing, photography and video services.
+With your permission, I'd love to share what buyers are looking for near you, along with a market-related evaluation and our marketing, photography and video services.
 
 If you'd be happy for me to be in touch by WhatsApp, SMS or email, reply OPT IN. If you'd prefer not to be contacted, reply OPT OUT.
 
@@ -323,7 +323,7 @@ Good day, {seller_surname}.
 
 {agent_name} here, from {agency_name} (PPRA registered). I'm reaching out regarding your property at {property_address}.
 
-I'd love to share complimentary market insights and a valuation for your area, plus our sales, rentals, photography and marketing services.
+I'd love to share complimentary market insights and an evaluation for your area, plus our sales, rentals, photography and marketing services.
 
 Happy to hear from me by WhatsApp, SMS or email? Reply OPT IN. Rather not? Reply OPT OUT — no problem at all.
 
@@ -343,7 +343,7 @@ Good day, {seller_surname}. I hope you're well.
 
 I'm {agent_name} from {agency_name}, a PPRA-registered agency on the KZN South Coast. I'm reaching out regarding your property at {property_address}.
 
-I keep a close eye on {property_suburb} — recent sales, live buyer demand and what homes are currently worth. With your permission, I'd send you these area updates so you always have a feel for what your property could fetch and who's looking to buy nearby, along with our valuation, photography and marketing services should you ever need them.
+I keep a close eye on {property_suburb} — recent sales, live buyer demand and what homes are currently worth. With your permission, I'd send you these area updates so you always have a feel for what your property could fetch and who's looking to buy nearby, along with our evaluation, photography and marketing services should you ever need them.
 
 Happy to receive these by WhatsApp, SMS or email? Reply OPT IN. Prefer not to? Reply OPT OUT.
 

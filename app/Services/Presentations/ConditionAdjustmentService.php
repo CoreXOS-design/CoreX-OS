@@ -84,7 +84,7 @@ final class ConditionAdjustmentService
         }
 
         // 3. Nothing — baseline only.
-        Log::info('[PRES-INFO] no condition resolved — baseline valuation applied', [
+        Log::info('[PRES-INFO] no condition resolved — baseline evaluation applied', [
             'presentation_version_id' => $version->id,
             'presentation_id'         => $presentation?->id,
         ]);

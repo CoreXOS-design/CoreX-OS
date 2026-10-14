@@ -3492,10 +3492,10 @@
                                      market norm (from 105 evidenced CMA reports):
                                      10% below, 13% above. --}}
                                 <div class="mt-3 pt-3" style="border-top:1px dashed var(--border);">
-                                    <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color:var(--text-secondary);">Valuation band (recommended range around the indicated value)</div>
+                                    <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color:var(--text-secondary);">Evaluation band (recommended range around the indicated value)</div>
                                     <div class="grid grid-cols-2 gap-3">
                                         <div>
-                                            <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Valuation band — below middle (%)</label>
+                                            <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Evaluation band — below middle (%)</label>
                                             <input type="number" min="0" max="40" step="0.5" name="cma_band_lower_pct"
                                                    value="{{ number_format($cmaBandLower, 2, '.', '') }}"
                                                    class="w-full rounded-md px-3 py-2 text-sm"
@@ -3503,7 +3503,7 @@
                                             <div class="text-[11px] mt-1" style="color:var(--text-muted);">How far the recommended price range sits below the indicated value. CMA market norm ≈ 10% below.</div>
                                         </div>
                                         <div>
-                                            <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Valuation band — above middle (%)</label>
+                                            <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Evaluation band — above middle (%)</label>
                                             <input type="number" min="0" max="40" step="0.5" name="cma_band_upper_pct"
                                                    value="{{ number_format($cmaBandUpper, 2, '.', '') }}"
                                                    class="w-full rounded-md px-3 py-2 text-sm"
@@ -3610,7 +3610,7 @@
                         'market_overview'    => 'Suburb-level market trends, median pricing and absorption.',
                         'recent_sales'       => 'Comparable sales table with per-row distance, size and price.',
                         'spatial_view'       => 'Inline map showing the subject and comparable pins.',
-                        'cma_analysis'       => 'Lower / Middle / Upper valuation bands with condition adjustment.',
+                        'cma_analysis'       => 'Lower / Middle / Upper evaluation bands with condition adjustment.',
                         'active_competition' => 'Live listings competing for the same buyer pool.',
                         'inflow_absorption'  => 'New listings from P24 alerts and stock absorption rate.',
                         'holding_cost'       => 'Monthly cost of staying on market — rates, bond, levies, opportunity cost.',
