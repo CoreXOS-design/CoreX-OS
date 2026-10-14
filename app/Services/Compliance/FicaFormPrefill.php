@@ -16,12 +16,15 @@ use App\Models\FicaSubmission;
 class FicaFormPrefill
 {
     /**
-     * @return array{entity_type: string, personal: array{full_name: string, id_number: string, sa_citizen: string, residential_address: string, phone: string, email: string, tax_number: string}}
+     * The ID / passport number is NEVER sent to the page in full: it arrives masked (see mask()), with `id_number_kept` true,
+     * and the form posts a "keep" flag instead of the number unless the person chooses to retype it (see keptIdentityFor()).
+     *
+     * @return array{entity_type: string, personal: array{full_name: string, id_number: string, id_number_kept: bool, sa_citizen: string, residential_address: string, phone: string, email: string, tax_number: string}}
      */
     public static function for(FicaSubmission $submission): array
     {
         $contact = $submission->contact;
-        $blank = ['full_name' => '', 'id_number' => '', 'sa_citizen' => '', 'residential_address' => '', 'phone' => '', 'email' => '', 'tax_number' => ''];
+        $blank = ['full_name' => '', 'id_number' => '', 'id_number_kept' => false, 'sa_citizen' => '', 'residential_address' => '', 'phone' => '', 'email' => '', 'tax_number' => ''];
 
         if (! $contact) {
             return ['entity_type' => '', 'personal' => $blank];
@@ -35,7 +38,11 @@ class FicaFormPrefill
 
         if (! $isEntity) {
             $personal['full_name'] = trim((string) $contact->full_name);
-            [$personal['id_number'], $personal['sa_citizen']] = self::identity($contact);
+            [$stored, $personal['sa_citizen']] = self::identity($contact);
+            if ($stored !== '') {
+                $personal['id_number'] = self::mask($stored);
+                $personal['id_number_kept'] = true;
+            }
         }
 
         return ['entity_type' => $isEntity ? '' : 'natural', 'personal' => $personal];
@@ -63,5 +70,32 @@ class FicaFormPrefill
         }
 
         return [$passport, $passport !== '' ? 'no' : ''];
+    }
+
+    /**
+     * How a stored ID / passport number reads on a public page: "****" and the last four characters - the convention the e-sign
+     * consent page already uses. Four characters or fewer are not revealed at all.
+     */
+    public static function mask(string $number): string
+    {
+        $number = trim($number);
+
+        return mb_strlen($number) <= 4 ? '****' : '****' . mb_substr($number, -4);
+    }
+
+    /**
+     * The full number to keep when the person left the masked one alone: the contact's stored ID (or passport number) - but only
+     * if what the form posted is exactly that number's masked form, so a tampered or stale value is never swapped for a real one.
+     * Null otherwise (they retyped it, or there is nothing stored): the posted value is then used and validated as typed.
+     */
+    public static function keptIdentityFor(FicaSubmission $submission, ?string $posted): ?string
+    {
+        $contact = $submission->contact;
+        if (! $contact || $contact->isEntity() || $posted === null || $posted === '') {
+            return null;
+        }
+        [$stored] = self::identity($contact);
+
+        return $stored !== '' && hash_equals(self::mask($stored), trim($posted)) ? $stored : null;
     }
 }

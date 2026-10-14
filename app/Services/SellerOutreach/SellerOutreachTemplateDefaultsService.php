@@ -12,20 +12,17 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * Seeds a starter WhatsApp outreach template for an agency that has none, so
- * the Seller Outreach composer is never empty. Before this, only Home
- * Finders Coastal (agency_id 1) had any seller_outreach_templates rows at
- * all — HfcConsentTemplatesSeeder is deliberately scoped to HFC's own
- * carefully-worded, POPIA-compliant consent copy (spec:
- * seller-outreach-spec.md §11) and was never meant to run for other
- * agencies — so every other agency, including every new one, started with
- * zero templates and nothing to send.
+ * the Seller Outreach composer is never empty.
  *
- * Source of truth is HFC's own first WhatsApp template (id 1, "General
- * Marketing — Area Updates" — also HFC's own is_default_for_channel row):
- * cloned verbatim rather than rewritten per agency, since it is already a
- * reviewed, compliant, generically-worded template (its {agency_name} /
- * {agent_name} / {agent_ffc} / etc. merge fields resolve per-recipient
- * agency at send time regardless of which agency owns the row).
+ * The starter is a NEUTRAL text of the platform's own (STARTER_BODY below) - it
+ * names no agency, region or FFC number of its own: everything agency-specific is
+ * a merge field ({agency_name}, {property_town}, {property_suburb}, {agency_ffc},
+ * {agent_ffc}, {branch_or_company_tel}) resolved per send. It used to be a verbatim
+ * CLONE of Home Finders Coastal's own first template, so every new agency's first
+ * message told sellers it was "a registered estate agency on the KZN South Coast"
+ * (Cape walk, 14 Oct 2026). Agencies that already hold a template are never touched;
+ * rows cloned earlier from HFC are neutralised by migration
+ * 2026_10_14_150000_neutralise_cloned_hfc_outreach_template (exact clones only).
  *
  * Mirrors ActivityDefinitionDefaultsService's shape: idempotent
  * ensureDefaults(), safe to call on agency creation AND on every Settings
@@ -34,20 +31,29 @@ use Illuminate\Support\Facades\Log;
  */
 class SellerOutreachTemplateDefaultsService
 {
-    private const SOURCE_AGENCY_ID = 1; // Home Finders Coastal
+    public const STARTER_NAME = 'General Marketing — Area Updates';
+
+    public const STARTER_DESCRIPTION = 'Consent request — invite the seller to receive area market + buyer-demand updates.';
+
+    /** Merge fields only - no agency, region or phone number of any one agency. */
+    public const STARTER_BODY = <<<'TXT'
+Hi {seller_name}, this is {agent_name} from {agency_name}, a registered estate agency working in {property_town}.
+We track live buyer demand, recent sales and property values for {property_suburb}. With your permission, we'd send you these area updates so you always know what your property could be worth and who's looking to buy near you.
+May we contact you with {property_suburb} market and buyer-demand updates by WhatsApp, SMS or email?
+- Reply OPT IN and we'll be in touch
+- Reply OPT OUT and we won't contact you again
+Manage your preferences or opt out anytime: {opt_out_link}.
+{agency_name} · FFC {agency_ffc}{?agent_ffc} · Agent FFC {agent_ffc}{/agent_ffc} · {branch_or_company_tel}.
+TXT;
 
     /**
-     * Clone HFC's first WhatsApp template into $agencyId, UNLESS it already
-     * has any WhatsApp template of its own (including inactive ones — an
+     * Create the neutral starter WhatsApp template in $agencyId, UNLESS it already
+     * has any WhatsApp template of its own (including inactive ones - an
      * agency that deliberately disabled/replaced its only template keeps
      * that choice and is not re-seeded).
      */
     public function ensureDefaults(int $agencyId, ?int $actorUserId = null): void
     {
-        if ($agencyId === self::SOURCE_AGENCY_ID) {
-            return; // HFC is the source, not a target.
-        }
-
         $template = DB::transaction(function () use ($agencyId) {
             // Lock the agency row for the life of the transaction so two
             // concurrent callers for the SAME agency (two settings-page tabs,
@@ -73,34 +79,20 @@ class SellerOutreachTemplateDefaultsService
                 return null;
             }
 
-            $source = SellerOutreachTemplate::withoutGlobalScopes()
-                ->where('agency_id', self::SOURCE_AGENCY_ID)
-                ->where('channel', SellerOutreachTemplate::CHANNEL_WHATSAPP)
-                ->whereNull('deleted_at')
-                ->orderBy('id')
-                ->first();
-
-            if (!$source) {
-                Log::warning('SellerOutreachTemplateDefaultsService: HFC (source agency) has no WhatsApp template to clone.', [
-                    'target_agency_id' => $agencyId,
-                ]);
-                return null;
-            }
-
             // withoutAgencyStamping: same reason as Branch/User in
             // AgencyController::store() — a creating owner's stale Agency
             // Switcher session would otherwise force this row onto THEIR
             // switched-into agency instead of the target $agencyId.
             return SellerOutreachTemplate::withoutAgencyStamping(fn () => SellerOutreachTemplate::create([
                 'agency_id'              => $agencyId,
-                'name'                   => $source->name,
+                'name'                   => self::STARTER_NAME,
                 'channel'                => SellerOutreachTemplate::CHANNEL_WHATSAPP,
                 'subject'                => null,
-                'body'                   => $source->body,
-                'description'            => $source->description,
+                'body'                   => self::STARTER_BODY,
+                'description'            => self::STARTER_DESCRIPTION,
                 'is_active'              => true,
                 'is_default_for_channel' => true,
-                'include_tracking_link'  => $source->include_tracking_link,
+                'include_tracking_link'  => false,
             ]));
         });
 

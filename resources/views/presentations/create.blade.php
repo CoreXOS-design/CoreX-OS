@@ -65,7 +65,7 @@
                 </label>
                 <input type="text" name="suburb" value="{{ old('suburb') }}" required
                        class="ds-field w-full rounded-md px-3 py-2 text-sm"
-                       placeholder="e.g. Uvongo">
+                       placeholder="e.g. Suburb name">
                 @error('suburb')
                     <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
                 @enderror

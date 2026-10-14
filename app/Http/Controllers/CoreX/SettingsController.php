@@ -1074,6 +1074,15 @@ class SettingsController extends Controller
         $removeLogo = $data['remove_logo'] ?? false;
         unset($data['logo'], $data['remove_logo']);
 
+        // The letters this agency's document numbers start with (payslips). Written only when the form posted the box (§6.1);
+        // a blank box keeps the code the agency has - it is never emptied.
+        if ($request->has('short_code')) {
+            $shortCode = \App\Support\AgencyShortCode::validated($request->input('short_code'), (int) $agency->id);
+            if ($shortCode !== null) {
+                $data['short_code'] = $shortCode;
+            }
+        }
+
         if ($removeLogo) {
             if ($agency->logo_path) {
                 Storage::disk('public')->delete($agency->logo_path);

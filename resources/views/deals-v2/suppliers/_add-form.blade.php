@@ -101,7 +101,7 @@
             <div class="md:col-span-3">
                 <label for="{{ $idp }}-address" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">{{ $popup ? 'Business address' : 'Address' }} @unless($popup)<span class="text-[11px]" style="color: var(--text-muted);">(the firm's business address — used on documents this supplier signs, e.g. as executor)</span>@endunless</label>
                 <input id="{{ $idp }}-address" name="address" maxlength="500"
-                       placeholder="e.g. 21 Dee Road, Uvongo"
+                       placeholder="e.g. 12 Main Road, Suburb"
                        class="w-full rounded-md px-3 py-2 text-sm"
                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>

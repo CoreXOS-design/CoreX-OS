@@ -51,7 +51,7 @@ class ThirdPartySaleController extends Controller
             return back()->withInput()->with('error', $e->getMessage());
         }
 
-        return back()->with('success', 'Recorded as sold by another agency. The listing has been taken off the portals and is not counted as an HFC sale.');
+        return back()->with('success', 'Recorded as sold by another agency. The listing has been taken off the portals and is not counted as one of your agency\'s sales.');
     }
 
     /** PATCH — enrich the open loss record ("Add details" on the banner). */

@@ -203,6 +203,15 @@ class CompanySettingsController extends Controller
         }
         unset($data['outreach_live_deal_statuses_present']);
 
+        // The letters this agency's document numbers start with (payslips) - written only when the form posted the box (§6.1);
+        // blank keeps the code the agency has.
+        if ($request->has('short_code')) {
+            $shortCode = \App\Support\AgencyShortCode::validated($request->input('short_code'), (int) $agency->id);
+            if ($shortCode !== null) {
+                $data['short_code'] = $shortCode;
+            }
+        }
+
         // Part 2 — only touch the prospected-badge toggle when the company form
         // actually rendered it (hidden 0 + checkbox 1 => always present on this form,
         // absent on the website/branding forms that share update()). Guards against

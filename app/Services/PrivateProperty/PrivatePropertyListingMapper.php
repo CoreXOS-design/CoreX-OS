@@ -396,7 +396,7 @@ class PrivatePropertyListingMapper
 
         // Town is required for PP geographic hierarchy (suburb → town → province)
         if (empty($property->town) && empty($property->city) && empty($property->pp_suburb_id)) {
-            $missing[] = ['field' => 'town', 'label' => 'Town (e.g. "Margate") — required for PP location hierarchy', 'tab' => 'info'];
+            $missing[] = ['field' => 'town', 'label' => 'Town (the town name) — required for PP location hierarchy', 'tab' => 'info'];
         }
 
         // PP60: a unit number means the property sits within a scheme, so PP

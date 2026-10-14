@@ -485,7 +485,7 @@ final class LocationGrouper
     private function hfcHoverLine(array $rec): string
     {
         $sub = trim((string) ($rec['subtitle'] ?? ''));
-        return $sub !== '' ? 'HFC: ' . $sub : 'HFC listing';
+        return $sub !== '' ? 'Own: ' . $sub : 'Own listing';
     }
 
     /** "2 sold, 1 MIC, 1 portal" — short comma-separated category list. */
@@ -497,7 +497,7 @@ final class LocationGrouper
             'active_listings' => 'portal',
             'mic_subjects'    => 'MIC',
             'scheme_owners'   => 'scheme',
-            'hfc_listings'    => 'HFC',
+            'hfc_listings'    => 'Own',
         ];
         $parts = [];
         foreach ($counts as $cat => $n) {

@@ -93,7 +93,7 @@
                     <input type="text" name="name" value="{{ old('name', $agency?->name) }}" required
                            class="w-full rounded-md px-3 py-2 text-sm"
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
-                           placeholder="e.g. HFC Coastal">
+                           placeholder="e.g. Your Agency Name">
                 </div>
                 @if(!$agency)
                 <div>
@@ -110,6 +110,15 @@
                            class="w-full rounded-md px-3 py-2 text-sm"
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="e.g. Johan and Elize Properties T/A">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Short code</label>
+                    <input type="text" name="short_code" value="{{ old('short_code', $agency?->short_code) }}" maxlength="10"
+                           class="w-full rounded-md px-3 py-2 text-sm uppercase"
+                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                           placeholder="e.g. CTR">
+                    <p class="text-xs mt-1" style="color:var(--text-muted);">2 to 10 letters or numbers. Starts the numbers on your documents (payslips: CTR-202610-001). Leave blank to use the one worked out from your name. Numbers already issued do not change.</p>
+                    @error('short_code')<p class="text-xs mt-1" style="color:#dc2626;">{{ $message }}</p>@enderror
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Tagline</label>

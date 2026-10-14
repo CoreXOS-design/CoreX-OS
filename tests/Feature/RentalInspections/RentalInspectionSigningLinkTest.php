@@ -672,7 +672,9 @@ final class RentalInspectionSigningLinkTest extends TestCase
 
         Mail::assertSent(RentalInspectionSigningLinkMail::class, function (RentalInspectionSigningLinkMail $mail) use ($link) {
             return $mail->signingUrl === $link->url() && $mail->canSign === true && $mail->recipientName === 'Naledi Dlamini'
-                && $mail->hasTo(self::TEST_ADDRESS);
+                && $mail->hasTo(self::TEST_ADDRESS)
+                && ! $mail instanceof \App\Mail\Contracts\StaffFacingMail   // a tenant is a client
+                && ! preg_match('/core\s*x/i', strip_tags($mail->render()));
         });
         Mail::assertSent(RentalInspectionSigningLinkMail::class, 1);
         $link->refresh();
@@ -1326,6 +1328,8 @@ final class RentalInspectionSigningLinkTest extends TestCase
 
         Mail::assertSent(RentalInspectionSigningLinkMail::class, function (RentalInspectionSigningLinkMail $mail) use ($inspection) {
             return $mail->canSign === false
+                && $mail instanceof \App\Mail\Rentals\RentalInspectionAgentCopyMail
+                && $mail instanceof \App\Mail\Contracts\StaffFacingMail   // the recipient is staff: this is the one inspection mail allowed to say CoreX
                 && str_contains($mail->render(), 'You sign it inside CoreX with your own login and signing PIN')
                 && str_contains($mail->render(), 'Sign with PIN')
                 && str_contains($mail->render(), 'OPEN THE INSPECTION IN COREX')

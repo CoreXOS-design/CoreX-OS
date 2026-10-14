@@ -67,7 +67,7 @@
     <form method="POST" action="{{ route('admin.minion.run-now') }}" style="display:flex;gap:.5rem;align-items:end;flex-wrap:wrap;">
       @csrf
       <label>Town (P24 city name)
-        <input type="text" name="town" placeholder="e.g. Margate" class="corex-input" style="min-width:220px;">
+        <input type="text" name="town" placeholder="e.g. Town name" class="corex-input" style="min-width:220px;">
       </label>
       <button type="submit" class="corex-btn-outline">Run this town now</button>
       <span style="color:var(--text-muted);">Queued — captures every ticked suburb in that town, paced.</span>

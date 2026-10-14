@@ -60,9 +60,9 @@ final class EntryPointCollisionTest extends TestCase
 
         $resp->assertRedirect(route('corex.properties.show', ['property' => $propertyId]));
         $this->assertStringContainsString(
-            "already on HFC's books",
+            "already on our books",
             (string) session('warning'),
-            'held status must surface the "already on HFC books" warning'
+            'held status must surface the "already on our books" warning'
         );
     }
 

@@ -576,7 +576,7 @@
                                 'isSandbox'       => (bool) config('services.property24_syndication.sandbox'),
                                 'suburb'          => $property->suburb ?? '',
                                 'city'            => $property->town ?? $property->city ?? '',
-                                'province'        => $property->province ?? 'kwazulu-natal',
+                                'province'        => $property->province ?? '',
                                 'suburbId'        => $property->pp_suburb_id ? (\App\Models\P24Suburb::find($property->pp_suburb_id)?->p24_id ?? '') : (\App\Models\P24Suburb::lookup($property->suburb ?? '')?->p24_id ?? ''),
                                 'listingType'     => strtolower($property->listing_type ?? 'sale'),
                                 'missingFields'   => $p24MissingFields ?? [],

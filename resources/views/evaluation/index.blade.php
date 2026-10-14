@@ -69,11 +69,6 @@
                     <div class="eval-empty-title">Search for a property</div>
                     <div class="eval-empty-sub">Enter an address, ERF number, suburb or owner name</div>
                 </div>
-                <div class="flex flex-wrap gap-2 justify-center eval-suggest-wrap" data-tour="misc-evaluation-suggestions">
-                    @foreach(['198 John Dory Drive','Newlands East','ERF 1438','Palm Beach','Ramsgate','Shelly Beach'] as $q)
-                    <button @click="searchQuery='{{ $q }}';runSearch()" class="eval-suggest-pill">{{ $q }}</button>
-                    @endforeach
-                </div>
             </div>
 
             {{-- Loading --}}
@@ -86,7 +81,7 @@
             <div x-show="searchQuery && !loading && results.length > 0" class="flex-1 overflow-y-auto p-3" data-tour="misc-evaluation-results">
                 <div class="flex items-center justify-between mb-2 px-1">
                     <span class="eval-result-meta" x-text="results.length + ' properties found'"></span>
-                    <span class="eval-result-meta">KZN South Coast</span>
+                    <span class="eval-result-meta">South Africa</span>
                 </div>
                 <template x-for="(r,i) in results" :key="i">
                     <div @click="selectedProperty=r" data-tour="misc-evaluation-result"
@@ -255,7 +250,7 @@
                 <div class="flex-1 overflow-y-auto" x-data="{open:'property'}" data-tour="misc-evaluation-sections">
                     @php
                     $secs=[
-                        ['property','Property Information',[['Province','KwaZulu-Natal'],['Suburb','Newlands East'],['Street','198 John Dory Drive'],['ERF','1438'],['Stand Size','363 m²'],['Extension','Newlands Ext 16'],['Portion','0']]],
+                        ['property','Property Information',[['Province','Province'],['Suburb','Suburb'],['Street','198 John Dory Drive'],['ERF','1438'],['Stand Size','363 m²'],['Extension','Extension'],['Portion','0']]],
                         ['sale','Sale Information',[['Title Deed','T4788/1997'],['Sale Date','22 Aug 1996'],['Transfer Date','21 Feb 1997'],['Purchase Amount','R 12 900'],['Bond Amount','R 0'],['Bond Holder','—']]],
                         ['muni','Municipal Evaluation',[['Evaluation','R 750 000'],['Evaluation Date','1 Jul 2017']]],
                         ['serv','Servitudes / Endorsements',[]],

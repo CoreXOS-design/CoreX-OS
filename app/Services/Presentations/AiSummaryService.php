@@ -669,11 +669,11 @@ TXT;
             }
         }
 
-        // Phase 3i — HFC's own sales near the subject.
+        // Phase 3i — the agency's own sales near the subject.
         $hfc = $facts['hfc_neighbouring_sales'] ?? [];
         if (!empty($hfc['count'])) {
             $out[] = '';
-            $line = 'HFC has sold ' . (int) $hfc['count']
+            $line = 'We have sold ' . (int) $hfc['count']
                 . ' propert' . ((int) $hfc['count'] === 1 ? 'y' : 'ies')
                 . ' within 1km of the subject in the last 24 months';
             $recent = $hfc['most_recent'] ?? null;

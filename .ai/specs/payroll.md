@@ -84,6 +84,8 @@ portal "My Payslips" view. SARS reference data (PAYE brackets, rebates, UIF ceil
 - **Unpaid leave** — a pre-tax deduction using a period-aware daily rate.
 - **Overlapping effective-dated earnings** — the **latest** effective row per type is used (not summed).
 
+**Payslip numbers** (`{CODE}-{YYYYMM}-{NNN}`): `CODE` is the agency's own short code (`agencies.short_code`, see agency-onboarding-setup.md §5.4), never a literal; changing it affects only payslips issued afterwards.
+
 ### 3.5 Finalisation & immutability (`PayrollFinaliseService.php`, `PayslipPdfService.php`)
 - Finalise takes `lockForUpdate` + re-checks `isDraft()` (no concurrent double-finalise).
 - A finalised payslip's PDF is served from the **stored** file (not re-rendered with live data).

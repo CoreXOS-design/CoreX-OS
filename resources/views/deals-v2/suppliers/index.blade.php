@@ -345,7 +345,7 @@
                                         <span x-show="err" x-cloak class="text-[10px] normal-case" style="color:#b45309;">save failed — retry</span>
                                     </label>
                                     <input type="text" x-model="address" @blur="persist()" maxlength="500"
-                                           placeholder="e.g. 21 Dee Road, Uvongo"
+                                           placeholder="e.g. 12 Main Road, Suburb"
                                            class="w-full max-w-md rounded-md px-2 py-1 text-xs"
                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                                     <div class="text-[11px] mt-1" style="color: var(--text-muted);">The firm's address — this is what appears on a document when this supplier is selected as a party (e.g. an executor).</div>

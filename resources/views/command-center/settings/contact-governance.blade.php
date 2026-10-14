@@ -189,7 +189,7 @@
                                {{ ($settings->warn_on_held_address_capture ?? true) ? 'checked' : '' }}>
                         <span class="text-xs" style="color:var(--text-secondary);">
                             <span class="font-medium" style="color:var(--text-primary);">Warn when capturing an address we already hold</span><br>
-                            When an agent captures a property address for a prospect, warn them if HFC already
+                            When an agent captures a property address for a prospect, warn them if your agency already
                             holds that property — in agency stock (we have a mandate) or as captured property
                             intelligence — so they don't canvass an owner we already represent. Catches the
                             hidden-address cases the automatic stock badge can't. <strong>Recommended on.</strong>

@@ -90,39 +90,49 @@ class CommissionSetting extends Model
     // ── Static helpers ──
 
     /**
-     * AT-253 (STANDARDS Rule 17) — the no-agency defaults.
+     * AT-253 (STANDARDS Rule 17) — the no-agency defaults, and the starting values of every NEW agency's row.
      *
-     * Mirrors the column defaults in the commission_settings migration. They live here so a
-     * caller with NO agency context can still READ a coherent settings object without a row
-     * being written; keep them in step with the migration if those defaults ever change.
+     * NEUTRAL, deliberately: no one agency's commission model. They used to be Home Finders Coastal's own numbers (80/20 split,
+     * R160 000 cap, R850 platform fee, a 7-tier revenue share), so a second agency's Commission step opened pre-filled with HFC's
+     * figures (Cape walk, 14 Oct 2026). Now every agency enters its own: until it does, the agent keeps 100% of a deal's commission,
+     * there is no cap, no fee, no mentor programme and no revenue share. They keep the same validity as the settings form (mentor
+     * transactions has a minimum of 1). Existing agencies' rows are never rewritten.
+     *
+     * They live here so a caller with NO agency context can still READ a coherent settings object without a row being written.
      */
     private const NO_AGENCY_DEFAULTS = [
-        'commission_split_agent'     => 80,
-        'commission_split_agency'    => 20,
-        'annual_cap'                 => 160000.00,
-        'post_cap_transaction_fee'   => 2500.00,
-        'post_cap_fee_cap'           => 50000.00,
-        'post_cap_reduced_fee'       => 750.00,
-        'monthly_platform_fee'       => 850.00,
-        'mentor_program_enabled'     => true,
-        'mentor_extra_split'         => 20,
-        'mentor_transactions'        => 3,
-        'risk_management_fee'        => 400.00,
-        'risk_management_cap'        => 5000.00,
-        'revenue_share_enabled'      => true,
-        'revenue_share_pool_percent' => 50,
-        'tier_1_percent'             => 3.50,
-        'tier_2_percent'             => 4.00,
-        'tier_3_percent'             => 2.50,
-        'tier_4_percent'             => 1.50,
-        'tier_5_percent'             => 1.00,
-        'tier_6_percent'             => 0.50,
-        'tier_7_percent'             => 0.25,
-        'tier_4_flqa_requirement'    => 5,
-        'tier_5_flqa_requirement'    => 10,
-        'tier_6_flqa_requirement'    => 15,
-        'tier_7_flqa_requirement'    => 20,
+        'commission_split_agent'     => 100,
+        'commission_split_agency'    => 0,
+        'annual_cap'                 => 0.00,
+        'post_cap_transaction_fee'   => 0.00,
+        'post_cap_fee_cap'           => 0.00,
+        'post_cap_reduced_fee'       => 0.00,
+        'monthly_platform_fee'       => 0.00,
+        'mentor_program_enabled'     => false,
+        'mentor_extra_split'         => 0,
+        'mentor_transactions'        => 1,
+        'risk_management_fee'        => 0.00,
+        'risk_management_cap'        => 0.00,
+        'revenue_share_enabled'      => false,
+        'revenue_share_pool_percent' => 0,
+        'tier_1_percent'             => 0.00,
+        'tier_2_percent'             => 0.00,
+        'tier_3_percent'             => 0.00,
+        'tier_4_percent'             => 0.00,
+        'tier_5_percent'             => 0.00,
+        'tier_6_percent'             => 0.00,
+        'tier_7_percent'             => 0.00,
+        'tier_4_flqa_requirement'    => 0,
+        'tier_5_flqa_requirement'    => 0,
+        'tier_6_flqa_requirement'    => 0,
+        'tier_7_flqa_requirement'    => 0,
     ];
+
+    /** The neutral defaults, for the test and the settings screen's "nothing set yet" state. */
+    public static function neutralDefaults(): array
+    {
+        return self::NO_AGENCY_DEFAULTS;
+    }
 
     /**
      * Get or create settings for an agency (singleton per agency).

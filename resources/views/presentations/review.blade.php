@@ -729,7 +729,7 @@
         window.buildCompetitorCard = function (m) {
             var badges = [tierBadge(m.tier)];
             if (m.is_hfc_owned) {
-                badges.push({ label: 'HFC', fg: '#10b981', bg: '#ecfdf5' });
+                badges.push({ label: 'Own', fg: '#10b981', bg: '#ecfdf5' });
                 if (m.days_on_market !== null && m.days_on_market !== undefined) {
                     badges.push({ label: m.days_on_market + 'd', fg: '#475569', bg: '#f1f5f9' });
                 }

@@ -261,7 +261,7 @@ class TourRegistry
                         'element' => '[data-tour="wiz-headline"]',
                         'do'      => ['action' => 'fill', 'say' => 'Type the headline buyers will see.'],
                         'title'   => 'Headline',
-                        'body'    => 'Required. The short line buyers see in search — e.g. "Stunning 3 Bed Family Home in Uvongo Beach". Sell the lifestyle; this is marketing, not the street address.',
+                        'body'    => 'Required. The short line buyers see in search — e.g. "Stunning 3 Bed Family Home near the Beach". Sell the lifestyle; this is marketing, not the street address.',
                     ],
                     [
                         'element' => '[data-tour="wiz-type"]',

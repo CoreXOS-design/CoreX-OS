@@ -170,7 +170,7 @@
                         </table>
                     </div>
                     <p class="text-[11px] mt-3" style="color: var(--text-muted);">
-                        💡 Tip: if a suburb in your area isn't really a separate place (e.g. "Margate Beach" is part of Margate),
+                        💡 Tip: if a suburb in your area isn't really a separate place (e.g. "Town Beach" is part of "Town"),
                         map it to its parent town. If it really IS a new town in your area, add the town first in the list below,
                         then come back here to map the suburb.
                     </p>
@@ -274,7 +274,7 @@
             <h2 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">Add Town</h2>
             <form method="POST" action="{{ route('settings.prospecting.towns.store') }}" class="flex flex-col md:flex-row gap-2">
                 @csrf
-                <input type="text" name="name" required maxlength="100" placeholder="Town name (e.g. Margate)"
+                <input type="text" name="name" required maxlength="100" placeholder="Town name"
                        class="flex-1 rounded-md px-3 py-2 text-sm"
                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                 <input type="text" name="region" maxlength="100" placeholder="Region (optional)"

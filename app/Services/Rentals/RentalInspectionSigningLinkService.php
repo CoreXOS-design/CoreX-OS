@@ -3,6 +3,7 @@
 namespace App\Services\Rentals;
 
 use App\Exceptions\RentalInspectionSigningLinkException as LinkException;
+use App\Mail\Rentals\RentalInspectionAgentCopyMail;
 use App\Mail\Rentals\RentalInspectionSigningLinkMail;
 use App\Models\Contact;
 use App\Models\RentalInspection;
@@ -409,7 +410,9 @@ class RentalInspectionSigningLinkService
             return ['status' => 'skipped', 'error' => 'No email address on file for ' . $party['name'] . '.', 'to' => null];
         }
 
-        $mail = new RentalInspectionSigningLinkMail(
+        // The agent's own copy goes to a staff user (it may say CoreX); a tenant or owner gets the client mail, which never does.
+        $mailClass = $party['role'] === RentalInspectionSigningLink::ROLE_AGENT ? RentalInspectionAgentCopyMail::class : RentalInspectionSigningLinkMail::class;
+        $mail = new $mailClass(
             recipientName: $party['name'],
             propertyAddress: $inspection->property?->buildDisplayAddress() ?? '',
             inspectionLabel: RentalInspection::typeName($inspection->type),

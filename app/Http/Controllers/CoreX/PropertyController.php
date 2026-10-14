@@ -2356,7 +2356,7 @@ class PropertyController extends Controller
             if (empty($property->status))  $missing[] = 'Status';
             if (empty($property->suburb))  $missing[] = 'Suburb';
             if ($missing) {
-                $msg = 'Cannot publish to HFC Premium — missing: ' . implode(', ', $missing);
+                $msg = 'Cannot publish to your agency website — missing: ' . implode(', ', $missing);
                 if ($request->wantsJson() || $request->ajax()) {
                     return response()->json(['error' => $msg, 'missing' => $missing], 422);
                 }
@@ -2365,13 +2365,13 @@ class PropertyController extends Controller
         }
         if ($action === 'publish' || $action === 'refresh') {
             $property->published_at = now();
-            $msg = $action === 'refresh' ? 'Listing refreshed on HFC Premium.' : 'Published to HFC Premium.';
+            $msg = $action === 'refresh' ? 'Listing refreshed on your agency website.' : 'Published to your agency website.';
         } elseif ($action === 'unpublish') {
             $property->published_at = null;
-            $msg = 'Unpublished from HFC Premium.';
+            $msg = 'Unpublished from your agency website.';
         } else {
             $property->published_at = $property->published_at ? null : now();
-            $msg = $property->published_at ? 'Published to HFC Premium.' : 'Unpublished from HFC Premium.';
+            $msg = $property->published_at ? 'Published to your agency website.' : 'Unpublished from your agency website.';
         }
         $property->save();
 

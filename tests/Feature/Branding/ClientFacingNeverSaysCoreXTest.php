@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Branding;
 
+use App\Mail\Contracts\StaffFacingMail;
 use App\Models\Agency;
 use App\Services\PublicLinks\PublicLinkUnavailableResponder;
 use App\Support\ClientBrand;
@@ -217,6 +218,34 @@ final class ClientFacingNeverSaysCoreXTest extends TestCase
         'app/Http/Controllers/{RentalFaultSettingsDisputeController,RentalOwnerNoticeController}.php',
     ];
 
+    /**
+     * The staff-facing exemption, by RULE: a mail whose recipient is a staff user (an agent, a manager, an admin) reads CoreX screens, so it
+     * may say CoreX. A mailable declares that by implementing App\Mail\Contracts\StaffFacingMail; its Blade view(s) and its own class file
+     * are then not client-facing. There is no list of file names here - a new staff mail implements the interface, a new client mail does not
+     * and is scanned strictly by the registry below.
+     *
+     * @return array<string,string> absolute path => absolute path
+     */
+    private function staffFacingFiles(): array
+    {
+        $out = [];
+        $root = base_path('app/Mail') . '/';
+        foreach (glob($root . '{,*/,*/*/}*.php', GLOB_BRACE) ?: [] as $file) {
+            $class = 'App\\Mail\\' . str_replace(['/', '.php'], ['\\', ''], substr($file, strlen($root)));
+            if (! class_exists($class) || ! is_subclass_of($class, StaffFacingMail::class)) {
+                continue;
+            }
+            $out[$file] = $file;
+            preg_match_all('/\b(?:view|markdown|text)\s*(?::|\()\s*[\'"]([\w.\-]+)[\'"]/', (string) file_get_contents($file), $m);
+            foreach ($m[1] as $view) {
+                $viewFile = base_path('resources/views/' . str_replace('.', '/', $view) . '.blade.php');
+                $out[$viewFile] = $viewFile;
+            }
+        }
+
+        return $out;
+    }
+
     /** @return array<int,string> */
     private function clientFiles(): array
     {
@@ -227,7 +256,7 @@ final class ClientFacingNeverSaysCoreXTest extends TestCase
             }
         }
 
-        return array_values($files);
+        return array_values(array_diff_key($files, $this->staffFacingFiles()));
     }
 
     /** Source with the parts that never reach a client removed: Blade comments, PHP comments, and code identifiers that happen to contain the word. */
@@ -266,6 +295,28 @@ final class ClientFacingNeverSaysCoreXTest extends TestCase
         }
 
         self::assertSame([], $violations, "client-facing files that still say CoreX:\n" . implode("\n", array_slice($violations, 0, 40)));
+    }
+
+    public function test_only_mails_to_staff_are_exempt_and_the_client_version_of_the_inspection_mail_stays_strict(): void
+    {
+        // The exemption is derived from the recipient (the interface), so it is not empty, every exempt view exists, and it covers the agent's copy.
+        $exempt = $this->staffFacingFiles();
+        self::assertNotEmpty($exempt);
+        foreach ($exempt as $file) {
+            self::assertFileExists($file, 'a staff-facing mail names a view that does not exist - the exemption would silently cover nothing');
+        }
+        self::assertContains(base_path('resources/views/emails/rentals/inspection-agent-copy.blade.php'), $exempt);
+        self::assertNotContains(base_path('resources/views/emails/rentals/inspection-signing-link.blade.php'), $exempt, 'the tenant/owner mail is a client mail');
+
+        // A client's signing-link mail is scanned strictly and renders clean; the agent's own copy is the one that says CoreX.
+        $args = ['recipientName' => 'Thandi', 'propertyAddress' => '1 Kloof St', 'inspectionLabel' => 'Move-in inspection', 'signingUrl' => 'https://example.test/s/1', 'expiresOn' => '30 Oct 2026', 'canSign' => true, 'agentName' => 'Pat'];
+        $client = new \App\Mail\Rentals\RentalInspectionSigningLinkMail(...$args);
+        $this->assertNoCoreX($client->render(), 'inspection signing-link mail (client)');
+        self::assertNotInstanceOf(StaffFacingMail::class, $client);
+
+        $agent = new \App\Mail\Rentals\RentalInspectionAgentCopyMail(...array_merge($args, ['canSign' => false, 'openInCoreXUrl' => 'https://example.test/i/1']));
+        self::assertInstanceOf(StaffFacingMail::class, $agent);
+        self::assertMatchesRegularExpression('/core\s*x/i', $this->visible($agent->render()));
     }
 
     public function test_there_is_no_powered_by_corex_setting_to_switch_on(): void

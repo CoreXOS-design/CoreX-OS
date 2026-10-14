@@ -514,6 +514,21 @@ crashed with `ArgumentCountError` on first save for every agency. Test: `AgencyS
 
 Tests: `tests/Feature/Features/AgencyTypeFeatureSeedTest.php`, `tests/Feature/Onboarding/AgencySetupEveryStepSavesTest.php`.
 
+### 5.4 Short code - the letters on the agency's document numbers (2026-10-14, Johan)
+
+`agencies.short_code` (2-10 letters/numbers, upper-case, unique across agencies). Payslips were numbered with a literal `HFC-`; they now
+start with the agency's own code (`CTR-202610-001`). **Where it is set:** the Setup Wizard identity step (control `short_code`, saved by
+`SettingsController@updateAgency` - written only when the step posted it, §6.1), Company Settings, `/settings` (agency details) and Admin >
+Agencies (create/edit). **Default:** worked out from the name when the agency is created (`App\Support\AgencyShortCode::fromName`: first
+letter of each real word, up to three - "Home Finders Coastal" -> HFC, "Cape Town Rentals" -> CTR, one word -> first three letters; a clash
+with another agency gets a number added). A blank box keeps the code the agency has - it is never emptied, and renaming the agency does
+not change it. Changing the code only affects numbers issued from then on; numbers already issued never change. The migration gave every
+existing agency a code from its name, oldest first, so Home Finders Coastal is `HFC` and its numbering is unchanged.
+
+Other document numbers were checked in the same sweep and are NOT agency-lettered: `LV-` (leave application), `DL-` (deal reference) and
+`WO-` are document-type codes with no agency in them; the proforma prefix (`AgencyProformaSettings.number_prefix`) and the title-deed prefix
+(`TitleDeedSetting`) are already per-agency settings. Test: `tests/Feature/Agencies/AgencyShortCodeTest.php`.
+
 ## 6. Save-path map — every step reuses the settings page's write path
 
 > **Rule (§3.1):** a wizard step must call the SAME write path the settings page uses.

@@ -26,7 +26,7 @@ final class SellerOutreachTemplateDefaultsTest extends TestCase
     /** The service's hardcoded clone source — mirrors the seeder's own convention. */
     private const HFC_ID = 1;
 
-    public function test_agency_with_no_whatsapp_template_gets_hfcs_first_one_cloned(): void
+    public function test_agency_with_no_whatsapp_template_gets_the_platforms_neutral_starter_not_a_clone_of_hfcs(): void
     {
         $this->seedHfcWithOneWhatsappTemplate();
         $targetId = $this->makeAgency('New Agency');
@@ -39,14 +39,16 @@ final class SellerOutreachTemplateDefaultsTest extends TestCase
             ->first();
 
         $this->assertNotNull($cloned, 'a WhatsApp template must have been created for the target agency');
-        $this->assertSame('General Marketing — Area Updates', $cloned->name);
+        $this->assertSame(SellerOutreachTemplateDefaultsService::STARTER_NAME, $cloned->name);
         $this->assertStringContainsString('{opt_out_link}', $cloned->body);
         $this->assertTrue((bool) $cloned->is_active);
         $this->assertTrue((bool) $cloned->is_default_for_channel);
 
+        // Cape walk, 14 Oct 2026: it is the platform's own neutral text (merge fields only), NOT a verbatim copy of HFC's template
         $hfcBody = SellerOutreachTemplate::withoutGlobalScopes()
             ->where('agency_id', self::HFC_ID)->where('channel', 'whatsapp')->value('body');
-        $this->assertSame($hfcBody, $cloned->body, 'the clone must be verbatim, not rewritten');
+        $this->assertSame(SellerOutreachTemplateDefaultsService::STARTER_BODY, $cloned->body);
+        $this->assertNotSame($hfcBody, $cloned->body);
     }
 
     public function test_hfc_itself_is_never_touched(): void

@@ -378,12 +378,12 @@
                 <div class="space-y-4">
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Address</label>
-                        <input type="text" x-model="property.address" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 21 Dee Road, Uvongo">
+                        <input type="text" x-model="property.address" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. 12 Main Road, Suburb">
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Suburb</label>
-                            <input type="text" x-model="property.suburb" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. Uvongo">
+                            <input type="text" x-model="property.suburb" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. Suburb name">
                         </div>
                         <div>
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Unit / Erf Number</label>
