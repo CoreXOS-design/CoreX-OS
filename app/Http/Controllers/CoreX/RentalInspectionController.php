@@ -930,7 +930,11 @@ class RentalInspectionController extends Controller
         $inspection = RentalInspection::withTrashed()->findOrFail($rentalInspection);
         $this->guardRentalRecordScope($inspection, 'rental_inspections', $inspection->property?->branch_id);
 
-        $inspection->restore();
+        try {
+            $inspection->restore();
+        } catch (\LogicException $e) {
+            return redirect()->route('corex.rental-inspections.show', $inspection)->withErrors(['rental_inspection' => $e->getMessage()]);
+        }
         $inspection->forceFill(['archived_by_user_id' => null])->save();
 
         return redirect()->route('corex.rental-inspections.show', $inspection)->with('success', 'Inspection restored.');

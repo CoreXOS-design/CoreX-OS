@@ -208,7 +208,15 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
                 return;
             }
             RentalInspectionAuditLog::record($inspection, RentalInspectionAuditLog::EVENT_ARCHIVED, 'Archived.', null, ['archived_by_user_id' => $inspection->archived_by_user_id]);
+            $inspection->spliceOutOfChain();
             self::syncCalendarQuietly($inspection);
+        });
+        static::restoring(function (self $inspection) {
+            // Spec §57 — an archived link no longer blocks its predecessor, so a new "next" may have been started since.
+            if ($inspection->previous_inspection_id && $inspection->status !== self::STATUS_CANCELLED
+                && self::where('previous_inspection_id', $inspection->previous_inspection_id)->where('id', '!=', $inspection->id)->exists()) {
+                throw new \LogicException('Another inspection was started after this one was archived, so it cannot be put back into the chain.');
+            }
         });
         static::restored(function (self $inspection) {
             // archived_by_user_id is cleared right after a restore; the history keeps who had archived it.
@@ -335,13 +343,32 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
 
     /**
      * The inverse — this inspection's own successor, if "Next inspection"
-     * has been pressed from it. At most one, enforced by the migration's
-     * unique index on previous_inspection_id (one linear chain, never a
-     * fork).
+     * has been pressed from it. At most ONE LIVE successor (one linear
+     * chain, never a fork): a cancelled successor is not part of the chain
+     * any more, and an archived one is already hidden by SoftDeletes. That
+     * is what lets chainTailFor() find the previous inspection again after
+     * the one started on top of it is cancelled (spec §57) — the row keeps
+     * its previous_inspection_id for the history, so several rows can
+     * point at one inspection and only this relation says which one counts.
+     * The "never a fork" rule lives in assertCanFollow() / startNext().
      */
     public function nextInChain(): \Illuminate\Database\Eloquent\Relations\HasOne
     {
-        return $this->hasOne(self::class, 'previous_inspection_id');
+        return $this->hasOne(self::class, 'previous_inspection_id')->where('status', '!=', self::STATUS_CANCELLED);
+    }
+
+    /**
+     * Take this inspection out of the chain once it is cancelled or archived (spec §57): whatever was started AFTER it
+     * now follows the inspection that came BEFORE it, so previousInspection() reads the right comparison everywhere
+     * without every reader having to skip dead links. The cancelled/archived row keeps its own link for the history.
+     * A cancelled or archived TAIL has no successor, so this is a no-op there — nextInChain() already ignores it.
+     */
+    public function spliceOutOfChain(): void
+    {
+        self::where('previous_inspection_id', $this->id)
+            ->where('status', '!=', self::STATUS_CANCELLED)
+            ->get()
+            ->each(fn (self $successor) => $successor->forceFill(['previous_inspection_id' => $this->previous_inspection_id])->save());
     }
 
     /** §13 — every active scanned/photographed wet-ink form uploaded against this inspection. An archived scan is never hard-deleted (non-negotiable #1) — it simply drops off this default list, same as every other soft-deletable list on this screen. */
@@ -1345,6 +1372,8 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             'cancel_reason' => $reason,
         ])->save();
 
+        $this->spliceOutOfChain();
+
         // §43 — a scheduled inspection's calendar event is dismissed, never
         // left dangling on the inspector's calendar, and every notified
         // party is told it's off.
@@ -1723,22 +1752,18 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      */
     public static function startNext(self $predecessor, string $type, User $by): self
     {
-        if (! in_array($type, [self::TYPE_IN, self::TYPE_OUT, self::TYPE_AD_HOC, self::TYPE_INTERIM], true)) {
-            throw new \LogicException('Unknown inspection type.');
-        }
-        // §49 — Johan, 8 Oct 2026: every place offers all four types, In included. A tenancy still has only one
-        // In-inspection, so an In is refused (and shown greyed out, with this reason) once the lease already has one.
-        if ($type === self::TYPE_IN && ($existingIn = $predecessor->leaseInInspection())) {
-            throw new \LogicException('This tenancy already has an In-inspection (#' . $existingIn->id . ') — there is only one move-in condition on record.');
-        }
-        // Audit L6 — a cancelled (never happened) or archived inspection cannot be chained from.
-        if ($predecessor->status === self::STATUS_CANCELLED || $predecessor->trashed()) {
-            throw new \LogicException('A cancelled or archived inspection cannot be followed by a next inspection.');
-        }
-        if ($predecessor->nextInChain()->exists()) {
-            throw new \LogicException('This inspection already has a next inspection — a chain link cannot fork.');
-        }
+        // The database no longer forbids two rows pointing at one predecessor (a cancelled successor keeps its link),
+        // so two quick presses are serialised on the predecessor row and the second one fails assertCanFollow().
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($predecessor, $type, $by) {
+            self::withoutGlobalScopes()->whereKey($predecessor->id)->lockForUpdate()->first();
+            self::assertCanFollow($predecessor, $type);
 
+            return self::createFollowing($predecessor, $type, $by);
+        });
+    }
+
+    private static function createFollowing(self $predecessor, string $type, User $by): self
+    {
         $lease = $predecessor->lease ?? Lease::withoutGlobalScopes()->find($predecessor->lease_id);
         $property = $predecessor->property ?? Property::find($predecessor->property_id);
 
@@ -1756,6 +1781,31 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             'furnished_status' => $property?->furnished_status,
             'move_in_date_recorded' => $type === self::TYPE_OUT ? $lease?->start_date : null,
         ]);
+    }
+
+    /**
+     * Every rule a "next inspection" must satisfy, in one place so the property tab can run them BEFORE it asks
+     * "an inspection is still open — start on top of it anyway?" (spec §57) and still show the real refusal first.
+     *
+     * @throws \LogicException
+     */
+    public static function assertCanFollow(self $predecessor, string $type): void
+    {
+        if (! in_array($type, [self::TYPE_IN, self::TYPE_OUT, self::TYPE_AD_HOC, self::TYPE_INTERIM], true)) {
+            throw new \LogicException('Unknown inspection type.');
+        }
+        // §49 — Johan, 8 Oct 2026: every place offers all four types, In included. A tenancy still has only one
+        // In-inspection, so an In is refused (and shown greyed out, with this reason) once the lease already has one.
+        if ($type === self::TYPE_IN && ($existingIn = $predecessor->leaseInInspection())) {
+            throw new \LogicException('This tenancy already has an In-inspection (#' . $existingIn->id . ') — there is only one move-in condition on record.');
+        }
+        // Audit L6 — a cancelled (never happened) or archived inspection cannot be chained from.
+        if ($predecessor->status === self::STATUS_CANCELLED || $predecessor->trashed()) {
+            throw new \LogicException('A cancelled or archived inspection cannot be followed by a next inspection.');
+        }
+        if ($predecessor->nextInChain()->exists()) {
+            throw new \LogicException('This inspection already has a next inspection — a chain link cannot fork.');
+        }
     }
 
     /** §49 — the tenancy's In-inspection, if it already has one (cancelled ones do not count). */

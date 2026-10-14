@@ -336,7 +336,7 @@ final class RentalInspectionRulingsSettingsAndPickersTest extends TestCase
 
         $this->postJson(route('corex.properties.rental-inspections.next', [$this->property, $in->fresh()]), ['type' => 'in'])
             ->assertStatus(409)->assertJsonPath('message', fn ($m) => str_contains($m, 'already has an In-inspection'));
-        $this->postJson(route('corex.properties.rental-inspections.next', [$this->property, $in->fresh()]), ['type' => 'interim'])->assertStatus(201);
+        $this->postJson(route('corex.properties.rental-inspections.next', [$this->property, $in->fresh()]), ['type' => 'interim', 'confirm_stack' => true])->assertStatus(201);
     }
 
     public function test_the_property_inspections_tab_offers_all_four_both_before_and_after_the_first_inspection(): void

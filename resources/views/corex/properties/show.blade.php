@@ -7925,7 +7925,14 @@
                     this.nextBusy = true;
                     this.nextError = '';
                     try {
-                        await this._post(`${this.inspectionUrls.nextInspectionBase}/${this.chainTail.id}/next`, { type });
+                        try {
+                            await this._post(`${this.inspectionUrls.nextInspectionBase}/${this.chainTail.id}/next`, { type });
+                        } catch (e) {
+                            // Spec §57 — the tail is still being recorded: say so, and only stack a new one on top if the agent insists.
+                            if (!(e.data && e.data.reason === 'open_inspection')) throw e;
+                            if (!window.confirm(e.message + '\n\nOK = start the new inspection anyway.\nCancel = stay and keep working on the open one.')) return;
+                            await this._post(`${this.inspectionUrls.nextInspectionBase}/${this.chainTail.id}/next`, { type, confirm_stack: true });
+                        }
                         await this.refreshInspectionData();
                     } catch (e) { this.nextError = e.message; }
                     finally { this.nextBusy = false; }

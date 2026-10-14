@@ -183,6 +183,20 @@ class RentalInspectionRecordingController extends Controller
         ]);
 
         try {
+            RentalInspection::assertCanFollow($rentalInspection, $validated['type']);
+
+            // Spec §57 (property 21222) — a "next" started on an inspection that is still being recorded is how a
+            // second, empty inspection got stacked on top of a draft Out. Ask first; the page re-sends with
+            // confirm_stack once the agent says "start it anyway".
+            if ($rentalInspection->status !== RentalInspection::STATUS_COMPLETED && ! $request->boolean('confirm_stack')) {
+                return response()->json([
+                    'reason' => 'open_inspection',
+                    'inspection_id' => $rentalInspection->id,
+                    'message' => RentalInspection::typeName($rentalInspection->type) . ' #' . $rentalInspection->id . ' is still open (' . str_replace('_', ' ', (string) $rentalInspection->status)
+                        . ') — it has not been finished. Starting another inspection now puts it on top of that one, and the open one stays unfinished underneath.',
+                ], 409);
+            }
+
             $next = RentalInspection::startNext($rentalInspection, $validated['type'], $request->user());
         } catch (\LogicException $e) {
             return response()->json(['message' => $e->getMessage()], 409);
