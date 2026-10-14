@@ -225,7 +225,7 @@ class PropertyMarketingController extends Controller
             }
 
             if (count($pagesData['pages']) === 1) {
-                $this->oauthService->connectPage(
+                $account = $this->oauthService->connectPage(
                     auth()->id(),
                     $pagesData['platform'],
                     $pagesData['pages'][0]['id'],
@@ -233,7 +233,8 @@ class PropertyMarketingController extends Controller
                 );
 
                 return $this->backToSocialCard()
-                    ->with('success', 'Social account connected successfully.');
+                    ->with('success', 'Connected to "' . $account->platform_page_name . '" (the only Page Facebook offered for your account). '
+                        . 'If this is not the Page you wanted, click Disconnect, then Connect again and tick the right Page in the Facebook window.');
             }
 
             session([
