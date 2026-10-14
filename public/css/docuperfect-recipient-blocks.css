@@ -127,30 +127,32 @@ h3[data-role-token-heading] ~ h3[data-role-token-heading][data-same-role] {
  * page a lease's "Less Agent's Service Fee" / "Net Amount to Owner" rows (the
  * 2nd and 4th rows of the breakdown table) and its date/time inputs turned
  * near-black. Pin them to explicit paper colours here — once, for every
- * template on all three surfaces (wizard preview, fill & review, signing).
+ * template on every surface (wizard preview / fill & review via .docuperfect-document-body; staff
+ * sign, review, view-live, download via .corex-document-wrapper). This block is identical in
+ * corex-document.css so each surface gets it from whichever stylesheet it already loads.
  *
  * Row / cell backgrounds carry no !important on purpose: a template's own
  * inline shading (style="background:…") must still win. The corex.css input
  * and <th> rules ARE !important, so these must be too (and out-specify them).
  * ------------------------------------------------------------------------- */
-.docuperfect-document-body {
+:is(.docuperfect-document-body, .corex-document-wrapper) {
     color-scheme: light;
 }
 
-html.dark .docuperfect-document-body tbody tr,
-html.dark .docuperfect-document-body tbody tr:nth-child(even),
-html.dark .docuperfect-document-body tbody tr:hover {
+html.dark :is(.docuperfect-document-body, .corex-document-wrapper) tbody tr,
+html.dark :is(.docuperfect-document-body, .corex-document-wrapper) tbody tr:nth-child(even),
+html.dark :is(.docuperfect-document-body, .corex-document-wrapper) tbody tr:hover {
     background-color: #fff;
 }
 
-html.dark .docuperfect-document-body thead th {
+html.dark :is(.docuperfect-document-body, .corex-document-wrapper) thead th {
     background-color: #f3f4f6 !important;
     color: #1a1a1a !important;
 }
 
-html.dark .docuperfect-document-body input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-html.dark .docuperfect-document-body select,
-html.dark .docuperfect-document-body textarea {
+html.dark :is(.docuperfect-document-body, .corex-document-wrapper) input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+html.dark :is(.docuperfect-document-body, .corex-document-wrapper) select,
+html.dark :is(.docuperfect-document-body, .corex-document-wrapper) textarea {
     background-color: #fff !important;
     color: #1a1a1a !important;
     border-color: #9ca3af !important;

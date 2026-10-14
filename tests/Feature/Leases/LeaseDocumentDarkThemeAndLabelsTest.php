@@ -108,25 +108,32 @@ final class LeaseDocumentDarkThemeAndLabelsTest extends TestCase
         $this->assertStringContainsString('signed by the Buyer (Bea Buyer)', $html);
     }
 
-    public function test_shared_document_css_pins_rows_headers_and_inputs_to_paper_colours_in_dark_theme(): void
+    /** @return array<string, array{0: string}> */
+    public static function documentCssFiles(): array
     {
-        $css = (string) file_get_contents(public_path('css/docuperfect-recipient-blocks.css'));
+        // .docuperfect-document-body = wizard preview / fill & review; .corex-document-wrapper = the
+        // staff sign / review / view-live / download pages. Each loads one of these two stylesheets.
+        return [
+            'wizard + external sign surface' => ['public/css/docuperfect-recipient-blocks.css'],
+            'staff sign / review / view-live' => ['public/css/corex-document.css'],
+        ];
+    }
 
-        // The three things corex.css's `html.dark` rules paint, each re-pinned inside the document body
-        // with at least the same specificity (and !important where corex.css uses it).
+    #[\PHPUnit\Framework\Attributes\DataProvider('documentCssFiles')]
+    public function test_document_css_pins_rows_headers_and_inputs_to_paper_colours_in_dark_theme(string $file): void
+    {
+        $css = (string) file_get_contents(base_path($file));
+        $scope = 'html\.dark :is\(\.docuperfect-document-body, \.corex-document-wrapper\)';
+
+        // The things corex.css's `html.dark` rules paint, each re-pinned inside the document with at least
+        // the same specificity (and !important where corex.css uses it).
+        $this->assertMatchesRegularExpression('/' . $scope . ' tbody tr:nth-child\(even\)[^{]*\{[^}]*background-color:\s*#fff;/s', $css);
+        $this->assertMatchesRegularExpression('/' . $scope . ' thead th\s*\{[^}]*background-color:\s*#f3f4f6 !important;/s', $css);
         $this->assertMatchesRegularExpression(
-            '/html\.dark \.docuperfect-document-body tbody tr:nth-child\(even\)[^{]*\{[^}]*background-color:\s*#fff;/s',
+            '/' . $scope . ' input:not\(\[type="checkbox"\]\)[^{]*\{[^}]*background-color:\s*#fff !important;[^}]*color:\s*#1a1a1a !important;/s',
             $css
         );
-        $this->assertMatchesRegularExpression(
-            '/html\.dark \.docuperfect-document-body thead th\s*\{[^}]*background-color:\s*#f3f4f6 !important;/s',
-            $css
-        );
-        $this->assertMatchesRegularExpression(
-            '/html\.dark \.docuperfect-document-body input:not\(\[type="checkbox"\]\)[^{]*\{[^}]*background-color:\s*#fff !important;[^}]*color:\s*#1a1a1a !important;/s',
-            $css
-        );
-        $this->assertMatchesRegularExpression('/\.docuperfect-document-body\s*\{\s*color-scheme:\s*light;/', $css);
+        $this->assertMatchesRegularExpression('/:is\(\.docuperfect-document-body, \.corex-document-wrapper\)\s*\{\s*color-scheme:\s*light;/', $css);
     }
 
     public function test_corex_dark_rules_the_document_css_must_out_rank_still_exist_as_assumed(): void
