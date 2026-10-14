@@ -83,6 +83,21 @@ final class DocumentAgencyContext
     }
 
     /**
+     * The agency a controller/renderer EXPLICITLY pinned for this document — null when nothing was pinned (never the
+     * signed-in user's). For public pages that already have their own fallback (the creator's agency) and must not let
+     * a staff member who happens to be signed in in another tab name THEIR agency on someone else's document.
+     */
+    public static function pinnedAgency(): ?Agency
+    {
+        if (self::$stack === []) {
+            return null;
+        }
+        [$agencyId, $branchId] = self::$stack[array_key_last(self::$stack)];
+
+        return self::load($agencyId, $branchId)[0];
+    }
+
+    /**
      * The words a template uses for "us": the branch's own value when it has one, else the agency's.
      * Every key is a plain string ('' when the agency has not filled it in) so a template can print it safely.
      *

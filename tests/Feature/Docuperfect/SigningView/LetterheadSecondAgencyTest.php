@@ -61,4 +61,21 @@ final class LetterheadSecondAgencyTest extends TestCase
             $this->assertStringNotContainsString($marker, $html, "the signing page shows '{$marker}'");
         }
     }
+
+    public function test_the_signing_page_names_the_documents_agency_not_the_creators(): void
+    {
+        $this->withoutVite();
+        $session = $this->buildCanonicalTemplate111Session(sellerCount: 1);
+        $document = $session['document'];
+
+        // The creator belongs to one agency, the document to another (an owner who switched agency to prepare it).
+        $other = Agency::create(['name' => 'Other Co Realty', 'slug' => 'other-co-' . uniqid()]);
+        $document->forceFill(['agency_id' => $other->id])->save();
+
+        $body = (string) $this->asRecipient($session['recipients']->first())->getContent();
+
+        $this->assertStringContainsString('Other Co Realty', $body);
+        $this->assertMatchesRegularExpression('/Other Co Realty\s*&mdash; Secure Document Signing/', $body);
+        $this->assertStringNotContainsString('Signing Session Test Agency &mdash;', $body);
+    }
 }

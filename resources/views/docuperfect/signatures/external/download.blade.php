@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Download Signed Document — {{ $template->creator?->agency?->name ?? 'Agency' }}</title>
+    <title>Download Signed Document — {{ \App\Support\Docuperfect\DocumentAgencyContext::pinnedAgency()?->name ?? $template->creator?->agency?->name ?? 'Agency' }}</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
@@ -122,7 +122,7 @@
         @endif
 
         <div class="text-center text-xs text-slate-400 mt-4">
-            {{ $template->creator?->agency?->name ?? 'Agency' }} &mdash; Document Signing
+            {{ \App\Support\Docuperfect\DocumentAgencyContext::pinnedAgency()?->name ?? $template->creator?->agency?->name ?? 'Agency' }} &mdash; Document Signing
         </div>
     </div>
 </body>

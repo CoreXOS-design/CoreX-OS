@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Choose Signing Method — {{ $template->creator?->agency?->name ?? 'Agency' }}</title>
+    <title>Choose Signing Method — {{ \App\Support\Docuperfect\DocumentAgencyContext::pinnedAgency()?->name ?? $template->creator?->agency?->name ?? 'Agency' }}</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
@@ -27,7 +27,7 @@
                 <div class="text-xs text-slate-400 uppercase tracking-wider font-semibold mb-1">Document</div>
                 <div class="text-sm font-medium text-slate-700">{{ $document->name }}</div>
                 <div class="text-xs text-slate-400 mt-1">
-                    Sent by {{ $template->creator->name ?? ($template->creator?->agency?->name ?? 'Agency') }}
+                    Sent by {{ $template->creator->name ?? (\App\Support\Docuperfect\DocumentAgencyContext::pinnedAgency()?->name ?? ($template->creator?->agency?->name ?? 'Agency')) }}
                 </div>
             </div>
 
@@ -76,7 +76,7 @@
         </div>
 
         <div class="text-center text-xs text-slate-400">
-            {{ $template->creator?->agency?->name ?? 'Agency' }} &mdash; Document Signing
+            {{ \App\Support\Docuperfect\DocumentAgencyContext::pinnedAgency()?->name ?? $template->creator?->agency?->name ?? 'Agency' }} &mdash; Document Signing
         </div>
     </div>
 </body>

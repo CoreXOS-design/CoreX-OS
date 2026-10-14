@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Signing Complete — {{ $request->template?->creator?->agency?->name ?? 'Agency' }}</title>
+    <title>Signing Complete — {{ \App\Support\Docuperfect\DocumentAgencyContext::pinnedAgency()?->name ?? $request->template?->creator?->agency?->name ?? 'Agency' }}</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="bg-slate-50 min-h-screen flex items-center justify-center p-4">
@@ -40,7 +40,7 @@
                         <span class="text-sm font-medium text-green-700">Everyone has signed.</span>
                     </div>
                     <p class="text-xs text-green-600 mt-1">
-                        {{ $request->template?->creator?->agency?->name ?? 'The agency' }} now approves it. The fully signed copy is emailed to you as soon as that is done.
+                        {{ \App\Support\Docuperfect\DocumentAgencyContext::pinnedAgency()?->name ?? $request->template?->creator?->agency?->name ?? 'The agency' }} now approves it. The fully signed copy is emailed to you as soon as that is done.
                     </p>
                 </div>
             @elseif($fullyComplete)
@@ -70,7 +70,7 @@
         </div>
 
         <div class="text-center mt-4 text-xs text-slate-400">
-            {{ $request->template?->creator?->agency?->name ?? 'Agency' }} &mdash; Document Signing
+            {{ \App\Support\Docuperfect\DocumentAgencyContext::pinnedAgency()?->name ?? $request->template?->creator?->agency?->name ?? 'Agency' }} &mdash; Document Signing
         </div>
     </div>
 </body>

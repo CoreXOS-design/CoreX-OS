@@ -14,6 +14,8 @@ Grep: `hfc-coastal | hfcoastal | home finders` over app, resources, config, rout
 | `rental-application-v8` | HFC name, `letting@hfcoastal.co.za` (x4), `039 315 0857`, `hfcoastal.co.za/for-rent` | agency name, e-mail, phone, website |
 | `resources/views/tv/company.blade.php:50` | TV fallback message "HOME FINDERS COASTAL: Only N deals..." | agency name |
 
+| `docuperfect/signatures/external/{sign,choose-method,waiting,completed,upload-received,download}.blade.php` | public signing pages named the agency of the template's CREATOR in title/footer (found on QA1 in the browser proof, not by grep) | the document's pinned agency first (`DocumentAgencyContext::pinnedAgency()`), creator's as before |
+
 ## Reported, not changed (not client-facing, or needs a business decision)
 - `app/Services/SellerOutreach/SellerOutreachTemplateDefaultsService.php:37` - `SOURCE_AGENCY_ID = 1`: every new agency's first WhatsApp outreach template is a COPY of HFC's, wording included. Needs a neutral default text (Johan).
 - `app/Models/Property.php:2790-2797` `isOnHfcWebsite()`: `agency_id === 1` placeholder for "published on hfcoastal.co.za".
