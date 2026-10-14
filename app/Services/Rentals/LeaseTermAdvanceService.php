@@ -6,6 +6,9 @@ use App\Models\Lease;
 use App\Models\LeaseEvent;
 use App\Models\LeaseSetting;
 use App\Models\RentalInspection;
+use App\Models\User;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
@@ -40,10 +43,7 @@ class LeaseTermAdvanceService
             ->where('status', Lease::STATUS_DRAFT)
             ->whereNotNull('previous_lease_id')
             ->whereDate('start_date', '<=', $today)
-            ->where(function ($q) {
-                $q->where(fn ($s) => $s->where('signing_status', Lease::SIGNING_SIGNED)->whereNotNull('accepted_at'))
-                    ->orWhere('signing_status', Lease::SIGNING_SIGNED_ON_PAPER);
-            })
+            ->where(fn ($q) => $this->signedConstraint($q))
             ->when($leaseId, fn ($q) => $q->whereKey($leaseId))
             ->orderBy('start_date')->orderBy('id')
             ->get();
@@ -74,6 +74,13 @@ class LeaseTermAdvanceService
         }
 
         return $out;
+    }
+
+    /** "Signed and approved" - the one definition the nightly job and the single-lease run both read. */
+    private function signedConstraint($q): void
+    {
+        $q->where(fn ($s) => $s->where('signing_status', Lease::SIGNING_SIGNED)->whereNotNull('accepted_at'))
+            ->orWhere('signing_status', Lease::SIGNING_SIGNED_ON_PAPER);
     }
 
     /**
@@ -161,5 +168,127 @@ class LeaseTermAdvanceService
         }
 
         return $out;
+    }
+    // ── rental-renewals.md §22.1 - "Run today's lease date checks now": the same job logic, for ONE lease, on a QA / Staging box with no scheduler ──
+
+    /** Who may press it: a system owner or an agency admin (View-As respected) - never an ordinary agent. */
+    public function mayRun(?User $user): bool
+    {
+        if (! $user) {
+            return false;
+        }
+
+        return in_array($user->effectiveRole(), ['admin', 'super_admin'], true) || $user->isEffectiveOwner();
+    }
+
+    /** APP_ENV=production. The one place the testing aids ask - the lease screen, the setting and the run all read this. */
+    public function isProductionInstall(): bool
+    {
+        return app()->environment('production');
+    }
+
+    /** The as-of date is a testing aid: the agency's switch is on AND this is not a production install. Production never, whatever the row holds. */
+    public function asOfDateAllowed(?int $agencyId): bool
+    {
+        return ! $this->isProductionInstall() && LeaseSetting::allowAdvanceAsOfDateFor($agencyId);
+    }
+
+    /**
+     * What this lease is waiting on a date for, or null when it is not waiting on one:
+     *   - a signed renewal (this lease, or the running lease it renews) waits for the renewal's start date;
+     *   - a running lease with a completed out-inspection waits for its move-out / end date.
+     *
+     * @return array{kind:string, date:string, target_id:int, text:string}|null
+     */
+    public function pendingFor(Lease $lease): ?array
+    {
+        $lease = Lease::withoutGlobalScopes()->find($lease->id);
+        if (! $lease || $lease->deleted_at) {
+            return null;
+        }
+
+        $renewal = null;
+        if ($lease->status === Lease::STATUS_DRAFT && $lease->previous_lease_id) {
+            $renewal = Lease::withoutGlobalScopes()->whereKey($lease->id)->whereNotNull('start_date')
+                ->where(fn ($q) => $this->signedConstraint($q))->first();
+        } elseif ($lease->status === Lease::STATUS_ACTIVE && ! $lease->renewed_lease_id) {
+            $renewal = Lease::withoutGlobalScopes()->whereNull('deleted_at')->where('previous_lease_id', $lease->id)
+                ->where('status', Lease::STATUS_DRAFT)->whereNotNull('start_date')
+                ->where(fn ($q) => $this->signedConstraint($q))->orderBy('start_date')->orderBy('id')->first();
+        }
+        if ($renewal) {
+            $date = $renewal->start_date->toDateString();
+
+            return ['kind' => 'renewal_start', 'date' => $date, 'target_id' => (int) $renewal->id,
+                'text' => ($lease->id === $renewal->id ? 'This renewal goes active on ' : 'The signed renewal takes over on ') . $renewal->start_date->format('j M Y')];
+        }
+
+        if ($lease->status === Lease::STATUS_ACTIVE && ! $lease->renewed_lease_id
+            && LeaseSetting::autoRestoreStatusOnLeaseEndedFor($lease->agency_id)
+            && ($date = $this->endDateOf($lease))
+            && $lease->inspections()->where('type', RentalInspection::TYPE_OUT)->where('status', RentalInspection::STATUS_COMPLETED)->exists()) {
+            return ['kind' => 'tenancy_end', 'date' => $date, 'target_id' => (int) $lease->id,
+                'text' => 'The tenancy ends on ' . Carbon::parse($date)->format('j M Y') . ' (move-out inspection done)'];
+        }
+
+        return null;
+    }
+
+    /**
+     * Runs the job's logic for this lease only, in one transaction, and does only what the date allows. With $asOf the lease is checked as if
+     * that were today (refused unless asOfDateAllowed()).
+     *
+     * @return array{outcome:string, message:string}  outcome: done | nothing_due | nothing_pending | blocked
+     */
+    public function runForLease(Lease $lease, ?string $asOf = null, ?User $by = null): array
+    {
+        if ($asOf !== null && ! $this->asOfDateAllowed((int) $lease->agency_id)) {
+            throw ValidationException::withMessages(['as_of' => 'Testing with a different date is not switched on for this agency.']);
+        }
+        $today = $asOf ?: now()->toDateString();
+        $suffix = $asOf ? ' (checked as if today were ' . Carbon::parse($asOf)->format('j M Y') . ')' : '';
+
+        $pending = $this->pendingFor($lease);
+        if (! $pending) {
+            return ['outcome' => 'nothing_pending', 'message' => 'Nothing is waiting on a date for this lease.'];
+        }
+        $dateLabel = Carbon::parse($pending['date'])->format('j M Y');
+        if ($pending['date'] > $today) {
+            return ['outcome' => 'nothing_due', 'message' => "Nothing due until {$dateLabel}.{$suffix}"];
+        }
+
+        DB::beginTransaction();
+        try {
+            if ($pending['kind'] === 'renewal_start') {
+                $row = $this->activateDueRenewals($today, false, $pending['target_id'])[0] ?? null;
+                $done = $row && $row['action'] === 'activated';
+                $doneMessage = "Done - the renewal that starts on {$dateLabel} is now active and the lease it renews has ended.";
+            } else {
+                $row = $this->endVacatedTenancies($today, false, $pending['target_id'])[0] ?? null;
+                $done = $row && $row['action'] === 'ended';
+                $doneMessage = 'Done - the tenancy has ended and the property is back to its earlier status.';
+            }
+
+            if (! $done) {
+                DB::rollBack();
+                $why = $row['note'] ?? null;
+
+                return ['outcome' => 'blocked', 'message' => 'Nothing was changed' . ($why ? ' - ' . $why : '') . '.'];
+            }
+
+            if ($asOf) {
+                LeaseEvent::create([
+                    'lease_id' => $lease->id, 'event_type' => LeaseEvent::TYPE_DATE_CHECKS_RUN,
+                    'description' => 'Lease date checks run by ' . ($by?->name ?? 'an administrator') . ' as if today were ' . Carbon::parse($asOf)->format('j M Y') . ' (testing)',
+                    'metadata' => ['as_of' => $asOf, 'kind' => $pending['kind']], 'occurred_at' => now(), 'created_at' => now(),
+                ]);
+            }
+            DB::commit();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            throw $e;
+        }
+
+        return ['outcome' => 'done', 'message' => $doneMessage . $suffix];
     }
 }

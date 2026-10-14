@@ -246,6 +246,23 @@
             </div>
         </div>
 
+        {{-- rental-renewals.md §22.1 - testing only: not rendered (and not saved) on a production install. --}}
+        @if($showAdvanceAsOfSetting)
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;" data-qa="lease-advance-as-of-card">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Testing the lease dates (test installs only)</h3>
+            </div>
+            <div class="p-5">
+                <input type="hidden" name="allow_advance_as_of_date" value="0">
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="checkbox" name="allow_advance_as_of_date" value="1" @checked(old('allow_advance_as_of_date', $allowAdvanceAsOfDate))>
+                    Let an administrator run a lease's date checks "as if today were" another day
+                </label>
+                <p class="text-xs mt-1" style="color: var(--text-muted);">Off by default. This test install has no nightly job, so a renewal that starts on a future date, or a tenancy that ends on its move-out date, can otherwise only be seen on that day. With this on, the "Run today's lease date checks now" button on a lease also asks for a day to pretend it is. The lease really changes, as that day would change it. This setting does not exist on the live system.</p>
+            </div>
+        </div>
+        @endif
+
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">Active rental stock (Command Centre)</h3>

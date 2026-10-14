@@ -106,6 +106,10 @@
                     <span class="text-xs" style="color: var(--text-muted);">(migrated from {{ $lease->migrated_from_table }}#{{ $lease->migrated_from_id }})</span>
                 @endif
             </div>
+            {{-- rental-renewals.md §22.1 - the date this lease changes state on (a signed renewal going active; a tenancy ending after its out-inspection). --}}
+            @if($datePending)
+                <div class="mt-1 text-xs" style="color: var(--text-muted);" data-qa="date-pending-note">{{ $datePending['text'] }}@if($datePending['date'] <= now()->toDateString()) - the date has come, not applied yet @endif</div>
+            @endif
         </div>
         <div class="flex items-center gap-2">
             <a href="{{ route('corex.leases.tenancy-report', $lease) }}" target="_blank" class="corex-btn-outline text-xs">Print tenancy report</a>
@@ -171,6 +175,20 @@
                 @permission('leases.create')
                     <button type="button" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);" data-test="lease-archive-button" x-data x-on:click="$dispatch('open-modal', 'lease-dialog-archive')">Archive lease&hellip;</button>
                 @endpermission
+            @endif
+            {{-- rental-renewals.md §22.1 - system owner / agency admin only. Runs the nightly job's logic for THIS lease; changes nothing before the date. --}}
+            @if($datePending && $mayRunDateChecks)
+                <form method="POST" action="{{ route('corex.leases.run-date-checks', $lease) }}" class="flex items-center gap-2" data-qa="run-date-checks-form"
+                      data-confirm="Run today's lease date checks for this lease now? It only does what the date allows - if the date has not come, nothing changes."
+                      data-confirm-title="Run the lease date checks" data-confirm-label="Run the checks">
+                    @csrf
+                    @if($asOfDateAllowed)
+                        <label class="text-xs" style="color: var(--text-muted);" for="run-date-checks-as-of">As if today were</label>
+                        <input type="date" id="run-date-checks-as-of" name="as_of" value="{{ old('as_of') }}" class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);" data-qa="run-date-checks-as-of"
+                               oninput="var f=this.form; f.setAttribute('data-confirm', this.value ? 'Run the lease date checks for this lease as if today were ' + this.value + '? This is a test: it changes the lease for real, as that day would.' : &quot;Run today's lease date checks for this lease now? It only does what the date allows - if the date has not come, nothing changes.&quot;);">
+                    @endif
+                    <button type="submit" class="corex-btn-outline text-xs" data-qa="run-date-checks">Run today's lease date checks now</button>
+                </form>
             @endif
             <a href="{{ route('corex.leases.index') }}" class="corex-btn-outline text-xs">&larr; All leases</a>
         </div>
