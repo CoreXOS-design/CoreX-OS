@@ -239,6 +239,8 @@ would no-op to NULL — and a NULL-branch row is invisible to anyone without `br
 (§8), which would hide agents' own commission from them. It needs the **earning agent's**
 branch set explicitly at write time.
 
+**Rentals and the later modules (14 Oct 2026).** `BranchSplitIsolationTest` had been red since the lease spine landed (15 Sep, `19b33d913`): `Lease`, rental applications and their audit log, fault reports, work orders, inspection forms/scans, title deeds, auctions, property syndication approvals, third-party sales, PPRA employment letters and the Road to Sold plan tables all carry `branch_id` but were born with only `BelongsToAgency`. The rentals own/branch/agency *data scope* (`Lease::visibleTo()` etc.) is a per-role view setting and does not replace Split Branches: with Split ON a Margate agent holding an "agency" data scope still read Port Shepstone's leases. Now all are `BelongsToBranch`; children take their parent's branch (`InheritsBranchFromParent`): notices and breaches → lease; applications, fault reports, work orders, syndication approvals, third-party sales → property; application audit log → application; inspection scans → inspection form; Road to Sold areas/targets → the agent. `TitleDeedStorageLocation` is **shared by design** (agency storage list; `branch_id` only narrows it, null = every branch). Models whose creating context has no signed-in user (portal, queue) must pass `branch_id` or a parent: a NULL-branch row is invisible to normal users while Split is ON (§8). Behavioural proof: `test_a_lease_and_its_children_are_branch_scoped_and_children_follow_the_lease`.
+
 ---
 
 ## 8. NULL `branch_id` handling

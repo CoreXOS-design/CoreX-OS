@@ -3,6 +3,8 @@
 namespace App\Models\RoadToSold;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 use App\Models\User;
 use App\Services\PermissionService;
 use Illuminate\Database\Eloquent\Model;
@@ -15,7 +17,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class RtsWeekdayTarget extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToAgency, BelongsToBranch, InheritsBranchFromParent, SoftDeletes;
 
     public const WEEKDAYS = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat', 7 => 'Sun'];
     public const MAX_TARGET = 200;
@@ -47,5 +49,11 @@ class RtsWeekdayTarget extends Model
     public function agent(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    /** Branch Split: a child sits in its parent's branch, never the acting user's (branch-isolation-spec §7a). */
+    protected function branchParent(): array
+    {
+        return [\App\Models\User::class, 'user_id'];
     }
 }

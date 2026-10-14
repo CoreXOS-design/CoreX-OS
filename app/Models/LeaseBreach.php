@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -14,7 +16,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class LeaseBreach extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToAgency, BelongsToBranch, InheritsBranchFromParent, SoftDeletes;
 
     public const KIND_PAYMENT = 'payment';
     public const KIND_OTHER = 'other';
@@ -105,5 +107,11 @@ class LeaseBreach extends Model
     public function canIssueVacate(): bool
     {
         return $this->isIssued() && $this->breach_party === Lease::NOTICE_BY_TENANT && $this->remedyWindowPassed();
+    }
+
+    /** Branch Split: a child sits in its parent's branch, never the acting user's (branch-isolation-spec §7a). */
+    protected function branchParent(): array
+    {
+        return [\App\Models\Lease::class, 'lease_id'];
     }
 }

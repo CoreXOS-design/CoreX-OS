@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -19,7 +21,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class RentalWorkOrder extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToAgency, BelongsToBranch, InheritsBranchFromParent, SoftDeletes;
 
     public const REPORTED_BY_TENANT = 'tenant';
     public const REPORTED_BY_AGENT_NOTICED = 'agent_noticed';
@@ -1343,5 +1345,11 @@ class RentalWorkOrder extends Model
         }
 
         return $query->whereRaw('1 = 0');
+    }
+
+    /** Branch Split: a child sits in its parent's branch, never the acting user's (branch-isolation-spec §7a). */
+    protected function branchParent(): array
+    {
+        return [\App\Models\Property::class, 'property_id'];
     }
 }

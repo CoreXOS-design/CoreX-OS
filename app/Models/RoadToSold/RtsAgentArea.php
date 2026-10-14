@@ -3,6 +3,8 @@
 namespace App\Models\RoadToSold;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 use App\Models\User;
 use App\Services\PermissionService;
 use Illuminate\Database\Eloquent\Model;
@@ -18,7 +20,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class RtsAgentArea extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToAgency, BelongsToBranch, InheritsBranchFromParent, SoftDeletes;
 
     protected $table = 'rts_agent_areas';
 
@@ -47,5 +49,11 @@ class RtsAgentArea extends Model
     public function agent(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    /** Branch Split: a child sits in its parent's branch, never the acting user's (branch-isolation-spec §7a). */
+    protected function branchParent(): array
+    {
+        return [\App\Models\User::class, 'user_id'];
     }
 }

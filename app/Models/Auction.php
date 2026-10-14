@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class Auction extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToAgency, BelongsToBranch, SoftDeletes;
 
     // §6.1 — Auction lifecycle.
     public const STATUS_DRAFT = 'draft';
