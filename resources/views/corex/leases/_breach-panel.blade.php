@@ -1,0 +1,22 @@
+{{--
+    .ai/specs/rental-notices.md §6 - the lease screen's Breach panel: every breach notice on this lease, its status and the remedy deadline.
+--}}
+@php
+    $leaseBreaches = $lease->breaches()->limit(5)->get();
+    $canSeeBreaches = auth()->user()?->hasPermission('rental_breaches.view');
+@endphp
+@if($leaseBreaches->isNotEmpty())
+<div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-qa="lease-breach-panel">
+    <h3 class="text-sm font-semibold">Breach notices</h3>
+    @foreach($leaseBreaches as $b)
+        <div class="flex flex-wrap items-center justify-between gap-2 text-xs rounded-md px-3 py-2" style="background: {{ $b->status === 'issued' ? 'color-mix(in srgb, var(--ds-amber, #d97706) 12%, transparent)' : 'var(--surface-2)' }}; border: 1px solid var(--border);" data-breach-row="{{ $b->id }}">
+            <div>
+                <strong>{{ $b->statusLabel() }}</strong> - {{ strtolower($b->partyLabel()) }} in breach ({{ strtolower($b->kindLabel()) }}{{ $b->amount !== null ? ', ' . \App\Services\Rentals\RentalNoticeService::money((float) $b->amount) : '' }}),
+                issued {{ $b->issued_on->format('j M Y') }}
+                @if($b->isIssued()) - remedy by <strong>{{ $b->remedy_deadline?->format('j M Y') }}</strong>{{ $b->remedyWindowPassed() ? ' (passed)' : '' }}@endif
+            </div>
+            @feature('rental-notices')@if($canSeeBreaches)<a href="{{ route('corex.breaches.show', $b->id) }}" class="corex-btn-outline text-xs">Open</a>@endif @endfeature
+        </div>
+    @endforeach
+</div>
+@endif

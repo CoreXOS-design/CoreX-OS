@@ -101,10 +101,14 @@
                         <span class="ds-badge ds-badge-warning"
                               title="On the pipeline but has no countable wishlist (search criteria removed), so this {{ $isRentalContact ? 'tenant' : 'buyer' }} is excluded from all match figures. Add a wishlist to include them.">Not in figures</span>
                     @endunless
+                    {{-- Quick Links W1 — FICA status pill; the Send/Resend BUTTON sits in the button row (between Schedule Viewing and Build Viewing Pack) --}}
+                    @include('corex.contacts._fica-quick-link', ['contact' => $buyer, 'modalKey' => '-hub', 'showActions' => false])
                 </div>
             </div>
             <div class="flex flex-wrap items-center justify-end gap-2">
                 <button type="button" @click="showViewingPicker = true" class="corex-btn-primary text-xs flex-shrink-0">Schedule Viewing</button>
+                {{-- Johan 2026-10-12 — Send FICA form between Schedule Viewing and Build Viewing Pack; hidden once the FICA is done. --}}
+                @include('corex.contacts._fica-quick-button', ['contact' => $buyer, 'modalKey' => '-hubbtn'])
                 {{-- AT-XX Viewing Pack — entry point. Creates a draft pack for this buyer and opens its workspace. --}}
                 <form method="POST" action="{{ route('corex.viewing-packs.store') }}" class="inline flex-shrink-0">
                     @csrf

@@ -82,7 +82,11 @@ class RentalNoticeController extends Controller
         $this->authoriseLease($lease, $request);
         $templates = RentalNoticeTemplate::where('is_active', true)->orderBy('name')->get();
 
-        return view('corex.rental-notices.create', ['lease' => $lease, 'templates' => $templates]);
+        return view('corex.rental-notices.create', [
+            'lease' => $lease, 'templates' => $templates,
+            'autoPlaceholders' => \App\Services\Rentals\RentalNoticeService::PLACEHOLDERS,
+            'preview' => session('notice_preview'),
+        ]);
     }
 
     public function store(Request $request, Lease $lease, RentalNoticeService $service): RedirectResponse
@@ -93,6 +97,7 @@ class RentalNoticeController extends Controller
             'figures_raw' => ['nullable', 'string', 'max:5000'],
             'send_to_tenant' => ['nullable', 'boolean'],
             'send_to_landlord' => ['nullable', 'boolean'],
+            'intent' => ['nullable', 'in:preview,send'],
         ]);
 
         $template = RentalNoticeTemplate::findOrFail($data['rental_notice_template_id']);
@@ -110,13 +115,23 @@ class RentalNoticeController extends Controller
             }
         }
 
+        if (($data['intent'] ?? 'send') === 'preview') {
+            $html = $service->preview($template, $figures, $lease, null, $request->user());
+
+            return back()->withInput()->with('notice_preview', ['html' => $html, 'missing' => $service->unfilled($html), 'template' => $template->name]);
+        }
         $toTenant = $request->boolean('send_to_tenant');
         $toLandlord = $request->boolean('send_to_landlord');
         if (!$toTenant && !$toLandlord) {
             return back()->withErrors(['recipients' => 'Choose at least one recipient — tenant or landlord.'])->withInput();
         }
 
-        $notice = $service->send($lease, $template, $figures, $toTenant, $toLandlord, $request->user());
+        try {
+            $service->send($lease, $template, $figures, $toTenant, $toLandlord, $request->user());
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            // a placeholder still empty: the notice is never sent with a hole in it
+            return back()->withInput()->withErrors($e->errors());
+        }
 
         return redirect()->route('corex.leases.show', $lease)->with('success', 'Notice sent.');
     }

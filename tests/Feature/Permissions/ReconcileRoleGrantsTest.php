@@ -138,4 +138,51 @@ class ReconcileRoleGrantsTest extends TestCase
             'A non-closed (admin) role must never be pruned'
         );
     }
+
+    public function test_except_agencies_leaves_those_agencies_untouched_and_reduces_the_rest(): void
+    {
+        $mk = fn (string $n) => (int) \Illuminate\Support\Facades\DB::table('agencies')->insertGetId([
+            'name' => $n, 'slug' => $n . '-' . uniqid(), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $protected = $mk('protected');
+        $other     = $mk('other');
+
+        // Template + both agencies hold the same drifted agent grants.
+        $rows = [];
+        foreach ([null, $protected, $other] as $agencyId) {
+            foreach (array_merge(self::LEGIT, self::OVER) as $key) {
+                $rows[] = ['role' => 'agent', 'permission_key' => $key, 'agency_id' => $agencyId, 'scope' => null];
+            }
+        }
+        RolePermission::insert($rows);
+        PermissionService::clearCache();
+
+        $snapshot = storage_path('app/permission-reconcile/test-except.json');
+        @unlink($snapshot);
+
+        $this->artisan('corex:reconcile-role-grants', [
+            '--roles' => 'agent', '--apply' => true, '--snapshot' => $snapshot,
+            '--except-agencies' => (string) $protected,
+        ])->assertExitCode(0);
+
+        $live = fn (?int $agencyId, string $key) => RolePermission::where('role', 'agent')
+            ->where('permission_key', $key)
+            ->when($agencyId === null, fn ($q) => $q->whereNull('agency_id'), fn ($q) => $q->where('agency_id', $agencyId))
+            ->exists();
+
+        foreach (self::OVER as $key) {
+            $this->assertTrue($live($protected, $key), "protected agency keeps {$key}");
+            $this->assertFalse($live($other, $key), "other agency loses {$key}");
+            $this->assertFalse($live(null, $key), "template loses {$key}");
+        }
+        foreach (self::LEGIT as $key) {
+            $this->assertTrue($live($protected, $key));
+            $this->assertTrue($live($other, $key));
+            $this->assertTrue($live(null, $key));
+        }
+
+        $snap = json_decode(File::get($snapshot), true);
+        $this->assertSame([$protected], $snap['except_agencies']);
+        $this->assertSame(count(self::OVER) * 2, $snap['count'], 'only the other agency + the template were reduced');
+    }
 }

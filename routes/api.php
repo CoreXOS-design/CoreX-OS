@@ -222,6 +222,9 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
         Route::middleware('rental-portal.enabled:tenant')->group(function () {
             // §20 — the portal home: agent contact, inspection dates, lease end / renewal status.
             Route::get('/overview', [ClientTenantRentalsController::class, 'overview'])->name('overview');
+            // lease-notices.md - the tenant gives notice (it goes to the agent for review; nothing goes to the landlord)
+            Route::get('/notices', [\App\Http\Controllers\Api\V1\ClientRentalNoticesController::class, 'tenantIndex'])->name('notices.index');
+            Route::post('/notices', [\App\Http\Controllers\Api\V1\ClientRentalNoticesController::class, 'tenantStore'])->name('notices.store');
             Route::get('/leases', [ClientTenantRentalsController::class, 'leases'])->name('leases.index');
             Route::get('/leases/{lease}', [ClientTenantRentalsController::class, 'leaseShow'])->name('leases.show');
             Route::get('/documents', [ClientTenantRentalsController::class, 'documents'])->name('documents.index');
@@ -249,6 +252,9 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
         // Landlord rentals.
         Route::prefix('landlord')->name('landlord.')->middleware('rental-portal.enabled:landlord')->group(function () {
             Route::get('/overview', [ClientLandlordRentalsController::class, 'overview'])->name('overview');
+            // lease-notices.md - the owner gives notice (it goes to the agent for review; nothing goes to the tenant)
+            Route::get('/notices', [\App\Http\Controllers\Api\V1\ClientRentalNoticesController::class, 'landlordIndex'])->name('notices.index');
+            Route::post('/notices', [\App\Http\Controllers\Api\V1\ClientRentalNoticesController::class, 'landlordStore'])->name('notices.store');
             Route::get('/properties', [ClientLandlordRentalsController::class, 'properties'])->name('properties.index');
             Route::get('/properties/{property}', [ClientLandlordRentalsController::class, 'propertyShow'])->name('properties.show');
             // §15 (AT-447 follow-up) — "Request work / report a problem."
@@ -637,7 +643,10 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
         Route::get('/prospecting/check-search', [ProspectingApiController::class, 'checkSearch'])->name('v1.prospecting.check-search');
 
         // ── CMA / deeds capture (phase 1) — mirrors the portal-capture ingest. ──
-        Route::post('/deeds-capture', [\App\Http\Controllers\Api\DeedsCaptureController::class, 'store'])->name('v1.deeds-capture');
+        // AT-449 audit: the Chrome extension posts to these three with only a valid token — no permission check.
+        // They now require the same key as the Deeds Capture screen they feed (deeds_capture.access), so a user
+        // who cannot open that screen cannot push records into it.
+        Route::post('/deeds-capture', [\App\Http\Controllers\Api\DeedsCaptureController::class, 'store'])->middleware('permission:deeds_capture.access')->name('v1.deeds-capture');
 
         // Pre-check (.ai/specs/deeds-capture.md §9) — called BEFORE the extension
         // reveals an owner ID (CMA Info's paid, R3-per-ID step). Read-only; mirrors
@@ -646,11 +655,11 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
         Route::post('/deeds-capture/check-duplicate/decision', [\App\Http\Controllers\Api\DeedsCaptureController::class, 'logPrecheckDecision'])->name('v1.deeds-capture.check-duplicate.decision');
 
         // ── TVA (The Virtual Agent) contact capture — mirrors deeds-capture. ──
-        Route::post('/tva-contact-capture', [\App\Http\Controllers\Api\TvaContactCaptureController::class, 'store'])->name('v1.tva-contact-capture');
+        Route::post('/tva-contact-capture', [\App\Http\Controllers\Api\TvaContactCaptureController::class, 'store'])->middleware('permission:deeds_capture.access')->name('v1.tva-contact-capture');
 
         // ── TVA company DIRECTORSHIP capture — directors → natural-person
         //    contacts linked to the company entity contact (representatives). ──
-        Route::post('/tva-company-directors', [\App\Http\Controllers\Api\TvaCompanyDirectorsController::class, 'store'])->name('v1.tva-company-directors');
+        Route::post('/tva-company-directors', [\App\Http\Controllers\Api\TvaCompanyDirectorsController::class, 'store'])->middleware('permission:deeds_capture.access')->name('v1.tva-company-directors');
 
         // ── Properties — portal pull ───────────────────────────────
         // AT-267 — pulls a listing off a portal INTO a property. Same rule, same reason: no

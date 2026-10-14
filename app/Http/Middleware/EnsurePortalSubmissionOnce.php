@@ -75,7 +75,8 @@ class EnsurePortalSubmissionOnce
 
         $files = [];
         foreach ($request->allFiles() as $name => $set) {
-            foreach ((array) $set as $f) {
+            // a single file field arrives as ONE object ((array) on it would give its private properties), a multiple one as a list
+            foreach (is_array($set) ? $set : [$set] as $f) {
                 $files[] = $name . ':' . ($f?->getClientOriginalName() ?? '') . ':' . ($f?->getSize() ?? 0);
             }
         }

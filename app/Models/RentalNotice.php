@@ -27,6 +27,7 @@ class RentalNotice extends Model
         'document_id',
         'sent_at',
         'sent_by_user_id',
+        'lease_breach_id',
     ];
 
     protected $casts = [
@@ -50,6 +51,12 @@ class RentalNotice extends Model
     public function document(): BelongsTo
     {
         return $this->belongsTo(Document::class);
+    }
+
+    /** .ai/specs/rental-notices.md - the breach this notice (breach notice / notice to vacate) belongs to. */
+    public function breach(): BelongsTo
+    {
+        return $this->belongsTo(LeaseBreach::class, 'lease_breach_id')->withTrashed();
     }
 
     public function sentByUser(): BelongsTo

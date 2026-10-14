@@ -165,73 +165,42 @@ final class LeaseRenewalTest extends TestCase
     }
 
     /**
-     * AT-444 follow-up 2 (2026-10-05) — the dialog's own min/max attributes
-     * are a client-side convenience only; the server is the real guard
-     * against a mistyped date (e.g. a 6-digit year typed on a keyboard
-     * instead of picked) reaching the service layer at all.
+     * AT-444 follow-up 2 (2026-10-05) — the dialog's own min/max attributes are a client-side convenience only; the server is the real
+     * guard against a mistyped date (e.g. a 6-digit year typed on a keyboard instead of picked). Since lease-notices.md (14 Oct 2026) the
+     * dialog records a notice for the agent's REVIEW - the move-out date reaches the lease only on acceptance - but the bound still holds.
      */
-    public function test_tenant_notice_http_rejects_a_move_out_date_too_far_in_the_future(): void
+    public function test_tenant_notice_http_rejects_an_end_date_too_far_in_the_future(): void
     {
         [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
         $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['status' => Lease::STATUS_ACTIVE]));
         $user = $this->makeUser($agency, $branch);
 
         $response = $this->actingAs($user)->post(route('corex.leases.renewal.tenant-notice', $lease), [
-            'move_out_date' => now()->addYears(5)->toDateString(),
-            'notice_outcome' => Lease::NOTICE_OUTCOME_LEAVE,
+            'notice_date' => now()->toDateString(),
+            'intended_end_date' => now()->addYears(5)->toDateString(),
         ]);
 
-        $response->assertSessionHasErrors('move_out_date');
+        $response->assertSessionHasErrors('intended_end_date');
         self::assertFalse($lease->fresh()->hasActiveNotice());
+        self::assertSame(0, \App\Models\LeaseNotice::withoutGlobalScopes()->count());
     }
 
-    public function test_tenant_notice_http_accepts_a_move_out_date_within_the_sane_window(): void
+    public function test_tenant_notice_http_records_a_notice_for_review_and_does_not_touch_the_lease(): void
     {
         [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
         $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['status' => Lease::STATUS_ACTIVE]));
         $user = $this->makeUser($agency, $branch);
 
         $response = $this->actingAs($user)->post(route('corex.leases.renewal.tenant-notice', $lease), [
-            'move_out_date' => now()->addDays(30)->toDateString(),
-            'notice_outcome' => Lease::NOTICE_OUTCOME_LEAVE,
+            'notice_date' => now()->toDateString(),
+            'intended_end_date' => now()->addDays(30)->toDateString(),
         ]);
 
         $response->assertSessionDoesntHaveErrors();
-        self::assertTrue($lease->fresh()->hasActiveNotice());
-    }
-
-    /**
-     * .ai/specs/rental-renewals.md §19 — Johan's ruling 2026-10-05 (1): "the
-     * dialog cannot be confirmed without a choice" — enforced server-side,
-     * not just by the dialog's own `required` radios.
-     */
-    public function test_tenant_notice_http_rejects_a_missing_outcome_choice(): void
-    {
-        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
-        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['status' => Lease::STATUS_ACTIVE]));
-        $user = $this->makeUser($agency, $branch);
-
-        $response = $this->actingAs($user)->post(route('corex.leases.renewal.tenant-notice', $lease), [
-            'move_out_date' => now()->addDays(30)->toDateString(),
-        ]);
-
-        $response->assertSessionHasErrors('notice_outcome');
-        self::assertFalse($lease->fresh()->hasActiveNotice());
-    }
-
-    public function test_tenant_notice_http_rejects_an_unrecognised_outcome_choice(): void
-    {
-        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
-        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['status' => Lease::STATUS_ACTIVE]));
-        $user = $this->makeUser($agency, $branch);
-
-        $response = $this->actingAs($user)->post(route('corex.leases.renewal.tenant-notice', $lease), [
-            'move_out_date' => now()->addDays(30)->toDateString(),
-            'notice_outcome' => 'not-a-real-outcome',
-        ]);
-
-        $response->assertSessionHasErrors('notice_outcome');
-        self::assertFalse($lease->fresh()->hasActiveNotice());
+        self::assertFalse($lease->fresh()->hasActiveNotice(), 'the move-out date is set only when an agent accepts the notice');
+        $notice = \App\Models\LeaseNotice::withoutGlobalScopes()->firstOrFail();
+        self::assertSame('received', $notice->status);
+        self::assertSame('tenant', $notice->given_by);
     }
 
     public function test_change_notice_outcome_http_updates_the_choice(): void

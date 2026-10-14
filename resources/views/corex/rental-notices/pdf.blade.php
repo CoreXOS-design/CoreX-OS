@@ -32,7 +32,7 @@
             @if($logo)<img src="{{ $logo }}" style="max-height:40px;">@else{{ $agencyName }}@endif
         </div>
         <div class="title-cell">
-            <h1>{{ str_replace('_', ' ', $notice->notice_type) }} notice</h1>
+            <h1>{{ \App\Models\RentalNoticeTemplate::labelFor($notice->notice_type) }}</h1>
         </div>
     </div>
     <div class="body-content">

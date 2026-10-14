@@ -72,13 +72,13 @@ final class LeaseActionDialogsTest extends TestCase
         // from() is required or the redirect target isn't the Lease Hub.
         $response = $this->actingAs($user)->from(route('corex.leases.show', $lease))->followingRedirects()->post(
             route('corex.leases.renewal.tenant-notice', $lease),
-            ['note' => 'Entered note text', '_lease_action' => 'tenant-notice'] // move_out_date deliberately omitted
+            ['reason' => 'Entered reason text', '_lease_action' => 'tenant-notice'] // the end date is deliberately omitted (lease-notices.md: the dialog now records a notice for review)
         );
 
         $response->assertOk();
         self::assertTrue($this->dialogIsOpen($response->getContent(), 'lease-dialog-tenant-notice'));
         self::assertFalse($this->dialogIsOpen($response->getContent(), 'lease-dialog-landlord-notice'));
-        $response->assertSee('Entered note text');
+        $response->assertSee('Entered reason text');
     }
 
     public function test_landlord_notice_validation_error_does_not_leak_old_values_into_tenant_notice_dialog(): void
@@ -87,14 +87,14 @@ final class LeaseActionDialogsTest extends TestCase
 
         $response = $this->actingAs($user)->from(route('corex.leases.show', $lease))->followingRedirects()->post(
             route('corex.leases.renewal.landlord-notice', $lease),
-            ['note' => 'Landlord-side note', '_lease_action' => 'landlord-notice']
+            ['reason' => 'Landlord-side note', '_lease_action' => 'landlord-notice']
         );
 
         $response->assertOk();
         self::assertTrue($this->dialogIsOpen($response->getContent(), 'lease-dialog-landlord-notice'));
         self::assertFalse($this->dialogIsOpen($response->getContent(), 'lease-dialog-tenant-notice'));
 
-        // Both forms have a field named "note" — the shared old('note')
+        // Both forms have a field named "reason" — the shared old('reason')
         // value must land ONLY in the dialog that actually failed.
         $content = $response->getContent();
         $landlordBlock = $this->extractDialogBlock($content, 'lease-dialog-landlord-notice');

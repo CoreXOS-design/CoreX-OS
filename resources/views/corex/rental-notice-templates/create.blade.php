@@ -12,7 +12,7 @@
         </div>
     @endif
 
-    <form method="POST" action="{{ route('corex.rental-notice-templates.store') }}" class="space-y-4">
+    <form method="POST" action="{{ route('corex.rental-notice-templates.store') }}" class="space-y-4" enctype="multipart/form-data">
         @csrf
         @include('corex.rental-notice-templates.partials._form')
         <button type="submit" class="corex-btn-primary text-sm">Save</button>

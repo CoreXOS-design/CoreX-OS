@@ -300,6 +300,15 @@
     } elseif (request()->routeIs('admin.importer.*') || request()->routeIs('admin.pp.*')) {
         $activeGroup = 'importer';
     } elseif (request()->routeIs(
+        'corex.settings*',
+        'corex.features.*',
+        'admin.users*',
+        'admin.settings.document-types.*',
+        'admin.p24-suburbs.*',
+        'deals-v2.settings.service-types.*'
+    )) {
+        $activeGroup = 'settings';
+    } elseif (request()->routeIs(
         'deals-v2.suppliers.*',
         'deals-v2.pipeline.*',
         'admin.settings.deal-property-sync.*',
@@ -1220,7 +1229,7 @@
         {{-- Gate = ANY permission that puts an item in this panel (cross-cutting audit 2026-10-08): it used to be
              applications-only, so a user with leases / work orders / inspections access but no applications
              access never saw the Rentals menu at all. --}}
-        @if($user && ($user->hasAnyPermission(['rental_applications.view', 'rental_applications.view_returned', 'leases.view', 'rental_command_centre.view', 'rental_reports.view', 'rental_inspections.view', 'rental_fault_reports.view', 'rental_fault_types.view', 'rental_work_orders.view', 'rental_job_cards.view', 'rental_notices.create', 'rental_catalogue.view', 'rentals_take_on_import.view']) || $user->isRentalApplicationAuthoriser()))
+        @if($user && ($user->hasAnyPermission(['rental_applications.view', 'rental_applications.view_returned', 'leases.view', 'rental_command_centre.view', 'rental_reports.view', 'rental_inspections.view', 'rental_fault_reports.view', 'rental_fault_types.view', 'rental_work_orders.view', 'rental_job_cards.view', 'rental_notices.create', 'rental_notices.review', 'rental_breaches.view', 'rental_catalogue.view', 'rentals_take_on_import.view']) || $user->isRentalApplicationAuthoriser()))
         @feature('rentals')
         <div>
             <button type="button" @click="push('rental-applications')"
@@ -1345,6 +1354,12 @@
                 {{-- AT-445 — .ai/specs/rental-portal-access.md §10. Same-day
                      nav entry per non-negotiable #2. --}}
                 @feature('rental-notices')
+                @permission('rental_notices.review')
+                <a href="{{ route('corex.lease-notices.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.lease-notices.*') ? 'active' : '' }}">Notices Received</a>
+                @endpermission
+                @permission('rental_breaches.view')
+                <a href="{{ route('corex.breaches.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.breaches.*') ? 'active' : '' }}">Breach Register</a>
+                @endpermission
                 @permission('rental_notices.create')
                 <a href="{{ route('corex.rental-notices.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-notices.*') ? 'active' : '' }}">Rental Notices</a>
                 @endpermission
@@ -2916,16 +2931,44 @@
         </div>
         @endif
 
-        {{-- Settings --}}
-        @permission('access_settings')
-        <a href="{{ route('corex.settings') }}" class="corex-nav-item {{ (request()->routeIs('corex.settings*') || request()->routeIs('admin.settings.document-types.*') || request()->routeIs('admin.p24-suburbs.*') || request()->routeIs('deals-v2.settings.service-types.*')) ? 'active' : '' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        {{-- Settings (slide-panel group) — Settings page + Features page + Users. Johan 2026-10-12: Features moved out of the
+             Settings page into its own page, and both now live under one "Settings" sub menu. Each child keeps its OWN
+             permission (Settings = access_settings, Features = agency_features.manage, Users = manage_users); the group shows when the user
+             holds either. Spec: features-page.md. --}}
+        @if($user && $user->hasAnyPermission(['access_settings', 'agency_features.manage', 'manage_users']))
+        <div>
+            <button type="button" @click="push('settings')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'settings' ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
             </svg>
-            <span>Settings</span>
-        </a>
-        @endpermission
+                <span>Settings</span>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div class="corex-nav-panel {{ $activeGroup === 'settings' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('settings') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Settings</div>
+
+                @permission('access_settings')
+                <a href="{{ route('corex.settings') }}" class="corex-nav-subitem {{ (request()->routeIs('corex.settings*') || request()->routeIs('admin.settings.document-types.*') || request()->routeIs('admin.p24-suburbs.*') || request()->routeIs('deals-v2.settings.service-types.*')) ? 'active' : '' }}">Settings</a>
+                @endpermission
+
+                @permission('agency_features.manage')
+                <a href="{{ route('corex.features.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.features.*') ? 'active' : '' }}">Features</a>
+                @endpermission
+
+                {{-- Users — user management (/admin/users). Johan 2026-10-12: a dedicated entry in the Settings sub menu. --}}
+                @permission('manage_users')
+                <a href="{{ route('admin.users') }}" class="corex-nav-subitem {{ request()->routeIs('admin.users*') ? 'active' : '' }}">Users</a>
+                @endpermission
+            </div>
+        </div>
+        @endif
 
         {{-- Johan menu reorg (2026-07-12) — DEAL REGISTER SETTINGS group. The four
              deal-register config doors (Supplier Directory, Deal Pipelines, Deal

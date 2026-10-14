@@ -580,6 +580,16 @@ return [
              'label' => 'Notice a tenant gives (unit)',
              'explain' => 'Whether the notice length above counts days, weeks or months.',
              'affects' => 'How the notice period reads on a new lease and in the portal (for example "30 days" or "1 month") and how its dates are worked out. Days suits most agencies.'],
+            // lease-notices.md §7 - same saver (LeaseSettingsController::update), has()-guarded there (§6.1).
+            ['key' => 'cpa_early_cancel_business_days', 'source' => 'leases', 'type' => 'number', 'default' => 20, 'min' => 1, 'max' => 365,
+             'label' => 'Business days\' notice a tenant may cancel a fixed term on',
+             'explain' => 'The law (the Consumer Protection Act) lets a tenant cancel a fixed-term lease early on this many business days\' written notice. 20 is the figure in the Act; change it only if your legal advice says otherwise.',
+             'affects' => 'When a tenant gives notice to end a fixed-term lease early, the notice review checks the end date against this many business days (weekends and public holidays do not count) and flags it when it is shorter.'],
+            // rental-notices.md §5 - same saver, has()-guarded there (§6.1).
+            ['key' => 'breach_remedy_business_days', 'source' => 'leases', 'type' => 'number', 'default' => 20, 'min' => 1, 'max' => 365,
+             'label' => 'Business days a tenant has to put a breach right',
+             'explain' => 'When you issue a breach notice, this is how many business days the tenant has to put the breach right before a notice to vacate may be issued. 20 business days is the period the Consumer Protection Act uses; change it only if your legal advice says otherwise.',
+             'affects' => 'The deadline printed on the lease screen and in the breach notice, and when "Notice to vacate" becomes available for a breach that has not been remedied.'],
             ['key' => 'default_earliest_notice_months', 'source' => 'leases', 'type' => 'number', 'default' => null, 'min' => 0, 'max' => 60,
              'label' => 'Notice may not be given before (months into the lease)',
              'explain' => 'Some leases do not allow notice during the first months. Fill in how many months in; leave blank when notice may be given from the start.',

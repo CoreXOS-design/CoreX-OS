@@ -685,7 +685,8 @@
                 </div>
 
                 {{-- Financial Position — buyer pre-approval (spec D3) --}}
-                <div x-data="{ open: {{ ($contact->preapproval_amount || $contact->preapproval_expires_at || $contact->preapproval_institution) ? 'true' : 'false' }} }">
+                <div id="preapproval" x-data="{ open: {{ ($contact->preapproval_amount || $contact->preapproval_expires_at || $contact->preapproval_institution) ? 'true' : 'false' }} }"
+                     x-init="if (window.location.hash === '#preapproval') { open = true; $nextTick(() => $el.scrollIntoView({ behavior: 'smooth', block: 'center' })); }">
                     <button type="button" @click="open = !open" class="flex items-center gap-2 w-full text-left mb-4">
                         <h3 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">Financial Position</h3>
                         @if($contact->hasValidPreapproval())

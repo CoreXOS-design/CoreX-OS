@@ -212,6 +212,7 @@
                             <button :class="{active: tenantTab==='lease'}" @click="tenantTab='lease'; loadTenantLeases()">Lease</button>
                             <button :class="{active: tenantTab==='faults'}" @click="tenantTab='faults'; loadFaultReports()">Faults</button>
                             <button :class="{active: tenantTab==='jobs'}" @click="tenantTab='jobs'; loadWorkOrders()">Work orders</button>{{-- D1: no count badge - the tenant's "is it fixed?" is optional, nobody waits on it --}}
+                            <button :class="{active: tenantTab==='notices'}" @click="tenantTab='notices'; loadNotices()" data-tab-notices>Notices</button>
                             <button :class="{active: tenantTab==='documents'}" @click="tenantTab='documents'; loadDocuments()">Documents</button>
                         </div>
 
@@ -411,6 +412,10 @@
                         </template>
                         {{-- BUILD 3 END --}}
 
+                        <template x-if="tenantTab === 'notices'">
+                            @include('rentals.portal._notices')
+                        </template>
+
                         <template x-if="tenantTab === 'documents'">
                             @include('rentals.portal._documents')
                         </template>
@@ -425,11 +430,16 @@
                             <button :class="{active: landlordTab==='properties'}" @click="landlordTab='properties'; loadLandlordProperties()">Properties</button>
                             <button :class="{active: landlordTab==='faults'}" @click="landlordTab='faults'; loadLandlordFaults()">Faults<span class="count" data-faults-count x-show="faultsNeedingOwner() > 0" x-text="faultsNeedingOwner()"></span></button>
                             <button :class="{active: landlordTab==='jobs'}" @click="landlordTab='jobs'; loadWorkOrders(); loadDecisions()">Work orders<span class="count" data-workorders-count x-show="workOrdersNeedingOwner() > 0" x-text="workOrdersNeedingOwner()"></span></button>
+                            <button :class="{active: landlordTab==='notices'}" @click="landlordTab='notices'; loadNotices()" data-tab-notices>Notices</button>
                             <button :class="{active: landlordTab==='documents'}" @click="landlordTab='documents'; loadDocuments()">Documents</button>
                         </div>
 
                         <template x-if="landlordTab === 'home'">
                             @include('rentals.portal._home')
+                        </template>
+
+                        <template x-if="landlordTab === 'notices'">
+                            @include('rentals.portal._notices')
                         </template>
 
                         <template x-if="landlordTab === 'documents'">
@@ -866,6 +876,8 @@ function rentalsPortal() {
         tenantLeases: [], openLeaseId: null, leaseDetails: {}, leaseDetailError: null,
         faultReports: [], documents: [],
         docs: { rows: [], meta: null, loaded: false, error: null, q: '', type: '', from: '', to: '', sort: 'date', dir: 'desc', page: 1 },
+        // lease-notices.md - the Notices tab (give notice; where my notices stand)
+        noticePanel: { loaded: false, error: null, done: null, leases: [], notices: [], fromOther: [], form: { open: false, lease_id: '', notice_date: '', intended_end_date: '', reason: '', file: null, key: '', sending: false, error: null } },
         photoSeq: 0,
         photoLimits: { max_photos: 6, max_photo_mb: 8 },
         faultWizard: { open: false, step: 'pick', property: null, faultTypeId: '', ftype: null, title: '', description: '', photos: [], photoError: null, photoBusy: false, photoPending: 0, sending: false, progress: 0, error: null, key: null, doneTitle: '', doneText: '' },
@@ -1321,6 +1333,56 @@ function rentalsPortal() {
         isFaqOpen(propertyId, key) { return !!this.faqOpen[propertyId + ':' + key]; },
         toggleFaq(propertyId, key) { const k = propertyId + ':' + key; this.faqOpen[k] = !this.faqOpen[k]; },
         // §19 — one Documents panel for both audiences; the list is always the signed-in person's OWN (server-side).
+        // ── lease-notices.md - the Notices tab ──
+        noticeBase() { return this.activeRole === 'landlord' ? '/api/v1/client/rentals/landlord' : '/api/v1/client/rentals'; },
+        noticeToday() {
+            const d = new Date();
+            return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+        },
+        async loadNotices() {
+            this.noticePanel.error = null;
+            const r = await portalFetch(this.noticeBase() + '/notices');
+            if (!r.ok) { this.noticePanel.error = r.data?.message || 'Could not load your notices.'; this.noticePanel.loaded = true; return; }
+            this.noticePanel.leases = r.data.leases || [];
+            this.noticePanel.notices = r.data.notices || [];
+            this.noticePanel.fromOther = r.data.from_other_party || [];
+            this.noticePanel.loaded = true;
+        },
+        openNoticeForm() {
+            const first = (this.noticePanel.leases[0] || {}).id;
+            this.noticePanel.done = null;
+            this.noticePanel.form = { open: true, lease_id: first ? String(first) : '', notice_date: this.noticeToday(), intended_end_date: '', reason: '', file: null, key: this.uuid(), sending: false, error: null };
+        },
+        pickNoticeFile(ev) {
+            const f = ev && ev.target && ev.target.files ? ev.target.files[0] : null;
+            this.noticePanel.form.file = f || null;
+        },
+        async submitNotice() {
+            const f = this.noticePanel.form;
+            if (f.sending) return;   // one press, one notice
+            f.error = null;
+            if (!f.lease_id) { f.error = 'Choose the lease you are giving notice on.'; return; }
+            if (!f.notice_date || !f.intended_end_date) { f.error = 'Fill in the date you gave notice and the date you will move out.'; return; }
+            const form = new FormData();
+            form.append('lease_id', f.lease_id);
+            form.append('notice_date', f.notice_date);
+            form.append('intended_end_date', f.intended_end_date);
+            form.append('reason', f.reason || '');
+            if (f.file) form.append('attachment', f.file, f.file.name);
+            f.sending = true;
+            const r = await portalUpload(this.noticeBase() + '/notices', form, f.key, () => {});
+            f.sending = false;
+            if (!r.ok) {
+                f.error = r.status === 0 ? 'No connection - check your signal and press the button again. Nothing is sent twice.' : (r.data?.message || 'Could not send your notice. Please try again.');
+                return;
+            }
+            this.noticePanel.leases = r.data.leases || [];
+            this.noticePanel.notices = r.data.notices || [];
+            this.noticePanel.fromOther = r.data.from_other_party || [];
+            this.noticePanel.done = r.data.message || 'Your notice has been sent to your agent.';
+            this.noticePanel.form.open = false;
+        },
+
         async loadDocuments() {
             const base = this.activeRole === 'landlord' ? '/api/v1/client/rentals/landlord' : '/api/v1/client/rentals';
             const p = new URLSearchParams({ sort: this.docs.sort, dir: this.docs.dir, page: this.docs.page });

@@ -140,8 +140,15 @@ On agency creation, provision its role set. Use the events catalogue:
 - Subscribe a listener to the agency-created event (add `AgencyCreated` to the
   catalogue if absent — confirm before inventing).
 - Listener calls a `RoleProvisioningService::provisionForAgency(Agency)` that
-  clones the template non-owner roles + their `role_defaults` grants from
-  `config/corex-permissions.php` into the new agency.
+  clones the template non-owner ROLES into the new agency and grants each role its
+  `role_defaults` from `config/corex-permissions.php` (**amended 2026-10-12, Johan:**
+  grants come from the config, never from the template's `role_permissions` rows —
+  those had drifted far past the config. admin = every permission except the
+  platform-owner-only `exclude` list; every other role = exactly its minimal `include`
+  list; a role with no `role_defaults` entry = no grants. `.view` keys get their data
+  scope from `scope_defaults` ('all' for `shared_scope_modules`), exactly as
+  `corex:sync-permissions` does. A new agency stays at these defaults until its admin
+  changes them in Role Manager.)
 - Idempotent: re-running must not duplicate.
 
 `SyncPermissions` (`corex:sync-permissions`):

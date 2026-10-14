@@ -28,13 +28,13 @@ final class RentalCommandCentreLayoutTest extends TestCase
         return $this->actingAs($admin)->get(route('corex.rentals.command-centre.index', $query))->assertOk()->getContent();
     }
 
-    public function test_the_eleven_tiles_form_a_compact_six_across_strip_so_they_wrap_to_two_rows(): void
+    public function test_the_twelve_tiles_form_a_compact_six_across_strip_so_they_wrap_to_two_rows(): void
     {
         $html = $this->page();
 
-        $this->assertCount(11, RentalCommandCentreService::TILES);
+        $this->assertCount(12, RentalCommandCentreService::TILES);   // + 'Notice received - needs review' (lease-notices.md)
         $this->assertStringContainsString('data-qa="rcc-tiles"', $html);
-        $this->assertStringContainsString('lg:grid-cols-6', $html, 'six across from the laptop breakpoint = two rows of eleven');
+        $this->assertStringContainsString('lg:grid-cols-6', $html, 'six across from the laptop breakpoint = two rows of twelve');
         $this->assertStringNotContainsString('lg:grid-cols-5', $html, 'the old five-across, three-row strip is gone');
 
         foreach (array_keys(RentalCommandCentreService::TILES) as $key) {
@@ -74,7 +74,7 @@ final class RentalCommandCentreLayoutTest extends TestCase
         $html = $this->page();
 
         // Johan's ruling: max 2 lines of text per tile (full wording stays in the tooltip).
-        $this->assertSame(11, substr_count($html, '-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">'), 'one clamp per tile label');
+        $this->assertSame(12, substr_count($html, '-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">'), 'one clamp per tile label');
     }
 
     public function test_the_right_hand_panel_has_a_heading(): void

@@ -56,6 +56,11 @@ class RentalNoticeTemplateController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $data = $this->validated($request);
+        try {
+            $data = $this->withUploadedDocument($request, $data);
+        } catch (\RuntimeException $e) {
+            return back()->withInput()->withErrors(['document' => $e->getMessage()]);
+        }
 
         $template = RentalNoticeTemplate::create($data + ['created_by_user_id' => $request->user()->id]);
 
@@ -69,7 +74,13 @@ class RentalNoticeTemplateController extends Controller
 
     public function update(Request $request, RentalNoticeTemplate $rentalNoticeTemplate): RedirectResponse
     {
-        $rentalNoticeTemplate->update($this->validated($request));
+        $data = $this->validated($request);
+        try {
+            $data = $this->withUploadedDocument($request, $data);
+        } catch (\RuntimeException $e) {
+            return back()->withInput()->withErrors(['document' => $e->getMessage()]);
+        }
+        $rentalNoticeTemplate->update($data);
 
         return redirect()->route('corex.rental-notice-templates.index')->with('success', "Template '{$rentalNoticeTemplate->name}' updated.");
     }
@@ -91,11 +102,45 @@ class RentalNoticeTemplateController extends Controller
 
     private function validated(Request $request): array
     {
-        return $request->validate([
+        $data = $request->validate([
             'name' => ['required', 'string', 'max:191'],
             'notice_type' => ['required', 'in:' . implode(',', RentalNoticeTemplate::TYPES)],
-            'body_html' => ['required', 'string', 'max:50000'],
+            // the body is typed OR comes from an uploaded Word document (rental-notices.md §3)
+            'body_html' => ['required_without:document', 'nullable', 'string', 'max:50000'],
+            'document' => ['nullable', 'file', 'mimes:docx', 'max:10240'],
             'is_active' => ['nullable', 'boolean'],
-        ]) + ['is_active' => $request->boolean('is_active', true)];
+        ], [
+            'body_html.required_without' => 'Upload your Word document, or type the notice text.',
+            'document.mimes' => 'The template must be a Word document (.docx).',
+        ]);
+        unset($data['document']);
+
+        return $data + ['is_active' => $request->boolean('is_active', true)];
+    }
+
+    /**
+     * An uploaded Word document becomes the template body (the same converter the e-sign importer uses); the original is kept on the
+     * template. When both are given the document wins - the agent can edit the converted text afterwards.
+     */
+    private function withUploadedDocument(Request $request, array $data): array
+    {
+        $file = $request->file('document');
+        if (! $file) {
+            $data['body_html'] = (string) ($data['body_html'] ?? '');
+
+            return $data;
+        }
+
+        $converter = app(\App\Services\Rentals\NoticeDocxConverter::class);
+        try {
+            $html = $converter->toTemplateHtml($file->getRealPath());
+        } catch (\Throwable $e) {
+            throw new \RuntimeException('That document could not be read (' . $e->getMessage() . '). Save it as a .docx from Word and try again, or type the notice text instead.');
+        }
+        $name = preg_replace('/[^A-Za-z0-9._ -]/', '_', $file->getClientOriginalName()) ?: 'template.docx';
+        $path = 'rental-notice-templates/' . (int) $request->user()->effectiveAgencyId() . '/' . uniqid() . '-' . $name;
+        \Illuminate\Support\Facades\Storage::disk('local')->put($path, file_get_contents($file->getRealPath()));
+
+        return ['body_html' => $html, 'source_file_name' => $name, 'source_file_path' => $path] + $data;
     }
 }

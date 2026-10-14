@@ -218,21 +218,6 @@ class LeaseRenewalService
         return $lease->fresh();
     }
 
-    /**
-     * rental-renewals.md §7 — "Tenant gave notice" / "Landlord not
-     * renewing": same mechanism, distinguished only by $givenBy for the
-     * tenancy log and any future landlord-communication content (§7's own
-     * wording — the outcome is identical either way).
-     *
-     * §19 — Johan's ruling 2026-10-05: $outcome is the agent's explicit,
-     * every-time, nothing-pre-selected choice of what happens to the
-     * PROPERTY — one of Lease::NOTICE_OUTCOME_{READVERTISE,WITHDRAW,LEAVE}.
-     * The caller (controller) validates it is present and one of the three;
-     * this service re-validates it too so no caller can slip an invalid
-     * value through. Recorded on the lease (notice_outcome) so
-     * reverseNotice()/changeNoticeOutcome() below know exactly which
-     * property-side effect (if any) must be undone/replaced.
-     */
     /** cc5 walk 2: no renewal while a move-out notice stands on the lease - the agent withdraws one first. Null = clear to renew. */
     public function renewalBlockedByNotice(Lease $current): ?string
     {
@@ -256,7 +241,22 @@ class LeaseRenewalService
             . ' for this lease, so a move-out notice cannot be recorded. If the tenant is leaving after all, cancel the renewal first, then record the notice.';
     }
 
-    public function recordNotice(Lease $lease, string $givenBy, string $moveOutDate, ?string $note, User $user, string $outcome, ?bool $showAvailableFromOnPortals = null): Lease
+    /**
+     * rental-renewals.md §7 — "Tenant gave notice" / "Landlord not
+     * renewing": same mechanism, distinguished only by $givenBy for the
+     * tenancy log and any future landlord-communication content (§7's own
+     * wording — the outcome is identical either way).
+     *
+     * §19 — Johan's ruling 2026-10-05: $outcome is the agent's explicit,
+     * every-time, nothing-pre-selected choice of what happens to the
+     * PROPERTY — one of Lease::NOTICE_OUTCOME_{READVERTISE,WITHDRAW,LEAVE}.
+     * The caller (controller) validates it is present and one of the three;
+     * this service re-validates it too so no caller can slip an invalid
+     * value through. Recorded on the lease (notice_outcome) so
+     * reverseNotice()/changeNoticeOutcome() below know exactly which
+     * property-side effect (if any) must be undone/replaced.
+     */
+    public function recordNotice(Lease $lease, string $givenBy, string $moveOutDate, ?string $note, User $user, string $outcome, ?bool $showAvailableFromOnPortals = null, ?string $noticeDate = null): Lease
     {
         if (!in_array($givenBy, [Lease::NOTICE_BY_TENANT, Lease::NOTICE_BY_LANDLORD], true)) {
             throw ValidationException::withMessages(['notice_given_by' => 'Invalid notice source.']);
@@ -266,9 +266,10 @@ class LeaseRenewalService
             throw ValidationException::withMessages(['move_out_date' => $reason]);
         }
 
-        return DB::transaction(function () use ($lease, $givenBy, $moveOutDate, $note, $user, $outcome, $showAvailableFromOnPortals) {
+        return DB::transaction(function () use ($lease, $givenBy, $moveOutDate, $note, $user, $outcome, $showAvailableFromOnPortals, $noticeDate) {
             $lease->update([
-                'notice_date' => now()->toDateString(),
+                // lease-notices.md: an accepted notice carries the date it was GIVEN; the one-click path (no date) keeps "today"
+                'notice_date' => $noticeDate ?: now()->toDateString(),
                 'notice_given_by' => $givenBy,
                 'move_out_date' => $moveOutDate,
                 'notice_note' => $note,
@@ -333,6 +334,8 @@ class LeaseRenewalService
             ]);
 
             $this->logEvent($lease, LeaseEvent::TYPE_NOTICE_REVERSED, 'Notice reversed', $user);
+            // lease-notices.md: the accepted case this notice came from is withdrawn (kept, never erased)
+            app(LeaseNoticeService::class)->withdrawAcceptedFor($lease, $user);
 
             $this->reverseOutcomeEffect($lease, $outcome, $user);
 

@@ -130,6 +130,104 @@ class AgencyFeatureService
         ));
     }
 
+    // ── Permission ↔ feature ownership (features page spec §4) ───────────────
+    //
+    // A registry row may declare `permission_modules` (whole permission modules it owns) and/or
+    // `permission_keys` (individual keys; these WIN over module ownership so one shared module can be
+    // split between two features, e.g. staff take-on inside the leave module). A permission owned by a
+    // feature that is OFF is blocked: its routes 404 (CheckPermission) and Role Manager hides it.
+    // The role_permissions rows are never touched — turning the feature back on restores everything.
+
+    /** @var array{keys: array<string,string>, modules: array<string,string>, moduleOf: array<string,string>}|null */
+    private ?array $permissionIndex = null;
+
+    /** The feature that owns a permission key, or null (the permission is always available). */
+    public function featureForPermission(string $permissionKey): ?string
+    {
+        $idx = $this->permissionIndex();
+
+        if (isset($idx['keys'][$permissionKey])) {
+            return $idx['keys'][$permissionKey];
+        }
+
+        $module = $idx['moduleOf'][$permissionKey] ?? null;
+
+        return $module !== null ? ($idx['modules'][$module] ?? null) : null;
+    }
+
+    /** True when the permission belongs to a feature that is switched OFF for the agency. */
+    public function permissionBlockedByFeature(string $permissionKey, ?Agency $agency = null): bool
+    {
+        $feature = $this->featureForPermission($permissionKey);
+
+        return $feature !== null && ! $this->enabled($feature, $agency);
+    }
+
+    /**
+     * Every catalogued permission key currently blocked by an OFF feature.
+     *
+     * @return list<string>
+     */
+    public function blockedPermissionKeys(?Agency $agency = null): array
+    {
+        $idx     = $this->permissionIndex();
+        $off     = [];
+        $blocked = [];
+        foreach (array_keys($idx['moduleOf']) as $key) {
+            $feature = $this->featureForPermission($key);
+            if ($feature !== null) {
+                $off[$feature] ??= ! $this->enabled($feature, $agency);
+                if ($off[$feature]) {
+                    $blocked[] = $key;
+                }
+            }
+        }
+
+        return $blocked;
+    }
+
+    /**
+     * The OFF features that own at least one permission, as key => label (for the Role Manager notice).
+     *
+     * @return array<string,string>
+     */
+    public function offFeaturesOwningPermissions(?Agency $agency = null): array
+    {
+        $out = [];
+        foreach ($this->blockedPermissionKeys($agency) as $key) {
+            $feature = $this->featureForPermission($key);
+            $out[$feature] = $this->registry()[$feature]['label'] ?? $feature;
+        }
+        asort($out);
+
+        return $out;
+    }
+
+    /** @return array{keys: array<string,string>, modules: array<string,string>, moduleOf: array<string,string>} */
+    private function permissionIndex(): array
+    {
+        if ($this->permissionIndex !== null) {
+            return $this->permissionIndex;
+        }
+
+        $moduleOf = [];
+        foreach ((array) Config::get('corex-permissions.permissions', []) as $p) {
+            $moduleOf[$p['key']] = $p['module'] ?? $p['section'];
+        }
+
+        $keys = $modules = [];
+        foreach ($this->registry() as $featureKey => $def) {
+            foreach (($def['permission_modules'] ?? []) as $m) {
+                $modules[$m] ??= $featureKey;
+            }
+            foreach (($def['permission_keys'] ?? []) as $k) {
+                $keys[$k] ??= $featureKey;
+            }
+        }
+
+        return $this->permissionIndex = ['keys' => $keys, 'modules' => $modules, 'moduleOf' => $moduleOf];
+    }
+
     /**
      * The full catalogue grouped by category for display, each entry annotated
      * with its resolved state + kind (core/switchboard/module) + whether a

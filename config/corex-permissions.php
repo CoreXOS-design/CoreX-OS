@@ -271,6 +271,9 @@ return [
         // ── Rental Portal Access (AT-445, .ai/specs/rental-portal-access.md §9) ──
         ['key' => 'rental_portal.manage_settings', 'label' => 'Manage Rental Portal Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_portal', 'sort_order' => 1],
         ['key' => 'rental_notices.create', 'label' => 'Draft & Send Rental Notices', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_notices', 'sort_order' => 1],
+        ['key' => 'rental_notices.review', 'label' => 'Review & Decide Notices Received, Send to the Other Party', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_notices', 'sort_order' => 3],
+        ['key' => 'rental_breaches.view', 'label' => 'View the Breach Register', 'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_breaches', 'sort_order' => 1],
+        ['key' => 'rental_breaches.manage', 'label' => 'Issue Breach Notices & Notices to Vacate, Mark Remedied', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_breaches', 'sort_order' => 2],
         ['key' => 'rental_notice_templates.manage_settings', 'label' => 'Manage Rental Notice Templates', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_notices', 'sort_order' => 2],
 
         // ── Rental Reports (AT-443) — .ai/specs/rentals-reports.md. Access-only —
@@ -448,8 +451,7 @@ return [
         // ── Franchise Admin ──
         ['key' => 'access_franchise_admin',  'label' => 'Access Franchise Admin',          'section' => 'franchise-admin',  'type' => 'access',  'module' => 'franchise_admin',  'sort_order' => 1],
         ['key' => 'manage_branches',         'label' => 'Manage Branches',                 'section' => 'franchise-admin',  'type' => 'access',  'module' => 'franchise_admin',  'sort_order' => 2],
-        ['key' => 'manage_users',            'label' => 'Manage Users',                    'section' => 'franchise-admin',  'type' => 'access',  'module' => 'franchise_admin',  'sort_order' => 3],
-        ['key' => 'view_financial_reports',  'label' => 'View Financial Reports',          'section' => 'franchise-admin',  'type' => 'access',  'module' => 'franchise_admin',  'sort_order' => 4],
+                ['key' => 'view_financial_reports',  'label' => 'View Financial Reports',          'section' => 'franchise-admin',  'type' => 'access',  'module' => 'franchise_admin',  'sort_order' => 4],
         ['key' => 'impersonate_users',       'label' => 'Impersonate Users',               'section' => 'franchise-admin',  'type' => 'access',  'module' => 'franchise_admin',  'sort_order' => 5],
         ['key' => 'users.view',              'label' => 'View',                            'section' => 'franchise-admin',  'type' => 'action',  'module' => 'users',            'sort_order' => 10],
         ['key' => 'users.create',            'label' => 'Create',                          'section' => 'franchise-admin',  'type' => 'action',  'module' => 'users',            'sort_order' => 11],
@@ -502,6 +504,12 @@ return [
         ['key' => 'shared_drive.folders.create', 'label' => 'Create Folders',             'section' => 'shared-drive',     'type' => 'action',  'module' => 'shared_drive',     'sort_order' => 13],
         ['key' => 'shared_drive.folders.delete', 'label' => 'Delete Folders',             'section' => 'shared-drive',     'type' => 'action',  'module' => 'shared_drive',     'sort_order' => 14],
         ['key' => 'shared_drive.files.delete',   'label' => 'Delete Files',               'section' => 'shared-drive',     'type' => 'action',  'module' => 'shared_drive',     'sort_order' => 15],
+        // Shared Drive v2 (.ai/specs/shared-drive.md "v2 permissions"). The controller and model enforced
+        // these three but they were never defined here, so Role Manager could not grant them and only the
+        // platform owner could create or manage drives.
+        ['key' => 'shared_drive.drives.create',            'label' => 'Create Shared Drives',                'section' => 'shared-drive', 'type' => 'action', 'module' => 'shared_drive', 'sort_order' => 16],
+        ['key' => 'shared_drive.drives.create_restricted', 'label' => 'Create Restricted (Locked) Drives',   'section' => 'shared-drive', 'type' => 'action', 'module' => 'shared_drive', 'sort_order' => 17],
+        ['key' => 'shared_drive.drives.manage',            'label' => 'Manage All Drives & Access (see all)', 'section' => 'shared-drive', 'type' => 'action', 'module' => 'shared_drive', 'sort_order' => 18],
 
         // ── Presentations ──
         ['key' => 'access_presentations',        'label' => 'Access Presentations',        'section' => 'presentations',    'type' => 'access',  'module' => 'presentations',    'sort_order' => 1],
@@ -671,8 +679,8 @@ return [
 
         // ── Ellie AI ──
         ['key' => 'access_ellie',                'label' => 'Access Ellie AI',             'section' => 'ellie',            'type' => 'access',  'module' => 'ellie',            'sort_order' => 1],
-        ['key' => 'use_ellie_voice',             'label' => 'Use Ellie Voice Commands',    'section' => 'ellie',            'type' => 'feature', 'module' => 'ellie',            'sort_order' => 2],
-        ['key' => 'use_property_image_ai',       'label' => 'Use AI Image Recognition',    'section' => 'ellie',            'type' => 'feature', 'module' => 'ellie',            'sort_order' => 3],
+        ['key' => 'use_ellie_voice',             'label' => 'Use Ellie Voice Commands',    'section' => 'ellie',            'type' => 'access', 'module' => 'ellie',            'sort_order' => 2],
+        ['key' => 'use_property_image_ai',       'label' => 'Use AI Image Recognition',    'section' => 'ellie',            'type' => 'access', 'module' => 'ellie',            'sort_order' => 3],
         // Global, CoreX-team-managed allowlist of external pages Ellie may search
         // (.ai/specs/ellie-reference-sources.md) — deliberately EXCLUDED from
         // admin's all-minus-exclude default below, same treatment as
@@ -809,12 +817,15 @@ return [
         ['key' => 'agency_setup.run',            'label' => 'Run Agency Setup Wizard',     'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 5],
         ['key' => 'agency_setup.track',          'label' => 'Track Agency Setup Progress (owner)', 'section' => 'settings', 'type' => 'access',  'module' => 'settings',         'sort_order' => 6],
         ['key' => 'agency_features.manage',      'label' => 'Manage Features (module on/off)', 'section' => 'settings',     'type' => 'access',  'module' => 'settings',         'sort_order' => 6],
+        // Users page (/admin/users) + its Settings sub-menu link. Key unchanged (every role grant and route keeps working);
+        // only its Role Manager home moved from Franchise Admin to Settings, as its own on/off switch beside Access Settings.
+        ['key' => 'manage_users',                'label' => 'Users',                       'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 7],
         // Agency Billing (AT-11) — what THIS agency pays CoreX. Read-only page; the
         // amounts themselves are set by CoreX on the owner-only developer page, which
         // deliberately has NO permission key. Spec: .ai/specs/agency-billing.md §9.
         // Lives in its OWN "Billing" section (not "Settings") so Role Manager surfaces
         // it as a first-class group an admin can grant/revoke per role.
-        ['key' => 'billing.view',                'label' => 'View Agency Billing',         'section' => 'billing',          'type' => 'view',    'module' => 'billing',          'sort_order' => 1],
+        ['key' => 'billing.view',                'label' => 'View Agency Billing',         'section' => 'billing',          'type' => 'access',  'module' => 'billing',          'sort_order' => 1],
         ['key' => 'settings.view',               'label' => 'View',                        'section' => 'settings',         'type' => 'action',  'module' => 'settings',         'sort_order' => 10],
         ['key' => 'settings.edit',               'label' => 'Edit',                        'section' => 'settings',         'type' => 'action',  'module' => 'settings',         'sort_order' => 11],
         ['key' => 'agency.p24.configure',        'label' => 'Configure Property24 API credentials', 'section' => 'settings',  'type' => 'action',  'module' => 'settings',         'sort_order' => 20],
@@ -946,6 +957,10 @@ return [
         ['key' => 'branches.view_all',               'label' => 'View Across All Branches',      'section' => 'branches',        'type' => 'access',  'module' => 'branches',         'sort_order' => 1],
         ['key' => 'branches.switch',                 'label' => 'Switch Branch View',            'section' => 'branches',        'type' => 'access',  'module' => 'branches',         'sort_order' => 2],
         ['key' => 'branches.edit_all',               'label' => 'Edit Across All Branches',      'section' => 'branches',        'type' => 'action',  'module' => 'branches',         'sort_order' => 3],
+        // .ai/specs/admin-multi-branch-manager.md §4.3 — enforced by ActingBranchManagerController, AgentPortalController
+        // and the agent.portal.managed-branches.update route, but never defined here. Default: admin only (via the
+        // admin all-minus-exclude rule) — branch managers/agents deliberately do NOT get it.
+        ['key' => 'branches.self_assign_managed',    'label' => 'Self-Assign Managed Branches',  'section' => 'branches',        'type' => 'action',  'module' => 'branches',         'sort_order' => 4],
 
         // ── Sidebar — section visibility (entire sidebar groups) ──
         // When OFF, the sidebar heading and every item under it (until the
@@ -1164,7 +1179,7 @@ return [
                 // full working set incl. cancel/approval/resolve powers; the
                 // manage_settings keys stay admin-only, like every sibling module.
                 // properties.syndication.manage_approvers is deliberately NOT here.
-                'leases.view', 'leases.create', 'leases.renew', 'leases.cancel', 'lease_notice_terms.edit',
+                'leases.view', 'leases.create', 'leases.renew', 'leases.cancel', 'lease_notice_terms.edit', 'rental_notices.review', 'rental_breaches.view', 'rental_breaches.manage',
                 'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.record_attendance', 'rental_inspections.manage_planned_dates', 'rental_inspections.resolve_discrepancy',
                 'rental_inspections.edit_details', 'rental_inspections.archive', 'rental_inspections.restore', 'rental_inspections.cancel', 'rental_inspections.reschedule', 'rental_inspections.public_link', 'rental_inspections.export', 'rental_inspections.archive_completed',
                 // sign_on_behalf deliberately NOT granted (owner's ruling 2026-09-30: admin only).
@@ -1220,6 +1235,7 @@ return [
                 'access_shared_drive', 'shared_drive.view', 'shared_drive.upload',
                 'shared_drive.download', 'shared_drive.folders.create',
                 'shared_drive.folders.delete', 'shared_drive.files.delete',
+                'shared_drive.drives.create', 'shared_drive.drives.create_restricted',
                 'access_presentations', 'create_presentations', 'run_analysis',
                 'presentations.view', 'presentations.create', 'presentations.edit',
                 // AT-112 — viewing packs (own scope for agent, branch for BM via scope_defaults).
@@ -1338,7 +1354,7 @@ return [
                 // resolution, sign-on-behalf and every manage_settings stay with
                 // branch managers/admin. properties.syndication.manage_approvers
                 // stays admin-only.
-                'leases.view', 'leases.create', 'leases.renew', 'lease_notice_terms.edit',
+                'leases.view', 'leases.create', 'leases.renew', 'lease_notice_terms.edit', 'rental_notices.review', 'rental_breaches.view', 'rental_breaches.manage',
                 'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.record_attendance', 'rental_inspections.manage_planned_dates',
                 'rental_inspections.edit_details', 'rental_inspections.archive', 'rental_inspections.restore', 'rental_inspections.cancel', 'rental_inspections.reschedule', 'rental_inspections.public_link', 'rental_inspections.export',
                 'rental_fault_reports.view', 'rental_fault_reports.create', 'rental_fault_reports.send_to_owner', 'rental_fault_reports.raise_work_order',
@@ -1371,6 +1387,7 @@ return [
                 'access_document_library',
                 'access_shared_drive', 'shared_drive.view', 'shared_drive.upload',
                 'shared_drive.download', 'shared_drive.folders.create',
+                'shared_drive.drives.create',
                 'access_presentations',
                 'presentations.view', 'presentations.create', 'presentations.edit',
                 // AT-112 — viewing packs (own scope for agent, branch for BM via scope_defaults).

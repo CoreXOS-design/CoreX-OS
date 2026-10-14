@@ -83,7 +83,7 @@ class FeatureSettingsController extends Controller
         // the wizard's save() loop ignores the return (it only cares about thrown
         // exceptions), so this redirect is harmless there.
         return redirect()
-            ->route('corex.settings', ['s' => 'features'])
+            ->route('corex.features.index')
             ->with('success', 'Feature settings updated.');
     }
 }

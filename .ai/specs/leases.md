@@ -2136,3 +2136,9 @@ What an agent types into an agreement's **Fill & review** (lease or renewal - an
 
 
 - **14 Oct 2026 (cc5 second walk): notice vs renewal.** A move-out notice and a renewal for the same lease cannot both stand: no renewal while a notice is on file, no notice while a renewal is in progress or signed (the agent withdraws one first); existing conflicts show a banner on the lease screen. The Next step offers "Continue in-inspection" for an in-inspection already begun. When a tenancy ends the property is relisted asking the last lease rent. See `rentals-faults-work-orders.md` 22.21.
+
+---
+
+## 19. Notices given by the tenant or the landlord - now a case with a review (14 Oct 2026, QA1)
+
+Johan's ruling: a notice flows to the agent, the agent works it (against the lease's notice terms and the law), and only then is it sent to the other party; the lease's move-out date is set only on acceptance. Full spec in `lease-notices.md`. What changed on the lease screen: **Tenant gave notice** and **Landlord gave notice** (was "Landlord not renewing") no longer write to the lease - they record a notice on the person's behalf (date given, end date given, reason, optional attachment) and open its review; a **Notice panel** on the lease shows every notice and where it stands; **Reverse notice** also withdraws the accepted case. The three-way "what happens to the property" choice (re-advertise / withdraw / leave, `rental-renewals.md` §19) moved from the old dialogs to the **Accept** step. `LeaseRenewalService::recordNotice()` is unchanged apart from taking the date the notice was *given* (it ran with "today" before); acceptance calls it.

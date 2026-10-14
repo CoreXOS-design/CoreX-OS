@@ -3636,10 +3636,10 @@ class ESignWizardController extends Controller
                             // to the e-sign agent (parity with
                             // FicaController::store) so the submitted FICA
                             // lands in this agent's "Awaiting Agent Review".
-                            if (empty($existingDraft->token)) {
-                                $existingDraft->token = Str::random(64);
-                                $existingDraft->token_expires_at = now()->addDays(\App\Services\Compliance\FicaWindows::linkExpiryDays((int) ($existingDraft->agency_id ?: $user->effectiveAgencyId())));
-                            }
+                            // 2026-10-11 hotfix — also renews a lapsed link,
+                            // not only a missing one: this send's signing link
+                            // runs 14 days, so must the FICA link it leads to.
+                            $existingDraft->keepLinkAliveUntil(now()->addDays(max(\App\Services\Compliance\FicaWindows::DEFAULT_LINK_EXPIRY_DAYS, \App\Services\Compliance\FicaWindows::linkExpiryDays((int) ($existingDraft->agency_id ?: $user->effectiveAgencyId())))));
                             $existingDraft->requested_by = $user->id;
                             if (empty($existingDraft->agency_id)) {
                                 $existingDraft->agency_id = $user->effectiveAgencyId()

@@ -43,6 +43,10 @@ final class SidebarFeatureCoverage
         'admin.settings.deal-*'             => 'deals',
         'admin.settings.document-distribution*' => 'deals',
         'corex.settings'                    => 'settings',
+        // The Settings sub menu (Staging, 12 Oct): the Features page is the on/off switch itself and Users is core people
+        // management — neither can be switched off from the page that does the switching.
+        'corex.features.*'                  => 'settings',
+        'admin.users*'                      => 'settings',
         'admin.company-settings*'           => 'company-settings',
         'corex.role-manager*'               => 'role-manager',
         // Release notes for the CoreX platform itself — shown to everyone, not a module an agency runs.

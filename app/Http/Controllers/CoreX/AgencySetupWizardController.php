@@ -691,6 +691,8 @@ class AgencySetupWizardController extends Controller
                     'default_deposit_months' => LeaseSetting::defaultDepositMonthsFor($agency->id),
                     // .ai/specs/rental-renewals.md §2 — AT-444.
                     'tenant_notice_period_days' => LeaseSetting::tenantNoticePeriodDaysFor($agency->id),
+                    'cpa_early_cancel_business_days' => LeaseSetting::cpaEarlyCancelBusinessDaysFor($agency->id),
+                    'breach_remedy_business_days' => LeaseSetting::breachRemedyBusinessDaysFor($agency->id),
                     // leases.md §18.2 — the notice / early-cancellation defaults (each needs its own explicit arm, §6.2).
                     'tenant_notice_period_unit' => LeaseSetting::tenantNoticePeriodUnitFor($agency->id),
                     'default_earliest_notice_months' => LeaseSetting::earliestNoticeMonthsFor($agency->id),

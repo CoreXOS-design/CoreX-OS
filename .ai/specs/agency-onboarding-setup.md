@@ -258,6 +258,8 @@ agency, so the visible count is ≤ 13.
 These were built and then removed on Johan's call. They are out of scope by decision, not
 by oversight — do not reinstate them without asking:
 
+- **Notice templates (breach notice - payment, breach notice - other, notice to vacate, and any other the agency adds)** (2026-10-14, qa1, `rental-notices.md` §3; **recorded for Johan**). They are the agency's OWN uploaded documents (Word, with placeholders), managed on their own screen (Settings -> Rental Notice Templates) like every other template - CoreX seeds none and they are not a switch to set once. The settings that came with notices ARE in the wizard (Leases step): `lease_settings.cpa_early_cancel_business_days` and `lease_settings.breach_remedy_business_days`.
+
 - **"Who normally pays" defaults on a fault type (`rental_fault_type_causes`)** (2026-10-13, qa1 AT-452 stage 4; **recorded for Johan**). It is fault-catalogue DATA (a short list of self-checks and causes per fault type, like the first-aid steps, which are not wizard controls either), seeded neutral for every agency and edited on the fault type's own screen - not an agency switch. Spec `rentals-faults-work-orders.md` §22.13.7.
 
 - **"Who looks at faults first" (per-property / per-owner first responders, `rental_first_responders`)** (2026-10-12, qa1 AT-452 family; **recorded for Johan**). It is per-property and per-owner DATA with a change log - like the owner's work terms, which are not wizard controls either - not an agency setting, so there is nothing to switch on in onboarding. Spec `rentals-faults-work-orders.md` §21.4.

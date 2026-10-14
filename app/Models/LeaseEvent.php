@@ -19,6 +19,16 @@ class LeaseEvent extends Model
     public const TYPE_NOTICE_RECORDED = 'notice_recorded';
     public const TYPE_NOTICE_REVERSED = 'notice_reversed';
     public const TYPE_NOTICE_OUTCOME_CHANGED = 'notice_outcome_changed';
+    // .ai/specs/lease-notices.md - the life of a notice given by the tenant or the landlord
+    public const TYPE_NOTICE_RECEIVED = 'notice_received';
+    public const TYPE_NOTICE_DECIDED = 'notice_decided';
+    public const TYPE_NOTICE_SENT = 'notice_sent';
+    public const TYPE_NOTICE_EDITED = 'notice_edited';
+    // .ai/specs/rental-notices.md - breach notices and notices to vacate
+    public const TYPE_BREACH_ISSUED = 'breach_issued';
+    public const TYPE_BREACH_REMEDIED = 'breach_remedied';
+    public const TYPE_VACATE_ISSUED = 'vacate_issued';
+    public const TYPE_BREACH_EDITED = 'breach_edited';
     public const TYPE_RENEWAL_DRAFT_CREATED = 'renewal_draft_created';
     public const TYPE_RENEWAL_ACTIVATED = 'renewal_activated';
     public const TYPE_RENEWAL_DRAFT_CANCELLED = 'renewal_draft_cancelled';

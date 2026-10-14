@@ -173,10 +173,14 @@ class SigningController extends Controller
                 // route('fica.form', null) throws UrlGenerationException and
                 // 500s the signing page. Mint a token if one is missing so
                 // the FICA link always works — the page must never 500 here.
-                if ($ficaSub && empty($ficaSub->token)) {
-                    $ficaSub->token = \Illuminate\Support\Str::random(64);
-                    $ficaSub->token_expires_at = now()->addDays(\App\Services\Compliance\FicaWindows::linkExpiryDays((int) $ficaSub->agency_id));
-                    $ficaSub->save();
+                // 2026-10-11 hotfix — and a reused draft whose own link had
+                // already lapsed is renewed to last as long as this signing
+                // link, so the FICA step is never "expired" on a live link.
+                if ($ficaSub) {
+                    $ficaSub->keepLinkAliveUntil($signingRequest->token_expires_at ?? now()->addDays(max(\App\Services\Compliance\FicaWindows::DEFAULT_LINK_EXPIRY_DAYS, \App\Services\Compliance\FicaWindows::linkExpiryDays((int) $ficaSub->agency_id))));
+                    if ($ficaSub->isDirty()) {
+                        $ficaSub->save();
+                    }
                 }
 
                 $ficaUrl = ($ficaSub && $ficaSub->token)

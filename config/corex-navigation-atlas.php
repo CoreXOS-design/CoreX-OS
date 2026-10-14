@@ -404,6 +404,12 @@ return [
         'blurb' => 'Your CoreX settings and preferences.',
         'keywords' => ['settings', 'preferences', 'my settings', 'configure'],
     ],
+    'corex.features.index' => [
+        'label' => 'Features',
+        'category' => 'Admin',
+        'blurb' => 'Switch CoreX modules on or off for your agency.',
+        'keywords' => ['features', 'modules', 'turn on', 'turn off', 'switch off', 'enable module', 'disable module', 'feature toggles'],
+    ],
     'admin.company-settings' => [
         'label' => 'Company Settings',
         'category' => 'Admin',
