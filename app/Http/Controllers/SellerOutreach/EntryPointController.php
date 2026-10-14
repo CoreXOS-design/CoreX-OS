@@ -1825,7 +1825,7 @@ final class EntryPointController extends Controller
             case 'held':
                 return redirect()
                     ->route('corex.properties.show', ['property' => $status['property_id']])
-                    ->with('warning', "This property is already on HFC's books — opened the existing record instead of starting a new prospect.");
+                    ->with('warning', "This property is already on our books — opened the existing record instead of starting a new prospect.");
 
             case 'own_draft':
                 $days = (int) ($status['days_in_state'] ?? 0);
@@ -1844,16 +1844,16 @@ final class EntryPointController extends Controller
             case 'previously_sold':
                 $date = $status['sale_date'] ?? null;
                 session()->flash('warning', $date
-                    ? "Previously sold by HFC on {$date}. Continuing as new prospect."
-                    : 'Previously sold by HFC. Continuing as new prospect.');
+                    ? "Previously sold by your agency on {$date}. Continuing as new prospect."
+                    : 'Previously sold by your agency. Continuing as new prospect.');
                 $this->fireMicProspectLaunched($listing, $agencyId, $currentUserId);
                 return null;
 
             case 'previously_held':
                 $expired = $status['expired_at'] ?? null;
                 session()->flash('warning', $expired
-                    ? "Previously held by HFC (mandate ended {$expired}). Continuing as new prospect."
-                    : 'Previously held by HFC. Continuing as new prospect.');
+                    ? "Previously held by your agency (mandate ended {$expired}). Continuing as new prospect."
+                    : 'Previously held by your agency. Continuing as new prospect.');
                 $this->fireMicProspectLaunched($listing, $agencyId, $currentUserId);
                 return null;
 

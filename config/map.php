@@ -3,28 +3,26 @@
 /**
  * Map module — system-wide default config.
  *
- * These are the FALLBACK defaults. Per-agency overrides live in
- * `agency_map_settings` (App\Models\AgencyMapSettings), which seeds from these
- * values and is read by MapController + MapBoundsRequest. Sensible defaults =
- * Home Finders Coastal's current KZN South Coast values; every other tenant
- * gets these only until they set their own (no more hardcoded HFC box for all).
+ * These are the FALLBACK defaults, and they are NEUTRAL: the whole of South Africa. Per-agency overrides live in
+ * `agency_map_settings` (App\Models\AgencyMapSettings), which is read by MapController + MapBoundsRequest. An agency that has set
+ * nothing opens on the area its OWN properties are in (AgencyMapSettings::center()/bounds() derive it from their coordinates), and
+ * only when it has none yet on this country view. The map used to open on one agency's patch (the KZN South Coast) for everybody.
  */
 return [
     'defaults' => [
-        // Initial map view when no ?lat/lng/z is supplied.
+        // Initial map view when no ?lat/lng/z is supplied (no agency data to derive one from): South Africa.
         'center' => [
-            'lat' => (float) env('MAP_DEFAULT_CENTER_LAT', -30.70),
-            'lng' => (float) env('MAP_DEFAULT_CENTER_LNG', 30.45),
+            'lat' => (float) env('MAP_DEFAULT_CENTER_LAT', -28.50),
+            'lng' => (float) env('MAP_DEFAULT_CENTER_LNG', 24.70),
         ],
-        'zoom' => (int) env('MAP_DEFAULT_ZOOM', 11),
+        'zoom' => (int) env('MAP_DEFAULT_ZOOM', 5),
 
-        // The bounding box the map fits to on load / "Reset to area" (was the
-        // hardcoded HFC_BOUNDS in the blade — KZN South Coast).
+        // The bounding box the map fits to on load / "Reset to area": South Africa.
         'bounds' => [
-            'north' => (float) env('MAP_BOUNDS_NORTH', -30.40),
-            'south' => (float) env('MAP_BOUNDS_SOUTH', -31.00),
-            'east'  => (float) env('MAP_BOUNDS_EAST',  30.90),
-            'west'  => (float) env('MAP_BOUNDS_WEST',  30.00),
+            'north' => (float) env('MAP_BOUNDS_NORTH', -22.00),
+            'south' => (float) env('MAP_BOUNDS_SOUTH', -35.00),
+            'east'  => (float) env('MAP_BOUNDS_EAST',  33.00),
+            'west'  => (float) env('MAP_BOUNDS_WEST',  16.00),
         ],
 
         // Default sold-date window for the agency Sold layer (3mo|6mo|12mo|24mo|all).

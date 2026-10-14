@@ -1027,7 +1027,7 @@ final class MapPinService
                 'lat'        => (float) $r->latitude,
                 'lng'        => (float) $r->longitude,
                 'title'      => $r->prop_address ?? $r->property_address ?? ('Deal #' . $r->id),
-                'subtitle'   => $this->formatSoldSubtitle($price, $r->sale_date) . ' · HFC sold',
+                'subtitle'   => $this->formatSoldSubtitle($price, $r->sale_date) . ' · sold by us',
                 'price'      => $price,
                 'date'       => $r->sale_date,
                 'detail_url' => null,

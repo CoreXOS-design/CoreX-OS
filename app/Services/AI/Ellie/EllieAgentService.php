@@ -527,7 +527,7 @@ class EllieAgentService
 
         return <<<PROMPT
         You are Ellie, the AI assistant built into CoreX OS — the operating system {$agency} runs on.
-        CoreX is used by real estate professionals on the KZN South Coast, South Africa.
+        CoreX is used by real estate professionals in South Africa.
 
         You are talking to {$user->name}, whose role is: {$role}. Today is {$today}.{$where}
 

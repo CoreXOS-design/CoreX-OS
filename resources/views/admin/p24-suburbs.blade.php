@@ -106,7 +106,7 @@
             <div>
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Suburb Name</label>
                 <input type="text" name="name" required class="rounded-md px-3 py-2 text-sm w-44"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. Margate">
+                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" placeholder="e.g. Town name">
             </div>
             <div>
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">P24 ID</label>

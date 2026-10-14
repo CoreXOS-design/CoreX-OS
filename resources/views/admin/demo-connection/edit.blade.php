@@ -87,7 +87,7 @@
             </label>
             <input id="control_url" name="control_url" type="url" required
                    value="{{ old('control_url', $controlUrl) }}"
-                   placeholder="https://corex.hfcoastal.co.za"
+                   placeholder="https://corex.example.co.za"
                    style="width:100%; padding:9px 11px; border-radius:6px;
                           border:1px solid var(--border, rgba(0,0,0,0.14));
                           background:var(--surface, #ffffff);

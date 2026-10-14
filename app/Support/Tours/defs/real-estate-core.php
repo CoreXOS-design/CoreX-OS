@@ -130,7 +130,7 @@ return [
                 'element' => '[data-tour="re-map-layers"]',
                 'do'      => ['action' => 'choose', 'say' => 'Click a layer icon to show or hide it.'],
                 'title'   => 'Turn layers on and off',
-                'body'    => 'Each chip is a type of pin: Active Stock (your listings on the market), Sold (HFC), Off-market, Sold Comps (recent sales), Portal Stock (competitor listings from Property24 and Private Property), MIC Subjects and Sectional Schemes. Click one to show or hide that layer so the map stays readable.',
+                'body'    => 'Each chip is a type of pin: Active Stock (your listings on the market), Sold (ours), Off-market, Sold Comps (recent sales), Portal Stock (competitor listings from Property24 and Private Property), MIC Subjects and Sectional Schemes. Click one to show or hide that layer so the map stays readable.',
             ],
             [
                 'element' => '[data-tour="re-map-viewmode"]',

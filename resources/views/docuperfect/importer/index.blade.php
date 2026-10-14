@@ -440,7 +440,7 @@
                     <div class="flex items-center gap-2 text-xs mb-1">
                         <code class="px-2 py-0.5 rounded font-mono font-bold whitespace-nowrap"
                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">……</code>
-                        <span style="color: var(--text-secondary);">An ellipsis run (two or more &ldquo;&hellip;&rdquo; characters) &mdash; the dotted fill-in line Word inserts on its own, common in HFC's offer-to-purchase documents</span>
+                        <span style="color: var(--text-secondary);">An ellipsis run (two or more &ldquo;&hellip;&rdquo; characters) &mdash; the dotted fill-in line Word inserts on its own, common in offer-to-purchase documents</span>
                     </div>
                     <div class="flex items-center gap-2 text-xs mb-1">
                         <code class="px-2 py-0.5 rounded font-mono font-bold whitespace-nowrap"

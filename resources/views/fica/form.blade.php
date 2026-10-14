@@ -718,7 +718,7 @@
                 <div class="fica-grid" style="margin-bottom: 1.25rem;">
                     <div>
                         <label class="fica-label">Signed at (location) <span class="req">*</span></label>
-                        <input type="text" name="declaration[signed_at_location]" class="fica-input" required x-model="declaration.signed_at_location" placeholder="e.g. Durban, South Africa">
+                        <input type="text" name="declaration[signed_at_location]" class="fica-input" required x-model="declaration.signed_at_location" placeholder="e.g. City, Country">
                     </div>
                     <div>
                         <label class="fica-label">Date</label>

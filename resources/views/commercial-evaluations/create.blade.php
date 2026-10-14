@@ -132,17 +132,17 @@
                         <label class="ds-label block mb-1">Suburb</label>
                         <input type="text" name="suburb" value="{{ old('suburb') }}"
                                class="w-full ds-field rounded-md px-3 py-2 text-sm"
-                               placeholder="e.g. Uvongo">
+                               placeholder="e.g. Suburb name">
                     </div>
                     <div>
                         <label class="ds-label block mb-1">Town</label>
                         <input type="text" name="town" value="{{ old('town') }}"
                                class="w-full ds-field rounded-md px-3 py-2 text-sm"
-                               placeholder="e.g. Margate">
+                               placeholder="e.g. Town name">
                     </div>
                     <div>
                         <label class="ds-label block mb-1">Province</label>
-                        <input type="text" name="province" value="{{ old('province', 'KwaZulu-Natal') }}"
+                        <input type="text" name="province" value="{{ old('province', '') }}"
                                class="w-full ds-field rounded-md px-3 py-2 text-sm">
                     </div>
                 </div>

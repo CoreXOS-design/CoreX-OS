@@ -45,7 +45,7 @@
         </div>
 
         <div>
-            <label class="block text-sm font-semibold mb-1" style="color:var(--text-secondary);">Neighbouring suburbs (for example Uvongo and Uvongo Beach)</label>
+            <label class="block text-sm font-semibold mb-1" style="color:var(--text-secondary);">Neighbouring suburbs (for example a suburb and its beach or extension)</label>
             <select name="neighbour_suburb_credit" class="px-3 py-2 text-sm rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                 <option value="possible" @selected(old('neighbour_suburb_credit', $settings['neighbour_suburb_credit']) === 'possible')>Ask the agent — "possible match" (standard)</option>
                 <option value="ignore" @selected(old('neighbour_suburb_credit', $settings['neighbour_suburb_credit']) === 'ignore')>Treat as different suburbs — never a match</option>

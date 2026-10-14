@@ -2481,21 +2481,41 @@ class Property extends Model
     }
 
     /**
-     * Canonical public-website URL for this listing:
-     *   {base}/property/{slug}-{id}      (titled listing)
-     *   {base}/property/{id}             (no title — bare id fallback)
+     * The public URL of this listing - the one a client is sent ("View listing", share links, the map).
      *
-     * Base URL lives in config('integrations.public_website_url') — never
-     * hardcode it. Resolution on the website is by the trailing id, so the
-     * slug segment is SEO-only and a changing title never breaks the link.
+     *   1. the OWNING agency's own website (Company Settings -> website URL):  {website_url}/property/{slug}-{id}
+     *   2. else CoreX's public property page for that agency:                 /{agency-slug}/properties/{id}
+     *   3. only with no agency at all: the install's configured site (config('integrations.public_website_url'), never an agency's).
+     *
+     * It used to be ONE install-wide site (hfcoastal.co.za) for every agency, so a second agency's tenant or buyer was sent to
+     * Home Finders Coastal's website (Cape walk, 14 Oct 2026). Resolution on an agency website is by the trailing id, so the slug
+     * segment is SEO-only and a changing title never breaks the link.
      */
     public function getPublicUrlAttribute(): string
     {
-        $base = rtrim((string) config('integrations.public_website_url'), '/');
         $slug = $this->slug;
         $path = $slug !== '' ? "{$slug}-{$this->id}" : (string) $this->id;
 
-        return "{$base}/property/{$path}";
+        $agencyId = (int) $this->agency_id;
+        if ($agencyId > 0) {
+            // request-scoped memo (the container is rebuilt per request / per test): `public_url` is appended to every serialised property
+            app()->scopedIf('property.public_url.agencies', fn () => new \ArrayObject());
+            $memo = app('property.public_url.agencies');
+            if (! isset($memo[$agencyId])) {
+                $memo[$agencyId] = \Illuminate\Support\Facades\DB::table('agencies')->where('id', $agencyId)->first(['slug', 'website_url']) ?: false;
+            }
+            $agency = $memo[$agencyId] ?: null;
+
+            $site = trim((string) ($agency->website_url ?? ''));
+            if ($site !== '' && preg_match('#^https?://#i', $site) === 1) {
+                return rtrim($site, '/') . "/property/{$path}";
+            }
+            if (trim((string) ($agency->slug ?? '')) !== '') {
+                return route('public.agency.properties.show', ['agencySlug' => $agency->slug, 'property' => $this->id]);
+            }
+        }
+
+        return rtrim((string) config('integrations.public_website_url'), '/') . "/property/{$path}";
     }
 
     /**

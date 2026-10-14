@@ -16,25 +16,13 @@ return [
     // Listing detail pattern: {website_public_url}/listings/{external_id}
     'website_public_url'   => env('WEBSITE_PUBLIC_URL', env('WEBSITE_SYNC_URL', '')),
 
-    // Base URL of the public CoreX listing website where individual properties
-    // render. Used to compose each property's canonical public URL:
-    //   {public_website_url}/property/{slug}-{id}
-    // The website resolves a property by the trailing id, so the slug is purely
-    // cosmetic/SEO — see Property::getPublicUrlAttribute().
-    // Default is the live production domain (verified: it serves the
-    // /property/{slug}-{id} path). Override with PUBLIC_WEBSITE_URL to point at
-    // a local/staging custom-website dev server (e.g. http://91.99.130.85:1050).
-    // Demo-safe fallback (2026-09-02, webinar-eve incident): read
-    // COREX_INSTANCE_ROLE directly via env() here rather than through
-    // App\Support\Instance::isDemo() — that helper reads config('corex.instance.role'),
-    // and calling config() from inside another config file being loaded risks
-    // reading it before config/corex.php has been merged in. env() is always
-    // safe at this point. On the demo instance, with no PUBLIC_WEBSITE_URL
-    // override, "View listing" links must never resolve to HFC's real public
-    // site — that leaked live on the map screen ahead of the webinar.
+    // LAST-RESORT base URL for a property's public link when the property has NO owning agency. The link a client is sent is
+    // per agency - the agency's own website (Company Settings), else CoreX's public property page for that agency -
+    // see Property::getPublicUrlAttribute(). This value is never an agency's site: it defaults to this install's own URL
+    // (the demo instance keeps its demo domain). Override with PUBLIC_WEBSITE_URL for a local/staging site.
     'public_website_url'   => env('PUBLIC_WEBSITE_URL', strtolower((string) env('COREX_INSTANCE_ROLE')) === 'demo'
         ? 'https://www.corexdemo.co.za'
-        : 'https://www.hfcoastal.co.za'),
+        : env('APP_URL', 'http://localhost')),
 
     // Base URL of the CoreX MARKETING site (corexweb.co.za) — a different site
     // from public_website_url above, which is an agency's own listing website.

@@ -33,7 +33,7 @@
             ['street_name', 'Street name', 'The street, with or without its type (Grindewald Drive)'],
             ['unit_number', 'Unit / section number', 'Flats and townhouses'],
             ['complex_name', 'Complex / scheme name', ''],
-            ['suburb', 'Suburb', 'Use the Property24 suburb name (for example Uvongo Beach)'],
+            ['suburb', 'Suburb', 'Use the Property24 suburb name (spelled exactly as Property24 spells it)'],
             ['erf_number', 'Erf / stand number', ''],
         ] as [$name, $label, $help])
             <div>

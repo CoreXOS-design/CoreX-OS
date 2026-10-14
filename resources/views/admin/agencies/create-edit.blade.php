@@ -93,7 +93,7 @@
                     <input type="text" name="name" value="{{ old('name', $agency?->name) }}" required
                            class="w-full rounded-md px-3 py-2 text-sm"
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
-                           placeholder="e.g. HFC Coastal">
+                           placeholder="e.g. Your Agency Name">
                 </div>
                 @if(!$agency)
                 <div>

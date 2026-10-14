@@ -166,7 +166,7 @@
                     <div>
                         <div style="color: var(--brand-button);" class="font-semibold">Active — opportunity</div>
                         <div class="text-[11px] mt-1" style="color: var(--text-muted);">
-                            Tracked but not mandated. Promote when HFC wins this mandate; the full source chain stays preserved here.
+                            Tracked but not mandated. Promote when your agency wins this mandate; the full source chain stays preserved here.
                         </div>
                     </div>
                     @permission('outreach.compose')

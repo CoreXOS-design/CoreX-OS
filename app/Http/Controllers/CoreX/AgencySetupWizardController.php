@@ -94,8 +94,8 @@ class AgencySetupWizardController extends Controller
         'branch'         => ['step' => 'branches', 'label' => 'Branches', 'placeholder' => 'e.g. Seabreeze Bay'],
         // Market Intelligence / Prospecting Setup — mirrors the settings.prospecting
         // page's own collections, delegating to the SAME canonical CRUD controllers.
-        'mic_town'            => ['step' => 'market_intelligence', 'label' => 'Towns', 'placeholder' => 'e.g. Margate'],
-        'mic_suburb'          => ['step' => 'market_intelligence', 'label' => 'Suburbs', 'placeholder' => 'e.g. Uvongo'],
+        'mic_town'            => ['step' => 'market_intelligence', 'label' => 'Towns', 'placeholder' => 'e.g. Town name'],
+        'mic_suburb'          => ['step' => 'market_intelligence', 'label' => 'Suburbs', 'placeholder' => 'e.g. Suburb name'],
         'mic_property_type'   => ['step' => 'market_intelligence', 'label' => 'Property types', 'placeholder' => 'e.g. Vacant Land'],
         'mic_bedroom_segment' => ['step' => 'market_intelligence', 'label' => 'Bedroom segments', 'placeholder' => 'e.g. 3 Bed'],
         'mic_price_band'      => ['step' => 'market_intelligence', 'label' => 'Price bands', 'placeholder' => 'e.g. Entry Level'],
