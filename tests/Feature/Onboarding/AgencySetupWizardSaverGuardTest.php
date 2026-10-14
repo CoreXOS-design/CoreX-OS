@@ -255,7 +255,7 @@ class AgencySetupWizardSaverGuardTest extends TestCase
         CommissionSetting::forAgency($agency->id)->update([
             'mentor_program_enabled' => true, 'mentor_extra_split' => 20, 'mentor_transactions' => 3,
             'commission_split_agent' => 80, 'commission_split_agency' => 20,
-            // the agency enters its own cap too: a cap of 0 means "capped from the first deal" (post-cap path, no split, no mentor fee)
+            // a real cap (a cap of 0 / blank means NO cap - see CapZeroMeansNoCapTest)
             'annual_cap' => 160000,
         ]);
 

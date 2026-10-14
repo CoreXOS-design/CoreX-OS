@@ -142,7 +142,7 @@ class AgentPortalController extends Controller
             $capTotal = (float) ($capPeriod->cap_amount ?? 0);
             $capPaid = (float) ($capPeriod->company_dollar_paid ?? 0);
             $capPercent = $capTotal > 0 ? min(100, (int) round(($capPaid / $capTotal) * 100)) : 0;
-            $isCapped = $capPeriod->is_capped;
+            $isCapped = $capPeriod->checkCap();
         }
 
         // ── Recent activity ──

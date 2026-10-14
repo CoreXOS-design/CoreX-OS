@@ -27,7 +27,7 @@ class CommissionSettingsController extends Controller
 
         $validated = $request->validate([
             'commission_split_agent' => ['required', 'integer', 'min:0', 'max:100'],
-            'annual_cap' => ['required', 'numeric', 'min:0'],
+            'annual_cap' => ['nullable', 'numeric', 'min:0'], // blank / 0 = no cap
             'post_cap_transaction_fee' => ['required', 'numeric', 'min:0'],
             'post_cap_fee_cap' => ['required', 'numeric', 'min:0'],
             'post_cap_reduced_fee' => ['required', 'numeric', 'min:0'],
@@ -53,6 +53,7 @@ class CommissionSettingsController extends Controller
         ]);
 
         // Auto-calculate agency split
+        $validated['annual_cap'] = $validated['annual_cap'] ?? 0;
         $validated['commission_split_agency'] = 100 - $validated['commission_split_agent'];
 
         // Both forms that reach here (settings page + setup wizard) render these
@@ -78,6 +79,10 @@ class CommissionSettingsController extends Controller
         $settings = CommissionSetting::forAgency((int) $agencyId);
         $before = $settings->getOriginal();
         $settings->update($validated);
+
+        // An agent whose cap period opened while the agency had NO cap (0) takes up the cap the agency has now entered; a period that
+        // already has a positive cap keeps it (this never touches an agency that already runs a cap).
+        \App\Models\AgentCapPeriod::adoptAgencyCap((int) $agencyId, (float) $settings->annual_cap);
 
         // Money rules for the agency, changed with no record of who or when —
         // flagged in the 2026-08-21 go-live audit as a real dispute risk.

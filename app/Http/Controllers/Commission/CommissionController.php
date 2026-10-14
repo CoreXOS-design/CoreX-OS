@@ -38,7 +38,7 @@ class CommissionController extends Controller
 
         $capProgress = (float) ($capPeriod->company_dollar_paid ?? 0);
         $capTotal = (float) ($capPeriod->cap_amount ?? 0);
-        $capRemaining = $capPeriod->is_capped ? 0 : max(0, $capTotal - $capProgress);
+        $capRemaining = $capPeriod->checkCap() ? 0 : max(0, $capTotal - $capProgress);
         $capPercent = $capTotal > 0 ? min(100, round(($capProgress / $capTotal) * 100, 1)) : 0;
         $daysUntilReset = $capPeriod->period_end ? (int) now()->diffInDays(Carbon::parse($capPeriod->period_end), false) : 0;
         if ($daysUntilReset < 0) {
@@ -111,7 +111,7 @@ class CommissionController extends Controller
 
         // Post-cap fee summary (for capped agents)
         $postCapFees = null;
-        if ($capPeriod->is_capped) {
+        if ($capPeriod->checkCap()) {
             $postCapFees = [
                 'transaction_fees_paid' => (float) ($capPeriod->post_cap_fees_paid ?? 0),
                 'risk_fees_paid' => (float) ($capPeriod->risk_fees_paid ?? 0),
@@ -206,7 +206,7 @@ class CommissionController extends Controller
                     $capTotal = (float) ($capPeriod->cap_amount ?? 0);
                     $capPaid = (float) ($capPeriod->company_dollar_paid ?? 0);
                     $capPercent = $capTotal > 0 ? min(100, round(($capPaid / $capTotal) * 100)) : 0;
-                    $isCapped = $capPeriod->is_capped;
+                    $isCapped = $capPeriod->checkCap();
                 }
 
                 $txCount = CommissionLedger::forUser($agent->id)->thisYear()
@@ -402,7 +402,7 @@ class CommissionController extends Controller
             ->sum('gross_commission') ?? 0);
 
         $capPeriod = AgentCapPeriod::forUser($agentId)->current()->first();
-        $isCapped = $capPeriod ? $capPeriod->is_capped : false;
+        $isCapped = $capPeriod ? $capPeriod->checkCap() : false;
 
         $node = [
             'id' => $agentId,

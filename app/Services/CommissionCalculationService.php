@@ -145,7 +145,7 @@ class CommissionCalculationService
         }
 
         // 9. Check if just capped
-        if (!$capPeriod->is_capped && bccomp($capPeriod->company_dollar_paid, (string) $capPeriod->cap_amount, 2) >= 0) {
+        if ($capPeriod->hasCap() && !$capPeriod->is_capped && bccomp($capPeriod->company_dollar_paid, (string) $capPeriod->cap_amount, 2) >= 0) {
             $capPeriod->is_capped = true;
             $capPeriod->capped_at = now();
         }
