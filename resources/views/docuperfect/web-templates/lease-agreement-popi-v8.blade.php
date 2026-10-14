@@ -524,7 +524,18 @@
             <div class="sub-sub-clause">5.5.2 Notice may be given from <span class="field field-medium" data-field="earliest_notice_date">{{ $earliest_notice_date ?? '' }}</span>.</div>
             @endif
             @if(!empty($early_cancellation_allowed ?? ''))
-            <div class="sub-sub-clause">5.5.3 Cancellation by the Lessee before the end of the lease is permitted: <span class="field field-short" data-field="early_cancellation_allowed">{{ $early_cancellation_allowed ?? '' }}</span>@if(!empty($early_cancellation_notice ?? '')), on <span class="field field-short" data-field="early_cancellation_notice">{{ $early_cancellation_notice ?? '' }}</span> <span class="field field-short" data-field="early_cancellation_notice_unit">{{ $early_cancellation_notice_unit ?? '' }}</span> written notice{{-- --}}@endif{{-- --}}@if(!empty($early_cancellation_penalty ?? '')), subject to: <span class="field field-medium" data-field="early_cancellation_penalty">{{ $early_cancellation_penalty ?? '' }}</span>{{-- --}}@endif.</div>
+            @php
+                // Built here, not as back-to-back inline if/endif directives: Blade only compiles a directive
+                // that is not glued to a word character, so those left literal directive text in the printed
+                // lease. Same HTML as before; no whitespace is added.
+                $earlyCancellationNoticeHtml = ! empty($early_cancellation_notice ?? '')
+                    ? ', on <span class="field field-short" data-field="early_cancellation_notice">' . e($early_cancellation_notice ?? '') . '</span> <span class="field field-short" data-field="early_cancellation_notice_unit">' . e($early_cancellation_notice_unit ?? '') . '</span> written notice'
+                    : '';
+                $earlyCancellationPenaltyHtml = ! empty($early_cancellation_penalty ?? '')
+                    ? ', subject to: <span class="field field-medium" data-field="early_cancellation_penalty">' . e($early_cancellation_penalty ?? '') . '</span>'
+                    : '';
+            @endphp
+            <div class="sub-sub-clause">5.5.3 Cancellation by the Lessee before the end of the lease is permitted: <span class="field field-short" data-field="early_cancellation_allowed">{{ $early_cancellation_allowed ?? '' }}</span>{!! $earlyCancellationNoticeHtml !!}{!! $earlyCancellationPenaltyHtml !!}.</div>
             @endif
         </div>
         @endif
