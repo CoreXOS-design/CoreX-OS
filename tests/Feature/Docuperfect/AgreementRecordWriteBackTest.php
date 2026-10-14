@@ -135,6 +135,21 @@ final class AgreementRecordWriteBackTest extends TestCase
         self::assertStringContainsString('1 Old Road', json_encode($audit->old_values));
     }
 
+    public function test_a_tick_made_about_an_earlier_value_does_not_carry_over_to_a_new_one(): void
+    {
+        DB::table('contacts')->where('id', $this->landlord->id)->update(['address' => '1 Old Road']);
+
+        // the agent ticked "update" while the box said "14 Vine Lane", then typed something else and did not tick again
+        self::assertSame([], $this->apply(['f1' => '99 Different Street'], ['f1' => ['on' => true, 'value' => '14 Vine Lane']]));
+        self::assertSame('1 Old Road', $this->contactRow($this->landlord->id)->address);
+
+        // the tick that IS about the typed value is honoured, in both directions
+        self::assertSame(['Pieter Botha: address'], $this->apply(['f1' => '99 Different Street'], ['f1' => ['on' => true, 'value' => '99 Different Street']]));
+        DB::table('contacts')->where('id', $this->landlord->id)->update(['address' => null]);
+        self::assertSame([], $this->apply(['f1' => '5 New Way'], ['f1' => ['on' => false, 'value' => '5 New Way']]), 'declined over an empty record');
+        self::assertNull($this->contactRow($this->landlord->id)->address);
+    }
+
     public function test_an_empty_record_can_be_declined_with_the_tick_off(): void
     {
         self::assertSame([], $this->apply(['f1' => '14 Vine Lane, Paarl'], ['f1' => false]));

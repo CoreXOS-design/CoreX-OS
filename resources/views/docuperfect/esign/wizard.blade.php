@@ -2434,8 +2434,12 @@ function esignWizard() {
                 if (frValues[k]) this.fieldValues[k] = frValues[k];
             });
 
-            // Restore the agent's "Also update the record?" ticks
-            this.writeBack = { ...(serverStepData?.fill_review?.writeBack || {}) };
+            // Restore the agent's "Also update the record?" ticks - only for the very value they were made about (a new value starts from the default)
+            const savedWb = serverStepData?.fill_review?.writeBack || {};
+            Object.keys(savedWb).forEach(k => {
+                const d = savedWb[k];
+                if (d && typeof d === 'object' && String(this.fieldValues[k] || '').trim() === String(d.value || '').trim()) this.writeBack[k] = !!d.on;
+            });
 
             // Restore party overrides from fill_review step data
             const savedOverrides = serverStepData?.fill_review?.partyOverrides || {};
@@ -3680,7 +3684,7 @@ function esignWizard() {
                     });
                     return detailsData;
                 }
-                case 5: return { fieldValues: { ...this.fieldValues }, writeBack: Object.fromEntries(Object.keys(this.writeBackMeta || {}).filter(id => this.wbOffer({ id })).map(id => [id, this.wbOn({ id })])), partyOverrides: { ...this.fieldPartyOverrides }, clauses: this.selectedClauses, other_conditions_text: this.otherConditionsText, other_condition_frames: this.otherConditionFrames };
+                case 5: return { fieldValues: { ...this.fieldValues }, writeBack: Object.fromEntries(Object.keys(this.writeBackMeta || {}).filter(id => this.wbOffer({ id })).map(id => [id, { on: this.wbOn({ id }), value: String(this.fieldValues[id] || '').trim() }])), partyOverrides: { ...this.fieldPartyOverrides }, clauses: this.selectedClauses, other_conditions_text: this.otherConditionsText, other_condition_frames: this.otherConditionFrames };
                 case 6: return {
                     delivery_mode: this.deliveryMode,
                     parties: this.signingActions.map((action, i) => ({

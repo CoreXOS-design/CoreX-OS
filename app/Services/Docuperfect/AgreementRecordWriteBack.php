@@ -161,7 +161,7 @@ class AgreementRecordWriteBack
             if (! $recordEmpty && $fillOnly) {
                 continue;   // a document never replaces an existing email / phone / ID
             }
-            $tick = array_key_exists($id, $decisions) ? filter_var($decisions[$id], FILTER_VALIDATE_BOOLEAN) : $recordEmpty;
+            $tick = $this->decisionFor($decisions[$id] ?? null, $fieldValues[$id], $recordEmpty);
             if (! $tick) {
                 continue;
             }
@@ -185,6 +185,29 @@ class AgreementRecordWriteBack
     }
 
     // ── internals ───────────────────────────────────────────────────────────────────────────
+
+    /**
+     * The agent's tick for one field. The screen posts {on, value}: the value the tick was made about - a tick made about an EARLIER value
+     * (the agent typed something else since) is ignored, so a new value always starts from the default (on over an empty record, off over
+     * a filled one). A bare boolean is accepted too (API callers).
+     */
+    private function decisionFor(mixed $decision, mixed $typedRaw, bool $recordEmpty): bool
+    {
+        if (is_array($decision)) {
+            $about = $this->clean((string) ($decision['value'] ?? ''), 'text');
+            $now = $this->clean((string) $typedRaw, 'text');
+            if ($about !== '' && $about === $now && array_key_exists('on', $decision)) {
+                return filter_var($decision['on'], FILTER_VALIDATE_BOOLEAN);
+            }
+
+            return $recordEmpty;
+        }
+        if ($decision !== null) {
+            return filter_var($decision, FILTER_VALIDATE_BOOLEAN);
+        }
+
+        return $recordEmpty;
+    }
 
     /**
      * The saved field list holds each field once; a per-recipient edit arrives as "{id}__r{n}". Give every such key its own field
