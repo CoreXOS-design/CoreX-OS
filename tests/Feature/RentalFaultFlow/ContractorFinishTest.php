@@ -188,6 +188,20 @@ final class ContractorFinishTest extends TestCase
         $this->assertStringNotContainsString('data-contractor-answer', $html);
     }
 
+    public function test_the_contractor_sees_the_agents_private_note_on_their_page(): void
+    {
+        [$wo, $raw] = $this->job(true);
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.appointment.store', $wo), [
+            'appointment_at' => now()->addDays(2)->format('Y-m-d') . 'T09:00', 'appointment_note' => 'Gate is open', 'appointment_contractor_note' => 'Phone the tenant first',
+        ])->assertRedirect();
+        auth()->logout();
+
+        $html = $this->get(route('rentals.secure-link.show', $raw))->assertOk()->getContent();
+        $this->assertStringContainsString('data-contractor-note', $html);
+        $this->assertStringContainsString('Phone the tenant first', $html);
+        $this->assertStringContainsString('Gate is open', $html);
+    }
+
     public function test_the_work_finished_button_reports_it_finished_and_closes_nothing_and_the_link_keeps_working_until_the_agent_closes(): void
     {
         [$wo, $raw] = $this->job(true);

@@ -38,7 +38,11 @@ LIFECYCLE LEDGER - route-1-owners-own-contractor
 9.0    PASS    cc6  agent raises the work order for the owner's own contractor - ordered at once, no job card
 9.a    PASS    cc6  appointment set - tenant notified, progress line shows it
 9.b    PASS    cc6  work started - line shows work in progress for tenant and owner
-9.c    PASS    cc6  work reported complete - the tenant is asked (optionally) to check; nothing is held ("Work reported finished" until the agent closes)
-9.d    PASS    cc6  the tenant confirms the repair is fixed on the portal (optional)
-9.e    PASS    cc6  the job is closed with who-pays; the tenant's line reads completed
-9.f    PASS    cc6  the agent records the outcome - the fault is resolved
+9.c    FAIL    cc6  work reported complete - the tenant is asked (optionally) to check; nothing is held ("Work reported finished" until the agent closes)
+         -> T1 (9 Oct 2026): no tenant hold  (test DrivesRentalLifecycle.php:614)
+9.d    BLOCKED cc6  the tenant confirms the repair is fixed on the portal (optional)
+         -> needs step 9.c (work reported complete - the tenant is asked (optionally) to check; nothing is held ("Work reported finished" until the agent closes))
+9.e    BLOCKED cc6  the job is closed with who-pays; the tenant's line reads completed
+         -> needs step 9.d (the tenant confirms the repair is fixed on the portal (optional))
+9.f    BLOCKED cc6  the agent records the outcome - the fault is resolved
+         -> needs step 9.e (the job is closed with who-pays; the tenant's line reads completed)

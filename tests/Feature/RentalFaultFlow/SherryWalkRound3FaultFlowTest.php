@@ -71,6 +71,12 @@ final class SherryWalkRound3FaultFlowTest extends TestCase
         // the same appointment again changes nothing, so says nothing
         $svc->setAppointment($wo->fresh(), now()->addDays(3)->setTime(14, 30), null, $this->admin);
         $this->assertCount(2, $this->sent(RentalContractorUpdateMail::class));
+
+        // 14 Oct 2026: the agent's PRIVATE note is for the contractor - it is in their email (and only theirs; the tenant's mail is built from the other note)
+        $svc->setAppointment($wo->fresh(), now()->addDays(3)->setTime(14, 30), null, $this->admin, null, 'Phone the tenant first');
+        $mails = $this->sent(RentalContractorUpdateMail::class);
+        $this->assertCount(3, $mails);
+        $this->assertStringContainsString('Note for you from the agent: Phone the tenant first', $mails[2]->render());
     }
 
     public function test_a_job_whose_contractor_has_no_email_simply_skips_the_note(): void

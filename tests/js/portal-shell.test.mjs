@@ -273,6 +273,7 @@ function portalApi({ me, leases = [], properties = [], faultOk = true, calls = [
     if (url.endsWith('/api/v1/client-auth/tab-token')) {
       const asked = JSON.parse((opts && opts.body) || '{}');
       const same = me && (!asked.email || String(asked.email).toLowerCase() === String(me.client.email).toLowerCase() || (asked.contact_id && me.owns_linked_contact === true));
+      if (!same && asked.probe) return reply(true, { token: null, needs_signin: true });   // the page's probe: a 200 "nobody yet", never a red 401
       return same ? reply(true, { token: 'TAB-' + me.client.id, client: me.client }) : reply(false, { message: 'Sign in to continue.', needs_signin: true }, 401);
     }
     if (url.endsWith('/api/v1/client/me')) { const bearer = ((opts && opts.headers) || {}).Authorization || ''; return me && bearer === 'Bearer TAB-' + me.client.id ? reply(true, me) : reply(false, {}, 401); }
@@ -925,7 +926,7 @@ test('QA1 only: an emailed link signs its tab straight in (no code, no password)
   const me = { client: { id: 41, email: 'dee@example.com' }, contact: { id: 9, full_name: 'Dee Owner' } };
   const base = portalApi({ me, properties: [{ id: 6 }], calls });
   const api = async (url, opts) => {
-    if (url.endsWith('/client-auth/tab-token')) return { ok: false, status: 401, json: async () => ({ needs_signin: true }) };   // nobody signed in here yet
+    if (url.endsWith('/client-auth/tab-token')) return { ok: true, status: 200, json: async () => ({ token: null, needs_signin: true }) };   // nobody signed in here yet (the probe answers 200, not 401)
     if (url.endsWith('/client-auth/qa-link-signin')) { calls.push(url); return { ok: true, status: 200, json: async () => ({ token: 'TAB-41', client: me.client }) }; }
     return base(url, opts);
   };

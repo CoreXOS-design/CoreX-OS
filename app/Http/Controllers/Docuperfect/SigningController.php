@@ -91,6 +91,7 @@ class SigningController extends Controller
                 'request' => $signingRequest,
                 'consentLog' => $consentLog,
                 'downloadAvailable' => $downloadAvailable,
+            'awaitingAgentApproval' => (bool) optional($template)->isPendingAgentApproval(),   // everyone has signed; the agent checks it before the copy goes out
                 'agentName' => $creator->name ?? null,
                 'agentEmail' => $creator->email ?? null,
                 'agentPhone' => $creator->phone ?? $creator->cell ?? null,
@@ -1029,6 +1030,7 @@ class SigningController extends Controller
             'request' => $signingRequest,
             'consentLog' => $consentLog,
             'downloadAvailable' => $downloadAvailable,
+            'awaitingAgentApproval' => (bool) optional($template)->isPendingAgentApproval(),   // everyone has signed; the agent checks it before the copy goes out
             'agentName' => $creator->name ?? null,
             'agentEmail' => $creator->email ?? null,
             'agentPhone' => $creator->phone ?? $creator->cell ?? null,

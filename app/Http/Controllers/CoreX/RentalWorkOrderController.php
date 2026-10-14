@@ -905,6 +905,7 @@ class RentalWorkOrderController extends Controller
         $validated = $request->validate([
             'appointment_at' => ['required', 'date'],
             'appointment_note' => ['nullable', 'string', 'max:500'],
+            'appointment_contractor_note' => ['nullable', 'string', 'max:500'],   // private: the contractor only
         ]);
 
         // The box is read in the AGENCY timezone (the same convention as the job card's scheduling box).
@@ -912,7 +913,7 @@ class RentalWorkOrderController extends Controller
         $at = \App\Support\AppDate::parse($validated['appointment_at'], $tz);   // stored in the app timezone (->utc() saved 10:00 as 08:00)
 
         try {
-            $changed = $service->setAppointment($rentalWorkOrder, $at, $validated['appointment_note'] ?? null, $request->user());
+            $changed = $service->setAppointment($rentalWorkOrder, $at, $validated['appointment_note'] ?? null, $request->user(), null, $validated['appointment_contractor_note'] ?? null);
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_work_order' => $e->getMessage()]);
         }
