@@ -106,6 +106,23 @@ final class AlertBellTest extends TestCase
         $this->assertSame([$stillThere], $json['still_unread']);
     }
 
+    public function test_pending_ids_that_start_or_end_with_a_digit_are_not_mangled(): void
+    {
+        $me = $this->user();
+        $ids = [];
+        foreach (['0aaaaaaa-0000-4000-8000-000000000000', '1aaaaaaa-0000-4000-8000-000000000001', '2aaaaaaa-0000-4000-8000-000000000002'] as $uuid) {
+            DB::table('notifications')->insert([
+                'id' => $uuid, 'type' => 'App\\Notifications\\PillarEventNotification', 'notifiable_type' => 'App\\Models\\User', 'notifiable_id' => $me->id,
+                'data' => json_encode(['title' => 't', 'event_key' => 'x']), 'read_at' => null, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+            $ids[] = $uuid;
+        }
+
+        $json = $this->actingAs($me)->getJson(route('api.v1.alerts.unread') . '?pending=' . implode(',', $ids))->assertOk()->json();
+
+        $this->assertEqualsCanonicalizing($ids, $json['still_unread']);
+    }
+
     public function test_the_bell_routes_are_in_the_api_v1_catalogue_and_a_guest_gets_401(): void
     {
         foreach (['api.v1.alerts.bell', 'api.v1.alerts.read-all'] as $name) {

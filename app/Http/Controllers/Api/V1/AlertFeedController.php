@@ -157,7 +157,7 @@ class AlertFeedController extends Controller
         if (! is_string($raw) || trim($raw) === '') {
             return [];
         }
-        $ids = collect(explode(',', $raw))->map('trim')->filter(fn ($id) => preg_match('/^[0-9a-f-]{36}$/i', $id))
+        $ids = collect(explode(',', $raw))->map(fn ($id) => trim($id))->filter(fn ($id) => preg_match('/^[0-9a-f-]{36}$/i', $id))
             ->unique()->take(self::PENDING_MAX)->values()->all();
         if (! $ids) {
             return [];
