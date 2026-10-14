@@ -379,6 +379,10 @@ function leaseCaptureForm(searchUrl, seed, propertyCfg, cfg) {
         results: [],
         selected: seed || [],
         submitAttempted: false,
+        submitting: false,
+        init() {
+            window.addEventListener('pageshow', (ev) => { if (ev.persisted) { this.submitting = false; } });
+        },
         // Agreement details (leases.md §15.3): one group of fields per linked lease agreement; only the
         // chosen group is enabled, so only its values are posted.
         agreementId: cfg.agreementId || '',
@@ -544,6 +548,12 @@ function leaseCaptureForm(searchUrl, seed, propertyCfg, cfg) {
             this.propertyOpen = false;
         },
         guardSubmit(e) {
+            // One press, one lease: a second press while the first is still being sent does nothing (the server also refuses to
+            // make a twin - LeaseCaptureService::recentTwin). A page restored by the browser's back button starts un-pressed.
+            if (this.submitting) {
+                e.preventDefault();
+                return;
+            }
             if (this.propertyActive && !this.propertyId) {
                 e.preventDefault();
                 this.propertyAttempted = true;
@@ -566,7 +576,9 @@ function leaseCaptureForm(searchUrl, seed, propertyCfg, cfg) {
                     this.withdrawnAccepted = true;
                     if (form.requestSubmit) { form.requestSubmit(submitter || undefined); } else { form.submit(); }
                 });
+                return;
             }
+            this.submitting = true;
         },
         async search() {
             if (this.query.trim().length < 2) { this.results = []; return; }

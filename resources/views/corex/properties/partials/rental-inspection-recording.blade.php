@@ -448,10 +448,15 @@
              with nothing above it, which read as the button doing nothing.
              Point back at where items are actually added rather than
              rendering silently. --}}
-        <p x-show="!activeItems().length" class="text-xs" style="color:var(--text-muted);">
-            This property has no inspection items yet. Add rooms and meters under
-            Inspection Items above, then come back here to record them.
-        </p>
+        <div x-show="!activeItems().length" class="space-y-2" data-qa="recording-no-rooms">
+            <p class="text-xs" style="color:var(--text-muted);">
+                This property has no rooms yet. Build them from your standard checklist for this kind of property in one
+                press, or add rooms and meters by hand under Inspection Items above, then record them here.
+            </p>
+            <button type="button" :disabled="seedBusy" @click="seedFromStandard()"
+                    class="px-4 py-2 rounded-md text-xs font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
+                    x-text="seedBusy ? 'Building…' : 'Build rooms from the standard checklist'"></button>
+        </div>
 
         {{-- Item 5/7, 2026-09-22 — overall progress + the whole-inspection
              "All Good" bulk-fill, sitting above the room list so it's the

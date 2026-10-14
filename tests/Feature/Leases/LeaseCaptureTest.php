@@ -310,12 +310,81 @@ final class LeaseCaptureTest extends TestCase
         $this->assertSame(0, LeaseEvent::where('event_type', LeaseEvent::TYPE_LEASE_CREATED)->count());
     }
 
-    public function test_two_drafts_for_one_tenant_on_one_property_are_allowed(): void
+    public function test_two_drafts_for_one_tenant_on_one_property_are_allowed_when_they_are_not_the_same_capture(): void
     {
+        // A different start date is a different lease, however soon it is made.
         $this->actingAs($this->admin)->post(route('corex.leases.store'), $this->payload(['capture_key' => 'first']))->assertSessionHasNoErrors();
-        $this->actingAs($this->admin)->post(route('corex.leases.store'), $this->payload(['capture_key' => 'second']))->assertSessionHasNoErrors();
+        $this->actingAs($this->admin)->post(route('corex.leases.store'), $this->payload(['capture_key' => 'second', 'start_date' => '2026-12-01']))->assertSessionHasNoErrors();
 
         $this->assertSame(2, Lease::count());
+    }
+
+    public function test_the_same_capture_pressed_again_from_a_fresh_screen_returns_the_first_lease_with_one_message(): void
+    {
+        // Cape walk, 14 Oct: the first press made the lease, the agent came back to the capture screen (a NEW capture key) and
+        // pressed again - leases 135 and 136. Same property, tenant, start date and outcome within the window = the same lease.
+        $first = $this->actingAs($this->admin)->post(route('corex.leases.store'), $this->payload(['capture_key' => 'screen-one']));
+        $first->assertSessionHas('success', 'Lease created.');
+        $second = $this->actingAs($this->admin)->post(route('corex.leases.store'), $this->payload(['capture_key' => 'screen-two']));
+
+        $this->assertSame(1, Lease::count());
+        $this->assertSame(1, LeaseTenant::count());
+        $this->assertSame(1, LeaseEvent::where('event_type', LeaseEvent::TYPE_LEASE_CREATED)->count(), 'no second "lease created" history line');
+        $this->assertSame($first->headers->get('Location'), $second->headers->get('Location'));
+        $second->assertSessionHas('success', 'This lease was already created a moment ago - here it is. Nothing was created twice.');
+    }
+
+    public function test_a_repeat_is_not_a_twin_when_anything_that_defines_the_lease_differs_or_the_window_has_passed(): void
+    {
+        $another = $this->makeContact($this->agency, 'Sipho', 'Dlamini');
+        $this->actingAs($this->admin)->post(route('corex.leases.store'), $this->payload(['capture_key' => 'a']));
+
+        $this->actingAs($this->admin)->post(route('corex.leases.store'), $this->payload(['capture_key' => 'b', 'tenant_contact_ids' => [$this->tenant->id, $another->id]]));
+        $this->assertSame(2, Lease::count(), 'a different set of tenants');
+
+        $this->actingAs($this->admin)->post(route('corex.leases.store'), $this->payload(['capture_key' => 'c', 'intent' => 'lease_only', 'activate_immediately' => '1', 'start_date' => '2026-11-01', 'tenant_contact_ids' => [$another->id]]));
+        $this->assertSame(3, Lease::count(), 'the same start date but different tenants');
+
+        \Illuminate\Support\Carbon::setTestNow(now()->addMinutes(LeaseCaptureService::DUPLICATE_WINDOW_MINUTES + 1));
+        try {
+            $this->actingAs($this->admin)->post(route('corex.leases.store'), $this->payload(['capture_key' => 'd']));
+        } finally {
+            \Illuminate\Support\Carbon::setTestNow();
+        }
+        $this->assertSame(4, Lease::count(), 'outside the window the same details are a new lease');
+    }
+
+    public function test_an_archived_lease_is_not_a_twin(): void
+    {
+        $this->actingAs($this->admin)->post(route('corex.leases.store'), $this->payload(['capture_key' => 'a']));
+        Lease::firstOrFail()->delete();
+
+        $this->actingAs($this->admin)->post(route('corex.leases.store'), $this->payload(['capture_key' => 'b']));
+
+        $this->assertSame(1, Lease::count(), 'the live one');
+        $this->assertSame(2, Lease::withTrashed()->count());
+    }
+
+    public function test_a_twin_in_another_agency_is_never_returned(): void
+    {
+        $this->actingAs($this->admin)->post(route('corex.leases.store'), $this->payload(['capture_key' => 'a']));
+        $theirBranch = Branch::create(['agency_id' => $this->rival->id, 'name' => 'Karoo']);
+        $theirAdmin = User::factory()->create(['agency_id' => $this->rival->id, 'branch_id' => $theirBranch->id, 'role' => 'admin', 'is_active' => true]);
+        $theirProperty = $this->makeProperty($this->rival, $theirBranch, $theirAdmin);
+        $theirTenant = $this->makeContact($this->rival, 'Kobus', 'Venter');
+
+        $this->actingAs($theirAdmin)->post(route('corex.leases.store'), $this->payload(['capture_key' => 'b', 'property_id' => $theirProperty->id, 'tenant_contact_ids' => [$theirTenant->id]]));
+
+        $this->assertSame(2, Lease::withoutGlobalScopes()->count());
+    }
+
+    public function test_the_capture_screen_stops_a_second_press_while_the_first_is_being_sent(): void
+    {
+        $html = $this->actingAs($this->admin)->get(route('corex.leases.create'))->assertOk()->getContent();
+
+        $this->assertStringContainsString('submitting: false', $html);
+        $this->assertStringContainsString('if (this.submitting)', $html);
+        $this->assertStringContainsString('this.submitting = true;', $html);
     }
 
     public function test_the_same_capture_submitted_twice_makes_one_lease(): void

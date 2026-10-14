@@ -56,7 +56,10 @@ class FicaPublicController extends Controller
 
         $trustPhrase = \App\Services\Compliance\FicaTrustAccount::phraseFor($submission->agency_id ? (int) $submission->agency_id : null);
 
-        return view('fica.form', compact('submission', 'contact', 'agency', 'token', 'returnUrl', 'returnContext', 'existingDocuments', 'trustPhrase'));
+        // What CoreX already knows about this person (name, ID, address, phone, email) - the form opens filled in, every field editable.
+        $prefill = \App\Services\Compliance\FicaFormPrefill::for($submission);
+
+        return view('fica.form', compact('submission', 'contact', 'agency', 'token', 'returnUrl', 'returnContext', 'existingDocuments', 'trustPhrase', 'prefill'));
     }
 
     /**

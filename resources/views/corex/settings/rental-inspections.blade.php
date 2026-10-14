@@ -341,6 +341,58 @@
         </div>
     </form>
 
+    {{-- .ai/specs/rental-inspections.md §55 - the standard room list per kind of property. A brand-new rental property has
+         no rooms; the agent presses "Build rooms from the standard checklist" on its first inspection and gets the list
+         for its kind of property, each room carrying its item list from "Room type default items" below. Bedrooms,
+         bathrooms and garages follow the property's own figures when it has them. Only used for a property with no rooms. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.room-templates') }}" class="space-y-3" data-qa="room-templates-form"
+          x-data="{
+              types: {{ Js::from(collect($roomTemplateTypeOptions)->map(fn ($o) => ['key' => $o['key'], 'label' => $o['label']])->values()) }},
+              lists: {{ Js::from($roomTemplates) }},
+              add(f) { this.lists[f].push({ type: this.types[0].key, count: 1 }); },
+          }">
+        @csrf
+        <input type="hidden" name="room_templates_submitted" value="1">
+
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Standard rooms for a new property</h3>
+            </div>
+            <div class="p-5 space-y-5">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    The rooms CoreX builds for a rental property that has none yet, by kind of property, when an agent presses
+                    "Build rooms from the standard checklist". Each room comes with the items listed for its room type below.
+                    Bedrooms, bathrooms and garages use the property's own numbers when it has them, so the counts here only
+                    apply when those are blank. Properties that already have rooms are never changed.
+                </p>
+                @foreach($roomTemplateFamilies as $famKey => $famLabel)
+                    <div class="space-y-2" data-qa="room-template-{{ $famKey }}">
+                        <h4 class="text-sm font-semibold" style="color:var(--text-primary);">{{ $famLabel }}</h4>
+                <input type="hidden" name="room_templates[{{ $famKey }}][_present][type]" value="">  {{-- marks this kind as posted, so emptying its list saves an empty list --}}
+                        <template x-if="lists['{{ $famKey }}'].length === 0">
+                            <p class="text-xs" style="color: var(--text-muted);">No standard rooms for this kind of property &mdash; agents add its rooms by hand.</p>
+                        </template>
+                        <template x-for="(row, i) in lists['{{ $famKey }}']" :key="i">
+                            <div class="flex items-center gap-2">
+                                <select x-model="row.type" :name="`room_templates[{{ $famKey }}][${i}][type]`" class="flex-1 rounded-md px-3 py-2 text-sm" style="border:1px solid var(--border);">
+                                    <template x-for="t in types" :key="t.key"><option :value="t.key" x-text="t.label" :selected="t.key === row.type"></option></template>
+                                </select>
+                                <input type="number" min="1" max="{{ \App\Models\RentalInspectionSetting::ROOM_TEMPLATE_MAX_COUNT }}" x-model.number="row.count" :name="`room_templates[{{ $famKey }}][${i}][count]`"
+                                       class="w-20 rounded-md px-3 py-2 text-sm" style="border:1px solid var(--border);" aria-label="How many">
+                                <button type="button" @click="lists['{{ $famKey }}'].splice(i, 1)" class="text-xs font-semibold px-2 py-1 rounded-md" style="color: var(--ds-crimson);">Remove</button>
+                            </div>
+                        </template>
+                        <button type="button" @click="add('{{ $famKey }}')" class="corex-btn-outline text-xs">+ Add a room</button>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save standard rooms</button>
+        </div>
+    </form>
+
     {{-- Johan, 2026-09-20 — "we should have a setting somewhere on rentals
          that defines room types and what gets added - ceiling, walls,
          floors, windows, doors - that should be a std. if its a patio as

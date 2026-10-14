@@ -69,8 +69,14 @@
     @if($inspection->property && $inspection->isRecordable() && ! \App\Models\RentalInspectionItem::query()->where('property_id', $inspection->property_id)->notRetired()->exists())
         <div class="rounded-md p-3 text-sm flex flex-wrap items-center justify-between gap-2" data-qa="no-rooms-notice"
              style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber) 40%, transparent); color: var(--text-primary);">
-            <span><strong>This property has no rooms yet.</strong> Add its rooms and items first - until then nothing can be recorded or signed.</span>
-            <a href="{{ route('corex.properties.show', ['property' => $inspection->property_id, 'tab' => 'inspections']) }}" class="corex-btn-primary text-xs">Add rooms and items</a>
+            <span><strong>This property has no rooms yet.</strong> Build them from your standard checklist for this kind of property, or add them by hand - until then nothing can be recorded or signed.</span>
+            <span class="flex items-center gap-2 flex-wrap">
+                <form method="POST" action="{{ route('corex.properties.rental-inspection-items.seed-from-standard', $inspection->property_id) }}" data-qa="no-rooms-build-standard" onsubmit="var b=this.querySelector('button'); if (b.disabled) { return false; } b.disabled = true; b.textContent = 'Building…';">
+                    @csrf
+                    <button type="submit" class="corex-btn-primary text-xs">Build rooms from the standard checklist</button>
+                </form>
+                <a href="{{ route('corex.properties.show', ['property' => $inspection->property_id, 'tab' => 'inspections']) }}" class="corex-btn-outline text-xs">Add rooms by hand</a>
+            </span>
         </div>
     @endif
 

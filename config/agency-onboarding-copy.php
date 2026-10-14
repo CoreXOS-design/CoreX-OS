@@ -501,6 +501,8 @@ return [
             ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inspectionPhotoNoteClassifications'],
             // §45.4 item 3 (Build I-2) — the agency's own room types; no-op unless this step's marker was posted.
             ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inspectionCustomRoomTypes'],
+            // §55 - the standard room list per kind of property (house / flat / townhouse / other); no-op unless this step's marker was posted.
+            ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inspectionRoomTemplates'],
             // §45.5 (Build I-3) — the agency's own words for how someone attended an inspection; no-op unless this step's marker was posted.
             ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inspectionAttendedAsLabels'],
             // §45.14 — the agency's own words for the three move-out classifications; no-op unless this step's marker was posted.

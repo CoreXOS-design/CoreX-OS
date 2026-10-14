@@ -446,6 +446,7 @@ class RentalInspectionSetting extends Model
         'room_type_item_defaults',
         'room_type_walking_order',
         'custom_room_types',
+        'room_templates',
         'condition_states',
         'photo_note_classifications',
         'baseline_condition_key',
@@ -494,6 +495,7 @@ class RentalInspectionSetting extends Model
         'room_type_item_defaults' => 'array',
         'room_type_walking_order' => 'array',
         'custom_room_types' => 'array',
+        'room_templates' => 'array',
         'condition_states' => 'array',
         'photo_note_classifications' => 'array',
         'require_notes_blocks_progression' => 'boolean',
@@ -1238,6 +1240,171 @@ class RentalInspectionSetting extends Model
         $defaults = self::roomTypeItemDefaultsFor($agencyId);
 
         return $defaults[$spaceType] ?? self::DEFAULT_ROOM_TYPE_ITEMS;
+    }
+
+    // ── §55 — the standard room list per kind of property ──────────────────────────────────────────
+
+    /** The kinds of property a room list is kept for, in the order the settings screen shows them. */
+    public const ROOM_TEMPLATE_FAMILIES = [
+        'house' => 'House',
+        'flat' => 'Apartment / Flat',
+        'townhouse' => 'Townhouse',
+        'other' => 'Any other property',
+    ];
+
+    /** Fewest / most rooms of one type a standard list may ask for. */
+    public const ROOM_TEMPLATE_MAX_COUNT = 20;
+
+    /**
+     * Built-in starting lists (type => how many) for every agency until it edits its own. Neutral: no agency's
+     * layout is assumed. Bedrooms, bathrooms and garages follow the property's own figures when it has them
+     * (see roomsToBuildFor), so these counts only apply to a property whose figures are blank.
+     */
+    public const DEFAULT_ROOM_TEMPLATES = [
+        'house' => [
+            ['type' => 'Entrance Hall', 'count' => 1], ['type' => 'Lounge', 'count' => 1], ['type' => 'Dining Room', 'count' => 1],
+            ['type' => 'Kitchen', 'count' => 1], ['type' => 'Bedroom', 'count' => 3], ['type' => 'Bathroom', 'count' => 2],
+            ['type' => 'Garage', 'count' => 1], ['type' => 'Garden', 'count' => 1],
+        ],
+        'flat' => [
+            ['type' => 'Lounge', 'count' => 1], ['type' => 'Kitchen', 'count' => 1], ['type' => 'Bedroom', 'count' => 2],
+            ['type' => 'Bathroom', 'count' => 1], ['type' => 'Patio', 'count' => 1], ['type' => 'Parking', 'count' => 1],
+        ],
+        'townhouse' => [
+            ['type' => 'Entrance Hall', 'count' => 1], ['type' => 'Lounge', 'count' => 1], ['type' => 'Dining Room', 'count' => 1],
+            ['type' => 'Kitchen', 'count' => 1], ['type' => 'Bedroom', 'count' => 2], ['type' => 'Bathroom', 'count' => 2],
+            ['type' => 'Garage', 'count' => 1], ['type' => 'Patio', 'count' => 1], ['type' => 'Garden', 'count' => 1],
+        ],
+        'other' => [
+            ['type' => 'Entrance Hall', 'count' => 1], ['type' => 'Lounge', 'count' => 1], ['type' => 'Kitchen', 'count' => 1],
+            ['type' => 'Bedroom', 'count' => 1], ['type' => 'Bathroom', 'count' => 1],
+        ],
+    ];
+
+    /** Which room list a property's type name uses. The agency's own type names are free text, so match on the words in them. */
+    public static function roomTemplateFamilyFor(?string $propertyType): string
+    {
+        $t = strtolower(trim((string) $propertyType));
+        if ($t === '') {
+            return 'other';
+        }
+        if (preg_match('/apartment|flat|studio|bachelor|penthouse|\bunit\b/', $t)) {
+            return 'flat';
+        }
+        if (preg_match('/town\s?house|cluster|duplex|simplex|sectional|complex/', $t)) {
+            return 'townhouse';
+        }
+        if (preg_match('/\b(house|home|cottage|villa|bungalow|freestanding|free-standing)\b/', $t)) {
+            return 'house';
+        }
+
+        return 'other';
+    }
+
+    /**
+     * The agency's room list for a family, as saved or the built-in default. A saved list that has gone stale
+     * (a type no longer known) loses just those rows; a saved EMPTY list is respected as "no standard rooms".
+     *
+     * @return array<int, array{type: string, count: int}>
+     */
+    public static function roomTemplateFor(?int $agencyId, string $family): array
+    {
+        $family = array_key_exists($family, self::ROOM_TEMPLATE_FAMILIES) ? $family : 'other';
+        $saved = self::roomTemplateOverridesFor($agencyId);
+
+        $rows = array_key_exists($family, $saved) ? $saved[$family] : self::DEFAULT_ROOM_TEMPLATES[$family];
+        $known = self::knownRoomTypeKeysFor($agencyId);
+
+        $out = [];
+        foreach ($rows as $row) {
+            $type = (string) ($row['type'] ?? '');
+            if ($type === '' || ! in_array($type, $known, true)) {
+                continue;
+            }
+            $out[] = ['type' => $type, 'count' => max(1, min(self::ROOM_TEMPLATE_MAX_COUNT, (int) ($row['count'] ?? 1)))];
+        }
+
+        return $out;
+    }
+
+    /** Only what the agency has saved (family => rows) - the settings form's starting point is the merged view below. */
+    public static function roomTemplateOverridesFor(?int $agencyId): array
+    {
+        $raw = null;
+        if ($agencyId) {
+            $raw = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('room_templates');
+            $raw = is_string($raw) ? json_decode($raw, true) : $raw;
+        }
+
+        return is_array($raw) ? array_filter($raw, fn ($rows, $family) => array_key_exists($family, self::ROOM_TEMPLATE_FAMILIES) && is_array($rows), ARRAY_FILTER_USE_BOTH) : [];
+    }
+
+    /** @return array<string, array<int, array{type: string, count: int}>> every family's current list (saved or built-in). */
+    public static function roomTemplatesFor(?int $agencyId): array
+    {
+        $out = [];
+        foreach (array_keys(self::ROOM_TEMPLATE_FAMILIES) as $family) {
+            $out[$family] = self::roomTemplateFor($agencyId, $family);
+        }
+
+        return $out;
+    }
+
+    /**
+     * The rooms to create for one property: [{type, label}], in the agency's walking order. A type asked for once
+     * is labelled by its name ("Kitchen"); more than once is numbered ("Bedroom 1", "Bedroom 2"), the same
+     * labelling the advertising Spaces use. Bedrooms, bathrooms and garages take the property's own count when it has one.
+     *
+     * @return array<int, array{type: string, label: string}>
+     */
+    public static function roomsToBuildFor(?int $agencyId, ?string $propertyType, ?int $bedrooms = null, ?int $bathrooms = null, ?int $garages = null): array
+    {
+        $own = ['Bedroom' => $bedrooms, 'Bathroom' => $bathrooms, 'Garage' => $garages];
+        $rooms = [];
+        foreach (self::roomTemplateFor($agencyId, self::roomTemplateFamilyFor($propertyType)) as $row) {
+            $count = $row['count'];
+            if (isset($own[$row['type']]) && (int) $own[$row['type']] > 0) {
+                $count = min(self::ROOM_TEMPLATE_MAX_COUNT, (int) $own[$row['type']]);
+            }
+            for ($n = 1; $n <= $count; $n++) {
+                $rooms[] = ['type' => $row['type'], 'label' => $count === 1 ? $row['type'] : $row['type'] . ' ' . $n];
+            }
+        }
+
+        usort($rooms, fn ($a, $b) => self::defaultRoomSortOrderFor($agencyId, $a['type'], $a['label']) <=> self::defaultRoomSortOrderFor($agencyId, $b['type'], $b['label']));
+
+        return $rooms;
+    }
+
+    /**
+     * Fold a submitted list (family => [{type, count}]) into what is stored. Only families posted are touched; a
+     * type that is not known, a blank row and a duplicate type in one list are dropped; counts are clamped.
+     * Pure (no DB) so the settings page and the Setup Wizard apply identical rules.
+     *
+     * @return array<string, array<int, array{type: string, count: int}>>
+     */
+    public static function mergeRoomTemplates(array $existing, array $submitted, ?int $agencyId): array
+    {
+        $known = self::knownRoomTypeKeysFor($agencyId);
+        $result = $existing;
+        foreach (array_keys(self::ROOM_TEMPLATE_FAMILIES) as $family) {
+            if (! array_key_exists($family, $submitted)) {
+                continue;
+            }
+            $rows = [];
+            $seen = [];
+            foreach ((array) $submitted[$family] as $row) {
+                $type = trim((string) ($row['type'] ?? ''));
+                if ($type === '' || ! in_array($type, $known, true) || isset($seen[$type])) {
+                    continue;
+                }
+                $seen[$type] = true;
+                $rows[] = ['type' => $type, 'count' => max(1, min(self::ROOM_TEMPLATE_MAX_COUNT, (int) ($row['count'] ?? 1)))];
+            }
+            $result[$family] = $rows;
+        }
+
+        return $result;
     }
 
     /**

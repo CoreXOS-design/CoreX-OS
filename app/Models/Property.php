@@ -982,6 +982,7 @@ class Property extends Model
         'expiry_lock_engaged_at',
         'lease_start_date',
         'lease_end_date',
+        'wizard_token',   // the property wizard's per-session stamp: one draft per wizard session
         // .ai/specs/rental-renewals.md §19 — whether lease_start_date (reused
         // as "available from") is pushed to Property24/Private Property.
         'show_available_from_on_portals',

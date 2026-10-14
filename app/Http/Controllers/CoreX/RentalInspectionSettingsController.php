@@ -64,6 +64,10 @@ class RentalInspectionSettingsController extends Controller
                 ->mapWithKeys(fn ($key) => [$key => RentalInspectionSetting::roomTypeLabelFor($agencyId, $key)])->all(),
             // §45.4 item 3 — the agency's own room types, archived included.
             'customRoomTypes' => RentalInspectionSetting::customRoomTypesFor($agencyId),
+            // §55 - the standard room list per kind of property (saved or built-in), plus what an agent may pick from.
+            'roomTemplates' => RentalInspectionSetting::roomTemplatesFor($agencyId),
+            'roomTemplateFamilies' => RentalInspectionSetting::ROOM_TEMPLATE_FAMILIES,
+            'roomTemplateTypeOptions' => RentalInspectionSetting::roomTypeOptionsFor($agencyId),
             // What each type's checklist is today (system default + any agency
             // override) — "Customize a room type" starts from THIS, not from
             // one generic list, so editing a Kitchen starts from the kitchen items.
@@ -303,6 +307,31 @@ class RentalInspectionSettingsController extends Controller
         );
 
         return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Room type defaults saved.');
+    }
+
+    /**
+     * §55 - the standard room list per kind of property (house / flat / townhouse / any other). Own narrow saver, the
+     * one both this settings page and the Setup Wizard post to; only the kinds posted are touched, and the fold-in rules
+     * live in RentalInspectionSetting::mergeRoomTemplates() so the two screens can never apply different ones.
+     */
+    public function updateRoomTemplates(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('room_templates_submitted')) {
+            return redirect()->route('corex.settings.rental-inspections.edit')
+                ->withErrors(['room_templates' => 'That did not save - please try again.']);
+        }
+
+        $merged = RentalInspectionSetting::mergeRoomTemplates(
+            RentalInspectionSetting::roomTemplateOverridesFor($agencyId),
+            (array) $request->input('room_templates', []),
+            $agencyId,
+        );
+
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $agencyId], ['room_templates' => $merged]);
+
+        return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Standard room lists saved.');
     }
 
     /**
