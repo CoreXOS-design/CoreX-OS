@@ -816,6 +816,9 @@
 
             declaration: { signed_at_location: '' },
 
+            // How this agency names the trust account rent and deposits go into (its own setting; neutral wording when unset).
+            trustAccount: @json($trustPhrase ?? \App\Services\Compliance\FicaTrustAccount::NEUTRAL_PHRASE),
+
             get paymentTooltip() {
                 switch (this.service.transaction_purpose) {
                     case 'sell':
@@ -823,11 +826,11 @@
                     case 'purchase':
                         return 'Describe how the purchase price will be funded. Examples: \'Mortgage bond through [bank name]\', \'Own funds transferred via EFT from savings/investments\', \'Combination of mortgage bond and own funds via EFT\', \'Proceeds from sale of existing property (handled by transferring attorney)\'. Note: Even if you are paying the full amount without a bond (often called a \'cash purchase\'), this is not considered \'cash\' under FICA — it is an electronic funds transfer.';
                     case 'let_out':
-                        return 'As a landlord, agency management fees are deducted from your rental income managed through the Reos trust account — you do not pay the agency directly. A typical answer would be: \'Agency fees are deducted from rental income managed through Reos.\'';
+                        return 'As a landlord, agency management fees are deducted from your rental income managed through ' + this.trustAccount + ' — you do not pay the agency directly. A typical answer would be: \'Agency fees are deducted from rental income managed through ' + this.trustAccount + '.\'';
                     case 'rent':
-                        return 'As a tenant, your deposit and monthly rental are paid via EFT to the Reos trust account — cash is never accepted. A typical answer would be: \'Deposit and monthly rental paid via EFT to the Reos trust account.\'';
+                        return 'As a tenant, your deposit and monthly rental are paid via EFT to ' + this.trustAccount + ' — cash is never accepted. A typical answer would be: \'Deposit and monthly rental paid via EFT to ' + this.trustAccount + '.\'';
                     default:
-                        return 'Describe how any payments related to this transaction will be financed. This agency does not accept cash — all funds are processed through the transferring attorney (sales) or Reos trust account (rentals).';
+                        return 'Describe how any payments related to this transaction will be financed. This agency does not accept cash — all funds are processed through the transferring attorney (sales) or ' + this.trustAccount + ' (rentals).';
                 }
             },
 
@@ -835,11 +838,11 @@
                 switch (this.service.transaction_purpose) {
                     case 'sell':
                     case 'let_out':
-                        return 'As a seller/landlord, you do not make payments to the agency or buyer/tenant directly. All funds flow through the transferring attorney or Reos. The answer is almost certainly \'No\'.';
+                        return 'As a seller/landlord, you do not make payments to the agency or buyer/tenant directly. All funds flow through the transferring attorney or ' + this.trustAccount + '. The answer is almost certainly \'No\'.';
                     case 'purchase':
                         return 'Cash means physical paper money, coins, or traveller\'s cheques — NOT EFT or bank transfers. Will any part of the purchase price be paid in physical cash exceeding R50,000? If paying via bond or EFT, the answer is \'No\'.';
                     case 'rent':
-                        return 'Cash means physical paper money, coins, or traveller\'s cheques — NOT EFT. This agency does not accept cash payments. All deposits and rent are paid via EFT to the Reos trust account. The answer is almost certainly \'No\'.';
+                        return 'Cash means physical paper money, coins, or traveller\'s cheques — NOT EFT. This agency does not accept cash payments. All deposits and rent are paid via EFT to ' + this.trustAccount + '. The answer is almost certainly \'No\'.';
                     default:
                         return 'Cash means physical paper money, coins, or traveller\'s cheques only. EFT/bank transfers are NOT cash. This agency does not accept physical cash — if unsure, answer \'No\'.';
                 }

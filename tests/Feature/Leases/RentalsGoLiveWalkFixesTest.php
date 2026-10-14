@@ -241,7 +241,9 @@ final class RentalsGoLiveWalkFixesTest extends TestCase
         $banner = (string) file_get_contents(base_path('resources/views/partials/_env-banner.blade.php'));
         self::assertStringContainsString("config('mail.mailpit_ui_url')", $banner);
         self::assertStringNotContainsString('href="https://mail.demo1', $banner);
-        self::assertSame('https://mail.demo1.corexos.co.za', config('mail.mailpit_ui_url'));
+        // no default: an environment that has not set its own catcher address shows no link (it never points at another box)
+        self::assertSame('', (string) config('mail.mailpit_ui_url'));
+        self::assertStringContainsString("trim((string) config('mail.mailpit_ui_url')) !== ''", $banner);
     }
 
     // ── L. the Who-signs panel knows the property chosen before the screen opened ─────
