@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\ProformaSettingsController;
 use App\Http\Controllers\Commission\CommissionSettingsController;
 use App\Http\Controllers\Compliance\FicaOfficerAppointmentsController;
 use App\Http\Controllers\CoreX\Auctions\AuctionSettingsController;
+use App\Http\Controllers\CoreX\AgencyTypeController;
 use App\Http\Controllers\CoreX\FeatureSettingsController;
 use App\Http\Controllers\CoreX\LeaseSettingsController;
 use App\Http\Controllers\CoreX\RentalInspectionSettingsController;
@@ -82,8 +83,16 @@ return [
         ],
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'updateAgency'],
+            // Runs after updateAgency; writes only when the step posted `agency_type` (§6.1).
+            ['controller' => AgencyTypeController::class, 'method' => 'update'],
         ],
         'controls' => [
+            ['key' => 'agency_type', 'source' => 'agency', 'type' => 'select', 'default' => 'both',
+             // Same three values/labels as config/agency-types.php (a test keeps the two identical).
+             'options' => ['both' => 'Sales and rentals', 'sales' => 'Sales only', 'rentals' => 'Rentals only'],
+             'label' => 'What does your agency do?',
+             'explain' => 'Whether you sell property, rent it out for landlords, or do both. CoreX uses this to switch on the tools that fit — a rentals agency is not given the sales toolkit, and a sales agency is not given the Rentals area.',
+             'affects' => 'Which features start switched on in the next step. Rentals only turns the sales tools off (buyers, prospecting, presentations, deal tracking); sales only turns the Rentals area off. You can still switch any feature on or off yourself on the Features page.'],
             ['key' => 'trading_name', 'source' => 'agency', 'type' => 'text', 'label' => 'Trading name',
              'explain' => 'The name your agency trades under. If you trade as something different to your registered company name, put the trading name here.',
              'affects' => 'The name printed at the top of every document, in agent email signatures, and on your public property pages.'],
