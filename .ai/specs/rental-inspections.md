@@ -7945,3 +7945,17 @@ From cc5's walk of an incoming inspection:
 
 **Tests.** `RentalInspectionRecordingControllerTest::test_auto_pair_pairs_the_photos_of_one_item_by_position_and_reports_the_result` (3 in / 4 out and 3 in / 3 out: pairs by position, 4th out photo unpaired, message and counts, second press is a no-op). Browser proof on a ZZ property (headless Chromium, QA1, 1600 and 1366 wide): before/after screenshots listed in the commit report.
 
+### 56a. A chain of three: the next inspection pairs with the previous one's photos even when they already have a twin (14 Oct 2026, 16:xx SAST; Johan, property 21222; QA1 only)
+
+**What Johan saw after §56 was deployed.** Ceiling: the older strip showed its photos with link icons plus an empty 4th slot; the newer strip read `[NO MATCH][NO MATCH][NO MATCH][photo]`. Walls the same. The "Auto-pair" button said nothing useful.
+
+**What was really on the screen.** Not In (127) against Out (128): the page was comparing Out 128 with a NEXT inspection (135, "Routine" / `ad_hoc`) that Johan had started from the Out draft at 15:51 with the "Next inspection: [Ad hoc] Start" control beside Auto-pair (default type `ad_hoc`). The §56 pairing of 127 with 128 was correct (groups 39-44, each In photo with the Out photo of the same position). The new pair, 128 with 135, was not.
+
+**Cause.** `RentalInspectionPhotoAutoPairService::runFor()` rejected every photo that had EVER been in any match group (`everTouched()`), on both sides. All 7 of 128's photos were already in groups with 127's photos (a group is a set of photos across any number of inspections, §20.16), so they were "taken"; 135's photos could only pair with 128's one leftover 4th Ceiling photo (group 45: 128's #4 with 135's #1 - the wrong photo), and nothing on Walls. `pairedRows()` then lists the 128 photos whose group has no 135 member as predecessor-only rows ("NO MATCH" on the new side) and appends the new photos after them.
+
+**Rule now.** Eligibility is decided per PAIR of inspections. A tail photo is up for pairing only if it has never belonged to any match (active or removed). A predecessor photo is up for pairing unless it has ever shared a group, active or removed, with a photo of THIS tail - a group with an earlier inspection does not count, and the new tail's photo joins that group (1st with 1st, 2nd with 2nd, same `linkPhotos()` primitive). An explicit unmatch on the new pair is still respected. `unmatched_count` counts, for the pair, tagged photos whose active group holds no photo of the other inspection (so an Out photo that only has an In twin counts as unmatched against the next inspection).
+
+**Not changed (reported).** The "Next inspection - Start" control sits on the same line as Auto-pair and defaults to Ad hoc; starting a whole new inspection from a draft Out is allowed (§49). Product call, left as is.
+
+**Files.** `app/Services/RentalInspectionPhotoAutoPairService.php`. **Tests.** `RentalInspectionRecordingControllerTest::test_auto_pair_in_a_chain_of_three_joins_the_groups_the_predecessor_already_has` and `..._still_respects_an_unmatch_made_on_the_new_pair`. Browser proof on a ZZ property that repeats Johan's steps (completed In, Out draft, photos through the item camera buttons, Next inspection, photos again).
+

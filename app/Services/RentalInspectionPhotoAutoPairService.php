@@ -25,16 +25,24 @@ use Illuminate\Support\Collection;
  * the same thing, so they still pair only when there is exactly one each
  * side.
  *
- * "Never touched" (checked via withTrashed() in everTouched() below) means
- * this photo has never belonged to ANY match, active or removed — not just
- * "has no active group right now." This is what makes the rule safe to run
- * automatically on every view (§24.5's "runs on first view of an item's
- * comparison"): a photo an agent explicitly unmatched stays untouched by
- * later auto-pair runs, because it is no longer "never touched" — the
- * agent's own decision is respected, not overwritten the next time the
- * screen loads. Re-running after some pairs already exist (the explicit
- * "Auto-pair" button) only ever considers photos still in that
- * never-touched state, so it is idempotent by construction.
+ * Which photos are still up for pairing is decided PER PAIR of inspections
+ * (§56a, 2026-10-14, property 21222 — a chain of three: In, Out, then a
+ * next inspection). A match group is a SET of photos across any number of
+ * inspections, so a predecessor photo that already sits in a group with an
+ * EARLIER inspection's photo is exactly the one the new tail must join —
+ * the old "any membership at all = touched" test shut every such photo out
+ * and the new tail's photos only ever found the leftover, so the strip read
+ * [NO MATCH][NO MATCH][NO MATCH][photo].
+ *   - A TAIL photo is up for pairing only if it has never belonged to ANY
+ *     match, active or removed (withTrashed() in everTouched()).
+ *   - A PREDECESSOR photo is up for pairing unless it has ever shared a
+ *     group — active or removed — with a photo of THIS tail
+ *     (everPairedWithTail()). Pairs with other inspections do not count.
+ * Both tests look at removed rows too, so a photo an agent explicitly
+ * unmatched is not re-paired the next time the screen loads — the agent's
+ * decision is respected. Re-running after some pairs already exist (the
+ * explicit "Auto-pair" button) only considers photos still in that state,
+ * so it is idempotent by construction.
  *
  * Calls the exact same RentalInspectionPhotoMatchGroup::linkPhotos() the
  * click-based "Match" control and the drag gesture both call — one linking
@@ -47,8 +55,9 @@ class RentalInspectionPhotoAutoPairService
      */
     public function runFor(RentalInspection $predecessor, RentalInspection $tail, User $by): Collection
     {
-        $predecessorCandidates = $this->candidatesByKey($predecessor);
-        $tailCandidates = $this->candidatesByKey($tail);
+        $tailGroupIds = $this->groupIdsEverTouchingInspection($tail);
+        $predecessorCandidates = $this->candidatesByKey($predecessor, fn (RentalInspectionPhoto $photo) => $this->everPairedWithTail($photo, $tailGroupIds));
+        $tailCandidates = $this->candidatesByKey($tail, fn (RentalInspectionPhoto $photo) => $this->everTouched($photo));
 
         $created = collect();
 
@@ -110,8 +119,16 @@ class RentalInspectionPhotoAutoPairService
             return 0;
         }
 
-        $paired = RentalInspectionPhotoMatchGroupMember::whereIn('rental_inspection_photo_id', $candidateIds)
-            ->whereHas('group')
+        // "Paired" = sits in an ACTIVE group that holds a photo of each of the two inspections.
+        // A predecessor photo whose group only holds an earlier inspection's photo is still unmatched here.
+        $groupsOf = fn (RentalInspection $inspection) => RentalInspectionPhotoMatchGroupMember::whereHas('group')
+            ->whereIn('rental_inspection_photo_id', RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->select('id'))
+            ->pluck('rental_inspection_photo_match_group_id');
+        $groupsOnBothSides = $groupsOf($predecessor)->intersect($groupsOf($tail))->unique()->values();
+
+        $paired = $groupsOnBothSides->isEmpty() ? 0 : RentalInspectionPhotoMatchGroupMember::whereHas('group')
+            ->whereIn('rental_inspection_photo_id', $candidateIds)
+            ->whereIn('rental_inspection_photo_match_group_id', $groupsOnBothSides)
             ->pluck('rental_inspection_photo_id')
             ->unique()
             ->count();
@@ -120,7 +137,8 @@ class RentalInspectionPhotoAutoPairService
     }
 
     /**
-     * Every TAGGED, never-touched photo on this inspection, grouped by its
+     * Every TAGGED photo on this inspection that is still up for pairing
+     * ($alreadyHandled says which are not — see the class docblock), grouped by its
      * (room, item) key. Untagged photos (isUntagged()) carry no signal to
      * key off and are never candidates.
      *
@@ -134,14 +152,14 @@ class RentalInspectionPhotoAutoPairService
      *
      * @return Collection<string, Collection<int, RentalInspectionPhoto>>
      */
-    private function candidatesByKey(RentalInspection $inspection): Collection
+    private function candidatesByKey(RentalInspection $inspection, \Closure $alreadyHandled): Collection
     {
         return RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)
             ->where(fn ($q) => $q->whereNotNull('property_room_id')->orWhereNotNull('rental_inspection_observation_id'))
             ->with('observation')
             ->orderBy('id')
             ->get()
-            ->reject(fn (RentalInspectionPhoto $photo) => $this->everTouched($photo))
+            ->reject($alreadyHandled)
             ->groupBy(fn (RentalInspectionPhoto $photo) => $photo->matchKey());
     }
 
@@ -150,6 +168,34 @@ class RentalInspectionPhotoAutoPairService
     {
         return RentalInspectionPhotoMatchGroupMember::withTrashed()
             ->where('rental_inspection_photo_id', $photo->id)
+            ->exists();
+    }
+
+    /** Ids of every group, active or removed, that ever held a photo of this inspection. */
+    private function groupIdsEverTouchingInspection(RentalInspection $inspection): Collection
+    {
+        return RentalInspectionPhotoMatchGroupMember::withTrashed()
+            ->whereIn('rental_inspection_photo_id', RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->select('id'))
+            ->pluck('rental_inspection_photo_match_group_id')
+            ->unique()
+            ->values();
+    }
+
+    /**
+     * Has this predecessor photo ever shared a group — active or removed —
+     * with a photo of the tail? Membership alongside an EARLIER
+     * inspection's photo does not count; that is a chain group the tail
+     * is meant to join.
+     */
+    private function everPairedWithTail(RentalInspectionPhoto $photo, Collection $tailGroupIds): bool
+    {
+        if ($tailGroupIds->isEmpty()) {
+            return false;
+        }
+
+        return RentalInspectionPhotoMatchGroupMember::withTrashed()
+            ->where('rental_inspection_photo_id', $photo->id)
+            ->whereIn('rental_inspection_photo_match_group_id', $tailGroupIds)
             ->exists();
     }
 }

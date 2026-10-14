@@ -1943,6 +1943,68 @@ final class RentalInspectionRecordingControllerTest extends TestCase
             ->assertJson(['created_count' => 0, 'unmatched_count' => 1]);
     }
 
+    /**
+     * Property 21222, 14 Oct 2026 (spec §56a): In -> Out -> a next inspection. The Out's photos already sit in
+     * groups with the In's photos; the new tail's photos must join those SAME groups, 1st with 1st, 2nd with 2nd —
+     * not find every Out photo "taken" and pair only with the leftover one.
+     */
+    public function test_auto_pair_in_a_chain_of_three_joins_the_groups_the_predecessor_already_has(): void
+    {
+        $room = $this->makeRoom();
+        $ceiling = $this->makeItem();
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $out = RentalInspection::startNext($in, RentalInspection::TYPE_OUT, $this->agent);
+        $inPhotos = array_map(fn () => $this->makePhotoForItem($in, $ceiling, $room), [1, 2, 3]);
+        $outPhotos = array_map(fn () => $this->makePhotoForItem($out, $ceiling, $room), [1, 2, 3, 4]);
+
+        $this->postJson(route('corex.properties.rental-inspection-photo-matches.auto-pair', $this->property))
+            ->assertOk()->assertJson(['created_count' => 3]);
+
+        $next = RentalInspection::startNext($out, RentalInspection::TYPE_AD_HOC, $this->agent);
+        $nextPhotos = array_map(fn () => $this->makePhotoForItem($next, $ceiling, $room), [1, 2, 3, 4]);
+
+        $this->postJson(route('corex.properties.rental-inspection-photo-matches.auto-pair', $this->property))
+            ->assertOk()
+            ->assertJson(['created_count' => 4, 'unmatched_count' => 0]);
+
+        $groupOf = fn ($photo) => \App\Models\RentalInspectionPhotoMatchGroup::forPhoto($photo)?->id;
+        foreach ([0, 1, 2] as $i) {
+            $this->assertNotNull($groupOf($inPhotos[$i]));
+            $this->assertSame($groupOf($inPhotos[$i]), $groupOf($outPhotos[$i]), 'the earlier pair is left as it was');
+            $this->assertSame($groupOf($outPhotos[$i]), $groupOf($nextPhotos[$i]), 'photo ' . ($i + 1) . ' of the new inspection joins photo ' . ($i + 1) . "'s group");
+        }
+        $this->assertNotNull($groupOf($nextPhotos[3]));
+        $this->assertSame($groupOf($outPhotos[3]), $groupOf($nextPhotos[3]), 'the 4th pairs with the 4th, which had no earlier twin');
+
+        // Second press: nothing left to do.
+        $this->postJson(route('corex.properties.rental-inspection-photo-matches.auto-pair', $this->property))
+            ->assertOk()->assertJson(['created_count' => 0, 'unmatched_count' => 0]);
+    }
+
+    public function test_auto_pair_in_a_chain_of_three_still_respects_an_unmatch_made_on_the_new_pair(): void
+    {
+        $room = $this->makeRoom();
+        $ceiling = $this->makeItem();
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $out = RentalInspection::startNext($in, RentalInspection::TYPE_OUT, $this->agent);
+        array_map(fn () => $this->makePhotoForItem($in, $ceiling, $room), [1, 2]);
+        array_map(fn () => $this->makePhotoForItem($out, $ceiling, $room), [1, 2]);
+        $this->postJson(route('corex.properties.rental-inspection-photo-matches.auto-pair', $this->property))->assertOk();
+
+        $next = RentalInspection::startNext($out, RentalInspection::TYPE_AD_HOC, $this->agent);
+        $nextPhotos = array_map(fn () => $this->makePhotoForItem($next, $ceiling, $room), [1, 2]);
+        $this->postJson(route('corex.properties.rental-inspection-photo-matches.auto-pair', $this->property))
+            ->assertOk()->assertJson(['created_count' => 2]);
+
+        // The agent unmatches the new inspection's 2nd photo; a later press must not undo that decision.
+        $member = \App\Models\RentalInspectionPhotoMatchGroupMember::where('rental_inspection_photo_id', $nextPhotos[1]->id)->first();
+        $this->deleteJson(route('corex.properties.rental-inspection-photo-matches.destroy', [$this->property, $member]))->assertOk();
+
+        $this->postJson(route('corex.properties.rental-inspection-photo-matches.auto-pair', $this->property))
+            ->assertOk()->assertJson(['created_count' => 0, 'unmatched_count' => 2]); // the new 2nd photo and the Out's 2nd photo, each without a twin in THIS pair
+        $this->assertNull(\App\Models\RentalInspectionPhotoMatchGroup::forPhoto($nextPhotos[1]));
+    }
+
     public function test_tab_payload_exposes_the_compare_pair_and_its_matches_once_an_out_inspection_exists(): void
     {
         [$photoIn, $photoOut] = $this->makeMatchablePair();
