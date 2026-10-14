@@ -259,7 +259,7 @@
                         $layerDefs = [
                             ['key' => 'hfc_listings',    'label' => 'Active Stock',      'colour' => '#0b2a4a', 'letter' => 'H', 'title' => 'Active Stock — your on-market listings only (sold/withdrawn/expired/draft are now their own layers)'],
                             // Map fixes — agency-stock status layers, OFF by default.
-                            ['key' => 'hfc_sold',        'label' => 'Sold (HFC)',        'colour' => '#dc2626', 'letter' => 'S', 'default_off' => true, 'title' => 'Sold agency stock — period-bounded by the sold-date window below'],
+                            ['key' => 'hfc_sold',        'label' => 'Sold (ours)',        'colour' => '#dc2626', 'letter' => 'S', 'default_off' => true, 'title' => 'Sold agency stock — period-bounded by the sold-date window below'],
                             ['key' => 'hfc_off_market',  'label' => 'Off-market',        'colour' => '#94a3b8', 'letter' => 'H', 'default_off' => true, 'title' => 'Off-market agency stock — withdrawn / expired / cancelled / let-out / draft / archived'],
                             ['key' => 'sold_comps',      'label' => 'Sold Comps',        'colour' => '#dc2626', 'letter' => 'S'],
                             // 2026-08-27 — Johan's decision: Portal Stock and
@@ -669,7 +669,7 @@ document.addEventListener('DOMContentLoaded', function () {
     };
     const LAYER_NAMES = {
         hfc_listings: 'Active Stock',
-        hfc_sold: 'Sold (HFC)',
+        hfc_sold: 'Sold (ours)',
         hfc_off_market: 'Off-market',
         sold_comps: 'Sold Comp',
         active_listings: 'Portal Stock',
@@ -1760,7 +1760,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 const portalDefs  = [
                     { key: 'p24', label: 'P24', tint: '#dc2626' },
                     { key: 'pp',  label: 'PP',  tint: '#1d4ed8' },
-                    { key: 'hfc', label: 'HFC', tint: '#00d4aa' },
+                    { key: 'hfc', label: 'Own', tint: '#00d4aa' },
                 ];
                 const activePortals = portalDefs.filter(p => urls[p.key]);
 
@@ -1850,13 +1850,13 @@ document.addEventListener('DOMContentLoaded', function () {
                         return [{
                             key:       'open_property',
                             label:     'Open property record →',
-                            iconLabel: 'Already on HFC books — open record',
+                            iconLabel: 'Already on our books — open record',
                             iconSvg:   ICON_OPEN,
                             style:     'primary',
                             destUrl:   openUrl,
                             // Phase B Fix 1b — property record is a separate workflow surface.
                             newTab:    true,
-                            banner:    { tone: 'info', text: 'Already on HFC books' },
+                            banner:    { tone: 'info', text: 'Already on our books' },
                             logPayload:{ ...baseLog, action: 'listing_opened', record_id: ps.property_id, portal: 'hfc' },
                         }];
                     }
@@ -1923,7 +1923,7 @@ document.addEventListener('DOMContentLoaded', function () {
                             { ...prospectAction,
                               label:  'New prospect anyway →',
                               banner: { tone: 'warn',
-                                        text: 'Previously sold by HFC' + (ps.sale_date ? ' (' + ps.sale_date + ')' : '') },
+                                        text: 'Previously sold by your agency' + (ps.sale_date ? ' (' + ps.sale_date + ')' : '') },
                             },
                         ];
                     }
@@ -1932,7 +1932,7 @@ document.addEventListener('DOMContentLoaded', function () {
                             { ...prospectAction,
                               label:  'Prospect anyway →',
                               banner: { tone: 'warn',
-                                        text: 'Previously held by HFC' + (ps.expired_at ? ' (expired ' + ps.expired_at + ')' : '') + (ps.agent_name ? ' by ' + ps.agent_name : '') },
+                                        text: 'Previously held by your agency' + (ps.expired_at ? ' (expired ' + ps.expired_at + ')' : '') + (ps.agent_name ? ' by ' + ps.agent_name : '') },
                             },
                         ];
                     }
@@ -3211,8 +3211,8 @@ document.addEventListener('DOMContentLoaded', function () {
             host.style.alignItems    = 'stretch';
             host.style.flexWrap      = 'nowrap';
             // A.2.5 — actions may carry a banner descriptor that renders ABOVE
-            // the CTA (used by collision states: "Already on HFC books",
-            // "Previously sold by HFC", etc.).
+            // the CTA (used by collision states: "Already on our books",
+            // "Previously sold by your agency", etc.).
             host.innerHTML = acts.map(act => {
                 const stylePrimary   = 'background:#00d4aa;color:#0f172a;border:1px solid #00d4aa;';
                 const styleSecondary = 'background:transparent;color:#00d4aa;border:1px solid #00d4aa;';
@@ -4161,7 +4161,7 @@ document.addEventListener('DOMContentLoaded', function () {
             '<div style="background:var(--surface);border-radius:8px;max-width:420px;width:100%;padding:22px;box-shadow:0 10px 30px rgba(0,0,0,0.5);">'
             +   '<h3 style="font-size:1rem;font-weight:600;color:var(--text-primary);margin:0 0 8px 0;">Save current search</h3>'
             +   '<p style="font-size:0.75rem;color:var(--text-muted);margin:0 0 12px 0;">Saves the active filters under a name only you can see.</p>'
-            +   '<input type="text" id="ss-name-input" maxlength="120" placeholder="e.g. Margate houses, R1.5-2.5m" '
+            +   '<input type="text" id="ss-name-input" maxlength="120" placeholder="e.g. Town houses, R1.5-2.5m" '
             +     'style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:4px;background:var(--surface-2);color:var(--text-primary);font-size:0.8125rem;box-sizing:border-box;">'
             +   '<label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:0.75rem;cursor:pointer;">'
             +     '<input type="checkbox" id="ss-default-input"> Set as default (loads on next visit)'

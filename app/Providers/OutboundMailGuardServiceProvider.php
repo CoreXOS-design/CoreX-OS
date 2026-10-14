@@ -46,6 +46,9 @@ class OutboundMailGuardServiceProvider extends ServiceProvider
         OutboundMailGuard::auditBootConfiguration();
 
         $this->app['events']->listen(MessageSending::class, function (MessageSending $event) {
+            // The sender NAME is the agency the mail is about, never the install-wide default (an agency's name in .env).
+            \App\Support\MailFromName::rebrand($event);
+
             // AT-423 — FIRST re-address anything sent to a sub-user's username (not a real
             // address) to their shared inbox, so the guard below — and the real send — see
             // the true recipient. Same listener on purpose: listener order is then guaranteed.

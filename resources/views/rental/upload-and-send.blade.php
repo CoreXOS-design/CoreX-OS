@@ -63,7 +63,7 @@
                 <input type="text" name="property_reference" value="{{ old('property_reference') }}"
                        class="w-full rounded-xl shadow-sm text-sm"
                        style="border-color:var(--border); color:var(--text-primary); background:var(--surface)"
-                       placeholder="e.g. Unit 3, 14 Marine Drive, Shelly Beach">
+                       placeholder="e.g. Unit 3, 14 Main Road, Suburb">
             </div>
 
             {{-- ═══════ Signing Chain ═══════ --}}

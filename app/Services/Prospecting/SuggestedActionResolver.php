@@ -475,7 +475,7 @@ final class SuggestedActionResolver
     {
         $who = $agentName !== null && trim($agentName) !== ''
             ? e(trim($agentName)) . ' is already on it'
-            : 'Already on HFC&rsquo;s books';
+            : 'Already on our books';
         $tooltip = $this->tooltip($who . ' — open the existing property instead of pitching it again.');
 
         return new SuggestedAction(

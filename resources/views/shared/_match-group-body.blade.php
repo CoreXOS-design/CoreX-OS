@@ -278,7 +278,7 @@
         <div>
             <label class="field-label">Suburb</label>
             <input type="text" name="suburb" value="{{ old('suburb', $filters['suburb']) }}"
-                   placeholder="e.g. Uvongo, Margate, Shelly Beach" class="field-input">
+                   placeholder="e.g. Suburb one, Suburb two" class="field-input">
         </div>
 
         {{-- Rooms --}}

@@ -30,3 +30,16 @@ Grep: `hfc-coastal | hfcoastal | home finders` over app, resources, config, rout
 
 ## Already correct (checked)
 Portal header (`Agency::publicBrandingFor`), signing page chrome (`SigningController::getAgencyBranding`), `OtpMail`, the rental application mails, `BaseSignatureMail::companyDomainForAgent`.
+
+## Cape walk, second pass (14 Oct 2026, r7) - fixed
+| Where | What a second agency saw | Now |
+|---|---|---|
+| fault / owner / tenant mails (default From name) | sender "Home Finders Coastal" (install `MAIL_FROM_NAME`) | the lease's agency (`MailFromName`) |
+| `SellerOutreachTemplateDefaultsService` | starter text cloned from HFC: "a registered estate agency on the KZN South Coast" | neutral merge-field text; earlier clones neutralised by migration |
+| `Property::getPublicUrlAttribute`, `config/integrations.php:37` | "View listing" -> hfcoastal.co.za for every agency | agency website, else CoreX public page; agency 1's website written on its own row |
+| `WebTemplateDataService` (4 places) | district defaulted to "Ray Nkonyeni" | property's district, else blank |
+| `CommissionSetting::NO_AGENCY_DEFAULTS` | HFC's 80/20, R160 000 cap, R850 fee, 7 tiers pre-filled | neutral zeros / off |
+| `config/map.php`, `AgencyMapSettings` | map opened on the KZN South Coast | agency's own stock area, else South Africa; agency 1's old view frozen on its row |
+| ~70 views / mails / scripts | Uvongo / Margate / Port Shepstone / KZN / "HFC" in placeholders and labels | neutral examples; scanner test guards it |
+
+Still open: `docuperfect_named_fields` id 13 "Ray Nkonyeni" (referenced by 3 pack-instance values - not removed); payroll payslip prefix `HFC-` (`PayrollRunController.php:288`); platform sample data (`PlatformCompany`, `AgreementSample`, `ReferencePackCds`, `WebTemplateController` preview sample) is CoreX's own / HFC-document seed data.

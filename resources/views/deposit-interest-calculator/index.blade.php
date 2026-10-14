@@ -59,7 +59,7 @@
                         <label for="property_name" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Property Name <span class="text-red-500">*</span></label>
                         <input id="property_name" type="text" name="property_name" required
                                value="{{ old('property_name', $input['property_name'] ?? '') }}"
-                               placeholder="e.g. 12 Marine Drive, Margate"
+                               placeholder="e.g. 12 Main Road, Town"
                                class="w-full rounded-md text-sm px-3 py-2"
                                style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>

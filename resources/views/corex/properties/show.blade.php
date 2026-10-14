@@ -1766,7 +1766,7 @@
                     @if($hfcSales->isNotEmpty())
                         <div style="margin-top:14px;padding:14px;background:var(--surface);border:1px solid var(--border);border-left:3px solid #00b594;border-radius:6px;">
                             <h3 class="text-xs font-bold uppercase tracking-wider mb-2" style="color:#00b594;">
-                                HFC has sold this property before
+                                Your agency has sold this property before
                             </h3>
                             <p style="font-size:0.75rem;color:var(--text-muted);margin:0 0 10px 0;">
                                 Powerful re-mandate signal — we know this property.
@@ -3184,7 +3184,7 @@
                                             </div>
                                             <div>
                                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">District / Municipality</label>
-                                                <input type="text" name="district" value="{{ old('district', $property->district) }}" placeholder="e.g. Ray Nkonyeni" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                <input type="text" name="district" value="{{ old('district', $property->district) }}" placeholder="e.g. Municipality or district" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                             </div>
                                         </div>
                                         <div>
@@ -3200,7 +3200,7 @@
                                         </div>
                                         <div>
                                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Region</label>
-                                            <input type="text" name="region" value="{{ old('region', $property->region) }}" placeholder="KZN South Coast" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            <input type="text" name="region" value="{{ old('region', $property->region) }}" placeholder="e.g. Region or area" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         </div>
                                         <div>
                                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Internal Note</label>

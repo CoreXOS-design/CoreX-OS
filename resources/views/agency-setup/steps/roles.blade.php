@@ -87,7 +87,7 @@
         <p class="text-sm" style="color:var(--text-secondary,#475569);">
             Roles decide <span class="font-semibold">what</span> a person may do. Branches decide
             <span class="font-semibold">whose records</span> they may do it to. The two work together:
-            a Branch Manager in Margate and a Branch Manager in Port Shepstone hold the identical role and
+            a Branch Manager in one office and a Branch Manager in another hold the identical role and
             the identical permissions — they just see different stock, because they sit in different branches.
         </p>
         <p class="text-sm mt-2" style="color:var(--text-secondary,#475569);">

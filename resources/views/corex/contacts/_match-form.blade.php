@@ -169,7 +169,7 @@
                     <div>
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Wishlist Name <span class="font-normal" style="color:var(--text-muted);">(optional)</span></label>
                         <input type="text" name="name" value="{{ $val('name') }}"
-                               :placeholder="listingType === 'rental' ? 'e.g. \'3-bed Margate rental\'' : 'e.g. \'3-bed Margate sale\''" maxlength="120"
+                               :placeholder="listingType === 'rental' ? 'e.g. \'3-bed rental in Town\'' : 'e.g. \'3-bed sale in Town\''" maxlength="120"
                                class="w-full rounded-md px-3 py-2 text-sm"
                                style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                     </div>

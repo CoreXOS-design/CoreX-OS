@@ -477,7 +477,7 @@
 {{-- Footer --}}
 <footer class="border-t border-slate-200 py-8 text-center text-xs text-neutral-400">
     <p class="text-navy text-sm font-light">{{ $agency->name ?? \App\Support\ClientBrand::NEUTRAL }}</p>
-    <p class="mt-1">Shelly Beach · KZN South Coast · This is a live preview for internal use only.</p>
+    <p class="mt-1">This is a live preview for internal use only.</p>
 </footer>
 
 {{-- LIGHTBOX --}}

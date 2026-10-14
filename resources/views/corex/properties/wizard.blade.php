@@ -183,7 +183,7 @@
             <div data-tour="wiz-headline">
                 <label class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-secondary);">Headline <span class="text-red-500">*</span></label>
                 <input type="text" x-model="s1.title" maxlength="200"
-                       placeholder="e.g. Stunning 3 Bed Family Home in Uvongo Beach"
+                       placeholder="e.g. Stunning 3 Bed Family Home near the Beach"
                        class="w-full px-3 py-2.5 text-sm rounded-md outline-none transition-all duration-200"
                        style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);">
                 <div class="text-[11px] mt-1" style="color:var(--text-muted);" x-text="(s1.title?.length || 0) + ' / 200'"></div>
@@ -258,7 +258,7 @@
                         </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Street Name</label>
-                            <input type="text" x-model="s1.street_name" placeholder="e.g. Clarendon Road" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <input type="text" x-model="s1.street_name" placeholder="e.g. Main Road" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
                     </div>
                 </div>
@@ -311,12 +311,12 @@
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">District / Municipality</label>
-                                <input type="text" x-model="s1.district" placeholder="e.g. Ray Nkonyeni" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <input type="text" x-model="s1.district" placeholder="e.g. Municipality or district" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                         </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Region</label>
-                            <input type="text" x-model="s1.region" placeholder="KZN South Coast" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <input type="text" x-model="s1.region" placeholder="e.g. Region or area" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Internal Note</label>

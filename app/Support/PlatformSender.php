@@ -24,6 +24,9 @@ final class PlatformSender
     /** @var array<string,bool> domain => owned by an agency (request memo; flush() in tests) */
     private static array $ownedMemo = [];
 
+    /** @var array<string,bool> name => is a registered agency's name (request memo; flush() in tests) */
+    private static array $nameMemo = [];
+
     public static function address(): string
     {
         foreach ([
@@ -40,6 +43,23 @@ final class PlatformSender
         return self::LAST_RESORT;
     }
 
+    /**
+     * The platform's own display NAME for a message that names no agency (an agent invite, the setup link): the configured
+     * mail.from.name unless it is a registered agency's name (QA1's .env carried "Home Finders Coastal"), else the app name, else "CoreX OS".
+     * A message that DOES know its agency is named after that agency by MailFromName, never by this.
+     */
+    public static function name(): string
+    {
+        foreach ([config('mail.platform_from.name'), config('mail.from.name'), config('app.name')] as $candidate) {
+            $candidate = trim((string) $candidate);
+            if ($candidate !== '' && ! self::nameBelongsToAnAgency($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return 'CoreX OS';
+    }
+
     public static function domain(): string
     {
         return self::domainOf(self::address());
@@ -48,11 +68,20 @@ final class PlatformSender
     public static function flush(): void
     {
         self::$ownedMemo = [];
+        self::$nameMemo = [];
     }
 
     private static function domainOf(string $address): string
     {
         return strtolower(trim((string) substr(strrchr($address, '@') ?: '', 1)));
+    }
+
+    /** True when this is a registered agency's name or trading name (archived included). */
+    private static function nameBelongsToAnAgency(string $name): bool
+    {
+        return self::$nameMemo[$name] ??= Agency::withoutGlobalScopes()
+            ->where(fn ($q) => $q->where('name', $name)->orWhere('trading_name', $name))
+            ->exists();
     }
 
     /** True when any agency (archived included) lists a contact email on this domain. */

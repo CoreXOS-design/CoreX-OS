@@ -2807,7 +2807,7 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
                         <?php if (!empty($c['portal_ref'])): ?><span style="font-family:monospace;"><?= $esc($c['portal_ref']) ?></span> · <?php endif; ?>
                         <span style="background:<?= $tierBg ?>;color:<?= $tierColor ?>;padding:1px 5px;border-radius:6px;font-weight:600;"><?= $esc($tierLabel) ?></span>
                         <?php if (!empty($c['is_hfc_owned'])): ?>
-                            · <span style="color:#10b981;font-weight:600;">HFC</span>
+                            · <span style="color:#10b981;font-weight:600;">Own</span>
                             <?php if (isset($c['days_on_market']) && $c['days_on_market'] !== null): ?> · <?= (int) $c['days_on_market'] ?>d<?php endif; ?>
                             <?php if (isset($c['views']) && $c['views'] !== null): ?> · <?= number_format((int) $c['views']) ?> views<?php endif; ?>
                         <?php endif; ?>

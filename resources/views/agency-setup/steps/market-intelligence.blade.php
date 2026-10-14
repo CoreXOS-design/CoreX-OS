@@ -27,13 +27,13 @@
             @csrf
             <div class="flex-1 min-w-[10rem]">
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Town name</label>
-                <input type="text" name="name" required maxlength="100" placeholder="e.g. Margate"
+                <input type="text" name="name" required maxlength="100" placeholder="e.g. Town name"
                        class="w-full rounded-md px-3 py-2 text-sm"
                        style="background:var(--surface-2,#f8fafc); border:1px solid var(--border,#e5e7eb); color:var(--text-primary,#0f172a);">
             </div>
             <div class="w-40">
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Region (optional)</label>
-                <input type="text" name="region" maxlength="100" placeholder="e.g. KZN South Coast"
+                <input type="text" name="region" maxlength="100" placeholder="e.g. Region name"
                        class="w-full rounded-md px-3 py-2 text-sm"
                        style="background:var(--surface-2,#f8fafc); border:1px solid var(--border,#e5e7eb); color:var(--text-primary,#0f172a);">
             </div>

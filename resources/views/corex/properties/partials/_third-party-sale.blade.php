@@ -85,7 +85,7 @@
                     Recorded {{ $thirdPartySale->recorded_at?->format('j M Y') }}
                     {{-- BUILD_STANDARD §4 — a deleted user must render, never crash. --}}
                     by {{ $thirdPartySale->recordedBy?->name ?? 'a user who has since been removed' }}.
-                    Not counted as an HFC sale.
+                    Not counted as one of your agency's sales.
                 </p>
 
                 @if($canEdit)
@@ -159,7 +159,7 @@
         <button type="button" @click="tpsCaptureOpen = true"
                 class="text-xs font-medium px-2 py-1 rounded"
                 style="color: var(--ds-amber, #d97706); background: color-mix(in srgb, var(--ds-amber, #d97706) 8%, transparent);"
-                title="Record that another agency sold this property. It leaves the market and is never counted as an HFC sale.">
+                title="Record that another agency sold this property. It leaves the market and is never counted as one of your agency's sales.">
             Sold by 3rd Party
         </button>
 
@@ -175,7 +175,7 @@
                     <p class="text-xs mb-3" style="color:var(--text-secondary);">
                         Everything below is optional — record what you know. The listing comes
                         off Property24, Private Property and your website, and is never counted
-                        as an HFC sale.
+                        as one of your agency's sales.
                     </p>
                     <form method="POST" action="{{ route('corex.properties.third-party-sale.store', $property) }}"
                           class="space-y-3">

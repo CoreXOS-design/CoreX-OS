@@ -179,7 +179,8 @@ class Phase2WebsiteApiTest extends TestCase
 
     public function test_listing_exposes_seo_slug_and_canonical_public_url(): void
     {
-        config()->set('integrations.public_website_url', 'http://91.99.130.85:1050');
+        // a property's public link is its OWN agency's website (Company Settings), else CoreX's public page - never one install-wide site
+        \Illuminate\Support\Facades\DB::table('agencies')->where('id', $this->agency->id)->update(['website_url' => 'http://91.99.130.85:1050']);
 
         // Title slugified exactly like Str::slug(): lowercased, accents stripped,
         // every run of non-alphanumerics (spaces, commas) collapsed to one hyphen.
@@ -196,7 +197,8 @@ class Phase2WebsiteApiTest extends TestCase
 
     public function test_listing_without_title_falls_back_to_bare_id_url(): void
     {
-        config()->set('integrations.public_website_url', 'http://91.99.130.85:1050');
+        // a property's public link is its OWN agency's website (Company Settings), else CoreX's public page - never one install-wide site
+        \Illuminate\Support\Facades\DB::table('agencies')->where('id', $this->agency->id)->update(['website_url' => 'http://91.99.130.85:1050']);
 
         // A property with no usable title (empty string slugifies to '') falls
         // back to the bare-id URL — still resolvable since the website keys on id.

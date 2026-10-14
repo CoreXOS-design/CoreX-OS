@@ -970,7 +970,7 @@ function signDocument() {
         storedDisclosure: @json($storedDisclosure ?? new \stdClass),
         webSigTotal: 0,
         webSigSigned: 0,
-        webCeremonyValues: {},     // { 'agent_location': 'Shelly Beach', 'agent_day': '23', ... }
+        webCeremonyValues: {},     // { 'agent_location': 'Cape Town', 'agent_day': '23', ... }
         webInitialElements: [],    // [{el, partyRole, index, isMine, signed, sigData}]
         _pendingInitialApplyAll: false,
         _initialsApplyAllOffered: false,

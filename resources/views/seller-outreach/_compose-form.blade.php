@@ -8,7 +8,7 @@
     // candidate property at a glance. 'available' shows nothing (clean).
     $statusBadgeMap = [
         'available'       => null,
-        'held'            => ['label' => 'On HFC books',         'bg' => 'rgba(16,185,129,0.16)', 'fg' => '#10b981', 'tone' => 'positive'],
+        'held'            => ['label' => 'On our books',         'bg' => 'rgba(16,185,129,0.16)', 'fg' => '#10b981', 'tone' => 'positive'],
         'own_draft'       => ['label' => 'Your draft',           'bg' => 'rgba(245,158,11,0.18)', 'fg' => '#d97706', 'tone' => 'caution'],
         'other_draft'     => ['label' => 'Draft by colleague',   'bg' => 'rgba(220,38,38,0.16)',  'fg' => '#dc2626', 'tone' => 'block'],
         'previously_sold' => ['label' => 'Previously sold',      'bg' => 'rgba(100,116,139,0.18)','fg' => '#64748b', 'tone' => 'soft'],
