@@ -182,4 +182,10 @@ return [
         'name' => env('MAIL_FROM_NAME', 'Example'),
     ],
 
+    // The platform's neutral sender for agency mail that has no mailbox of its own to send through (see App\Support\PlatformSender).
+    // Optional: when unset, MAIL_FROM_ADDRESS is used - and skipped if its domain belongs to an agency. Never an agency's domain.
+    'platform_from' => [
+        'address' => env('MAIL_PLATFORM_FROM_ADDRESS'),
+    ],
+
 ];

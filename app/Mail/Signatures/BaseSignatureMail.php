@@ -118,7 +118,7 @@ abstract class BaseSignatureMail extends Mailable
     {
         if (!$this->sendingAgent) {
             return new Address(
-                config('mail.from.address'),
+                \App\Support\PlatformSender::address(),
                 \App\Support\ClientBrand::NEUTRAL
             );
         }
@@ -145,7 +145,7 @@ abstract class BaseSignatureMail extends Mailable
         $agencyName = trim((string) $this->resolveAgencyForAgent($this->sendingAgent)?->name);
 
         return new Address(
-            config('mail.from.address'),
+            \App\Support\PlatformSender::address(),
             $agencyName !== '' ? "{$agentName} via {$agencyName}" : $agentName
         );
     }
@@ -197,7 +197,13 @@ abstract class BaseSignatureMail extends Mailable
             return [];
         }
 
-        return [new Address($this->sendingAgent->outward_email, $this->sendingAgent->name)];
+        // Replies go to the agent; an agent with no usable address falls back to their own agency's contact email.
+        $replyTo = trim((string) $this->sendingAgent->outward_email);
+        if (!filter_var($replyTo, FILTER_VALIDATE_EMAIL)) {
+            $replyTo = trim((string) $this->resolveAgencyForAgent($this->sendingAgent)?->email);
+        }
+
+        return filter_var($replyTo, FILTER_VALIDATE_EMAIL) ? [new Address($replyTo, $this->sendingAgent->name)] : [];
     }
 
     /**
@@ -232,7 +238,7 @@ abstract class BaseSignatureMail extends Mailable
             // fields to show, so they render absent rather than guessing.
             return [
                 'name'             => \App\Support\ClientBrand::NEUTRAL,
-                'email'            => config('mail.from.address'),
+                'email'            => \App\Support\PlatformSender::address(),
                 'phone'            => null,
                 'designation'      => null,
                 'cell'             => null,

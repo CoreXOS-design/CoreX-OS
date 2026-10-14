@@ -39,7 +39,7 @@ class LeaseNoticeRejectedMail extends Mailable implements ShouldQueue
         $replyTo = $agency && filter_var((string) $agency->email, FILTER_VALIDATE_EMAIL) ? [new Address((string) $agency->email, $this->agencyName)] : [];
 
         return new Envelope(
-            from: new Address((string) config('mail.from.address'), $this->agencyName),
+            from: new Address(\App\Support\PlatformSender::address(), $this->agencyName),
             replyTo: $replyTo,
             subject: "{$this->agencyName} - your notice for {$this->propertyAddress} was not accepted",
         );
