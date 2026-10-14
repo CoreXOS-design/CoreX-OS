@@ -292,7 +292,7 @@
              (named above, per row); that one counts individual deals and
              uploaded valuation/comp reports instead. Naming the source here
              so the two read as different counts, not a contradiction. --}}
-        <p style="font-size:0.72rem; color:#8a9697; margin:0.4rem 0 0;">From the market report{{ count($cmaSalesRows) === 1 ? '' : 's' }} named above — a different figure from a property page's own comparable-sales count, which draws from deals and uploaded valuation reports instead.</p>
+        <p style="font-size:0.72rem; color:#8a9697; margin:0.4rem 0 0;">From the market report{{ count($cmaSalesRows) === 1 ? '' : 's' }} named above — a different figure from a property page's own comparable-sales count, which draws from deals and uploaded evaluation reports instead.</p>
         @else
         <div style="margin-bottom:0.5rem;">{!! $sideChip('market') !!}</div>
         <p style="font-size:0.8rem; color:#8a9697; margin:0;">No area-wide sales figure is available for {{ $suburbName }} yet.</p>

@@ -230,23 +230,23 @@ return [
 
     // ── Presentations & Valuations ──
     'presentations' => [
-        'label' => 'Presentations & CMA', 'category' => 'Presentations & Valuations',
-        'explain' => 'The seller-presentation and Comparative Market Analysis suite that builds the evidenced valuation you put in front of a seller.',
+        'label' => 'Presentations & CMA', 'category' => 'Presentations & Evaluations',
+        'explain' => 'The seller-presentation and Comparative Market Analysis suite that builds the evidenced evaluation you put in front of a seller.',
         'affects' => 'Whether the Presentations area, analytics and CMA tools appear for your agents. Off hides them; published presentations are kept.',
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_presentations'], 'sidebar_section' => 'real-estate',
         'settings_section' => 'feature-presentations', 'route_prefixes' => ['presentations', 'corex/presentations/refresh-requests'], 'global_flag' => 'presentations',
     ],
     'commercial-evaluations' => [
-        'label' => 'Commercial Evaluations', 'category' => 'Presentations & Valuations',
-        'explain' => 'The commercial-property evaluation tool for valuing income-producing and commercial stock.',
+        'label' => 'Commercial Evaluations', 'category' => 'Presentations & Evaluations',
+        'explain' => 'The commercial-property evaluation tool for evaluating income-producing and commercial stock.',
         'affects' => 'Whether the Commercial Evaluations area appears for your agents. Off hides it; saved evaluations are kept.',
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_commercial_evaluations'], 'sidebar_section' => 'real-estate',
         'settings_section' => null, 'route_prefixes' => ['commercial-evaluations'], 'global_flag' => null,
     ],
     'viewing-packs' => [
-        'label' => 'Viewing Packs', 'category' => 'Presentations & Valuations',
+        'label' => 'Viewing Packs', 'category' => 'Presentations & Evaluations',
         'explain' => 'Curated packs of properties to take a buyer on a viewing day.',
         'affects' => 'Whether the Viewing Packs area appears for your agents. Off hides it; saved packs are kept.',
         'default' => true, 'core' => false, 'depends_on' => [],

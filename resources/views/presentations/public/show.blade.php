@@ -1113,7 +1113,7 @@
              price tick uses the existing teal token. --}}
         @if($secOn('cma_analysis') && ($cmaLower || $cmaMid || $cmaUpper))
         <section class="block" data-section-id="cma-valuation">
-            <div class="block-eyebrow">CMA Valuation</div>
+            <div class="block-eyebrow">CMA Evaluation</div>
             <h2>Where your asking price sits in the recommended band</h2>
             @php
                 $gLow = (int) ($cmaLower ?? $cmaMid ?? 0);

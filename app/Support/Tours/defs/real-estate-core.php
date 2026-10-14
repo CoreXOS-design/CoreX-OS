@@ -302,7 +302,7 @@ return [
     're-commercial-evals' => [
         'key'         => 're-commercial-evals',
         'title'       => 'Commercial market evaluations',
-        'description' => 'Track valuations for commercial, industrial, hospitality and agricultural properties, and start a new one.',
+        'description' => 'Track evaluations for commercial, industrial, hospitality and agricultural properties, and start a new one.',
         'route'       => 'commercial-evaluations.index',
         'permission'  => 'access_commercial_evaluations',
         'setup'       => [['action' => 'scrollTop']],
@@ -317,7 +317,7 @@ return [
                 'element' => '[data-tour="re-commercial-evals-new"]',
                 'do'      => ['action' => 'click', 'say' => 'Click New Evaluation to start one, or press Skip this step to look at your list first.'],
                 'title'   => 'Start a new evaluation',
-                'body'    => 'Click New Evaluation to capture the property and work through its valuation — CoreX gives you a recommended price range you can take to the owner.',
+                'body'    => 'Click New Evaluation to capture the property and work through its evaluation — CoreX gives you a recommended price range you can take to the owner.',
             ],
             [
                 'element' => '[data-tour="re-commercial-evals-filter"]',

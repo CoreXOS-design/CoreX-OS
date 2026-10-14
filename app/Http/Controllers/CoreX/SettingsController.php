@@ -528,7 +528,7 @@ class SettingsController extends Controller
         if ($item->group === 'condition_level'
             && $item->name === PropertySettingItem::CONDITION_BASELINE_NAME) {
             return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])
-                ->with('error', 'The "Average" baseline condition cannot be deleted — it anchors the valuation calc.');
+                ->with('error', 'The "Average" baseline condition cannot be deleted — it anchors the evaluation calc.');
         }
         $item->delete();
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])->with('success', 'Item deleted.');
