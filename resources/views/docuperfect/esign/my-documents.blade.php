@@ -551,7 +551,12 @@
                                                 @elseif($ficaGateState === \App\Services\Compliance\FicaGate::STATE_SUBMITTED)
                                                     <span class="ml-1 font-medium" style="color: var(--ds-green);" title="Submitted — with us for review; it does not hold the signer up">FICA submitted</span>
                                                 @else
+                                                    @if(feature('compliance') && auth()->user()?->hasPermission('access_compliance'))
                                                     <a href="{{ $req->fica_submission_id ? route('compliance.fica.show', $req->fica_submission_id) : '#' }}" class="ml-1 font-medium hover:underline" style="color: var(--ds-amber);">Awaiting FICA</a>
+                                                    @else
+                                                    {{-- no access to the FICA record => plain status, not a link that 403s --}}
+                                                    <span class="ml-1 font-medium" style="color: var(--ds-amber);">Awaiting FICA</span>
+                                                    @endif
                                                 @endif
                                             @endif
                                         </div>
@@ -568,7 +573,12 @@
                                                 @elseif($ficaGateState === \App\Services\Compliance\FicaGate::STATE_SUBMITTED)
                                                     <span class="ml-1 font-medium" style="color: var(--ds-green);" title="Submitted — with us for review; it does not hold the signer up">FICA submitted</span>
                                                 @else
+                                                    @if(feature('compliance') && auth()->user()?->hasPermission('access_compliance'))
                                                     <a href="{{ $req->fica_submission_id ? route('compliance.fica.show', $req->fica_submission_id) : '#' }}" class="ml-1 font-medium hover:underline" style="color: var(--ds-amber);">Awaiting FICA</a>
+                                                    @else
+                                                    {{-- no access to the FICA record => plain status, not a link that 403s --}}
+                                                    <span class="ml-1 font-medium" style="color: var(--ds-amber);">Awaiting FICA</span>
+                                                    @endif
                                                 @endif
                                             @endif
                                         </div>

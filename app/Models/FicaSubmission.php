@@ -431,6 +431,33 @@ class FicaSubmission extends Model
     }
 
     /**
+     * Make sure this submission's public FICA link is usable until at least $until.
+     * Sets attributes only — the caller saves (isDirty() tells it whether to).
+     *
+     * 2026-10-11 hotfix (Johan) — every flow that REUSES an existing submission
+     * (e-sign send, the signing-page FICA gate, rental applications) used to only
+     * mint a token when it was empty. A reused draft whose 14-day link had already
+     * lapsed kept its dead expiry, so a client opened a brand-new signing link,
+     * was sent on to FICA, and hit "This link has expired" within minutes.
+     * Rule now: a reused FICA link never dies before the link that leads to it.
+     * The token itself is kept, so a FICA link the client already has works again.
+     * A token with a NULL expiry never expires and is left alone.
+     */
+    public function keepLinkAliveUntil(\DateTimeInterface $until): void
+    {
+        if (empty($this->token)) {
+            $this->token = \Illuminate\Support\Str::random(64);
+            $this->token_expires_at = $until;
+
+            return;
+        }
+
+        if ($this->token_expires_at !== null && $this->token_expires_at->lt($until)) {
+            $this->token_expires_at = $until;
+        }
+    }
+
+    /**
      * Alias for isTokenExpired() — preserves backward compatibility.
      * For FICA validity expiry, use isFicaExpired() instead.
      */

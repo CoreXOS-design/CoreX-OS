@@ -302,7 +302,7 @@ class SidebarFeatureTogglesTest extends TestCase
         $admin = $this->admin($agency);
         $this->actingAs($admin);
 
-        $settings = view('corex.settings._features')->render();
+        $settings = $this->get(route('corex.features.index'))->assertOk()->getContent();
         $wizard = view('agency-setup.steps.capabilities-modules', ['agency' => $agency])->render();
 
         foreach ([

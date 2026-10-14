@@ -9,6 +9,7 @@ use App\Models\CoreXPermission;
 use App\Models\Role;
 use App\Models\RolePermission;
 use App\Models\User;
+use App\Services\Features\AgencyFeatureService;
 use App\Services\PermissionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -19,10 +20,19 @@ class RoleManagerController extends Controller
 {
     public function index()
     {
+        $features = app(AgencyFeatureService::class);
+
+        // Features page spec §4: a permission owned by a feature this agency has switched OFF is not
+        // shown here (it is frozen, not deleted — see blockedPermissionKeys() use in save/copy below).
+        $blockedKeys = array_flip($features->blockedPermissionKeys());
+        $hiddenFeatures = $features->offFeaturesOwningPermissions();
+
         $permissions = CoreXPermission::orderBy('section')
             ->orderBy('sort_order')
             ->orderBy('label')
-            ->get();
+            ->get()
+            ->reject(fn ($p) => isset($blockedKeys[$p->key]))
+            ->values();
 
         $sections = $permissions->pluck('section')->unique()->values();
 
@@ -265,6 +275,7 @@ class RoleManagerController extends Controller
             'rolesJson'        => $rolesJson,
             'allPermKeys'      => $allPermKeys,
             'moduleActionsMap' => $moduleActionsMap,
+            'hiddenFeatures'   => $hiddenFeatures,
         ]);
     }
 
@@ -292,6 +303,12 @@ class RoleManagerController extends Controller
 
         $matrix = $request->input('permissions', []);
         $scopes  = $request->input('scopes', []);
+
+        // Permissions of a feature this agency has switched OFF are frozen: they are not on the form, so
+        // they must neither be wiped by the delete+insert below nor accepted from a crafted post. Their
+        // existing grants stay exactly as they are, ready for when the feature is turned back on.
+        $blockedKeys = app(AgencyFeatureService::class)->blockedPermissionKeys();
+        $matrix      = array_diff_key($matrix, array_flip($blockedKeys));
 
         // AT-401 — this method rebuilds EVERY row for the role on every save
         // (see the delete+insert below), but the Role Manager UI only ever
@@ -376,9 +393,10 @@ class RoleManagerController extends Controller
         // instead of colliding — re-granting through Role Manager still works.
         // created_at is deliberately NOT in the update columns: a restored row
         // keeps its original grant timestamp rather than looking freshly created.
-        DB::transaction(function () use ($role, $rows, $agencyId) {
+        DB::transaction(function () use ($role, $rows, $agencyId, $blockedKeys) {
             RolePermission::where('role', $role)
                 ->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId), fn ($q) => $q->whereNull('agency_id'))
+                ->when($blockedKeys !== [], fn ($q) => $q->whereNotIn('permission_key', $blockedKeys))
                 ->delete();
 
             if (count($rows)) {
@@ -462,8 +480,12 @@ class RoleManagerController extends Controller
             return redirect()->route('corex.role-manager', ['role' => $source])->withErrors(['target_roles' => 'Select at least one target role that is different from the source.']);
         }
 
+        // Frozen permissions (feature switched off) are neither copied nor overwritten — see savePermissions().
+        $blockedKeys = app(AgencyFeatureService::class)->blockedPermissionKeys();
+
         $sourcePerms = RolePermission::where('role', $source)
             ->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId), fn ($q) => $q->whereNull('agency_id'))
+            ->when($blockedKeys !== [], fn ($q) => $q->whereNotIn('permission_key', $blockedKeys))
             ->get(['permission_key', 'scope']);
 
         $now   = now();
@@ -473,10 +495,11 @@ class RoleManagerController extends Controller
         // above: forceDelete() here would destroy the tombstone savePermissions()
         // now depends on, so a role copy could silently undo a target role's own
         // deliberate revocations. delete()+upsert(), not forceDelete()+insert().
-        DB::transaction(function () use ($targets, $sourcePerms, $now, $agencyId, &$count) {
+        DB::transaction(function () use ($targets, $sourcePerms, $now, $agencyId, $blockedKeys, &$count) {
             foreach ($targets as $target) {
                 RolePermission::where('role', $target)
                     ->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId), fn ($q) => $q->whereNull('agency_id'))
+                    ->when($blockedKeys !== [], fn ($q) => $q->whereNotIn('permission_key', $blockedKeys))
                     ->delete();
 
                 $rows = $sourcePerms->map(fn($p) => [

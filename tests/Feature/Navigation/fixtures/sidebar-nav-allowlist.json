@@ -174,36 +174,6 @@
     ],
     "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
   },
-  "admin.users": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
-  },
-  "admin.users.archived": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
-  },
-  "admin.users.create": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
-  },
-  "admin.users.edit": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
-  },
-  "admin.users.ffc-certificate.download": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
-  },
   "agency.select": {
     "flags": [
       "NO_ITEM"

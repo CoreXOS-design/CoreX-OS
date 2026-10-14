@@ -9,6 +9,7 @@ use App\Models\Role;
 use App\Models\RolePermission;
 use App\Models\User;
 use App\Services\PermissionService;
+use App\Services\Permissions\RoleDefaultsResolver;
 use App\Services\RoleProvisioningService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -93,26 +94,97 @@ final class AgencyScopedRolesTest extends TestCase
         $agency = Agency::create(['name' => 'Provisioned ' . Str::random(5), 'slug' => 'prov-' . Str::random(6)]);
 
         $this->assertSame(2, Role::where('agency_id', $agency->id)->count(), 'admin + agent cloned');
-        PermissionService::clearCache();
-        $this->assertCount(2, PermissionService::getPermissionsForRole('admin', $agency->id));
-        $this->assertCount(1, PermissionService::getPermissionsForRole('agent', $agency->id));
+
+        // Roles come from the templates; GRANTS come from config role_defaults (the template's made-up
+        // 'deals.export' / 'contacts.export' grants are NOT cloned).
+        $this->assertEqualsCanonicalizing($this->configKeysFor('admin'), $this->grantedKeys('admin', $agency->id));
+        $this->assertEqualsCanonicalizing($this->configKeysFor('agent'), $this->grantedKeys('agent', $agency->id));
+        $this->assertNotContains('deals.export', $this->grantedKeys('admin', $agency->id));
     }
 
     public function test_provisioning_is_idempotent_and_non_destructive(): void
     {
-        $this->seedTemplateRole('admin', ['deals.export', 'contacts.export']);
+        $this->seedTemplateRole('admin', []);
         $agency = Agency::create(['name' => 'Idem ' . Str::random(5), 'slug' => 'idem-' . Str::random(6)]);
+        $expected = $this->configKeysFor('admin');
 
         // Agency customised: removed a grant. Re-provision must restore the
-        // missing template grant WITHOUT wiping anything the agency still has.
+        // missing default WITHOUT wiping anything the agency still has.
+        $dropped = $expected[0];
         RolePermission::where('role', 'admin')->where('agency_id', $agency->id)
-            ->where('permission_key', 'contacts.export')->forceDelete();
+            ->where('permission_key', $dropped)->forceDelete();
+        $this->assertNotContains($dropped, $this->grantedKeys('admin', $agency->id));
 
         RoleProvisioningService::provisionForAgency($agency);
-        PermissionService::clearCache();
 
-        $keys = PermissionService::getPermissionsForRole('admin', $agency->id);
-        $this->assertCount(2, $keys, 'Re-provision restores the missing template grant, no duplicates');
+        $keys = $this->grantedKeys('admin', $agency->id);
+        $this->assertContains($dropped, $keys, 'Re-provision restores the missing default grant');
+        $this->assertCount(count($expected), $keys, 'no duplicates');
+    }
+
+    public function test_a_new_agency_starts_at_bare_minimum_even_if_the_template_grants_are_over_broad(): void
+    {
+        // Johan, 2026-10-12: "each role should get bare minimum ... until an admin gives permissions
+        // they should stay like that." The global template's grants had drifted far past the config
+        // (office_admin ~312 vs 6); cloning them gave every new agency that access.
+        $this->seedTemplateRole('office_admin', ['access_role_manager', 'edit_permissions', 'impersonate_users', 'run_payroll']);
+        $this->seedTemplateRole('agent', ['compliance.manage', 'finance.view', 'roles.view', 'contacts.delete']);
+        $this->seedTemplateRole('assistant', ['access_role_manager']);
+
+        $agency = Agency::create(['name' => 'Minimal ' . Str::random(5), 'slug' => 'min-' . Str::random(6)]);
+
+        $officeAdmin = $this->grantedKeys('office_admin', $agency->id);
+        $this->assertEqualsCanonicalizing($this->configKeysFor('office_admin'), $officeAdmin);
+        $this->assertNotContains('access_role_manager', $officeAdmin, 'an office admin must not start with Role Manager');
+        $this->assertNotContains('run_payroll', $officeAdmin);
+
+        $agent = $this->grantedKeys('agent', $agency->id);
+        $this->assertEqualsCanonicalizing($this->configKeysFor('agent'), $agent);
+        foreach (['compliance.manage', 'finance.view', 'roles.view', 'contacts.delete'] as $k) {
+            $this->assertNotContains($k, $agent, "an agent must not start with {$k}");
+        }
+
+        $this->assertSame([], $this->grantedKeys('assistant', $agency->id), 'the assistant role stays at zero grants');
+    }
+
+    public function test_a_new_agencys_admin_gets_every_permission_except_the_platform_owner_only_ones(): void
+    {
+        $this->seedTemplateRole('admin', []); // an empty template must not shrink what a new admin gets
+
+        $agency = Agency::create(['name' => 'AdminAll ' . Str::random(5), 'slug' => 'adm-' . Str::random(6)]);
+        $granted = $this->grantedKeys('admin', $agency->id);
+
+        $allKeys = array_column(config('corex-permissions.permissions'), 'key');
+        $ownerOnly = config('corex-permissions.role_defaults.admin.exclude');
+
+        $this->assertNotEmpty($ownerOnly);
+        $this->assertEqualsCanonicalizing(array_values(array_diff($allKeys, $ownerOnly)), $granted);
+        $this->assertContains('access_role_manager', $granted, 'the agency admin can run Role Manager to widen other roles');
+        foreach ($ownerOnly as $k) {
+            $this->assertNotContains($k, $granted, "{$k} is platform-owner-only");
+        }
+    }
+
+    public function test_a_role_with_no_config_defaults_gets_no_grants_and_view_scopes_follow_the_role(): void
+    {
+        $this->seedTemplateRole('admin', []);
+        $this->seedTemplateRole('agent', []);
+        $this->seedTemplateRole('rentals_manager', ['deals.export']); // custom template role, not in role_defaults
+
+        $agency = Agency::create(['name' => 'Scope ' . Str::random(5), 'slug' => 'scp-' . Str::random(6)]);
+
+        $this->assertTrue(Role::where('agency_id', $agency->id)->where('name', 'rentals_manager')->exists());
+        $this->assertSame([], $this->grantedKeys('rentals_manager', $agency->id));
+
+        // .view keys carry a data scope from scope_defaults (admin = all, agent = own), shared modules = all.
+        $shared = config('corex-permissions.shared_scope_modules');
+        foreach (['admin' => 'all', 'agent' => 'own'] as $role => $scope) {
+            $viewKey = collect($this->configKeysFor($role))
+                ->first(fn ($k) => str_ends_with($k, '.view') && ! in_array(explode('.', $k)[0], $shared, true));
+            $this->assertNotNull($viewKey, "{$role} has at least one non-shared .view default");
+            $this->assertSame($scope, RolePermission::where('role', $role)->where('agency_id', $agency->id)
+                ->where('permission_key', $viewKey)->value('scope'), "{$role} {$viewKey} scope");
+        }
     }
 
     public function test_provisioning_survives_duplicate_global_templates(): void
@@ -130,11 +202,27 @@ final class AgencyScopedRolesTest extends TestCase
 
         $this->assertSame(1, Role::where('agency_id', $agency->id)->where('name', 'admin')->count(),
             'Exactly one admin role cloned despite two global templates');
-        PermissionService::clearCache();
-        $this->assertCount(2, PermissionService::getPermissionsForRole('admin', $agency->id));
+        $this->assertCount(count($this->configKeysFor('admin')), $this->grantedKeys('admin', $agency->id),
+            'one set of default grants, not doubled by the duplicate template');
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
+
+    /** The config's bare-minimum key set for a role (what a new agency must start with). */
+    private function configKeysFor(string $role): array
+    {
+        $cfg = config('corex-permissions');
+
+        return array_values(array_unique(
+            RoleDefaultsResolver::keysForDef($cfg['role_defaults'][$role], array_column($cfg['permissions'], 'key'))
+        ));
+    }
+
+    /** Live grant keys a role holds in an agency. */
+    private function grantedKeys(string $role, int $agencyId): array
+    {
+        return RolePermission::where('role', $role)->where('agency_id', $agencyId)->pluck('permission_key')->all();
+    }
 
     private function makeAgency(): int
     {

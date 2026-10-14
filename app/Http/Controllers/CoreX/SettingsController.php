@@ -35,6 +35,12 @@ class SettingsController extends Controller
     {
         $user = auth()->user();
 
+        // The Features section moved out of Settings to its own page (features-page.md §5). Old bookmarks and links
+        // (/corex/settings?s=features) keep working.
+        if ($request->get('s') === 'features') {
+            return redirect()->route('corex.features.index');
+        }
+
         // New hub: single ?s=section-key drives the right pane.
         // Legacy ?tab= / ?fsec= still supported and mapped forward.
         $section = $request->get('s');

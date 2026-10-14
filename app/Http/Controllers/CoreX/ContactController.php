@@ -304,6 +304,9 @@ class ContactController extends Controller
         $contactIdentifierLabels = \App\Models\ContactIdentifierLabel::where('is_active', true)
             ->orderBy('sort_order')->orderBy('name')->get();
 
+        // Quick Links W1 — FICA chip per row, batch-loaded for THIS page only (2 queries total, not 2 per row).
+        $ficaQuickByContact = feature('compliance') ? Contact::ficaQuickStatesFor($contacts->getCollection()) : [];
+
         $agentList     = $canPickAgent ? $this->agentList()->values() : collect();
         $selectedAgent = ($canPickAgent && $filterAgentId !== '')
             ? $agentList->firstWhere('id', (int) $filterAgentId)
@@ -311,7 +314,7 @@ class ContactController extends Controller
 
         return view('corex.contacts.index', compact(
             'contacts', 'contactTypes', 'typeFilterOptions', 'contactIdentifierLabels', 'filterAgentId', 'agentList', 'selectedAgent', 'canPickAgent',
-            'restrictedContactIds', 'isRentalEntry', 'dataScope'
+            'restrictedContactIds', 'isRentalEntry', 'dataScope', 'ficaQuickByContact'
         ));
     }
 
