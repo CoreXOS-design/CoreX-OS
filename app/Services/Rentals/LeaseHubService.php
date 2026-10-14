@@ -125,6 +125,15 @@ class LeaseHubService
         // A renewal is the same tenancy carrying on: the tenant is already in the property, so it never needs its own in-inspection
         // (the term it renews had one; the Command Centre's due-inspection rule says the same).
         if ($lease->status === Lease::STATUS_ACTIVE && !$hasCompletedIn && !$lease->previous_lease_id) {
+            // cc5's second walk (lease 124): an in-inspection that is already begun - in progress or out for signature - IS the current step. Offering
+            // "Start in-inspection" beside one that is awaiting signature sent the agent to a second, duplicate inspection.
+            $open = $lease->inspections()->where('type', RentalInspection::TYPE_IN)
+                ->whereIn('status', [RentalInspection::STATUS_DRAFT, RentalInspection::STATUS_IN_PROGRESS, RentalInspection::STATUS_AWAITING_SIGNATURE])
+                ->orderByDesc('id')->first();
+            if ($open) {
+                return ['label' => 'Continue in-inspection', 'route_name' => 'corex.rental-inspections.show', 'route_param' => $open->id];
+            }
+
             return ['label' => 'Start in-inspection', 'route_name' => 'corex.rental-inspections.create', 'route_param' => ['lease_id' => $lease->id, 'type' => 'in']];
         }
 

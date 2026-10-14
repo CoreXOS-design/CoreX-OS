@@ -560,6 +560,25 @@ class Lease extends Model
     }
 
     /**
+     * cc5's second walk (lease 115, 14 Oct 2026): a move-out notice AND a renewal for the same tenancy contradict each other (the tenant is leaving on one date and
+     * staying from another). The renewal used to win silently. Returns the plain agent-facing sentence while BOTH exist on this lease, else null.
+     */
+    public function noticeRenewalConflict(): ?string
+    {
+        if ($this->status !== self::STATUS_ACTIVE || ! $this->hasActiveNotice()) {
+            return null;
+        }
+        $renewal = $this->renewalDrafts()->orderBy('start_date')->first();
+        if (! $renewal) {
+            return null;
+        }
+
+        return 'This lease has a move-out notice (move-out ' . ($this->move_out_date?->format('j M Y') ?? 'date not set') . ') AND a renewal starting '
+            . ($renewal->start_date?->format('j M Y') ?? 'on a date not set') . ($renewal->isSignedRenewalAwaitingStart() ? ' that is already signed' : '')
+            . '. They contradict each other - the renewal will take over unless you withdraw one: reverse the notice (Lease actions), or cancel the renewal.';
+    }
+
+    /**
      * AT-439 §G — derived, never duplicated onto this model. This is the
      * ONLY definition of this method — the other, AT-440/cc3 copy was
      * removed during a 2026-10-04 QA1 outage (duplicate-declaration 500,

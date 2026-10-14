@@ -24,6 +24,8 @@ class RentalInspectionSigningLinkMail extends BaseSignatureMail
         public ?string $agentName = null,
         // §47 — the report was changed after this person signed; their earlier signature was voided and the agent is resending.
         public bool $reSign = false,
+        // the agent's own copy: where THEY sign - the inspection's own screen in CoreX (the link in this mail is for reading only)
+        public ?string $openInCoreXUrl = null,
     ) {}
 
     public function envelope(): Envelope

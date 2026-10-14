@@ -45,6 +45,10 @@ class LeaseRenewalService
             ]);
         }
 
+        if ($reason = $this->renewalBlockedByNotice($current)) {
+            throw ValidationException::withMessages(['lease' => $reason]);
+        }
+
         return DB::transaction(function () use ($current, $terms, $user) {
             // leases.md §17 — a renewal carries both agents forward from the term it renews (the capture screen may have
             // changed them, and says so in $terms); never reset to the property's agent on the way.
@@ -229,12 +233,38 @@ class LeaseRenewalService
      * reverseNotice()/changeNoticeOutcome() below know exactly which
      * property-side effect (if any) must be undone/replaced.
      */
+    /** cc5 walk 2: no renewal while a move-out notice stands on the lease - the agent withdraws one first. Null = clear to renew. */
+    public function renewalBlockedByNotice(Lease $current): ?string
+    {
+        if (! $current->hasActiveNotice()) {
+            return null;
+        }
+
+        return 'A move-out notice is on file for this lease (move-out ' . ($current->move_out_date?->format('j M Y') ?? 'date not set') . '), so it cannot be renewed. '
+            . 'If the tenant is staying after all, reverse the notice first (Lease actions > Reverse notice), then renew.';
+    }
+
+    /** cc5 walk 2: no move-out notice while a renewal is in progress or signed - the agent cancels the renewal first. Null = clear to record the notice. */
+    public function noticeBlockedByRenewal(Lease $lease): ?string
+    {
+        $renewal = $lease->renewalDrafts()->orderBy('start_date')->first();
+        if (! $renewal) {
+            return null;
+        }
+
+        return 'A renewal starting ' . ($renewal->start_date?->format('j M Y') ?? 'on a date not set') . ($renewal->isSignedRenewalAwaitingStart() ? ' is already signed' : ' is in progress')
+            . ' for this lease, so a move-out notice cannot be recorded. If the tenant is leaving after all, cancel the renewal first, then record the notice.';
+    }
+
     public function recordNotice(Lease $lease, string $givenBy, string $moveOutDate, ?string $note, User $user, string $outcome, ?bool $showAvailableFromOnPortals = null): Lease
     {
         if (!in_array($givenBy, [Lease::NOTICE_BY_TENANT, Lease::NOTICE_BY_LANDLORD], true)) {
             throw ValidationException::withMessages(['notice_given_by' => 'Invalid notice source.']);
         }
         $this->guardNoticeOutcome($outcome);
+        if ($reason = $this->noticeBlockedByRenewal($lease)) {
+            throw ValidationException::withMessages(['move_out_date' => $reason]);
+        }
 
         return DB::transaction(function () use ($lease, $givenBy, $moveOutDate, $note, $user, $outcome, $showAvailableFromOnPortals) {
             $lease->update([

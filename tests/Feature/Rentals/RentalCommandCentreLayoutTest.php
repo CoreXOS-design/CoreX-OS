@@ -59,6 +59,16 @@ final class RentalCommandCentreLayoutTest extends TestCase
         $this->assertStringContainsString('Showing: Occupied', $html);
     }
 
+    public function test_the_pagers_stack_the_count_above_the_buttons_so_they_cannot_overlap_at_1366_and_1280(): void
+    {
+        // cc5 walk 2: "Showing 1 to 25 of 577 results" was squeezed beside a long run of page buttons and ran on top of them
+        $html = $this->page();
+
+        $this->assertStringContainsString('.cc-pager nav > div:nth-of-type(2) { flex-direction: column;', $html);
+        $this->assertStringContainsString('flex-wrap: wrap', $html, 'a long row of page buttons wraps instead of overflowing');
+        $this->assertGreaterThanOrEqual(1, substr_count($html, 'flex-shrink-0 pt-2 cc-pager'), 'the property list pager is inside the stacked layout');
+    }
+
     public function test_tile_text_is_clamped_to_two_lines(): void
     {
         $html = $this->page();

@@ -158,7 +158,7 @@ class RentalWorkOrderClientViewService
     public function appointmentAt(RentalWorkOrder $workOrder, bool $office = false): ?\Illuminate\Support\Carbon
     {
         $own = $workOrder->appointment_at;
-        if ($own !== null && ! $office && ! $this->jobApproved($workOrder)) {
+        if ($own !== null && ! $office && $this->appointmentBlock($workOrder) !== null) {
             $own = null;
         }
 
@@ -180,6 +180,29 @@ class RentalWorkOrderClientViewService
         $decision = app(\App\Services\Rentals\RentalApprovalGateService::class)->authoriseToProceed($workOrder, false);
 
         return $decision->authorised ? null : $decision->note;
+    }
+
+    /**
+     * The plain reason an APPOINTMENT cannot be booked (or shown) yet, or null when it can. cc5's second walk (WO 182, 14 Oct 2026): a job that had only been SENT
+     * - "sent is by definition cleared" in approvalBlock() - could be booked, and the tenant and contractor mailed, before the owner had authorised the cost.
+     * Spec §22.18 E / §22.17 (quote-first): an appointment waits for the owner's go-ahead - a cost authority (the owner approved, an agent authorisation record under
+     * the owner's limit, an emergency, old grandfathered work), or an authorised "send <name> to look and quote" visit. The owner's own contractor and the agency's
+     * own crew (its job card carries its own gate) are exempt, as in the progress rule.
+     */
+    public function appointmentBlock(RentalWorkOrder $workOrder): ?string
+    {
+        if ($blocked = $this->approvalBlock($workOrder)) {
+            return $blocked;
+        }
+        if ($workOrder->isOwnerContractor() || $workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL) {
+            return null;
+        }
+        $auth = app(\App\Services\Rentals\RentalAuthorisationService::class);
+        if ($auth->hasCostAuthority($workOrder) || $auth->activeFor($workOrder, \App\Models\RentalAuthorisation::POINT_INSPECT)?->isAuthorised()) {
+            return null;
+        }
+
+        return 'The owner has not authorised the cost yet - authorise it (or record the owner\'s go-ahead) first.';
     }
 
     /**
@@ -315,7 +338,7 @@ class RentalWorkOrderClientViewService
             $payload['owner_work_started'] = $workStarted;
             // Johan, 14 Oct 2026: the owner may set it only when nobody lives in the property; with a tenant they only SEE it (the server refuses it too)
             $payload['owner_tenant_in_property'] = app(RentalWorkOrderService::class)->propertyHasTenant($workOrder);
-            $payload['owner_can_appoint'] = ! $workStarted && ! $payload['owner_tenant_in_property'] && ! in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true) && $this->jobApproved($workOrder);
+            $payload['owner_can_appoint'] = ! $workStarted && ! $payload['owner_tenant_in_property'] && ! in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true) && $this->appointmentBlock($workOrder) === null;
             // §17.31 — supplier invoices the agent has chosen to share. LANDLORD only: the tenant payload never carries this key.
             $payload['invoices'] = app(RentalWorkOrderInvoiceService::class)->ownerPayload($workOrder);
         }

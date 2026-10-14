@@ -390,7 +390,7 @@ class RentalWorkOrderService
         }
         // Johan, 9 Oct 2026: an appointment (and the email to the tenant naming the contractor) only once the job is approved - within the owner's
         // no-approval limit, approved by the owner, an emergency, or the owner's own contractor. Before that the contractor may not even have a price.
-        $blocked = app(RentalWorkOrderClientViewService::class)->approvalBlock($workOrder->fresh() ?? $workOrder);
+        $blocked = app(RentalWorkOrderClientViewService::class)->appointmentBlock($workOrder->fresh() ?? $workOrder);
         if ($blocked !== null) {
             throw new \LogicException('An appointment can only be set once the job has been approved. ' . $blocked);
         }

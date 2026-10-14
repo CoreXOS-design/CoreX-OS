@@ -645,7 +645,8 @@
         <div @if($isOpen && ! $woReportedFinished && $woCan['create']) id="appointment-card" @endif>
         @if($isOpen && ! $woReportedFinished && $woCan['create'])
             {{-- Johan, 9 Oct 2026: an appointment (and the email to the tenant) only once the job is approved. --}}
-            @if($proceed->authorised || in_array($workOrder->status, [\App\Models\RentalWorkOrder::STATUS_ORDERED, \App\Models\RentalWorkOrder::STATUS_IN_PROGRESS, \App\Models\RentalWorkOrder::STATUS_DISPUTED], true))
+            @php $woApptBlock = app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->appointmentBlock($workOrder); @endphp
+            @if($woApptBlock === null)
                 @php $apptValue = $workOrder->appointment_at?->copy()->setTimezone($woTz)->format('Y-m-d\TH:i'); @endphp
                 <form method="POST" action="{{ route('corex.rental-work-orders.appointment.store', $workOrder) }}" class="wo-appt-form">
                     @csrf
@@ -667,7 +668,7 @@
                 </form>
                 <p class="text-xs mt-2" style="color: var(--text-muted);">The tenant is emailed when you set or change this.</p>
             @else
-                <p class="text-xs" style="color: var(--text-muted);" data-appointment-locked>An appointment can be set once the cost is authorised.</p>
+                <p class="text-xs" style="color: var(--text-muted);" data-appointment-locked>An appointment can be set once the cost is authorised. {{ $woApptBlock }}</p>
             @endif
         @else
             <p class="text-sm">{{ $apptText }}</p>

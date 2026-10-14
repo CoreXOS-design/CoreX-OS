@@ -418,6 +418,7 @@ class RentalInspectionSigningLinkService
             canSign: $party['role'] !== RentalInspectionSigningLink::ROLE_AGENT,
             agentName: $by->name,
             reSign: $this->mustSignAgain($inspection, $party),
+            openInCoreXUrl: $party['role'] === RentalInspectionSigningLink::ROLE_AGENT ? route('corex.rental-inspections.show', $inspection) : null,
         );
 
         $result = app(SignedDocumentDistributionService::class)->sendGenericMail($party['email'], $mail, $by);

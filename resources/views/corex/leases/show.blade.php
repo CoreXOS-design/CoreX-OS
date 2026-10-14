@@ -585,6 +585,11 @@
                 </div>
                 {{-- FICA is a WARNING here, never a stop (Johan, 2026-10-08): activating, signing and portal access carry on
                      whatever the FICA state; this only says who still needs to submit it, with the link to request/complete it. --}}
+                @if($noticeRenewalConflict = $lease->noticeRenewalConflict())
+                    <div class="text-xs rounded-md px-3 py-2" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);" data-qa="lease-notice-renewal-conflict">
+                        <strong>Move-out notice and renewal contradict each other.</strong> {{ $noticeRenewalConflict }}
+                    </div>
+                @endif
                 @foreach($ficaWarnings as $ficaWarning)
                     <div class="text-xs rounded-md px-3 py-2" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);" data-qa="lease-fica-warning">
                         {{ $ficaWarning['warning'] }}

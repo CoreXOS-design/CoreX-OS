@@ -26,7 +26,8 @@
                 Open it on your phone or computer, go through the rooms and photos, and when you are happy with it you can sign it right there.
             @else
                 The {{ strtolower($inspectionLabel) }} report for <strong>{{ $propertyAddress }}</strong> is ready to read.
-                This link is for reading it only - the agent signs with their own login and signing PIN.
+                You sign it inside CoreX with your own login and signing PIN: <strong>open the inspection in CoreX, find the Agent line and press &ldquo;Sign with PIN&rdquo;</strong>
+                (it appears once everyone else has signed). The button below is for reading the report only.
             @endif
         </p>
 
@@ -35,6 +36,14 @@
                 {{ $canSign ? 'READ AND SIGN THE REPORT' : 'READ THE REPORT' }}
             </a>
         </div>
+
+        @if(! $canSign && ! empty($openInCoreXUrl))
+        <div style="text-align: center; margin: 0 0 24px;">
+            <a href="{{ $openInCoreXUrl }}" style="display: inline-block; background-color: #ffffff; color: #276749; border: 2px solid #276749; padding: 12px 32px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 15px;">
+                OPEN THE INSPECTION IN COREX
+            </a>
+        </div>
+        @endif
 
         <p style="font-size: 13px; color: #666;">
             This link is personal to you — please do not forward it.

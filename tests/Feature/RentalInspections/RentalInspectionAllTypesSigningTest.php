@@ -212,9 +212,10 @@ final class RentalInspectionAllTypesSigningTest extends TestCase
     {
         foreach (['ad_hoc', 'interim', 'out'] as $type) {
             $first = $this->recording(RentalInspection::TYPE_IN);
+            // since 13 Oct (00752b3cf, Sherry walk: "Next inspection only once complete") the picker is offered on a FINISHED inspection only
+            $first->forceFill(['status' => RentalInspection::STATUS_COMPLETED, 'completed_at' => now()])->save();
             $this->get(route('corex.rental-inspections.show', $first))->assertOk()
                 ->assertSee('value="ad_hoc"', false)->assertSee('value="interim"', false)->assertSee('value="out"', false);
-            $first->forceFill(['status' => RentalInspection::STATUS_COMPLETED, 'completed_at' => now()])->save();
 
             $this->post(route('corex.rental-inspections.next', $first), ['type' => $type])->assertRedirect();
             $this->assertSame($type, RentalInspection::where('previous_inspection_id', $first->id)->value('type'));

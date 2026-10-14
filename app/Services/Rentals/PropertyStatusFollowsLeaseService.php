@@ -222,8 +222,16 @@ class PropertyStatusFollowsLeaseService
                 break;
             }
         }
+        // cc5's second walk (property 21209, 14 Oct 2026): the property went back on the market asking the ORIGINAL rent (R14,500) although the tenancy's last rent was
+        // R15,660 - the agent had to re-price by hand. The last rent carries over to the asking rent (the property's own rent field stays editable by the agent).
+        $oldRent = $property->rental_amount;
+        $carriedRent = $this->lastRentToCarry($lease, $property);
+
         if ($newStatus === null) {
             $property->status_before_letting = null;
+            if ($carriedRent !== null) {
+                $property->rental_amount = $carriedRent;
+            }
             $property->save();
 
             return;
@@ -234,6 +242,9 @@ class PropertyStatusFollowsLeaseService
         $property->status = $newStatus;
         $property->lease_start_date = $availabilityDate;
         $property->status_before_letting = null;
+        if ($carriedRent !== null) {
+            $property->rental_amount = $carriedRent;
+        }
         $property->save();
 
         app(PropertyAuditService::class)->log(
@@ -241,10 +252,25 @@ class PropertyStatusFollowsLeaseService
             'property',
             'status_changed',
             $user,
-            ['status' => $oldStatus],
-            ['status' => $newStatus, 'available_from' => $availabilityDate],
+            ['status' => $oldStatus] + ($carriedRent !== null ? ['rental_amount' => $oldRent] : []),
+            ['status' => $newStatus, 'available_from' => $availabilityDate] + ($carriedRent !== null ? ['rental_amount' => $carriedRent] : []),
             metadata: ['cause' => $cause],
-            humanSummary: "Status changed from " . ucfirst($oldStatus ?: 'none') . " to " . ucfirst($newStatus) . " — {$cause}",
+            humanSummary: "Status changed from " . ucfirst($oldStatus ?: 'none') . " to " . ucfirst($newStatus) . " — {$cause}"
+                . ($carriedRent !== null ? '; asking rent set to the last lease rent R ' . number_format($carriedRent, 0, '.', ' ') : ''),
         );
+    }
+
+    /**
+     * The rent the property should be offered at again: the ended lease's last monthly rent, when this is a rental property, the lease actually carried a rent,
+     * and it differs from what the property already asks. Null = leave the asking rent alone.
+     */
+    private function lastRentToCarry(Lease $lease, Property $property): ?float
+    {
+        $rent = (float) $lease->rental_amount;
+        if ($rent <= 0 || ! $property->isRental() || abs($rent - (float) $property->rental_amount) < 0.005) {
+            return null;
+        }
+
+        return $rent;
     }
 }

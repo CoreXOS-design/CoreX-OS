@@ -146,6 +146,48 @@ final class RenewalWalkFixesTest extends TestCase
         $this->assertFalse($previous->fresh()->is_month_to_month);
     }
 
+    public function test_a_move_out_notice_and_a_renewal_cannot_both_stand_and_the_lease_screen_says_so(): void
+    {
+        // cc5 walk 2 (lease 115): move-out 31 Mar 2027 AND a signed renewal from 1 Nov 2027 - the renewal won silently
+        [$previous, $renewal, $envelope, $document] = $this->renewalOut();
+        $renewals = app(\App\Services\Rentals\LeaseRenewalService::class);
+
+        // a notice cannot be recorded while a renewal is in progress / signed
+        $this->complete($envelope, $document);
+        try {
+            $renewals->recordNotice($previous->fresh(), Lease::NOTICE_BY_TENANT, '2027-03-31', null, $this->agent, Lease::NOTICE_OUTCOME_LEAVE);
+            $this->fail('the notice was accepted beside a signed renewal');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->assertStringContainsString('already signed', $e->errors()['move_out_date'][0]);
+            $this->assertStringContainsString('cancel the renewal first', $e->errors()['move_out_date'][0]);
+        }
+        $this->assertNull($previous->fresh()->notice_date);
+
+        // and no renewal while a notice stands (the renewal cannot be created, the screen turns the agent back)
+        $other = Lease::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id,
+            'status' => Lease::STATUS_ACTIVE, 'rental_amount' => 9000, 'start_date' => '2026-06-01', 'end_date' => '2027-05-31', 'source' => 'manual',
+            'created_by_user_id' => $this->agent->id, 'notice_date' => now()->toDateString(), 'move_out_date' => '2027-03-31', 'notice_given_by' => Lease::NOTICE_BY_TENANT, 'notice_outcome' => Lease::NOTICE_OUTCOME_LEAVE,
+        ]);
+        try {
+            $renewals->createRenewalTerm($other->fresh(), ['start_date' => '2027-06-01', 'rental_amount' => 9500], $this->agent);
+            $this->fail('a renewal was created beside a move-out notice');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->assertStringContainsString('cannot be renewed', $e->errors()['lease'][0]);
+            $this->assertStringContainsString('Reverse notice', $e->errors()['lease'][0]);
+        }
+        $this->actingAs($this->agent)->get(route('corex.leases.renewal.create', $other))->assertRedirect(route('corex.leases.show', $other))->assertSessionHasErrors('lease');
+
+        // data that already contradicts itself (a notice recorded before this rule) is flagged on the lease screen, in plain words
+        $previous->forceFill(['notice_date' => now()->toDateString(), 'move_out_date' => '2027-03-31', 'notice_given_by' => Lease::NOTICE_BY_TENANT, 'notice_outcome' => Lease::NOTICE_OUTCOME_LEAVE])->save();
+        $this->assertNotNull($previous->fresh()->noticeRenewalConflict());
+        $page = $this->actingAs($this->agent)->get(route('corex.leases.show', $previous))->assertOk()->getContent();
+        $this->assertStringContainsString('data-qa="lease-notice-renewal-conflict"', $page);
+        $this->assertStringContainsString('Move-out notice and renewal contradict each other', $page);
+        $this->assertStringContainsString('already signed', $page);
+        $this->assertNull($other->fresh()->noticeRenewalConflict(), 'a notice alone is not a conflict');
+    }
+
     public function test_on_its_start_date_the_renewal_goes_active_and_the_old_term_expires_with_it(): void
     {
         [$previous, $renewal, $envelope, $document] = $this->renewalOut();

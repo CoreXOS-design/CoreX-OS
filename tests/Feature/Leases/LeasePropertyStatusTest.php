@@ -283,6 +283,30 @@ final class LeasePropertyStatusTest extends TestCase
         self::assertSame(Lease::STATUS_EXPIRED, $lease->fresh()->status);
     }
 
+    public function test_row6_the_property_is_offered_again_at_the_last_lease_rent_not_the_original_asking_rent(): void
+    {
+        // cc5 walk 2 (property 21209): asked R14,500, the tenancy ended on R15,660 - the relisting carries the LAST rent (the agent can still change it)
+        $this->property->forceFill(['rental_amount' => 14500])->save();
+        $lease = $this->activeLease(['end_date' => now()->subDay()->toDateString(), 'rental_amount' => 15660]);
+        self::assertSame(14500.0, (float) $this->property->fresh()->rental_amount, 'letting does not move the asking rent');
+
+        RentalInspection::create([
+            'agency_id' => $this->agency->id, 'lease_id' => $lease->id, 'property_id' => $this->property->id,
+            'type' => RentalInspection::TYPE_OUT, 'status' => RentalInspection::STATUS_COMPLETED,
+        ]);
+        app(\App\Services\Rentals\LeaseTermAdvanceService::class)->endIfVacated($lease->fresh());
+
+        self::assertSame(Lease::STATUS_EXPIRED, $lease->fresh()->status);
+        self::assertSame(15660.0, (float) $this->property->fresh()->rental_amount, 'relisted at the last lease rent');
+        self::assertTrue($this->property->fresh()->isOnMarket());
+
+        // a sale listing's price is never touched by a lease
+        $sale = Property::forceCreate(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'agent_id' => $this->agent->id, 'title' => 'Sale', 'status' => 'active', 'listing_type' => 'sale', 'price' => 1000000, 'rental_amount' => 5000]);
+        $saleLease = Lease::create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $sale->id, 'status' => Lease::STATUS_ACTIVE, 'rental_amount' => 7000, 'start_date' => now()->subMonth()->toDateString(), 'source' => 'manual', 'created_by_user_id' => $this->agent->id]);
+        app(\App\Services\Rentals\PropertyStatusFollowsLeaseService::class)->restorePreLetStatus($saleLease, 'test', now()->toDateString());
+        self::assertSame(5000.0, (float) $sale->fresh()->rental_amount);
+    }
+
     public function test_row6_respects_the_agency_toggle(): void
     {
         LeaseSetting::create(['agency_id' => $this->agency->id, 'auto_restore_status_on_lease_ended' => false]);

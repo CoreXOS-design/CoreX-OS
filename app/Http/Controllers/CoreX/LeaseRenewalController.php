@@ -48,6 +48,10 @@ class LeaseRenewalController extends Controller
             return redirect()->route('corex.leases.show', $lease)->withErrors(['lease' => 'Only an active lease can be renewed.']);
         }
 
+        if ($reason = app(LeaseRenewalService::class)->renewalBlockedByNotice($lease)) {
+            return redirect()->route('corex.leases.show', $lease)->withErrors(['lease' => $reason]);
+        }
+
         $lease->load(['property', 'tenants.contact']);
         $screen = $this->leaseCaptureScreen($request->user(), $lease);
 

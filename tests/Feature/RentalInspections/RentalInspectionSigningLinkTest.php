@@ -1324,9 +1324,13 @@ final class RentalInspectionSigningLinkTest extends TestCase
         $link = $this->issue($inspection, 'agent');
         $this->postJson(route('corex.rental-inspections.signing-links.email', [$inspection, $link]))->assertOk();
 
-        Mail::assertSent(RentalInspectionSigningLinkMail::class, function (RentalInspectionSigningLinkMail $mail) {
+        Mail::assertSent(RentalInspectionSigningLinkMail::class, function (RentalInspectionSigningLinkMail $mail) use ($inspection) {
             return $mail->canSign === false
-                && str_contains($mail->render(), 'the agent signs with their own login and signing PIN')
+                && str_contains($mail->render(), 'You sign it inside CoreX with your own login and signing PIN')
+                && str_contains($mail->render(), 'Sign with PIN')
+                && str_contains($mail->render(), 'OPEN THE INSPECTION IN COREX')
+                && str_contains($mail->render(), route('corex.rental-inspections.show', $inspection))
+                && ! str_contains($mail->render(), 'the agent signs')
                 && str_contains($mail->render(), 'READ THE REPORT');
         });
     }
@@ -1339,6 +1343,9 @@ final class RentalInspectionSigningLinkTest extends TestCase
         $this->assertStringContainsString('Not everyone has signed yet - press to see what is still needed', $html);
         $this->assertStringContainsString('!readyToComplete(', $html);
         $this->assertStringContainsString('data-qa="set-signature-link"', $html);
+        // cc5 walk 2: the hint lands on Profile (-> Signature & PIN is its first section), not on the My Portal overview
+        $this->assertMatchesRegularExpression('~href="[^"]*/my-portal#profile"[^>]*data-qa="set-signature-link"~', $html);
+        $this->assertStringContainsString('Profile &rarr; Signature &amp; PIN', $html);
         $this->assertStringContainsString("saveAgentSignatureFor(", $html);
         $this->assertStringContainsString('$root.dataset.autosaved', $html);
         $this->assertStringContainsString('data-qa="filter-show-all"', $html);

@@ -77,6 +77,14 @@
 @endphp
 
 @section('content')
+{{-- cc5 walk 2 (14 Oct 2026): at 1366 / 1280 the "Showing 1 to 25 of 577 results" text was squeezed into a sliver beside the long page-button row and ran on top of it
+     (and the narrow needs-action panel did the same). Here the count sits on its own line ABOVE the buttons, and a long row of page buttons wraps instead of overflowing. --}}
+<style>
+    .cc-pager nav > div:nth-of-type(2) { flex-direction: column; align-items: flex-start; gap: .5rem; }
+    .cc-pager nav > div:nth-of-type(2) > div { max-width: 100%; }
+    .cc-pager nav > div:nth-of-type(2) p { white-space: normal; }
+    .cc-pager nav > div:nth-of-type(2) span.inline-flex { flex-wrap: wrap; row-gap: 4px; }
+</style>
 <div class="p-6 space-y-4">
     @include('corex.alerts-off._summary-line')
     <div class="flex items-center justify-between flex-wrap gap-2">
@@ -287,9 +295,9 @@
                 @endif
             </div>
             @if($queueGroupBy === 'none' && $queue->hasPages())
-            <div class="px-3 py-2 flex-shrink-0" style="border-top: 1px solid var(--border);">{{ $queue->links() }}</div>
+            <div class="px-3 py-2 flex-shrink-0 cc-pager" style="border-top: 1px solid var(--border);">{{ $queue->links() }}</div>
             @elseif($queueGroupBy !== 'none' && $queueGroups?->hasPages())
-            <div class="px-3 py-2 flex-shrink-0" style="border-top: 1px solid var(--border);">{{ $queueGroups->links() }}</div>
+            <div class="px-3 py-2 flex-shrink-0 cc-pager" style="border-top: 1px solid var(--border);">{{ $queueGroups->links() }}</div>
             @endif
         </div>
 
@@ -444,7 +452,7 @@
                 </table>
             </div>
 
-            <div class="flex-shrink-0 pt-2">{{ $properties->links() }}</div>
+            <div class="flex-shrink-0 pt-2 cc-pager">{{ $properties->links() }}</div>
         </div>
     </div>
 </div>

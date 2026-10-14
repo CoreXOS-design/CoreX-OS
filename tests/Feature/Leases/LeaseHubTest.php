@@ -134,6 +134,27 @@ final class LeaseHubTest extends TestCase
         self::assertSame('Start in-inspection', $nextStep['label']);
     }
 
+    public function test_next_step_continues_an_in_inspection_that_is_already_begun_instead_of_starting_a_second(): void
+    {
+        // cc5 walk 2 (lease 124): the in-inspection was awaiting signature and the card still said "Start in-inspection"
+        [$agency, $branch, $property] = $this->makeAgencyBranchProperty();
+        $lease = Lease::create($this->baseLeaseAttributes($agency, $branch, $property, ['status' => Lease::STATUS_ACTIVE]));
+        self::assertSame('Start in-inspection', app(LeaseHubService::class)->nextStep($lease->fresh())['label']);
+
+        foreach ([\App\Models\RentalInspection::STATUS_AWAITING_SIGNATURE, \App\Models\RentalInspection::STATUS_IN_PROGRESS, \App\Models\RentalInspection::STATUS_DRAFT] as $status) {
+            $open = \App\Models\RentalInspection::create([
+                'agency_id' => $agency->id, 'lease_id' => $lease->id, 'property_id' => $property->id,
+                'type' => \App\Models\RentalInspection::TYPE_IN, 'status' => $status,
+            ]);
+            $step = app(LeaseHubService::class)->nextStep($lease->fresh());
+            self::assertSame('Continue in-inspection', $step['label'], $status);
+            self::assertSame('corex.rental-inspections.show', $step['route_name']);
+            self::assertSame($open->id, $step['route_param']);
+            $open->update(['status' => \App\Models\RentalInspection::STATUS_CANCELLED]);
+        }
+        self::assertSame('Start in-inspection', app(LeaseHubService::class)->nextStep($lease->fresh())['label'], 'cancelled ones do not count');
+    }
+
     public function test_next_step_is_null_for_a_healthy_mid_term_active_lease(): void
     {
         [$agency, $branch, $property] = $this->makeAgencyBranchProperty();

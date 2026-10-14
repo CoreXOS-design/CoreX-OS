@@ -159,6 +159,16 @@
         </div>
         @endif
 
+        @if (empty($unlocked) && $appointmentText)
+        {{-- an appointment that exists is always shown - the mail says this link "shows the details" (cc5 walk 2). Booking now waits for the owner's go-ahead (spec 22.17 / 22.18 E). --}}
+        <div class="card" data-contractor-appointment>
+            <h2>Appointment</h2>
+            <p><strong>{{ $appointmentText }}</strong></p>
+            @if ($appointmentNote)<p class="muted">{{ $appointmentNote }}</p>@endif
+            @if (! empty($appointmentContractorNote))<p data-contractor-note><strong>Note from the agent:</strong> {{ $appointmentContractorNote }}</p>@endif
+        </div>
+        @endif
+
         @if (! empty($unlocked))
         {{-- spec 22.17 - the cost is authorised: everything the contractor needs to finish the job is on this page --}}
         <div class="card" data-go-ahead style="border:2px solid var(--ok);">

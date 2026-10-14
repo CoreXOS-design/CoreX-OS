@@ -554,13 +554,14 @@ final class NightFlowFixesTest extends TestCase
         $this->assertSame('todo', $line('tenant')['appointment_set']['state'], 'but no appointment exists yet');
         $this->assertSame('Ramsgate Electrical', $svc->payload($wo->fresh(), RentalWorkOrderClientViewService::AUDIENCE_TENANT)['contractor_name']);
 
-        // the appointment box is offered (the job is out) and an appointment can be set
+        // cc5 walk 2 (14 Oct 2026, spec 22.17 quote-first): the job is out, but NO cost is authorised - so the appointment box says why instead of offering booking,
+        // and a direct post is refused (nobody is mailed an appointment for a job the owner has not authorised)
         $html = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
-        $this->assertStringContainsString('name="appointment_at"', $html);
-        $this->assertStringNotContainsString('data-appointment-locked', $html);
+        $this->assertStringContainsString('data-appointment-locked', $html);
+        $this->assertStringNotContainsString('name="appointment_at"', $html);
         $at = now()->addDays(2)->setTime(9, 0)->format('Y-m-d\TH:i');
-        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.appointment.store', $wo), ['appointment_at' => $at])->assertSessionHasNoErrors();
-        $this->assertNotNull($wo->fresh()->appointment_at);
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.appointment.store', $wo), ['appointment_at' => $at])->assertSessionHasErrors();
+        $this->assertNull($wo->fresh()->appointment_at);
 
         // a quote from someone else does NOT move the job: it is with the contractor it was sent to
         $this->postQuote($wo, 300)->assertSessionHasNoErrors();
@@ -571,6 +572,13 @@ final class NightFlowFixesTest extends TestCase
         $this->assertNull($wo->fresh()->approved_amount);
         $this->authoriseCostOf($wo->fresh());
         $this->assertNotNull($wo->fresh()->approved_amount);
+
+        // ...and only now, with the cost authorised, the appointment can be booked
+        $html = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
+        $this->assertStringContainsString('name="appointment_at"', $html);
+        $this->assertStringNotContainsString('data-appointment-locked', $html);
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.appointment.store', $wo), ['appointment_at' => $at])->assertSessionHasNoErrors();
+        $this->assertNotNull($wo->fresh()->appointment_at);
     }
 
     public function test_a_quote_the_owner_declines_after_the_job_went_out_is_marked_and_the_cost_reads_owner_declined(): void
