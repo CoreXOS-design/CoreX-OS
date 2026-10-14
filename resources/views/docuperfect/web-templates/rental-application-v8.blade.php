@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rental Application — Home Finders Coastal</title>
+    <title>Rental Application{{ !empty($docAgency['name']) ? ' — ' . $docAgency['name'] : '' }}</title>
     <style>
         /* ============================================================
            Rental Application V8 — Print-quality A4 document
@@ -385,11 +385,11 @@
     <div class="cover-heading">Rental Application Process and Requirements</div>
 
     <div class="cover-body">
-        <p>Thank you for downloading the Home Finders rental preapproval form.</p>
+        <p>Thank you for downloading the {{ $docAgency['name'] }} rental preapproval form.</p>
 
-        <p>Home Finders Coastal strictly works on preapproval of potential tenants before any viewings will take place. This process is to ensure that we adhere to the agreement made with owners, and to ensure that you as the tenant only view properties that you are qualified to rent.</p>
+        <p>{{ $docAgency['name'] }} strictly works on preapproval of potential tenants before any viewings will take place. This process is to ensure that we adhere to the agreement made with owners, and to ensure that you as the tenant only view properties that you are qualified to rent.</p>
 
-        <p>For the preapproval process you please need to complete the attached rental application form, as well as submit the following documentation with the rental application form to letting@hfcoastal.co.za:</p>
+        <p>For the preapproval process you please need to complete the attached rental application form, as well as submit the following documentation with the rental application form to {{ $docAgency['email'] }}:</p>
 
         <strong>Permanently employed natural persons:</strong>
         <ul>
@@ -419,9 +419,9 @@
     </div>
 
     <div class="cover-closing">
-        <p>Please feel free to email letting@hfcoastal.co.za should you need any assistance, and you are also welcome to visit https://hfcoastal.co.za/for-rent/ to view our latest rental properties.</p>
+        <p>Please feel free to email {{ $docAgency['email'] }} should you need any assistance, {{ !empty($docAgency['website']) ? 'and you are also welcome to visit ' . $docAgency['website'] . ' to view our latest rental properties.' : '' }}</p>
 
-        <p style="margin-top: 10pt;">Thank you<br>The Home Finders Coastal Rental Team</p>
+        <p style="margin-top: 10pt;">Thank you<br>The {{ $docAgency['name'] }} Rental Team</p>
     </div>
 
     <div class="initials-row">
@@ -511,7 +511,7 @@
         To: <span class="field field-date" data-field="rental_to">{{ $rental_to ?? '' }}</span></p>
 
     <div class="instruction-block">
-        PLEASE EMAIL THIS APPLICATION FORMS, AS WELL AS ALL SUPPORTING DOCUMENTS TO: letting@hfcoastal.co.za
+        PLEASE EMAIL THIS APPLICATION FORMS, AS WELL AS ALL SUPPORTING DOCUMENTS TO: {{ $docAgency['email'] }}
     </div>
 
     {{-- Employment Details --}}
@@ -578,16 +578,16 @@
     </div>
 
     <div class="instruction-block">
-        PLEASE EMAIL THIS APPLICATION FORMS, AS WELL AS ALL SUPPORTING DOCUMENTS TO: letting@hfcoastal.co.za
+        PLEASE EMAIL THIS APPLICATION FORMS, AS WELL AS ALL SUPPORTING DOCUMENTS TO: {{ $docAgency['email'] }}
     </div>
 
     {{-- Please Note --}}
     <div class="please-note">
         <p><strong>Please Note:</strong></p>
-        <p>Please submit this application to Home Finders Coastal ASAP via email or by hand delivery, for your application to be processed. Your application will be processed within 1 business day from the time of receipt of this application, 3 months bank statement, 1 months&rsquo; pay slip, copy of applicant&rsquo;s ID&rsquo;s and proof of residence.</p>
+        <p>Please submit this application to {{ $docAgency['name'] }} ASAP via email or by hand delivery, for your application to be processed. Your application will be processed within 1 business day from the time of receipt of this application, 3 months bank statement, 1 months&rsquo; pay slip, copy of applicant&rsquo;s ID&rsquo;s and proof of residence.</p>
         <p>If applying through a business, 6 months bank statements of the business, company registration documents, person with signing power ID and proof of residence, and proof of business address.</p>
-        <p>No Rental property will be reserved unless the Lease agreement has been signed and returned to Home Finders Coastal either via hand delivery or email, and: The initial invoice including the deposit and admin has been paid to Home Finders Coastal.</p>
-        <p>For any queries on your application please contact the Rental division on: 039 315 0857 or email: letting@hfcoastal.co.za</p>
+        <p>No Rental property will be reserved unless the Lease agreement has been signed and returned to {{ $docAgency['name'] }} either via hand delivery or email, and: The initial invoice including the deposit and admin has been paid to {{ $docAgency['name'] }}.</p>
+        <p>For any queries on your application please contact the Rental division on: {{ $docAgency['phone'] }} or email: {{ $docAgency['email'] }}</p>
     </div>
 
     {{-- Tenant Profile Network Consent --}}

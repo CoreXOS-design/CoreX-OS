@@ -166,6 +166,13 @@ class AppServiceProvider extends ServiceProvider
         \Illuminate\Support\Facades\Event::listen(\Illuminate\Queue\Events\JobProcessing::class, fn () => \App\Services\RoadToSold\SettingsService::forget());
         \Illuminate\Support\Facades\Event::listen(\Illuminate\Console\Events\CommandStarting::class, fn () => \App\Services\RoadToSold\SettingsService::forget());
         // The settings screens build their links from where they are mounted (sales now, rentals later).
+        // Every web-template document says "us" in the DOCUMENT's own agency's words ($docAgency), resolved by the same
+        // rule as the letterhead (DocumentAgencyContext: the document's agency, else the signed-in user's, else nothing —
+        // never a default agency). No template carries an agency's name, address or contact line as literal text.
+        \Illuminate\Support\Facades\View::composer('docuperfect.web-templates.*', function ($view) {
+            $view->with('docAgency', \App\Support\Docuperfect\DocumentAgencyContext::wording());
+        });
+
         \Illuminate\Support\Facades\View::composer('road-to-sold.settings.*', function ($view) {
             $view->with(['rb' => \App\Services\RoadToSold\Support\Routing::base(), 'rtsTrack' => \App\Services\RoadToSold\Support\Routing::track()]);
         });

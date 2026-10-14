@@ -2114,3 +2114,9 @@ cc5's full walk reported: after the agent, tenant and landlord signed, the landl
 
 - **The document is paper in every theme.** The app's dark theme painted even breakdown rows ("Less Agent's Service Fee", "Net Amount to Owner") and the signature date/time inputs near-black on the white page. `public/css/corex-document.css` (staff sign / review / view-live / download) and `public/css/docuperfect-recipient-blocks.css` (wizard preview / fill & review) now pin rows, table headers and inputs to explicit paper colours inside `.corex-document-wrapper` / `.docuperfect-document-body`; the lease's breakdown cells also carry their own white. Applies to every template, not just the lease.
 - **A lease never prints Buyer/Seller.** The e-sign wizard decided "sale" from the property's source table alone (a lease sits on an agency-stock property too), so `SigningSurfaceResolver` injected "Thus done and signed by the Buyer / Seller" blocks under the lease's own Lessor/Lessee block. It now asks the template (`Template::isSalesDocument`: signing parties > category/type > property source). Sale templates behave as before.
+
+## Letterhead and agency wording are the document's own agency, 14 Oct 2026 (cc2) - tests `SecondAgencyDocumentsTest`, `SigningView/LetterheadSecondAgencyTest`
+
+- **One rule** (`App\Support\Docuperfect\DocumentAgencyContext`): the agency (and branch) of the document being rendered, else the signed-in user's branch / agency, else NOTHING. The old "else the agency with slug hfc-coastal" is gone: it printed HFC's letterhead on every other agency's public signing page, portal and PDF.
+- The public signing page, the staff sign/review pages and the baked-letterhead refresher pin the document's agency; web templates say "us" via `$docAgency` (name, e-mail, phone, website, privacy link) from a View composer.
+- The audit list of every remaining hardcode (fixed and not) is `.ai/audits/2026-10-14-hfc-hardcodes.md`.

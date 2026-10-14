@@ -12,19 +12,8 @@
 
 @php
     // Resolve agency/branch from current user
-    $headerAgency = null;
-    $headerBranch = null;
-
-    if (Auth::check()) {
-        $branchId = Auth::user()->effectiveBranchId();
-        if ($branchId) {
-            $headerBranch = \App\Models\Branch::with('agency')->find($branchId);
-            $headerAgency = $headerBranch?->agency;
-        }
-    }
-    if (!$headerAgency) {
-        $headerAgency = \App\Models\Agency::where('slug', 'hfc-coastal')->first();
-    }
+    // Whose letterhead: the document's own agency (DocumentAgencyContext), else the signed-in user's. No fallback agency.
+    [$headerAgency, $headerBranch] = \App\Support\Docuperfect\DocumentAgencyContext::resolve();
 
     // Branch-or-agency field resolver (same pattern as company-header)
     $d = function(string $field) use ($headerBranch, $headerAgency): string {

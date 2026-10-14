@@ -15,22 +15,19 @@ if ($_headerDisplay === 'first_page' && $_companyHeaderRenderCount > 1) {
 $headerAgency = null;
 $headerBranch = null;
 
-// Allow preview mode: pass $previewAgency to bypass DB lookups
+// Whose letterhead? Explicit preview agency, explicit branch, else the agency of the document being rendered
+// (DocumentAgencyContext::with() — set by the signing / portal / PDF surfaces), else the signed-in user's own
+// branch / agency. There is deliberately NO fallback agency: with nobody to name, no letterhead is printed.
 if (isset($previewAgency)) {
     $headerAgency = $previewAgency;
 } elseif (isset($branch)) {
     $headerBranch = $branch;
     $headerAgency = $branch->agency;
-} elseif (Auth::check()) {
-    $user = Auth::user();
-    $branchId = $user->effectiveBranchId();
-    if ($branchId) {
-        $headerBranch = \App\Models\Branch::with('agency')->find($branchId);
-        $headerAgency = $headerBranch?->agency;
-    }
+} else {
+    [$headerAgency, $headerBranch] = \App\Support\Docuperfect\DocumentAgencyContext::resolve();
 }
 if (!$headerAgency) {
-    $headerAgency = \App\Models\Agency::where('slug', 'hfc-coastal')->first();
+    return;
 }
 $d = function(string $field) use ($headerBranch, $headerAgency): string {
     if ($headerBranch && !empty($headerBranch->{$field})) {

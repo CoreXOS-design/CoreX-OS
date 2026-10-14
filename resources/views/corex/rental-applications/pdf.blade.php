@@ -7,7 +7,11 @@
 <div class="corex-document-wrapper">
 <div class="corex-page">
 
-@include('docuperfect.web-templates.components.company-header', ['branch' => $branch])
+@if($branch)
+    @include('docuperfect.web-templates.components.company-header', ['branch' => $branch])
+@else
+    @include('docuperfect.web-templates.components.company-header', ['previewAgency' => $agency])
+@endif
 
 <div class="corex-h1">Rental Application Process and Requirements</div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">

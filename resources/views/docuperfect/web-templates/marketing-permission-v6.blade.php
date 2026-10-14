@@ -26,7 +26,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Marketing Permission — Home Finders Coastal</title>
+    <title>Marketing Permission{{ !empty($docAgency['name']) ? ' — ' . $docAgency['name'] : '' }}</title>
     <style>
         @page { size: A4; margin: 16mm 18mm 14mm 18mm; }
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -77,13 +77,7 @@
 <div class="doc corex-document-wrapper">
 
     {{-- ===== Letterhead (verbatim) ===== --}}
-    <div class="letterhead">
-        <h1>HOME FINDERS COASTAL</h1>
-        <p>Johan and Elize Properties T/A Home Finders Coastal &bull; Registered with the PPRA</p>
-        <p>The Emporium 5, Cnr Kings Road &amp; Marine Drive, Shelly Beach</p>
-        <p>Reg No: 2017/431318/07 &bull; VAT No: 4630287821 &bull; PPRA FFC No: 2023116041 &bull; FIC No: AI/180629/0000019</p>
-        <p>admin@hfcoastal.co.za &bull; Elize 071 351 0291 &bull; Johan 076 618 5578</p>
-    </div>
+    @include('docuperfect.web-templates.components.company-header')
 
     <div class="doc-title">
         <h2>MARKETING PERMISSION</h2>
@@ -160,11 +154,11 @@
 
     {{-- ===== Our Agreement (verbatim, 5 paragraphs) ===== --}}
     <div class="section-head">OUR AGREEMENT</div>
-    <p class="clause">By signing this document I/we, the registered owner/s of the property described above (or the person/s duly authorised to act on the owner&rsquo;s behalf), give Home Finders Coastal permission and the authority to market and sell this property.</p>
+    <p class="clause">By signing this document I/we, the registered owner/s of the property described above (or the person/s duly authorised to act on the owner&rsquo;s behalf), give {{ $docAgency['name'] }} permission and the authority to market and sell this property.</p>
     <p class="clause">This permission stays in place until the property is sold, or until either party cancels it on 7 (seven) days&rsquo; written notice. It is given on an open, non-exclusive basis unless we have separately agreed a sole mandate in writing.</p>
     <p class="clause">We may market the property on property portals, our website, social media and other channels, and place &ldquo;For Sale&rdquo; and &ldquo;Sold&rdquo; boards on the property. We will qualify prospective buyers, accompany viewings by appointment, present every offer to you, and keep you informed of feedback.</p>
-    <p class="clause">You agree to pay Home Finders Coastal a professional fee of 7.5% (seven comma five per cent) plus VAT, calculated on the selling price, payable on registration of transfer. You also confirm that, before marketing begins, you will complete the Mandatory Disclosure Form and provide the FICA documents we need to verify your identity.</p>
-    <p class="clause">We will handle your personal information in line with POPIA &mdash; see our privacy policy at hfcoastal.co.za/privacy.</p>
+    <p class="clause">You agree to pay {{ $docAgency['name'] }} a professional fee of 7.5% (seven comma five per cent) plus VAT, calculated on the selling price, payable on registration of transfer. You also confirm that, before marketing begins, you will complete the Mandatory Disclosure Form and provide the FICA documents we need to verify your identity.</p>
+    <p class="clause">We will handle your personal information in line with POPIA{{ !empty($docAgency['privacy_url']) ? ' &mdash; ' : '.' }}{{ !empty($docAgency['privacy_url']) ? 'see our privacy policy at ' . $docAgency['privacy_url'] . '.' : '' }}</p>
 
     {{-- ===== FFC Warranty (verbatim placeholder from source docx) ===== --}}
     <div class="section-head">FIDELITY FUND CERTIFICATE WARRANTY</div>
