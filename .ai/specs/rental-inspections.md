@@ -7581,6 +7581,10 @@ What IS built so the answer can be applied without losing anything: every link s
 
 ---
 
+### 46.11 The drawing pad is independent of everything else on the form — 14 Oct 2026 (Johan: "pad does not accept drawing on load, ticking the read box off and on makes it work")
+
+On the party's signing page and the agent's "sign on this device" page (one shared partial, `sign-section.blade.php`) the drawing pad is built once, as soon as the page can draw on it, and kept in step with the canvas's real size for the life of the page: on load, `pageshow`, window resize / phone rotation, and whenever the canvas itself changes size (a `ResizeObserver`). If the signature library or the canvas size is not ready yet, one watcher waits for it instead of giving up. Strokes already drawn are kept when the pad is re-fitted. `init()` runs once (Alpine calls it itself; the extra `x-init` ran it twice and bound two pads to one canvas). The "I have read this inspection report" box only enables the "Sign the report" button; it never touches the pad. Proven in headless Chromium (touch and mouse, device page and link page, drawn before the box is ticked, then ticked and submitted) and by `RentalInspectionSigningLinkTest`.
+
 ## 47. Every type is signed · a signed report is locked · a sent report is final — 7 Oct 2026 (cc6; Johan's rulings) — BUILT on QA1
 
 ### 47.1 The bug that started it (property 6069)
