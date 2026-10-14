@@ -70,14 +70,6 @@
 @endif
             </template>
         </div>
-@unless($readOnly)
-        <input type="text"
-               x-show="selectedConditionFor({{ $inspectionJs }}, item) && conditionRequiresNotes(selectedConditionFor({{ $inspectionJs }}, item))"
-               x-model="obsField({{ $inspectionJs }}, item.id).notes"
-               @input="onNotesInput({{ $inspectionJs }}, item)"
-               placeholder="Notes (required)"
-               class="prop-input w-full">
-@endunless
     </div>
 
     {{-- §27.1.2 — the global "Photos: shown/hidden" toggle wraps this whole
@@ -348,6 +340,20 @@
     </div>
 </div>
 
+@unless($readOnly)
+{{-- 2026-10-14 — the editable (out/current) note input used to sit inside the same
+     `flex:none` buttons column. An input has an intrinsic width (~214px), wider than the
+     185px button grid, so tapping Damaged on the OUT side widened that column and pushed
+     it out of line with the IN side (measured 214 vs 185, strip 338 vs 367). It now sits
+     below the row exactly like the read-only note, so both sides keep the same fixed
+     button size. --}}
+<input type="text"
+       x-show="selectedConditionFor({{ $inspectionJs }}, item) && conditionRequiresNotes(selectedConditionFor({{ $inspectionJs }}, item))"
+       x-model="obsField({{ $inspectionJs }}, item.id).notes"
+       @input="onNotesInput({{ $inspectionJs }}, item)"
+       placeholder="Notes (required)"
+       class="prop-input w-full">
+@endunless
 @if($readOnly)
 {{-- BUG FIX, 2026-10-14 (Johan, property 21222 Ceiling): the read-only item
      note used to sit INSIDE the `flex:none` condition-buttons column above.
