@@ -68,11 +68,20 @@ class ViewingPackBuyerPdfService
                         $segments[] = Storage::disk('local')->path($rel);
                         continue;
                     }
-                    // No redaction → the original file (buyer-pack-eligible types are PDFs).
+                    // No redaction → the original file. Eligible docs may be PDFs OR photos
+                    // (JPG/PNG); pdfunite only accepts PDFs, so images are wrapped in a page.
                     $doc  = $vpd->document;
                     $disk = $doc?->disk ?: 'local';
                     if ($doc && $doc->storage_path && Storage::disk($disk)->exists($doc->storage_path)) {
-                        $segments[] = Storage::disk($disk)->path($doc->storage_path);
+                        $abs   = Storage::disk($disk)->path($doc->storage_path);
+                        $bytes = (string) @file_get_contents($abs);
+                        if (str_starts_with($bytes, '%PDF')) {
+                            $segments[] = $abs;
+                        } elseif (($img = $this->imageDataUri($bytes)) !== null) {
+                            $segments[] = $this->writeSegment($tmpDir, $n++, $this->imagePageBytes($img));
+                        } else {
+                            \Log::warning('Viewing pack buyer PDF: skipped unreadable attachment', ['pack' => $pack->id, 'document_id' => $doc->id]);
+                        }
                     }
                 }
             }
@@ -126,7 +135,7 @@ class ViewingPackBuyerPdfService
             'buyerName'     => $this->buyerName($pack) ?: 'the buyer',
             'propertyCount' => $pack->viewingPackProperties->count(),
             'date'          => now()->format('j F Y'),
-            'agencyName'    => $agency?->name ?: 'CoreX',
+            'agencyName'    => $agency?->name ?: \App\Support\ClientBrand::NEUTRAL,
             'agentName'     => $agent?->name ?: ($agency?->name ?: ''),
             'agentPhone'    => $agent ? ($agent->cell ?? $agent->phone ?? '') : '',
             'agentEmail'    => $agent?->email ?: '',
@@ -135,5 +144,28 @@ class ViewingPackBuyerPdfService
             // .ai/specs/viewing-pack.md §14 — the agency's selected cover style + its inputs.
             'cover'         => app(ViewingPackCoverService::class)->dataFor($agency, $agent),
         ];
+    }
+
+    /** Re-encode any GD-readable image as a PNG data URI, or null if it is not an image. */
+    private function imageDataUri(string $bytes): ?string
+    {
+        $img = $bytes !== '' ? @imagecreatefromstring($bytes) : false;
+        if (! $img) {
+            return null;
+        }
+        ob_start();
+        imagepng($img);
+        $png = (string) ob_get_clean();
+        @imagedestroy($img);
+
+        return 'data:image/png;base64,' . base64_encode($png);
+    }
+
+    /** One A4 page with the image scaled to fit. */
+    private function imagePageBytes(string $dataUri): string
+    {
+        $html = '<html><body style="margin:0;text-align:center"><img src="' . $dataUri . '" style="max-width:190mm;max-height:277mm;margin-top:10mm"></body></html>';
+
+        return (string) \Barryvdh\DomPDF\Facade\Pdf::loadHTML($html)->setPaper('a4', 'portrait')->output();
     }
 }

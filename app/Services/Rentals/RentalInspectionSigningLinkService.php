@@ -552,7 +552,7 @@ class RentalInspectionSigningLinkService
         $inspection = $this->inspectionOf($link);
 
         if ($link->party_role === RentalInspectionSigningLink::ROLE_AGENT) {
-            return ['can_sign' => false, 'reason' => LinkException::AGENT_LINK, 'message' => 'The agent signs in CoreX, with their own login and PIN.'];
+            return ['can_sign' => false, 'reason' => LinkException::AGENT_LINK, 'message' => 'The agent signs with their own login and PIN.'];
         }
         if ($link->outcome !== null) {
             return ['can_sign' => false, 'reason' => LinkException::ALREADY_USED, 'message' => 'This link has already been used.'];

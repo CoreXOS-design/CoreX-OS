@@ -519,7 +519,7 @@ class LeaseSigningLauncher
                 'created_at' => now(),
             ]);
 
-            SignatureAuditLog::log($envelope, 'lease_linked', SignatureAuditLog::ACTOR_SYSTEM, 'CoreX', null, null, null, null, null, ['lease_id' => $lease->id]);
+            SignatureAuditLog::log($envelope, 'lease_linked', SignatureAuditLog::ACTOR_SYSTEM, 'System', null, null, null, null, null, ['lease_id' => $lease->id]);
         } catch (\Throwable $e) {
             Log::warning('Lease signing: could not link the envelope to its lease', ['flow_id' => $flow->id, 'error' => $e->getMessage()]);
         }

@@ -124,6 +124,20 @@ final class RenewalWalkFixesTest extends TestCase
         $this->actingAs($this->agent)->get(route('corex.leases.show', $renewal))->assertOk()->assertSee('Signed - starts 1 Nov 2027');
         $this->actingAs($this->agent)->get(route('corex.leases.show', $previous))->assertOk()->assertSee('Active');
 
+        // cc5's re-walk (lease 119): the list's TILE and FILTER read the same status as the page - a signed renewal waiting for its start date is not a "Draft"
+        $res = $this->actingAs($this->agent)->get(route('corex.leases.index'))->assertOk();
+        $counts = $res->viewData('tileCounts');
+        $this->assertSame(0, $counts['draft'], 'not counted as a draft');
+        $this->assertSame(1, $counts['signed_awaiting_start']);
+        $this->assertStringContainsString('Signed - starts 1 Nov 2027', $this->actingAs($this->agent)->get(route('corex.leases.index', ['status' => 'signed_awaiting_start']))->assertOk()->getContent());
+        $this->assertStringNotContainsString('Signed - starts 1 Nov 2027', $this->actingAs($this->agent)->get(route('corex.leases.index', ['status' => 'draft']))->assertOk()->getContent());
+        // an ordinary draft (same renewal, not signed) still counts as a draft
+        $renewal->forceFill(['signing_status' => Lease::SIGNING_NOT_SENT, 'accepted_at' => null])->saveQuietly();
+        $counts = $this->actingAs($this->agent)->get(route('corex.leases.index'))->viewData('tileCounts');
+        $this->assertSame(1, $counts['draft']);
+        $this->assertSame(0, $counts['signed_awaiting_start']);
+        $renewal->forceFill(['signing_status' => Lease::SIGNING_SIGNED, 'accepted_at' => now()])->saveQuietly();
+
         // the running lease is still the property's one active lease
         $this->assertSame([$previous->id], Lease::withoutGlobalScopes()->where('property_id', $this->property->id)->where('status', Lease::STATUS_ACTIVE)->pluck('id')->all());
 

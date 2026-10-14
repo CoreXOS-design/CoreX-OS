@@ -87,7 +87,7 @@ final class PresentationDeliveryService
                 'recipient_name'       => $name,
                 'property_address'     => $presentation->property_address ?: 'your property',
                 'agent_name'           => $sender?->name ?? '',
-                'agency_name'          => $agency?->name ?? 'CoreX OS',
+                'agency_name'          => $agency?->name ?? \App\Support\ClientBrand::NEUTRAL,
                 'presentation_url'     => '[link will be generated when you click send]',
             ];
 

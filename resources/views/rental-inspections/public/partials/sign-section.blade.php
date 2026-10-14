@@ -41,7 +41,7 @@
     @elseif(($signing['reason'] ?? null) === 'agent_link')
         <p class="text-sm text-slate-600">{{ $signing['message'] }}</p>
         @if(! empty($signing['agent_open_url']))
-            <a href="{{ $signing['agent_open_url'] }}" class="mt-3 inline-block text-sm font-semibold px-4 py-2 rounded-md bg-slate-800 text-white">Open this inspection in CoreX</a>
+            <a href="{{ $signing['agent_open_url'] }}" class="mt-3 inline-block text-sm font-semibold px-4 py-2 rounded-md bg-slate-800 text-white">Open this inspection</a>
         @endif
     @elseif(! $signing['can_sign'])
         <p class="text-sm text-slate-600" data-qa="sign-unavailable">{{ $signing['message'] }}</p>
@@ -131,7 +131,7 @@
                 <p class="mt-1">The agent has it on record.</p>
                 @include('rental-inspections.public.partials.download-link', ['signing' => $signing])
                 @if($isDevice && ! empty($signing['back_url']))
-                    <a href="{{ $signing['back_url'] }}" class="mt-3 ml-2 inline-block text-sm font-semibold underline">Back to CoreX</a>
+                    <a href="{{ $signing['back_url'] }}" class="mt-3 ml-2 inline-block text-sm font-semibold underline">Back to the inspection</a>
                 @endif
             </div>
         </div>

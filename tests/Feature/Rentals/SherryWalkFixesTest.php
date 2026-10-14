@@ -166,6 +166,10 @@ final class SherryWalkFixesTest extends TestCase
         $this->agency->update(['rental_application_ro_user_ids' => [$sherry->id, $other->id]]);
         $this->actingAs($sherry)->get(route('corex.rental-applications.review', $app))->assertOk()
             ->assertSee('data-qa="submit-for-approval"', false)->assertSee('data-qa="one-step-note"', false)->assertSee('another approver must approve it');
+        // Johan, 14 Oct 2026: ONE submit button on this screen (the header's), never a twin in the side column
+        $html = $this->actingAs($sherry)->get(route('corex.rental-applications.review', $app))->assertOk()->getContent();
+        $this->assertSame(1, substr_count($html, 'data-qa="submit-for-approval"'));
+        $this->assertSame(1, substr_count($html, "'Submit to authoriser'"));
 
         // someone with no tick at all is told that, not silently handed on
         $plain = $this->user('agent');

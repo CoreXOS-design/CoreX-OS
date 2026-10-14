@@ -91,6 +91,7 @@ class SigningController extends Controller
                 'request' => $signingRequest,
                 'consentLog' => $consentLog,
                 'downloadAvailable' => $downloadAvailable,
+            'awaitingAgentApproval' => (bool) optional($template)->isPendingAgentApproval(),   // everyone has signed; the agent checks it before the copy goes out
                 'agentName' => $creator->name ?? null,
                 'agentEmail' => $creator->email ?? null,
                 'agentPhone' => $creator->phone ?? $creator->cell ?? null,
@@ -172,10 +173,14 @@ class SigningController extends Controller
                 // route('fica.form', null) throws UrlGenerationException and
                 // 500s the signing page. Mint a token if one is missing so
                 // the FICA link always works — the page must never 500 here.
-                if ($ficaSub && empty($ficaSub->token)) {
-                    $ficaSub->token = \Illuminate\Support\Str::random(64);
-                    $ficaSub->token_expires_at = now()->addDays(\App\Services\Compliance\FicaWindows::linkExpiryDays((int) $ficaSub->agency_id));
-                    $ficaSub->save();
+                // 2026-10-11 hotfix — and a reused draft whose own link had
+                // already lapsed is renewed to last as long as this signing
+                // link, so the FICA step is never "expired" on a live link.
+                if ($ficaSub) {
+                    $ficaSub->keepLinkAliveUntil($signingRequest->token_expires_at ?? now()->addDays(max(\App\Services\Compliance\FicaWindows::DEFAULT_LINK_EXPIRY_DAYS, \App\Services\Compliance\FicaWindows::linkExpiryDays((int) $ficaSub->agency_id))));
+                    if ($ficaSub->isDirty()) {
+                        $ficaSub->save();
+                    }
                 }
 
                 $ficaUrl = ($ficaSub && $ficaSub->token)
@@ -1029,6 +1034,7 @@ class SigningController extends Controller
             'request' => $signingRequest,
             'consentLog' => $consentLog,
             'downloadAvailable' => $downloadAvailable,
+            'awaitingAgentApproval' => (bool) optional($template)->isPendingAgentApproval(),   // everyone has signed; the agent checks it before the copy goes out
             'agentName' => $creator->name ?? null,
             'agentEmail' => $creator->email ?? null,
             'agentPhone' => $creator->phone ?? $creator->cell ?? null,
@@ -1071,14 +1077,14 @@ class SigningController extends Controller
         // "signing already completed" page.
         if (!$agency) {
             return [
-                'name' => config('app.name', 'CoreX OS'),
+                'name' => \App\Support\ClientBrand::NEUTRAL,
                 'logo' => null,
                 'color' => '#0b2a4a',
             ];
         }
 
         return [
-            'name' => $agency->name ?? config('app.name', 'CoreX OS'),
+            'name' => \App\Support\ClientBrand::name($agency),
             'logo' => $agency->logo_path ? asset('storage/' . $agency->logo_path) : null,
             'color' => $agency->default_color ?? $agency->button_color ?? '#0b2a4a',
         ];

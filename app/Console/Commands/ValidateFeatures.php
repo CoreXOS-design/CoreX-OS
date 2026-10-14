@@ -77,6 +77,38 @@ class ValidateFeatures extends Command
             }
         }
 
+        // Permission ownership (.ai/specs/features-page.md §4): optional fields must reference real
+        // permission modules/keys, and nothing may be claimed by two features.
+        $perms      = (array) config('corex-permissions.permissions', []);
+        $allModules = array_flip(array_map(fn ($p) => $p['module'] ?? $p['section'], $perms));
+        $allKeys    = array_flip(array_column($perms, 'key'));
+        $known   = ['permission_modules' => $allModules, 'permission_keys' => $allKeys];
+        $what    = ['permission_modules' => 'module', 'permission_keys' => 'key'];
+        $claimed = ['permission_modules' => [], 'permission_keys' => []];
+        foreach ($registry as $key => $def) {
+            foreach (array_keys($known) as $field) {
+                if (!array_key_exists($field, $def)) {
+                    continue;
+                }
+                if (!is_array($def[$field])) {
+                    $errors[] = "[$key] '$field' must be an array.";
+                    continue;
+                }
+                if (!empty($def['core']) && $def[$field]) {
+                    $errors[] = "[$key] is core (always on) — it cannot own permissions that would be switched off.";
+                }
+                foreach ($def[$field] as $item) {
+                    if (!isset($known[$field][$item])) {
+                        $errors[] = "[$key] $field names unknown permission {$what[$field]} '$item'.";
+                    } elseif (isset($claimed[$field][$item])) {
+                        $errors[] = "[$key] $field '$item' is already owned by '{$claimed[$field][$item]}'.";
+                    } else {
+                        $claimed[$field][$item] = $key;
+                    }
+                }
+            }
+        }
+
         // Cycle detection (DFS).
         $cycle = $this->findCycle($registry);
         if ($cycle !== null) {

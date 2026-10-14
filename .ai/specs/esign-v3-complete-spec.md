@@ -404,6 +404,18 @@ if ($signingRequest->fica_required && $signingRequest->contact_id
 
 An agent sending an application to the authoriser, approving, linking a property, creating or activating a lease, sending a lease agreement for signature, or setting up portal access is never stopped by FICA: the screen warns (plain message + link to request/complete FICA) and the agent carries on. The single opt-in exception is a rentals agency's own "FICA before authoriser" setting (OFF by default), which stops only an applicant who has not submitted. See `.ai/specs/compliance.md` §"The FICA gate".
 
+### 6.5 A reused FICA link never dies before the link that leads to it (hotfix 2026-10-11, Johan, live)
+
+**Symptom:** a client opened a signing link sent under an hour earlier, was sent on to FICA, and got "This link has expired". Live logs 11 Oct 2026: two clients, documents sent 11:42/11:50, FICA 410 at 12:43; same pattern 29 Sep.
+
+**Cause:** when the contact already has an unfinished FICA submission, every flow reuses it — e-sign send (`ESignWizardController`), the signing-page FICA gate (`SigningController::show`), and rental applications (`RentalApplicationSigningController`, `RentalApplicationMailer`). Each only minted a token when the token was EMPTY. A reused draft whose own 14-day link had already lapsed kept its dead expiry, so a brand-new signing link pointed at an already-expired FICA link. The signing links themselves were never the problem (14-day TTL, verified in data).
+
+**Rule:** all four sites call `FicaSubmission::keepLinkAliveUntil($until)`: mint a token if missing; if the link expires before `$until`, extend it to `$until` (token kept, so a FICA link the client already holds works again); never shorten a longer-living link; a token with no expiry is left alone. `$until` = the signing request's own expiry on the signing page, otherwise now + 14 days. Opening the signing link therefore heals any request already stuck this way — no data fix needed.
+
+**Tests:** `tests/Feature/Docuperfect/SigningView/FicaLinkRenewedOnReuseTest.php`.
+
+**Open business question (Johan, not built):** the 14-day link life is a code constant for every agency; whether it should be a per-agency setting (Non-negotiable 10a would then require it in the Setup Wizard).
+
 ---
 
 ## 7. Per-Document Pagination

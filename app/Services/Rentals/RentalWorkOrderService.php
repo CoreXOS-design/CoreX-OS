@@ -375,7 +375,11 @@ class RentalWorkOrderService
             ->exists();
     }
 
-    public function setAppointment(RentalWorkOrder $workOrder, \DateTimeInterface $at, ?string $note, User|\App\Models\Contact $by, ?string $viaNote = null): bool
+    /**
+     * $contractorNote is the agent's PRIVATE note for the contractor (never shown to the tenant or the owner): `false` = leave it as it is (the owner's portal
+     * does not know about it), null / '' = clear it.
+     */
+    public function setAppointment(RentalWorkOrder $workOrder, \DateTimeInterface $at, ?string $note, User|\App\Models\Contact $by, ?string $viaNote = null, string|false|null $contractorNote = false): bool
     {
         if (in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true)) {
             throw new \LogicException('This work order is already closed - an appointment can no longer be set.');
@@ -394,8 +398,10 @@ class RentalWorkOrderService
         // Stored in the application timezone (Eloquent formats a datetime in the Carbon's OWN zone and reads it back in the app zone).
         $when = \Illuminate\Support\Carbon::instance($at)->setTimezone(config('app.timezone'))->startOfMinute();
         $note = trim((string) $note) !== '' ? mb_substr(trim((string) $note), 0, 500) : null;
+        $contractorNote = $contractorNote === false ? ($workOrder->appointment_contractor_note ?? null)
+            : (trim((string) $contractorNote) !== '' ? mb_substr(trim((string) $contractorNote), 0, 500) : null);
         $previous = $workOrder->appointment_at;
-        if ($previous && $previous->getTimestamp() === $when->getTimestamp() && ($workOrder->appointment_note ?? null) === $note) {
+        if ($previous && $previous->getTimestamp() === $when->getTimestamp() && ($workOrder->appointment_note ?? null) === $note && ($workOrder->appointment_contractor_note ?? null) === $contractorNote) {
             return false;
         }
 
@@ -403,10 +409,11 @@ class RentalWorkOrderService
         $byContact = $by instanceof \App\Models\Contact ? $by : null;
         $who = $byUser ? $byUser->name : trim(($byContact->first_name ?? '') . ' ' . ($byContact->last_name ?? '')) . ' (owner, on the portal)';
 
-        \Illuminate\Support\Facades\DB::transaction(function () use ($workOrder, $when, $note, $previous, $byUser, $byContact, $who, $viaNote) {
+        \Illuminate\Support\Facades\DB::transaction(function () use ($workOrder, $when, $note, $contractorNote, $previous, $byUser, $byContact, $who, $viaNote) {
             $workOrder->forceFill([
                 'appointment_at' => $when,
                 'appointment_note' => $note,
+                'appointment_contractor_note' => $contractorNote,
                 'appointment_set_at' => now(),
                 'appointment_set_by_user_id' => $byUser?->id,
                 'appointment_set_by_contact_id' => $byContact?->id,
@@ -416,7 +423,7 @@ class RentalWorkOrderService
                 'agency_id' => $workOrder->agency_id,
                 'update_type' => $previous ? 'appointment_changed' : 'appointment_set',
                 'note' => trim(($previous ? 'From ' . $previous->format('D j M Y H:i') . ' to ' : '') . $when->format('D j M Y H:i')
-                    . ($note ? ' - ' . $note : '') . ' (set by ' . $who . ($viaNote ? ', ' . $viaNote : '') . ')'),
+                    . ($note ? ' - ' . $note : '') . ($contractorNote ? ' [note for the contractor only: ' . $contractorNote . ']' : '') . ' (set by ' . $who . ($viaNote ? ', ' . $viaNote : '') . ')'),
                 'created_by_user_id' => $byUser?->id,
             ]);
         });
@@ -427,7 +434,8 @@ class RentalWorkOrderService
         $this->emailContractorUpdate(
             $fresh,
             $previous ? 'Appointment changed' : 'Appointment set',
-            'The appointment for this job is now ' . \App\Support\AppDate::dateTime($when, $fresh->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg')) . ($note ? ' (' . $note . ')' : '') . '.',
+            'The appointment for this job is now ' . \App\Support\AppDate::dateTime($when, $fresh->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg')) . ($note ? ' (' . $note . ')' : '')
+                . ($contractorNote ? ' Note for you from the agent: ' . $contractorNote : '') . '.',
             $byUser,
         );
         if ($byContact) {

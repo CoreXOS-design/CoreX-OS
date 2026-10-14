@@ -72,7 +72,7 @@ html, body {
 <body>
 
 <div class="card">
-    <div class="logo">{{ config('app.name') }}</div>
+    <div class="logo">{{ \App\Support\ClientBrand::NEUTRAL }}</div>
     <div class="icon">&#128274;</div>
     <div class="title">Display Deactivated</div>
     <div class="message">

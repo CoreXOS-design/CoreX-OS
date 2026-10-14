@@ -11,6 +11,9 @@
     (SellerLinkController, SharedMatchController, PublicPresentationController
     all already do this and never fall through to here).
 
+    Johan, 14 Oct 2026: a client never sees "CoreX" on any page - so this generic page names nobody (neutral label, no CoreX support
+    button; the person to ask is whoever sent the link). Agency-branded dead ends are rendered by the controllers that know the agency.
+
     NO AGENCY BRANDING HERE, DELIBERATELY. By the time execution reaches this
     generic fallback, route-model binding or an unqualified abort(404) has
     already failed — there is no resolved record left to read an agency_id
@@ -19,7 +22,7 @@
     PublicAgencyPropertiesController) resolve their own agency-branded 404
     from the controller, before ever reaching this view — same reasoning:
     render it yourself if you have the context, don't invent context here.
-    CoreX is going multi-agency; this page must never hardcode any one
+    This is multi-agency software; this page must never hardcode any one
     agency's name or colours, including Home Finders Coastal's.
 
     SPLIT OUT OF errors/404.blade.php ON PURPOSE (not merged inline with an
@@ -37,7 +40,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Page not found — CoreX OS</title>
+    <title>Page not found</title>
     <style>
         :root {
             --brand: #0b2a4a;
@@ -89,7 +92,7 @@
 </head>
 <body>
     <header class="brand-bar">
-        <span class="logo">Core<span class="os">X</span></span>
+        <span class="logo">{{ \App\Support\ClientBrand::NEUTRAL }}</span>
     </header>
     <main>
         <div class="card">
@@ -100,9 +103,6 @@
             </div>
             <h1>Shucks — what you're looking for isn't valid any more</h1>
             <p>This link may have been mistyped, or it's simply no longer active. If someone sent you this link, it's best to reach out to them directly for an up-to-date one.</p>
-            <div class="actions">
-                <a href="mailto:support@corexos.co.za" class="btn">Contact CoreX support</a>
-            </div>
         </div>
     </main>
 </body>

@@ -169,7 +169,7 @@ class RentalOwnerFaultSettingsService
 
     public function sentence(Change $c): string
     {
-        $who = $c->user?->name ?: ($c->contact ? trim($c->contact->first_name . ' ' . $c->contact->last_name) . ' (owner)' : 'CoreX');
+        $who = $c->user?->name ?: ($c->contact ? trim($c->contact->first_name . ' ' . $c->contact->last_name) . ' (owner)' : 'The agency');
         $vals = $this->valuesSentence($c->new_values ?? []);
         $basis = $c->basis === Row::BASIS_CARRIED_OVER ? 'carried over from the existing work terms' : (Row::BASES[$c->basis] ?? null);
         $evidence = $basis ? ' Told to us by ' . strtolower($basis) . ($c->occurred_at ? ' on ' . $c->occurred_at->format('j M Y') : '') . '.' : '';

@@ -56,7 +56,7 @@ class CocRequestGenerator
         $ownerNames = $sellers->map(fn ($c) => $c->full_name)->filter()->implode(', ');
 
         $agent = $deal->listingAgent;
-        $agencyName = optional(\App\Models\Agency::find($deal->agency_id))->name ?? config('mail.from.name', 'CoreX OS');
+        $agencyName = optional(\App\Models\Agency::find($deal->agency_id))->name ?? \App\Support\ClientBrand::NEUTRAL;
 
         $generatedAt = now();
         $label = $this->specialtyLabel($specialty);

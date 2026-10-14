@@ -72,7 +72,11 @@
             @endif
 
             <p class="text-sm text-slate-500 mb-4">
-                No further action is needed from you. You will receive a copy of the fully signed document once all parties have signed.
+                @if(! empty($awaitingAgentApproval))
+                    No further action is needed from you. Everyone has signed. Your agent checks the signed document first, and you will receive the fully signed copy once they have approved it.
+                @else
+                    No further action is needed from you. You will receive a copy of the fully signed document once all parties have signed and your agent has approved it.
+                @endif
             </p>
 
             {{-- Agent Contact --}}

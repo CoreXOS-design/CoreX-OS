@@ -46,7 +46,7 @@ class SyndicationApprovalRequestedMail extends Mailable
             : 'Price not set';
 
         $this->agentName   = $approval->requestedBy?->name ?? 'An agent';
-        $this->agencyName  = $property->agency->name ?? config('mail.from.name', 'CoreX OS');
+        $this->agencyName  = $property->agency->name ?? \App\Support\ClientBrand::NEUTRAL;
         $this->note        = $approval->request_note;
 
         $this->complianceLine = $property->compliance_snapshot_at

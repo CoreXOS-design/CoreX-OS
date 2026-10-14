@@ -309,7 +309,8 @@ final class OwnerContractorWalkFixesTest extends TestCase
             ->assertDontSee('Upload a quote')->assertDontSee('Submit quote');
 
         $wo->forceFill(['owner_approval_status' => RentalWorkOrder::APPROVAL_APPROVED])->save();
-        $this->get($show)->assertOk()->assertSee('Your quote of R6,800.00 has been approved.')->assertDontSee('Submit quote');
+        // once the owner has approved, the cost is authorised: since spec 22.17 (d66d995a0, 13 Oct) the quote card gives way to "You may go ahead" (no second quote form, no "held" line)
+        $this->get($show)->assertOk()->assertSee('data-go-ahead', false)->assertSee('You may go ahead')->assertDontSee('Submit quote')->assertDontSee('Upload a quote')->assertDontSee('data-contractor-quote-held', false);
 
         // the owner declined it: the quote is no longer the chosen one, so a new quote can be sent
         $quote->forceFill(['declined_at' => now(), 'is_selected' => false])->save();

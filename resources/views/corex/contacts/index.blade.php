@@ -812,6 +812,21 @@
                                 {{ $badgeName }}
                             </span>
                             @endforeach
+                            {{-- Quick Links W1 — FICA chip (batch-loaded in the controller); click goes to the contact's FICA tab where Send/Resend lives. --}}
+                            @if(! $isRestricted && isset($ficaQuickByContact[$contact->id]))
+                            <x-quick-link :tone="$ficaQuickByContact[$contact->id]['tone']"
+                                          :label="$ficaQuickByContact[$contact->id]['label']"
+                                          :title="$ficaQuickByContact[$contact->id]['detail']"
+                                          :href="route('corex.contacts.show', ['contact' => $contact, 'tab' => 'fica'])"
+                                          data-fica-quick-link="{{ $ficaQuickByContact[$contact->id]['key'] }}" />
+                            @endif
+                            {{-- Quick Links W2 — buyer pre-approval chip (the amount + expiry are on the contact row: no extra query). --}}
+                            @if(! $isRestricted && $contact->is_buyer)
+                            @php $__pa = $contact->preapprovalQuickState(); @endphp
+                            <x-quick-link :tone="$__pa['tone']" :label="$__pa['label']" :title="$__pa['detail']"
+                                          :href="route('corex.contacts.show', ['contact' => $contact, 'tab' => 'info']) . '#preapproval'"
+                                          data-preapproval-chip="{{ $__pa['key'] }}" />
+                            @endif
                         </div>
                         <div class="mt-1 flex flex-wrap gap-x-4 gap-y-1">
                             <span class="text-xs flex items-center gap-1" style="color:var(--text-secondary);">

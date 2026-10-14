@@ -159,7 +159,7 @@ class CoreMatchListPdfService
             'wishlist_name'  => trim((string) ($match->name ?? '')),
             'criteria'       => $this->criteriaSummary($match),
             'listing_type'   => $match->listing_type === 'rental' ? 'To Rent' : 'For Sale',
-            'agency_name'    => $match->agency?->name ?? $contact->agency?->name ?? config('app.name'),
+            'agency_name'    => $match->agency?->name ?? $contact->agency?->name ?? \App\Support\ClientBrand::NEUTRAL,
             'generated_at'   => now()->format('d M Y, H:i'),
             'generated_by'   => auth()->user()?->name,
             'total'          => count($rows),

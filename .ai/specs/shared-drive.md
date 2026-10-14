@@ -203,6 +203,15 @@ New permission group, module `shared_drive`, section `documents`, added to
 | `shared_drive.folders.create`    | Create folders               | action |
 | `shared_drive.folders.delete`    | Delete folders               | action |
 | `shared_drive.files.delete`      | Delete files                 | action |
+| `shared_drive.drives.create`            | Create Shared Drives                 | action |
+| `shared_drive.drives.create_restricted` | Create Restricted (Locked) Drives    | action |
+| `shared_drive.drives.manage`            | Manage All Drives & Access (see all) | action |
+
+> 2026-10-12: the three `drives.*` keys were enforced by `SharedDriveController` / `SharedDrive::userSeesAll()`
+> but had never been added to `config/corex-permissions.php`, so Role Manager could not grant them and only the
+> platform owner could create or manage drives. Now defined, with the defaults in the v2 table above (create =
+> admin/branch_manager/agent, create_restricted = admin/branch_manager, manage = admin). Guarded by
+> `tests/Feature/Permissions/EnforcedPermissionKeysAreDefinedTest.php`.
 
 **Mapping to the user's requirements:**
 - "who can create folders / delete folders" → `folders.create` / `folders.delete`

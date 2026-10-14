@@ -969,11 +969,11 @@ function rentalsPortal() {
                 if (mine.ok && !this.linkIsForSomeoneElse(mine.data)) return mine;
                 tabTokenSet(null);
             }
-            const named = {};
+            const named = { probe: true };   // a 200 "nobody yet" instead of a 401: no red console error on a fresh browser
             if (this.linkEmail) named.email = this.linkEmail;
             if (this.linkContactId) named.contact_id = this.linkContactId;
             let got = await portalFetch('/api/v1/client-auth/tab-token', { method: 'POST', body: JSON.stringify(named) });
-            if (!got.ok && this.qaLinkSignin) {
+            if ((!got.ok || !(got.data && got.data.token)) && this.qaLinkSignin) {
                 const ref = new URLSearchParams(window.location.search).get('r');
                 if (ref) {
                     got = await portalFetch('/api/v1/client-auth/qa-link-signin', { method: 'POST', body: JSON.stringify({ r: ref }) });

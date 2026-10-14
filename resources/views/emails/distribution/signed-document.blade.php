@@ -37,7 +37,7 @@
     </div>
 
     <div style="text-align: center; padding: 15px; color: #999; font-size: 11px;">
-        <p style="margin: 0;">This email was sent by {{ $agentFooter['agency_name'] ?? config('app.name') }}.</p>
+        <p style="margin: 0;">This email was sent by {{ $agentFooter['agency_name'] ?? \App\Support\ClientBrand::NEUTRAL }}.</p>
     </div>
 
 </body>

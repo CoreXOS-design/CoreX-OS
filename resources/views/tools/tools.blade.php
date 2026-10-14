@@ -1051,7 +1051,7 @@ const escapeHtml = (s) => String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<
 // --- STATE ---
 
 const DEFAULT_SETTINGS = {
-  companyName: {!! json_encode(config('app.name')) !!},
+  companyName: {!! json_encode($printSettings['companyName'] ?? 'Agency') !!},
   address: "The Emporium Shop 5, Shelly Beach, Margate",
   tel: "(039) 315 0857",
   ffc: "2023116041",

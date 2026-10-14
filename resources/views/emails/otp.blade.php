@@ -18,7 +18,7 @@
                                 @include('emails.partials.agency-otp-header')
                             @else
                             <div style="font-size:1.75rem; font-weight:800; letter-spacing:-0.04em; color:#0b2a4a; line-height:1;">
-                                CoreX <span style="color:#00b4d8;">Os</span>
+                                {{ \App\Support\ClientBrand::NEUTRAL }}
                             </div>
                             @endif
                         </td>
@@ -52,7 +52,7 @@
                                 @include('emails.partials.agency-otp-footer')
                             @else
                             <p style="margin:0; font-size:0.6875rem; color:#9ca3af;">
-                                &copy; {{ date('Y') }} CoreX OS. All rights reserved.
+                                &copy; {{ date('Y') }} {{ \App\Support\ClientBrand::NEUTRAL }}
                             </p>
                             @endif
                         </td>

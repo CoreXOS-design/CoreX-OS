@@ -172,6 +172,7 @@
             @if ($appointmentText)
                 <p><strong>{{ $appointmentText }}</strong></p>
                 @if ($appointmentNote)<p class="muted">{{ $appointmentNote }}</p>@endif
+                @if (! empty($appointmentContractorNote))<p data-contractor-note><strong>Note from the agent:</strong> {{ $appointmentContractorNote }}</p>@endif
             @else
                 <p class="muted">No appointment has been set yet. The agency arranges it and will tell you.</p>
             @endif

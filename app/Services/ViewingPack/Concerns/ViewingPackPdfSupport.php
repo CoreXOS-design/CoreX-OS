@@ -79,7 +79,7 @@ trait ViewingPackPdfSupport
         return [
             'rows'       => $rows,
             'agentName'  => $pack->agent?->name ?: '',
-            'agencyName' => $pack->agency?->name ?: 'CoreX',
+            'agencyName' => $pack->agency?->name ?: \App\Support\ClientBrand::NEUTRAL,
             'date'       => now()->format('j F Y'),
         ];
     }

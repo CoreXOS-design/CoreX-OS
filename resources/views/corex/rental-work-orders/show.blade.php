@@ -47,7 +47,7 @@
     $isOpenPanel = fn (string $k) => $openKey === $k || ($k === 'jobcard' && $openKey === 'contractor' && $isInternal);
     $panelHref = fn (string $p) => $p === 'cost' ? '#cost-decision' : ($p === 'whopays' ? '#who-pays' : '#wo-panel-' . $p);
     $tenantContacts = $workOrder->lease ? $workOrder->lease->tenants->map(fn ($t) => $t->contact)->filter() : collect();
-    $apptText = $workOrder->appointment_at ? \App\Support\AppDate::dateTime($workOrder->appointment_at, $woTz) . ($workOrder->appointment_note ? ' - ' . $workOrder->appointment_note : '') : 'Not booked';
+    $apptText = $workOrder->appointment_at ? \App\Support\AppDate::dateTime($workOrder->appointment_at, $woTz) . ($workOrder->appointment_note ? ' - ' . $workOrder->appointment_note : '') . ($workOrder->appointment_contractor_note ? ' [for the contractor only: ' . $workOrder->appointment_contractor_note . ']' : '') : 'Not booked';
     $woProv = $js['provider'] ?? null;
     $woCt = $js['contact'] ?? ['email' => null, 'phone' => null, 'has_contact' => false];
     $goAheadAt = $workOrder->updates->where('update_type', 'work_order_sent')->filter(fn ($u) => ! str_contains((string) $u->note, 'could not'))->sortByDesc('created_at')->first()?->created_at;
@@ -657,6 +657,12 @@
                         <label class="text-xs font-medium">Note for the tenant (optional) <span class="font-normal" style="color: var(--text-muted);">- the owner and the contractor can read it too</span></label>
                         <input type="text" name="appointment_note" maxlength="500" value="{{ old('appointment_note', $workOrder->appointment_note) }}" placeholder="e.g. the plumber will call 30 minutes before" class="w-full cx-dt-ctl mt-1">
                     </div>
+                    @if($workOrder->assignment_type !== \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL && ! $workOrder->isOwnerContractor())
+                    <div data-contractor-note-field>
+                        <label class="text-xs font-medium">Note for the contractor (optional) <span class="font-normal" style="color: var(--text-muted);">- private: the tenant and the owner never see it</span></label>
+                        <input type="text" name="appointment_contractor_note" maxlength="500" value="{{ old('appointment_contractor_note', $workOrder->appointment_contractor_note) }}" placeholder="e.g. please phone the tenant first" class="w-full cx-dt-ctl mt-1">
+                    </div>
+                    @endif
                     <div><button type="submit" class="corex-btn-primary text-xs" style="height:38px; margin-top:4px;">{{ $workOrder->appointment_at ? 'Change appointment' : 'Set appointment' }}</button></div>
                 </form>
                 <p class="text-xs mt-2" style="color: var(--text-muted);">The tenant is emailed when you set or change this.</p>

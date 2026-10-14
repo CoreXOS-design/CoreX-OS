@@ -28,7 +28,7 @@ class FicaRequestMail extends Mailable
         $this->contactName = $contact
             ? trim($contact->first_name . ' ' . $contact->last_name)
             : 'Valued Client';
-        $this->agencyName  = $submission->agency->name ?? config('mail.from.name', 'CoreX OS');
+        $this->agencyName  = $submission->agency->name ?? \App\Support\ClientBrand::NEUTRAL;
         $this->agentName   = $agent->name ?? $submission->requestedBy->name ?? 'Your Agent';
         $this->ficaUrl     = route('fica.form', $submission->token);
         $this->expiresAt   = $submission->token_expires_at->format('d M Y');

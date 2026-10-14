@@ -104,10 +104,10 @@ final class RentalsGoLiveWalkFixesTest extends TestCase
         self::assertStringNotContainsString('CoreX', (string) $env->subject);
         self::assertSame('hello@caperentals.test', $env->replyTo[0]->address);
 
-        // Staff / platform codes (no agency) stay the CoreX email.
-        $staff = new OtpMail('222333');
-        self::assertStringContainsString('CoreX', $staff->render());
-        self::assertSame('CoreX OS', $staff->envelope()->from->name);
+        // 14 Oct 2026 (Johan): no agency known -> a neutral label, never CoreX (every OtpService caller is a client flow).
+        $neutral = new OtpMail('222333');
+        self::assertStringNotContainsString('CoreX', $neutral->render());
+        self::assertSame(\App\Support\ClientBrand::NEUTRAL, $neutral->envelope()->from->name);
     }
 
     public function test_the_application_form_names_the_section_it_is_on_and_never_claims_seven_steps(): void

@@ -420,8 +420,10 @@
                             @if($unsplitCount > 0)
                                 <span class="ds-badge ds-badge-warning" title="{{ $unsplitCount === 1 ? 'One supporting document' : "{$unsplitCount} supporting documents" }} still need to be split into typed, filed pieces before this application can go to the authoriser.">{{ $unsplitCount }} unsorted</span>
                             @endif
-                            <button type="button" class="corex-btn-primary text-xs" :disabled="submittingForApproval"
+                            @unless($canApproveDirectly ?? false)
+                            <button type="button" class="corex-btn-primary text-xs" style="border: 1px solid transparent;" data-qa="submit-for-approval" :disabled="submittingForApproval"
                                     @click="submitForApproval()" x-text="submittingForApproval ? 'Submitting…' : ({{ $isPendingAuthorisation ? 'true' : 'false' }} ? 'Re-submit to authoriser' : 'Submit to authoriser')"></button>
+                            @endunless
                         @endunless
                         <a href="{{ route('corex.rental-applications.show', $rentalApplication) }}" class="corex-btn-outline text-xs">Back to application</a>
                     @else
@@ -2160,7 +2162,7 @@
                             <button type="button" data-qa="approve-application-open" class="corex-btn-primary text-xs w-full mb-1.5" @click="approveModalOpen = true; approveConfirming = false">Approve application</button>
                             <button type="button" data-qa="decline-application-open" class="corex-btn-outline text-xs w-full mb-1.5" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" @click="declineModalOpen = true">Decline application</button>
                         @else
-                            <button type="button" data-qa="submit-for-approval" class="corex-btn-primary text-xs w-full mb-1.5" :disabled="submittingForApproval" @click="submitForApproval()" x-text="submittingForApproval ? 'Submitting…' : 'Submit for approval'"></button>
+                            {{-- Johan, 14 Oct 2026 (cc5 re-walk): ONE submit button. The header one (Johan's own placement rule above) is the only submit; this side-column twin did the same thing. --}}
                             @if(!empty($oneStepNote))
                                 <p class="text-[11px] mb-1.5" style="color: var(--text-muted);" data-qa="one-step-note">{{ $oneStepNote }}</p>
                             @endif

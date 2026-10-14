@@ -597,7 +597,7 @@ final class RentalInspectionSigningLinkTest extends TestCase
         $link = $this->issue($inspection, 'agent');
         $this->guest();
 
-        $this->get($link->url())->assertOk()->assertSee('Lounge Ceiling')->assertSee('signs in CoreX, with their own login and PIN')->assertDontSee('Sign the report');
+        $this->get($link->url())->assertOk()->assertSee('Lounge Ceiling')->assertSee('signs with their own login and PIN')->assertDontSee('Sign the report');
         $this->submit($link)->assertStatus(409)->assertJson(['reason' => 'agent_link']);
         $this->assertSame(0, RentalInspectionSignature::count());
     }
@@ -1326,7 +1326,7 @@ final class RentalInspectionSigningLinkTest extends TestCase
 
         Mail::assertSent(RentalInspectionSigningLinkMail::class, function (RentalInspectionSigningLinkMail $mail) {
             return $mail->canSign === false
-                && str_contains($mail->render(), 'the agent signs inside CoreX, with their own login and signing PIN')
+                && str_contains($mail->render(), 'the agent signs with their own login and signing PIN')
                 && str_contains($mail->render(), 'READ THE REPORT');
         });
     }

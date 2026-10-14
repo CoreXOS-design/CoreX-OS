@@ -381,6 +381,8 @@ block in `bootstrap/app.php` (alongside `permission`, `agency.setup.portal`, …
 must pass).
 
 ### 6.4 The Settings "Features" page
+
+> **Superseded 2026-10-12:** the page is no longer a Settings rail section. It is its own page, `GET /corex/features`, with its own sidebar entry — see `.ai/specs/features-page.md` §5. The saver, permission and §6.1 guard described below are unchanged.
 - New **"Features"** rail entry in the **Modules** `$railGroups` group of
   `resources/views/corex/settings.blade.php` (in-page section, anchor `features`). It renders the
   registry **grouped by `category`**, each feature a toggle showing its `label` + `explain` +

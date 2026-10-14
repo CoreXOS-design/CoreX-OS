@@ -539,7 +539,7 @@ class ClientAuthController extends Controller
      */
     public function tabToken(Request $request): JsonResponse
     {
-        $data = $request->validate(['email' => 'nullable|email|max:255', 'contact_id' => 'nullable|integer|min:1']);
+        $data = $request->validate(['email' => 'nullable|email|max:255', 'contact_id' => 'nullable|integer|min:1', 'probe' => 'nullable|boolean']);
 
         $pool = $this->tabs->rememberedIds($request);
         $legacy = $request->hasSession() ? Auth::guard('client-web')->user() : null;
@@ -559,6 +559,13 @@ class ClientAuthController extends Controller
         $id = $named ? ($target && in_array((int) $target, $pool, true) ? (int) $target : null) : (end($pool) ?: null);
         $login = $id ? ClientUser::find($id) : null;
         if (! $login) {
+            // The portal page asks on EVERY open "is anyone already signed in on this browser?" - for a fresh browser the honest answer is "no", and a
+            // 401 for that shows as a red console error on every first open. With `probe` the answer is a plain 200 + needs_signin (no token); without
+            // it (any other caller) it stays the 401 it always was.
+            if (! empty($data['probe'])) {
+                return response()->json(['token' => null, 'needs_signin' => true]);
+            }
+
             return response()->json(['message' => 'Sign in to continue.', 'needs_signin' => true], 401);
         }
 
