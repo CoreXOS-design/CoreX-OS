@@ -1585,7 +1585,14 @@
                                 <span class="text-xs ml-2" style="color:var(--text-muted);">{{ $fhelp }} Standard: {{ $fdefault }}.</span>
                             </div>
                         @endforeach
-                        <button type="submit" class="corex-btn-primary text-xs">Save FICA time windows</button>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);" for="rental_trust_account_name">Trust account name (rent and deposits)</label>
+                            <input type="text" id="rental_trust_account_name" name="rental_trust_account_name" maxlength="{{ \App\Services\Compliance\FicaTrustAccount::NAME_MAX }}"
+                                   value="{{ old('rental_trust_account_name', $agency->rental_trust_account_name) }}" placeholder="e.g. Smith Property Trust Account"
+                                   class="w-full max-w-md rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <p class="text-xs mt-1" style="color:var(--text-muted);">How your clients are told to refer to the trust account their rent and deposit are paid into, on the FICA form. Leave blank to say "the agency's trust account".</p>
+                        </div>
+                        <button type="submit" class="corex-btn-primary text-xs">Save FICA settings</button>
                     </form>
                 </div>
             </div>

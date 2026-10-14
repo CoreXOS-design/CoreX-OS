@@ -101,7 +101,7 @@
                 text-transform:uppercase; text-align:center;
                 white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
                 padding:0 12px; user-select:none;">
-        {{ $c['text'] }}@if ($mailpitActive) · <a href="{{ config('mail.mailpit_ui_url') }}" target="_blank" rel="noopener" style="color:inherit; text-decoration:underline;" title="Shared test-mail catcher — every QA/Staging/Demo environment's outbound mail lands here, not just this one.">Open Mailpit</a>@endif
+        {{ $c['text'] }}@if ($mailpitActive && trim((string) config('mail.mailpit_ui_url')) !== '') · <a href="{{ config('mail.mailpit_ui_url') }}" target="_blank" rel="noopener" style="color:inherit; text-decoration:underline;" title="Shared test-mail catcher — every QA/Staging/Demo environment's outbound mail lands here, not just this one.">Open Mailpit</a>@endif
         @if ($isDemoInstance)
             · <span id="demo-reset-countdown" data-reset-at="{{ $resetAtIso }}"
                     title="The demo database is wiped and rebuilt every 3 days at 03:00 SAST. Anything you change will be lost.">{{ $resetLabel }}</span>

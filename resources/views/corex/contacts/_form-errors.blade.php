@@ -1,8 +1,7 @@
 {{-- Shared validation-error banner for the Contacts create/edit forms.
-     Lists every error (not just $errors->first()), auto-scrolls to itself,
-     and focuses #id_number specifically when that's what failed — the ID
-     Number field's own inline @error message carries the rest of the
-     detail. Used by both corex/contacts/index.blade.php (quick-create) and
+     Lists every error (not just $errors->first()), scrolls to the first field that
+     failed (the ID Number field carries its own inline @error message) and
+     focuses it, falling back to the banner. Used by both corex/contacts/index.blade.php (quick-create) and
      corex/contacts/show.blade.php (edit). --}}
 @if($errors->any())
     <div id="contact-form-errors" class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
@@ -18,12 +17,31 @@
         </div>
     </div>
     <script>
+        // Take the person to the FIELD that failed, not just the banner: the banner sits at the top while a field can be a
+        // screen or more below, and some fields (the ID number) are drawn by Alpine a moment after the page loads - so look
+        // for the first errored field for up to ~1.5s. No field found = the banner itself is scrolled into view.
         document.addEventListener('DOMContentLoaded', () => {
-            const el = document.getElementById('contact-form-errors');
-            el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            @if($errors->has('id_number'))
-                document.getElementById('id_number')?.focus({ preventScroll: true });
-            @endif
+            const keys = @json($errors->keys());
+            const findField = () => {
+                for (const key of keys) {
+                    const el = document.getElementById(key) || document.querySelector('[name="' + key + '"]');
+                    if (el && el.offsetParent !== null) return el;
+                }
+                return null;
+            };
+            let tries = 0;
+            const go = () => {
+                const field = findField();
+                if (field) {
+                    field.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    field.focus({ preventScroll: true });
+                } else if (++tries < 15) {
+                    setTimeout(go, 100);
+                } else {
+                    document.getElementById('contact-form-errors')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            };
+            go();
         });
     </script>
 @endif

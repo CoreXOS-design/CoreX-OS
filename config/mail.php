@@ -172,10 +172,10 @@ return [
 
     /*
     | The web address of this environment's test-mail catcher (Mailpit), shown as "Open Mailpit" in the QA banner.
-    | One catcher per box, reached through its own host name; set MAILPIT_UI_URL where an environment has its own.
-    | The default is the host that fronts this server's catcher today (behind a password).
+    | One catcher per box, reached through its own host name; each environment sets MAILPIT_UI_URL to ITS OWN box's catcher.
+    | There is deliberately no default: unset means the banner shows no link, so no environment can ever point at another box's inbox.
     */
-    'mailpit_ui_url' => env('MAILPIT_UI_URL', 'https://mail.demo1.corexos.co.za'),
+    'mailpit_ui_url' => env('MAILPIT_UI_URL', ''),
 
     'from' => [
         'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),

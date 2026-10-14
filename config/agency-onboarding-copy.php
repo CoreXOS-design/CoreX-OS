@@ -1708,6 +1708,11 @@ return [
              'label' => '"Expiring soon" looks ahead (days)',
              'explain' => 'How far ahead the "expiring soon" list looks for FICA approvals about to lapse.',
              'affects' => 'Which FICA approvals appear under "Expiring soon" in document filing.'],
+            // Trust account name on the FICA form's payment guidance (was one agency's name in the wording). Text, has()-guarded by saveWindowSettings (§6.1).
+            ['key' => 'rental_trust_account_name', 'source' => 'agency', 'type' => 'text', 'placeholder' => 'e.g. Smith Property Trust Account',
+             'label' => 'Trust account name (rent and deposits)',
+             'explain' => 'How your clients should refer to the trust account their rent and deposit are paid into. Tenants and landlords see it in the payment guidance on the FICA form. Leave it blank and the form says "the agency\'s trust account".',
+             'affects' => 'The wording of the payment hints on the FICA form your tenants and landlords fill in, e.g. "paid via EFT to the Smith Property Trust Account".'],
         ],
     ],
 

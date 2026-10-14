@@ -582,7 +582,7 @@
                         <template x-if="contactKind === 'natural_person'">
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);"><span x-text="idKind === 'passport' ? 'Passport Number' : 'ID Number'"></span> <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
-                            <input type="text" name="id_number" value="{{ old('id_number', $contact->id_number) }}"
+                            <input type="text" id="id_number" name="id_number" value="{{ old('id_number', $contact->id_number) }}"
                                    :placeholder="idKind === 'passport' ? 'e.g. AB1234567' : 'e.g. 9001010000000'"
                                    :maxlength="idKind === 'passport' ? 50 : 13"
                                    class="w-full rounded-md px-3 py-2 text-sm"
