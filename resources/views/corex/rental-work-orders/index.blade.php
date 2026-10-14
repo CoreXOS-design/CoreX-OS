@@ -48,7 +48,7 @@
             if (($filters['status'] ?? '') === $s) { $currentTile = $s; break; }
         }
         // Yes/no filters (not statuses). §17.17 added "Awaiting owner" and "Variation pending" beside "Overdue".
-        $flagKeys = ['overdue', 'awaiting_owner', 'variation_pending'];
+        $flagKeys = ['overdue', 'awaiting_owner', 'variation_pending', 'awaiting_check'];
         foreach ($flagKeys as $f) {
             if (!$currentTile && ($filters[$f] ?? false)) { $currentTile = $f; }
         }
@@ -67,8 +67,10 @@
             // §17.17 — the owner owes an answer: the quote is out with him / extra work was put to him.
             'awaiting_owner' => ['label' => 'Awaiting owner', 'params' => ['awaiting_owner' => 1]],
             'variation_pending' => ['label' => 'Variation pending', 'params' => ['variation_pending' => 1]],
+            // Ruling 14 Oct 2026: reported finished, waiting for the agent to check and close
+            'awaiting_check' => ['label' => 'Finished - awaiting agent check', 'params' => ['awaiting_check' => 1]],
         ];
-        $tileClearParams = ['status' => null, 'overdue' => null, 'awaiting_owner' => null, 'variation_pending' => null, 'page' => null];
+        $tileClearParams = ['status' => null, 'overdue' => null, 'awaiting_owner' => null, 'variation_pending' => null, 'awaiting_check' => null, 'page' => null];
         $tileHref = fn ($key, $def) => route('corex.rental-work-orders.index', array_merge(
             request()->except(array_keys($tileClearParams)),
             $key === 'total' || $currentTile === $key ? $tileClearParams : array_merge($tileClearParams, $def['params'])
@@ -195,8 +197,12 @@
             <input type="checkbox" name="variation_pending" value="1" @checked(($filters['variation_pending'] ?? false))>
             Variation pending
         </label>
+        <label class="flex items-center gap-1 text-xs pb-2">
+            <input type="checkbox" name="awaiting_check" value="1" @checked(($filters['awaiting_check'] ?? false))>
+            Finished - awaiting agent check
+        </label>
         <button type="submit" class="corex-btn-outline text-xs">Filter</button>
-        @if(request()->hasAny(['q', 'status', 'trade_type', 'priority', 'property_id', 'paid_by', 'who_pays', 'cause', 'date_from', 'date_to', 'overdue', 'awaiting_owner', 'variation_pending', 'open']))
+        @if(request()->hasAny(['q', 'status', 'trade_type', 'priority', 'property_id', 'paid_by', 'who_pays', 'cause', 'date_from', 'date_to', 'overdue', 'awaiting_owner', 'variation_pending', 'awaiting_check', 'open']))
             <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-btn-outline text-xs">Clear</a>
         @endif
     </form>
@@ -263,7 +269,7 @@
                         @if($showArchived)
                             <span class="ds-badge ds-badge-muted">Archived {{ $workOrder->deleted_at?->format('Y-m-d') }}</span>
                         @else
-                            <span class="ds-badge {{ $statusBadgeClass($workOrder->status) }}">{{ app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->reportedFinished($workOrder) ? 'Reported finished' : $workOrder->statusLabel() }}</span>
+                            <span class="ds-badge {{ $statusBadgeClass($workOrder->status) }}">{{ app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->reportedFinished($workOrder) ? 'Finished - awaiting agent check' : $workOrder->statusLabel() }}</span>
                         @endif
                     </td>
                     <td class="px-4 py-2">{{ $workOrder->priority ? ucfirst($workOrder->priority) : '—' }}</td>

@@ -275,7 +275,7 @@ final class OwnerContractorWalkFixesTest extends TestCase
             ->assertSee('This is a visit to look at the problem and give a quote', false)
             ->assertSee('Accept the job')->assertSee('Decline the job')->assertSee('Upload a quote')
             ->assertSee('needed if you do not attach a document', false)->assertSee('needed if you do not write the details', false)
-            ->assertDontSee('Mark job done')->assertDontSee('What did you find?')->assertDontSee('Upload after photos');
+            ->assertDontSee('Work finished')->assertDontSee('What did you find?')->assertDontSee('Upload after photos');
         // the order on the page: answer, then quote
         $html = $this->get($show)->getContent();
         $this->assertLessThan(strpos($html, 'Upload a quote'), strpos($html, 'Can you take this job?'));
@@ -294,7 +294,7 @@ final class OwnerContractorWalkFixesTest extends TestCase
 
         $this->get($show)->assertOk()
             ->assertSee('Accepted the job')->assertDontSee('Accept the job')->assertDontSee('Decline the job')->assertDontSee('If you cannot take it')
-            ->assertSee('Upload a quote')->assertSee('Mark job done')->assertSee('What did you find?')->assertSee('Upload after photos');
+            ->assertSee('Upload a quote')->assertSee('Work finished')->assertSee('What did you find?')->assertSee('Upload after photos');
     }
 
     public function test_once_a_quote_is_chosen_the_contractor_is_told_where_it_stands_instead_of_being_offered_the_form_again(): void
@@ -323,7 +323,7 @@ final class OwnerContractorWalkFixesTest extends TestCase
         $this->post("/secure/work-orders/{$token}/respond", ['answer' => 'decline', 'reason' => 'Fully booked'])->assertRedirect($show);
 
         $this->get($show)->assertOk()->assertSee('Declined the job')->assertSee('Fully booked')
-            ->assertDontSee('Accept the job')->assertDontSee('Upload a quote')->assertDontSee('Mark job done');
+            ->assertDontSee('Accept the job')->assertDontSee('Upload a quote')->assertDontSee('Work finished');
     }
 
     public function test_a_contractors_link_after_the_job_is_finished_says_so_instead_of_expired(): void

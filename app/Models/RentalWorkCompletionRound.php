@@ -24,6 +24,8 @@ class RentalWorkCompletionRound extends Model
     public const VIA_CONTRACTOR_CAPTURED = 'contractor_captured';
     /** W6 (8 Oct 2026) - the owner reported the work done from the portal. */
     public const VIA_OWNER_PORTAL = 'owner_portal';
+    /** Johan, 9 Oct rule (ruling 14 Oct 2026): the contractor pressed "Work finished" on their private link. Waits for the AGENT; closes nothing. */
+    public const VIA_CONTRACTOR_LINK = 'contractor_link';
     /** Spec 22.18 (Johan, 14 Oct 2026) - the TENANT reported the work finished from their portal (and confirmed it in the same breath). */
     public const VIA_TENANT_PORTAL = 'tenant_portal';
 
@@ -111,6 +113,7 @@ class RentalWorkCompletionRound extends Model
             self::VIA_SIGNED_COPY => 'signed copy',
             self::VIA_CONTRACTOR_CAPTURED => 'captured from the contractor',
             self::VIA_OWNER_PORTAL => 'told by the owner on the portal',
+            self::VIA_CONTRACTOR_LINK => 'the contractor on their link',
             default => 'recorded by the office',
         };
     }

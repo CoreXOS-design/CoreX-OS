@@ -80,7 +80,7 @@ final class ContractorFinishTest extends TestCase
 
         $html = $this->get(route('rentals.secure-link.show', $raw))->assertOk()->getContent();
         foreach (['data-go-ahead', 'You may go ahead', 'R850.00', 'data-contractor-appointment', 'Gate code 1234', 'data-contractor-photos', 'Before or during the work', 'After the work',
-            'data-contractor-extra', 'Ask for extra money', 'data-contractor-invoice', 'Invoice number', 'data-contractor-done', 'Mark job done'] as $needle) {
+            'data-contractor-extra', 'Ask for extra money', 'data-contractor-invoice', 'Invoice number', 'data-contractor-done', 'Work finished'] as $needle) {
             $this->assertStringContainsString($needle, $html, $needle);
         }
         $this->assertStringNotContainsString('data-contractor-quote', $html, 'the job is going ahead - no second quote');
@@ -188,17 +188,27 @@ final class ContractorFinishTest extends TestCase
         $this->assertStringNotContainsString('data-contractor-answer', $html);
     }
 
-    public function test_the_job_done_button_completes_it_with_what_was_found_and_the_link_then_stops_working(): void
+    public function test_the_work_finished_button_reports_it_finished_and_closes_nothing_and_the_link_keeps_working_until_the_agent_closes(): void
     {
         [$wo, $raw] = $this->job(true);
         $this->post(route('rentals.secure-link.mark-done', $raw))->assertSessionHasNoErrors();
-        $this->assertSame(RentalWorkOrder::STATUS_COMPLETED, $wo->fresh()->status);
-        $this->assertStringContainsString('via contractor link', (string) $wo->updates()->where('to_status', 'completed')->first()->note);
+        // Johan's 9 Oct rule (ruling 14 Oct 2026): finished work WAITS FOR THE AGENT - the job is still open
+        $this->assertSame(RentalWorkOrder::STATUS_IN_PROGRESS, $wo->fresh()->status);
+        $this->assertNull($wo->fresh()->completed_at);
+        $this->assertStringContainsString('via contractor link', (string) $wo->updates()->where('to_status', 'in_progress')->first()->note);
 
+        // the contractor's page says the agency will check it; the button is gone; the invoice can still be sent
         $html = $this->get(route('rentals.secure-link.show', $raw))->getContent();
-        $this->assertStringNotContainsString('data-contractor-invoice', $html);
-        $this->postInvoice($raw, 100.0);   // the link is dead
-        $this->assertSame(0, $wo->invoices()->count());
+        $this->assertStringContainsString('data-contractor-finished-waiting', $html);
+        $this->assertStringNotContainsString('Work finished</button>', $html);
+        $this->postInvoice($raw, 100.0)->assertSessionHasNoErrors();
+        $this->assertSame(1, $wo->invoices()->count());
+
+        // and only the agent's own close ends the link
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.complete', $wo), ['paid_by' => 'owner', 'cost_amount' => 850.00])->assertSessionHasNoErrors();
+        $this->assertSame(RentalWorkOrder::STATUS_COMPLETED, $wo->fresh()->status);
+        $this->post(route('rentals.secure-link.invoice', $raw), ['invoice_number' => 'INV-2', 'invoice_date' => now()->toDateString(), 'amount' => 50, 'document' => $this->invoiceFile()]);   // the link is dead
+        $this->assertSame(1, $wo->invoices()->count());
     }
 
     public function test_nothing_can_be_filed_or_asked_while_the_owner_has_the_job_stopped(): void

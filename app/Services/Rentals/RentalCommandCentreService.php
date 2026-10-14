@@ -889,7 +889,7 @@ class RentalCommandCentreService
             $scope,
             'property_id'
         )->get()->reject(function (RentalWorkOrder $wo) {
-            // T1: an outside / owner-contractor job already reported finished has its own "Reported finished - check and close" row - never two rows.
+            // T1: an outside / owner-contractor job already reported finished has its own "Finished - awaiting agent check" row - never two rows.
             $latest = $wo->assignment_type !== RentalWorkOrder::ASSIGNMENT_INTERNAL ? $wo->latestCompletionRound() : null;
 
             return $latest && $latest->outcome !== \App\Models\RentalWorkCompletionRound::OUTCOME_DISPUTED;
@@ -1091,7 +1091,7 @@ class RentalCommandCentreService
             if ($round) {
                 $by = $round->reported_via === \App\Models\RentalWorkCompletionRound::VIA_OWNER_PORTAL ? 'the owner' : ($round->reported_by_label ?: 'the contractor');
                 $push($base + ['type' => 'wo_complete', 'urgency' => 1, 'age_days' => $age($round->opened_at), 'item_date' => $round->opened_at,
-                    'label' => 'Reported finished - check and close', 'detail' => $wo->title . ' - reported finished by ' . $by . ($round->opened_at ? ' on ' . $round->opened_at->format('j M Y') : '') . ': check it and complete the work order']);
+                    'label' => 'Finished - awaiting agent check', 'detail' => $wo->title . ' - reported finished by ' . $by . ($round->opened_at ? ' on ' . $round->opened_at->format('j M Y') : '') . ': check it and complete the work order']);
 
                 return;
             }

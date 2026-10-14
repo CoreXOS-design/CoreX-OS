@@ -136,6 +136,8 @@ class RentalWorkOrderController extends Controller
             // §17.17 — the owner owes an answer: the quote is out / extra work was put to him. Same own/branch/agency base as every tile.
             'awaiting_owner' => $woTileBase()->awaitingOwner()->count(),
             'variation_pending' => $woTileBase()->variationPending()->count(),
+            // Ruling 14 Oct 2026: finished work waits for the agent to check and close it
+            'awaiting_check' => $woTileBase()->awaitingAgentCheck()->count(),
         ];
 
         return view('corex.rental-work-orders.index', [
@@ -146,7 +148,7 @@ class RentalWorkOrderController extends Controller
             'showArchived' => $showArchived,
             'perPage' => $perPage,
             'perPageOptions' => self::PER_PAGE_OPTIONS,
-            'filters' => $request->only(['q', 'status', 'trade_type', 'priority', 'property_id', 'lease_id', 'paid_by', 'who_pays', 'cause', 'date_from', 'date_to', 'overdue', 'awaiting_owner', 'variation_pending', 'open', 'cc_scope']),
+            'filters' => $request->only(['q', 'status', 'trade_type', 'priority', 'property_id', 'lease_id', 'paid_by', 'who_pays', 'cause', 'date_from', 'date_to', 'overdue', 'awaiting_owner', 'variation_pending', 'awaiting_check', 'open', 'cc_scope']),
             'filteredProperty' => $filteredProperty,
             'filteredLease' => $filteredLease,
             'tileCounts' => $tileCounts,
@@ -228,6 +230,9 @@ class RentalWorkOrderController extends Controller
         if ($request->boolean('variation_pending')) {
             $query->variationPending();
         }
+        if ($request->boolean('awaiting_check')) {
+            $query->awaitingAgentCheck();
+        }
 
         return $query;
     }
@@ -297,6 +302,9 @@ class RentalWorkOrderController extends Controller
         }
         if ($request->boolean('variation_pending')) {
             $out['Variation pending'] = 'Yes';
+        }
+        if ($request->boolean('awaiting_check')) {
+            $out['Finished - awaiting agent check'] = 'Yes';
         }
         if ($df = $request->get('date_from')) {
             $out['Reported from'] = $df;

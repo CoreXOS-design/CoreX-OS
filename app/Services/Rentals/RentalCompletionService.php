@@ -206,6 +206,7 @@ class RentalCompletionService
             RentalWorkCompletionRound::VIA_SIGNED_COPY => 'signed copy',
             RentalWorkCompletionRound::VIA_TENANT_PORTAL => 'the tenant on the portal',
             RentalWorkCompletionRound::VIA_CONTRACTOR_CAPTURED => 'captured by the office from the contractor',
+            RentalWorkCompletionRound::VIA_CONTRACTOR_LINK => 'the contractor on their link',
             default => 'recorded by the office',
         };
     }
@@ -638,6 +639,48 @@ class RentalCompletionService
             foreach (array_values(array_filter($photos, fn ($p) => $p instanceof UploadedFile)) as $file) {
                 $photo = $service->storePhoto($wo, $file, RentalWorkOrder::PHOTO_COMPLETED, $by);
                 $photo->forceFill(['uploaded_via' => RentalWorkOrderPhoto::VIA_OFFICE])->save();
+            }
+
+            return $round;
+        });
+    }
+
+    /**
+     * Johan's 9 Oct rule (ruling 14 Oct 2026, spec 22.17 item 6): the contractor's "Work finished" on their private link reports the work finished and
+     * NOTHING more - the job stays open ("Finished - awaiting agent check"), no final statement goes to the owner, no "Work completed" goes to the tenant.
+     * Only the agent's own close (the Complete form: confirm the work, rule who pays) does that. Same round as every other finished report.
+     *
+     * @throws \LogicException the work order is not at a stage where work can be reported done
+     */
+    public function recordContractorLinkDone(RentalWorkOrder $workOrder, string $contractorName): RentalWorkCompletionRound
+    {
+        if ($workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL) {
+            throw new \LogicException("This work is done by the agency's own team - it is reported through the job card.");
+        }
+        if (! in_array($workOrder->status, [RentalWorkOrder::STATUS_ORDERED, RentalWorkOrder::STATUS_IN_PROGRESS, RentalWorkOrder::STATUS_DISPUTED], true)) {
+            throw new \LogicException('This job can no longer be reported finished.');
+        }
+        // already reported finished and nobody has closed or sent it back: pressing again changes nothing and tells nobody again
+        $client = app(RentalWorkOrderClientViewService::class);
+        if ($client->reportedFinished($workOrder) && ($latest = $workOrder->latestCompletionRound())) {
+            return $latest;
+        }
+
+        return DB::transaction(function () use ($workOrder, $contractorName) {
+            $round = $this->openRound($workOrder, [
+                'reported_by_label' => $contractorName,
+                'reported_via' => RentalWorkCompletionRound::VIA_CONTRACTOR_LINK,
+                'reported_note' => 'Reported finished by the contractor on their link - waiting for the agent to check and close',
+            ]);
+
+            $wo = RentalWorkOrder::findOrFail($workOrder->id);
+            if ($wo->status === RentalWorkOrder::STATUS_ORDERED) {
+                $wo->forceFill(['status' => RentalWorkOrder::STATUS_IN_PROGRESS])->save();
+                $wo->updates()->create([
+                    'agency_id' => $wo->agency_id, 'update_type' => 'status_change',
+                    'from_status' => RentalWorkOrder::STATUS_ORDERED, 'to_status' => RentalWorkOrder::STATUS_IN_PROGRESS,
+                    'note' => 'The contractor reported the work finished (via contractor link)',
+                ]);
             }
 
             return $round;

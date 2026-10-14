@@ -123,7 +123,7 @@ class ContractorSecureLinkTest extends TestCase
         $show->assertDontSee($workOrderB->title);
     }
 
-    public function test_link_dies_once_the_job_is_marked_done(): void
+    public function test_link_dies_once_the_job_is_closed_by_the_agent_not_when_the_contractor_says_finished(): void
     {
         $agency = $this->makeAgency();
         $agent = User::factory()->create(['agency_id' => $agency->id, 'role' => 'admin']);
@@ -135,6 +135,10 @@ class ContractorSecureLinkTest extends TestCase
         $this->post('/secure/work-orders/' . $issued['raw_token'] . '/mark-done')
             ->assertRedirect();
 
+        // ruling 14 Oct 2026: "Work finished" waits for the agent - the link still works and says the agency will check
+        $this->get('/secure/work-orders/' . $issued['raw_token'])->assertOk()->assertSee('you have told us the work is finished')->assertDontSee('This job is finished');
+
+        $workOrder->fresh()->complete($agent, ['paid_by' => 'owner']);   // the agent's close
         $this->get('/secure/work-orders/' . $issued['raw_token'])->assertSee('This job is finished');   // cc4's walk fix: a finished job's link says so
     }
 

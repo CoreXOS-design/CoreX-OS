@@ -65,7 +65,7 @@ return [
     ],
     // T1 (9 Oct 2026): the work is reported finished (by the crew, the contractor or the owner) and the AGENT checks and closes it. Never a tenant hold.
     'reported_finished' => [
-        'agent' => 'Reported finished - check and close', 'owner' => 'Work reported finished - your agent is closing it off', 'tenant' => 'Work reported finished - your agent is closing it off',
+        'agent' => 'Finished - awaiting agent check', 'owner' => 'Work reported finished - your agent is closing it off', 'tenant' => 'Work reported finished - your agent is closing it off',
     ],
 
     'status_words' => [

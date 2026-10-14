@@ -203,7 +203,7 @@ final class OwnerRouteAndQueueTest extends TestCase
             $this->assertSame($route, $row['route'], $title);
         }
         $this->assertNull($this->rowFor('WO-appt'), 'a sent work order WITH an appointment waits on nobody here');
-        $this->assertSame('Reported finished - check and close', $this->rowFor('WO-tenantcheck')['label'], 'T1: one row, plain words');
+        $this->assertSame('Finished - awaiting agent check', $this->rowFor('WO-tenantcheck')['label'], 'T1: one row, plain words');
         $this->assertSame(1, app(RentalCommandCentreService::class)->queueItems($this->admin, 'all')->filter(fn ($i) => str_contains((string) ($i['detail'] ?? ''), 'WO-tenantcheck'))->count(), 'never two rows');
 
         // information rows are never counted as "needs action", and they carry their age

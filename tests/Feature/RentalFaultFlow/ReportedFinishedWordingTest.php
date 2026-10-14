@@ -139,14 +139,34 @@ final class ReportedFinishedWordingTest extends TestCase
         $this->assertSame('Work order raised', collect($this->ownerList())->firstWhere('id', $fault->id)['status_label']);
     }
 
-    public function test_the_staff_work_order_list_says_reported_finished_where_the_page_badge_does(): void
+    public function test_the_staff_work_order_list_says_finished_awaiting_agent_check_where_the_page_badge_does(): void
     {
         [$fault, $wo] = $this->job();
         $this->contractorReportsDone($wo);
 
         $list = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.index'))->assertOk()->getContent();
-        $this->assertMatchesRegularExpression('/ds-badge[^"]*">\s*Reported finished\s*<\/span>/', $list);
+        $this->assertMatchesRegularExpression('/ds-badge[^"]*">\s*Finished - awaiting agent check\s*<\/span>/', $list);
         $page = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
-        $this->assertStringContainsString('data-stage-badge>Reported finished - check and close<', $page);
+        $this->assertStringContainsString('data-stage-badge>Finished - awaiting agent check<', $page);
+    }
+
+    public function test_the_work_order_list_has_a_finished_awaiting_agent_check_tile_and_filter(): void
+    {
+        [$fault, $wo] = $this->job();
+        $other = $this->externalWorkOrder(['title' => 'Still being done']);
+        $this->contractorReportsDone($wo);
+
+        $list = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.index'))->assertOk()->getContent();
+        $this->assertStringContainsString('Finished - awaiting agent check', $list);   // the tile and the checkbox beside the others
+        $this->assertStringContainsString('name="awaiting_check"', $list);
+
+        $filtered = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.index', ['awaiting_check' => 1]))->assertOk()->getContent();
+        $this->assertStringContainsString(route('corex.rental-work-orders.show', $wo), $filtered);
+        $this->assertStringNotContainsString(route('corex.rental-work-orders.show', $other), $filtered);
+
+        // once the agent closes it, it leaves the tile
+        $this->assertTrue(\App\Models\RentalWorkOrder::query()->awaitingAgentCheck()->whereKey($wo->id)->exists());
+        $wo->forceFill(['status' => \App\Models\RentalWorkOrder::STATUS_COMPLETED])->save();
+        $this->assertFalse(\App\Models\RentalWorkOrder::query()->awaitingAgentCheck()->whereKey($wo->id)->exists());
     }
 }

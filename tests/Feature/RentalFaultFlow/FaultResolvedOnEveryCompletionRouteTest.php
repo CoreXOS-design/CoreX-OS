@@ -94,16 +94,70 @@ final class FaultResolvedOnEveryCompletionRouteTest extends TestCase
         $this->assertResolved($fault, 'office form');
     }
 
-    public function test_route_2_the_contractors_own_link_resolves_the_fault(): void
+    public function test_route_2_the_contractors_own_link_no_longer_closes_anything_the_agents_close_resolves_the_fault(): void
     {
         $wo = $this->authorisedJob();
         $fault = $this->raisedFault($wo);
         $raw = app(RentalSecureAccessTokenService::class)->issueFor($wo->fresh(), $this->admin)['raw_token'];
 
+        // ruling 14 Oct 2026 (Johan's 9 Oct rule): "Work finished" on the link waits for the agent - the job and its fault stay open
+        $this->post(route('rentals.secure-link.mark-done', $raw), ['found_text' => 'Board reset', 'cause_note' => 'Normal wear'])->assertSessionHasNoErrors();
+        $this->assertSame(RentalWorkOrder::STATUS_IN_PROGRESS, $wo->fresh()->status);
+        $this->assertSame(RentalFaultReport::STATUS_WORK_ORDER_RAISED, $fault->fresh()->status, 'the fault is not resolved by the contractor pressing finished');
+
+        // the agent confirms the work and rules who pays: that is the close, and the fault resolves
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.complete', $wo), ['paid_by' => 'owner', 'cost_amount' => 1000.00])->assertSessionHasNoErrors();
+        $this->assertSame(RentalWorkOrder::STATUS_COMPLETED, $wo->fresh()->status);
+        $this->assertResolved($fault, 'agent close after the contractor link');
+    }
+
+    public function test_contractor_finish_notifies_the_agent_only_and_sends_nothing_to_the_owner_or_tenant_until_the_agent_closes(): void
+    {
+        \Illuminate\Support\Facades\Mail::fake();
+        $alerts = [];
+        $notifier = \Mockery::mock(\App\Services\CommandCenter\NotificationDispatcher::class);
+        $notifier->shouldReceive('fire')->andReturnUsing(function ($user, $key, $subject, $args) use (&$alerts) { $alerts[] = [$key, (string) ($args['title'] ?? '')]; });
+        $this->app->instance(\App\Services\CommandCenter\NotificationDispatcher::class, $notifier);
+        $wo = $this->authorisedJob();
+        $fault = $this->raisedFault($wo);
+        $raw = app(RentalSecureAccessTokenService::class)->issueFor($wo->fresh(), $this->admin)['raw_token'];
+        \Illuminate\Support\Facades\Event::fake([\App\Events\Rentals\RentalWorkOrderClosed::class]);
+
         $this->post(route('rentals.secure-link.mark-done', $raw), ['found_text' => 'Board reset', 'cause_note' => 'Normal wear'])->assertSessionHasNoErrors();
 
-        $this->assertSame(RentalWorkOrder::STATUS_COMPLETED, $wo->fresh()->status);
-        $this->assertResolved($fault, 'contractor link');
+        \Illuminate\Support\Facades\Event::assertNotDispatched(\App\Events\Rentals\RentalWorkOrderClosed::class);   // = no final statement for the owner
+        \Illuminate\Support\Facades\Mail::assertNotSent(\App\Mail\Rentals\RentalOwnerFinalStatementMail::class);
+        \Illuminate\Support\Facades\Mail::assertNotQueued(\App\Mail\Rentals\RentalTenantStatusChangeMail::class);   // = no "Work completed" for the tenant
+        $this->assertNotSame('completed', $fault->fresh()->tenant_progress_notified, 'the tenant was not told the work is completed');
+
+        // the agent is told once, through the one dispatcher the alert popup reads; pressing again tells nobody twice
+        $finishedAlerts = fn () => count(array_filter($alerts, fn ($a) => $a[0] === 'rental_work_order.contractor_responded' && str_starts_with($a[1], 'Finished - awaiting your check')));
+        $first = $finishedAlerts();
+        $this->assertGreaterThan(0, $first, 'the agent gets the alert');
+        $this->post(route('rentals.secure-link.mark-done', $raw))->assertSessionHasNoErrors();
+        $this->assertSame($first, $finishedAlerts(), 'pressing again tells nobody twice');
+        $this->assertSame(1, $wo->completionRounds()->count(), 'a second press opens no second report');
+
+        // the work order is the one the list tile counts, and the agent's screen names the state
+        $this->assertTrue(RentalWorkOrder::query()->awaitingAgentCheck()->whereKey($wo->id)->exists());
+        $this->assertSame('Finished - awaiting agent check', $wo->fresh()->stageLabel('agent'));
+    }
+
+    public function test_the_agents_close_sends_the_owner_final_statement_and_the_tenant_work_completed(): void
+    {
+        \Illuminate\Support\Facades\Mail::fake();
+        $wo = $this->authorisedJob();
+        $fault = $this->raisedFault($wo);
+        $raw = app(RentalSecureAccessTokenService::class)->issueFor($wo->fresh(), $this->admin)['raw_token'];
+        $this->post(route('rentals.secure-link.mark-done', $raw), ['found_text' => 'Board reset', 'cause_note' => 'Normal wear'])->assertSessionHasNoErrors();
+        \Illuminate\Support\Facades\Mail::assertNotQueued(\App\Mail\Rentals\RentalTenantStatusChangeMail::class);
+
+        \Illuminate\Support\Facades\Event::fake([\App\Events\Rentals\RentalWorkOrderClosed::class]);
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.complete', $wo), ['paid_by' => 'tenant', 'cost_amount' => 1000.00])->assertSessionHasNoErrors();
+
+        $this->assertSame('tenant', $wo->fresh()->paid_by, 'the agent rules who pays on the close');
+        \Illuminate\Support\Facades\Event::assertDispatched(\App\Events\Rentals\RentalWorkOrderClosed::class);   // the listener behind it is the owner's final statement
+        \Illuminate\Support\Facades\Mail::assertQueued(\App\Mail\Rentals\RentalTenantStatusChangeMail::class);
     }
 
     public function test_route_3_closing_our_crews_job_card_resolves_the_fault(): void

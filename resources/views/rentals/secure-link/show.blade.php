@@ -230,12 +230,16 @@
         </div>
 
         <div class="card" data-contractor-done>
-            <h2>The work is done</h2>
+            <h2>The work is finished</h2>
+            @if ($finishedAwaitingAgent)
+                <p data-contractor-finished-waiting><strong>Thank you - you have told us the work is finished.</strong> The agency will check it and close the job. You can still send your invoice above.</p>
+            @else
             <form method="POST" action="{{ route('rentals.secure-link.mark-done', $token) }}">
                 @csrf
                 @include('rentals._report-back-fields', ['workOrder' => $workOrder])
-                <button class="btn btn-ok" type="submit">Mark job done</button>
+                <button class="btn btn-ok" type="submit">Work finished</button>
             </form>
+            @endif
         </div>
 
         @elseif (in_array($response, ['accepted', 'quote_uploaded'], true))
@@ -250,12 +254,16 @@
         </div>
 
         <div class="card" data-contractor-done>
-            <h2>Mark job done</h2>
+            <h2>The work is finished</h2>
+            @if ($finishedAwaitingAgent)
+                <p data-contractor-finished-waiting><strong>Thank you - you have told us the work is finished.</strong> The agency will check it and close the job.</p>
+            @else
             <form method="POST" action="{{ route('rentals.secure-link.mark-done', $token) }}">
                 @csrf
                 @include('rentals._report-back-fields', ['workOrder' => $workOrder])
-                <button class="btn btn-ok" type="submit">Mark done</button>
+                <button class="btn btn-ok" type="submit">Work finished</button>
             </form>
+            @endif
         </div>
         <p class="muted">You can send your invoice and ask for extra money here once the owner has authorised the cost.</p>
         @endif

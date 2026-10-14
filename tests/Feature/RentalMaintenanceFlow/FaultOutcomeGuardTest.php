@@ -115,7 +115,7 @@ final class FaultOutcomeGuardTest extends TestCase
 
         $html = $this->actingAs($this->admin)->get(route('corex.rental-fault-reports.show', $this->fault))->assertOk()->getContent();
 
-        $this->assertStringContainsString('Reported finished', $html);
+        $this->assertStringContainsString('Finished - awaiting agent check', $html);
         $this->assertStringContainsString('Tenant asked to check (optional)', $html);
         $this->assertStringNotContainsString('answer due', $html);
     }

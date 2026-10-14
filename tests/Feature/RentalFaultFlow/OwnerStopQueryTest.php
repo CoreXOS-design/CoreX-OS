@@ -459,7 +459,7 @@ final class OwnerStopQueryTest extends TestCase
 
         $this->get($show)->assertOk()
             ->assertSee('data-on-hold', false)->assertSee('please do not attend')->assertSee('Please do not attend until you hear from us')
-            ->assertDontSee('Can you take this job?')->assertDontSee('Upload a quote')->assertDontSee('Mark job done')
+            ->assertDontSee('Can you take this job?')->assertDontSee('Upload a quote')->assertDontSee('Work finished')
             ->assertDontSee('PRIVATE OWNER WORDS');
         // every action refuses with the same plain line - and never the owner's reason
         foreach (['respond' => ['answer' => 'accept'], 'quote' => ['amount' => 100, 'quote_date' => now()->toDateString(), 'detail_text' => 'x'], 'mark-done' => ['found_text' => 'x'], 'photo' => []] as $path => $body) {

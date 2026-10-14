@@ -1290,6 +1290,22 @@ class RentalWorkOrder extends Model
     }
 
     /**
+     * Ruling 14 Oct 2026 (Johan's 9 Oct rule) - the "Finished - awaiting agent check" list filter: the work was reported finished (contractor, owner,
+     * tenant) and nobody has closed it or sent it back. The SAME definition as RentalWorkOrderClientViewService::reportedFinished() - the newest
+     * completion round is not a dispute and the work order is not completed / cancelled / disputed - so the tile, the list and the badge agree.
+     */
+    public function scopeAwaitingAgentCheck(Builder $query): Builder
+    {
+        return $query->whereNotIn('rental_work_orders.status', [self::STATUS_COMPLETED, self::STATUS_CANCELLED, self::STATUS_DISPUTED])
+            ->whereExists(function ($q) {
+                $q->select(\Illuminate\Support\Facades\DB::raw(1))->from('rental_work_completion_rounds as awc')
+                    ->whereColumn('awc.rental_work_order_id', 'rental_work_orders.id')
+                    ->where('awc.outcome', '!=', RentalWorkCompletionRound::OUTCOME_DISPUTED)
+                    ->whereRaw('awc.round_no = (select max(awc2.round_no) from rental_work_completion_rounds as awc2 where awc2.rental_work_order_id = rental_work_orders.id)');
+            });
+    }
+
+    /**
      * §17.7 / §17.17 — the "Variation pending" list filter: extra work has been put to the owner (an open
      * `awaiting_owner` variation) and he has not yet answered. Closed work orders are left out, as above.
      */

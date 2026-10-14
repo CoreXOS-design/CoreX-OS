@@ -20,7 +20,7 @@ use Tests\TestCase;
 /**
  * Johan's look at the OWNER portal on WO 65, 9 Oct 2026 (rental-work-orders.md §17.37): P1 money formatted once, P2 what the quote covers,
  * P3 owner wording for the early stages, P4 the owner's buttons / appointment box fit the stage - and the owner reporting the work finished
- * closes nothing and raises ONE "Reported finished - check and close" row for the agent.
+ * closes nothing and raises ONE "Finished - awaiting agent check" row for the agent.
  */
 final class OwnerCardPolishTest extends TestCase
 {
@@ -145,9 +145,9 @@ final class OwnerCardPolishTest extends TestCase
 
         $rows = app(RentalCommandCentreService::class)->queueItems($this->admin, 'all')->filter(fn ($i) => ($i['route_params']['rentalWorkOrder'] ?? null) === $wo->id);
         $this->assertCount(1, $rows, 'exactly one row');
-        $this->assertSame('Reported finished - check and close', $rows->first()['label']);
+        $this->assertSame('Finished - awaiting agent check', $rows->first()['label']);
         $this->assertStringContainsString('reported finished by the owner', $rows->first()['detail']);
-        $this->assertSame('Reported finished - check and close', app(RentalWorkOrderClientViewService::class)->stageLabel($wo, 'agent'));
+        $this->assertSame('Finished - awaiting agent check', app(RentalWorkOrderClientViewService::class)->stageLabel($wo, 'agent'));
 
         // the agent's Complete then closes the work order
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.complete', $wo), ['paid_by' => 'owner', 'cost_amount' => 4120])->assertSessionHasNoErrors();

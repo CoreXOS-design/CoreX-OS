@@ -207,7 +207,7 @@ final class WhoPaysRulingTest extends TestCase
         $this->assertSame('Roots in the pipe', $fresh->cause_label);
         $this->assertSame('Roots in the pipe - Large tree next door', $this->svc()->causeText($fresh));
         $this->assertSame('Pipe Pros (contractor link)', $fresh->reported_back_by);
-        $this->assertSame(RentalWorkOrder::STATUS_COMPLETED, $fresh->status);
+        $this->assertSame(RentalWorkOrder::STATUS_IN_PROGRESS, $fresh->status, 'ruling 14 Oct 2026: reported finished, waiting for the agent - not closed');
     }
 
     public function test_a_job_that_did_not_come_from_a_fault_is_unchanged(): void
@@ -219,7 +219,7 @@ final class WhoPaysRulingTest extends TestCase
 
         $this->get(route('rentals.secure-link.show', $raw))->assertOk()->assertDontSee('What did you find?');
         $this->post(route('rentals.secure-link.mark-done', $raw), [])->assertSessionHasNoErrors();
-        $this->assertSame(RentalWorkOrder::STATUS_COMPLETED, $wo->fresh()->status);
+        $this->assertSame(RentalWorkOrder::STATUS_IN_PROGRESS, $wo->fresh()->status, 'reported finished, waiting for the agent - not closed');
         $this->assertNull($wo->fresh()->found_text);
     }
 

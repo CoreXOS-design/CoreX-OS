@@ -100,6 +100,8 @@ class ContractorSecureLinkController extends Controller
 
         return [
             'unlocked' => $unlocked,
+            // Johan's 9 Oct rule: once reported finished the job waits for the agent - the page says so instead of offering the button again
+            'finishedAwaitingAgent' => app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->reportedFinished($workOrder),
             'authorisedAmount' => $ceiling,
             'appointmentText' => $workOrder->appointment_at ? $workOrder->appointment_at->copy()->setTimezone($tz)->format('l j F Y, H:i') : null,
             'appointmentNote' => trim((string) $workOrder->appointment_note) ?: null,
@@ -324,6 +326,11 @@ class ContractorSecureLinkController extends Controller
             return back()->withErrors(['work_order' => 'This job has not been authorised yet - the agency will tell you when you can go ahead. Send your quote and wait for their answer.']);
         }
 
+        // already reported finished and the agent has not closed it: a second press (a double tap) changes nothing and says nothing more
+        if (app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->reportedFinished($record->workOrder)) {
+            return redirect()->route('rentals.secure-link.show', $token)->with('success', 'Thank you - the agency has been told the work is finished. They will check it and close the job.');
+        }
+
         // spec section 22.13.2 - a job that came from a fault is not done until the contractor says what was found and what caused it
         $who = app(\App\Services\Rentals\RentalWhoPaysService::class);
         if ($who->isFaultJob($record->workOrder)) {
@@ -336,18 +343,21 @@ class ContractorSecureLinkController extends Controller
             }
         }
 
+        // Johan's 9 Oct rule (ruling 14 Oct 2026, spec 22.17 item 6): finished work WAITS FOR THE AGENT. The link reports it finished; it does not close the job,
+        // send the owner's final statement or tell the tenant "Work completed" - the agent's own close does (confirm the work, rule who pays).
         try {
-            $record->workOrder->complete(null, [
-                'paid_by' => RentalWorkOrder::PAID_BY_NOT_YET_PAID,
-            ], 'via contractor link');
+            $round = app(\App\Services\Rentals\RentalCompletionService::class)->recordContractorLinkDone($record->workOrder, $this->contractorName($record->workOrder));
         } catch (\Throwable $e) {
             return back()->withErrors(['work_order' => $e->getMessage()]);
         }
 
         $record->forceFill(['last_used_at' => now()])->save();
 
-        $this->tellAgents($record->workOrder, 'Contractor says the job is done', $this->contractorName($record->workOrder) . ': ' . $record->workOrder->title);
+        // one message to the agent per report - a second press while the first still waits opens no new round and says nothing more
+        if ($round->wasRecentlyCreated) {
+            $this->tellAgents($record->workOrder, 'Finished - awaiting your check', $this->contractorName($record->workOrder) . ' says the work is finished: ' . $record->workOrder->title . '. Check it and close the job.');
+        }
 
-        return redirect()->route('rentals.secure-link.show', $token)->with('success', 'Marked as done. The agency has been notified.');
+        return redirect()->route('rentals.secure-link.show', $token)->with('success', 'Thank you - the agency has been told the work is finished. They will check it and close the job.');
     }
 }
