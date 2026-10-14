@@ -414,7 +414,9 @@ return [
         'explain' => 'The whole Rentals area — leases, applications, inspections, maintenance, and the rental views of your contacts, properties and pipeline. This is the master switch for every rental module listed under it.',
         'affects' => 'Whether the Rentals menu and every rental screen appear for your users, and whether CoreX chases rental renewals. Off hides all of Rentals at once (the individual rental modules below switch off with it); existing leases and records are untouched and reappear when you turn it back on.',
         'default' => true, 'core' => false, 'depends_on' => [],
-        'nav_permission' => ['view_rentals'], 'sidebar_section' => 'rental-applications',
+        // Any one of these puts an item in the Rentals panel — the SAME list the sidebar's Rentals toggle checks
+        // (corex-sidebar.blade.php). 'view_rentals' was retired with AT-439; naming it here pointed at nothing.
+        'nav_permission' => ['rental_applications.view', 'rental_applications.view_returned', 'leases.view', 'rental_command_centre.view', 'rental_reports.view', 'rental_inspections.view', 'rental_fault_reports.view', 'rental_fault_types.view', 'rental_work_orders.view', 'rental_job_cards.view', 'rental_notices.create', 'rental_notices.review', 'rental_breaches.view', 'rental_catalogue.view', 'rentals_take_on_import.view'], 'sidebar_section' => 'rental-applications',
         'settings_section' => 'feature-rentals', 'route_prefixes' => ['rental', 'rentals'], 'global_flag' => null,
         // Settings-page configuration routes (rental.settings.*) are deliberately NOT owned here: an agency can still
         // configure Rentals while it is switched off, and the Settings screens stay reachable.

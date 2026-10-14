@@ -108,3 +108,11 @@ Part B (done): new `app/Http/Controllers/CoreX/FeaturePageController.php`, `reso
 The flat Settings sidebar item became a **Settings** slide-panel group (`$activeGroup = 'settings'`) holding: **Settings** (`corex.settings`, `access_settings`), **Features** (`corex.features.index`, `agency_features.manage`) and **Users** (`admin.users`, `manage_users`). The group shows when the user holds any of the three; each child keeps its own permission. Features left the Company group. The group's active-group rule sits before the broad `deals-v2.*` rule so the service-types page (under `deals-v2.settings.*`) still opens it. Ellie's navigation atlas lists Features (`corex.features.index`). No new permission, no route change. Users was not previously in the sidebar at all. Test: `FeaturesPageTest::test_settings_is_a_sub_menu_...`.
 
 Role Manager (Johan 2026-10-12): the `manage_users` switch (key unchanged, so no grant or route changes) now shows as **Users** under the **Settings** heading, beside Access Settings and Manage Features — three independent on/off switches (it used to be "Manage Users" under Franchise Admin). Run `corex:sync-permissions` to refresh the stored label/heading.
+
+
+## Agency type (2026-10-14)
+
+The page opens with a small card, **"What does your agency do?"** (Sales and rentals / Sales only / Rentals only), saved by its own
+form to `corex.settings.agency-type.update` (`AgencyTypeController`, permission `agency_features.manage`) so it never posts, or
+depends on, the switches below it. Changing it switches the matching tools on or off (`config/agency-types.php`); everything else
+stays as set. Spec: `agency-onboarding-setup.md` §5.3. Test: `AgencyTypeFeatureSeedTest`.

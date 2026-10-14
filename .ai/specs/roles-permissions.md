@@ -408,3 +408,25 @@ is and trims per role in Role Manager.
 - The setup wizard's Roles step is explainer-only (no grants, no tick boxes; `agency-setup/steps/roles.blade.php`) and its
   worked example still says an agent "cannot ... approve a FICA pack" — now untrue for a fresh agency. Trimming happens
   in Role Manager. Reported to Johan; not changed (out of this task's scope).
+
+## Menus follow permissions — no link ends in a 403 (2026-10-14, Johan; cc3's new-agency walk)
+
+**Rule.** A sidebar / menu entry only renders when the user holds the permission its page needs. Calendar, Tasks and the
+portal-access buttons showed for a minimal agent role and opened a 403.
+
+**Enforced three ways.**
+- `App\Support\Navigation\SidebarPermissionGuards` reads the sidebar's real Blade guard stack (`@permission`, `hasPermission`,
+  `hasAnyPermission`; `@else` branches and ORs do not count) and `SidebarLinksFollowPermissionsTest` fails for any link to a route
+  behind `permission:` middleware that is not inside a guard holding one of the route's keys. 34 offenders were fixed on 14 Oct
+  (Calendar, Tasks, Lost Deals, Core Matches, rentals/auctions Properties, WhatsApp consent review, Link My WhatsApp, Daily Activity,
+  Deal Register, P24 Auto-Import, the Documents menu, Staff Screening, Agency Documents, PPRA FFC Letter, Contact Governance,
+  Deal -> Property Sync). Where a link was guarded by a *different* key than its page checks, the page's key was added.
+- The same test renders the sidebar for a real agent (default matrix, and a stripped-down role) and checks every link opens.
+- `config/corex-features.php` `nav_permission` now names live keys (Rentals used the retired `view_rentals`);
+  `corex:features:validate` fails on a `nav_permission` key that does not exist.
+- The Client App access panel (contact / property pages) also needs `access_contacts`, the routes' own permission.
+
+**Known mismatch, left for Johan (product call, not changed):** `admin.deals` (Deal Register) is behind `create_deals` while the menu
+used to offer it on `view_deals` — branch managers hold `view_deals` only, so the link is now hidden from them. And
+`compliance.agency-settings.*` is behind `manage_agency_compliance` only although its controller has a branch-manager path
+(`manage_branch_compliance`), so that menu entry is now hidden from branch compliance managers.

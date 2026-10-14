@@ -213,6 +213,7 @@ class Agency extends Model
         'vat_no',
         'vat_registered',
         'vat_capture_mode',
+        'agency_type', // sales | rentals | both — config/agency-types.php; seeds the feature switches
         'vat_settings_updated_at',
         'vat_settings_updated_by_user_id',
         'ffc_no',
