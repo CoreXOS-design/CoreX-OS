@@ -86,6 +86,8 @@ class AgencyController extends Controller
             'button_color'     => 'nullable|string|max:20',
             'is_active'        => 'nullable|boolean',
             'is_demo'          => 'nullable|boolean',
+            // What the agency does — seeds its feature switches (config/agency-types.php). Blank = both.
+            'agency_type'      => 'nullable|in:sales,rentals,both',
             'trading_name'     => 'nullable|string|max:255',
             'tagline'          => 'nullable|string|max:255',
             'address'          => 'nullable|string|max:500',
@@ -150,7 +152,12 @@ class AgencyController extends Controller
         // account.setup link mailed below.
         $adminUser = null;
         $agency = DB::transaction(function () use ($data, $adminPayload, $branchPayload, &$adminUser) {
+            $data['agency_type'] = \App\Services\Features\AgencyTypeFeatureSeeder::normalise($data['agency_type'] ?? null);
             $agency = Agency::create($data);
+
+            // The feature switches start from what the agency does — not from the platform-wide defaults,
+            // which carry Home Finders Coastal's own choices (syndication, marketing).
+            app(\App\Services\Features\AgencyTypeFeatureSeeder::class)->seedNewAgency($agency);
 
             // AT-378 — every agency's first branch, created in the same
             // transaction so an agency can never exist without one.

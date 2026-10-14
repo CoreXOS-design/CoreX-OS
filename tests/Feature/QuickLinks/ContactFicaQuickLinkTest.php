@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\QuickLinks;
 
+use App\Models\RolePermission;
 use App\Mail\FicaRequestMail;
 use App\Models\Agency;
 use App\Models\AgencyFeature;
@@ -70,7 +71,11 @@ final class ContactFicaQuickLinkTest extends TestCase
 
         $this->assertGreaterThan(0, DB::table('role_permissions')->where('agency_id', $this->agency->id)->count(), 'agency must be provisioned (else allow-all)');
         $this->assertTrue($this->agent->hasPermission('compliance.fica.send'), 'default agent holds compliance.fica.send');
-        $this->assertFalse($this->agent->hasPermission('access_compliance'), 'default agent does NOT hold access_compliance');
+        // The scenario under test is an agent who may SEND a FICA but has no compliance screens. The default agent now
+        // carries everything HFC's agent holds (Johan 14 Oct), access_compliance included - this agency trimmed it.
+        RolePermission::where('agency_id', $this->agency->id)->where('role', 'agent')->where('permission_key', 'access_compliance')->delete();
+        \App\Services\PermissionService::clearCache();
+        $this->assertFalse($this->agent->hasPermission('access_compliance'), 'this agent has no access_compliance');
 
         Mail::fake();
     }

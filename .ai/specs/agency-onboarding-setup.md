@@ -486,6 +486,34 @@ Guarded by `test_every_step_explains_itself_before_asking_for_config` (asserts e
 
 ---
 
+### 5.3 What the agency does — sales, rentals or both (2026-10-14, Johan; cc3's new-agency walk)
+
+**The defect.** A brand-new agency was handed syndication, payroll and every sales tool switched on, whatever it does — and the
+syndication/marketing switches were not even its own: with no row of its own the agency read the platform-wide row, which holds
+Home Finders Coastal's choices.
+
+**The setting.** `agencies.agency_type` (`sales` | `rentals` | `both`, **default `both`**; existing agencies become `both` and keep
+every switch exactly as it is — the migration writes no feature rows). Lists live in `config/agency-types.php`
+(`sales_features` = off for rentals-only, `rentals_features` = off for sales-only, `opt_in_features` = off for every new agency).
+Cascading children (Road to Sold, Commission, Leave, every `rental-*` module) switch off with their parent.
+
+**Where it is asked.** (1) The owner's **Create Agency** form ("What does this agency do?"). (2) The wizard's **identity** step
+(control `agency_type`, saver `AgencyTypeController@update` after `updateAgency`) — so the capabilities step that follows already
+shows the right switches. (3) The **Features** page (own small form, same saver). One saver, three homes; §6.1 holds: it writes
+only when the form posted `agency_type`, and saving the same type changes nothing.
+
+**What it does.** `AgencyTypeFeatureSeeder::seedNewAgency()` (creation only): writes the type's switches, switches the opt-in
+list off, and pins every switchboard setting that lives in `performance_settings` (marketing, syndication, core matches) to a row of
+the agency's OWN at the neutral registry default — it can never fall back to another agency's platform-wide row.
+`applyType()` (an admin changing the type later, on purpose) re-applies ONLY the type's own lists; every other switch stays as the
+admin set it, and each real change emits `AgencyFeatureToggled`. The admin can still switch any feature on or off.
+
+**Wizard savers are called through the container** (`app()->call`), so a saver may type-hint a service. Before 14 Oct the loop
+called every saver with the request alone and `ProformaSettingsController@update` / `StaleRulesController@updateListingWindow`
+crashed with `ArgumentCountError` on first save for every agency. Test: `AgencySetupEveryStepSavesTest`.
+
+Tests: `tests/Feature/Features/AgencyTypeFeatureSeedTest.php`, `tests/Feature/Onboarding/AgencySetupEveryStepSavesTest.php`.
+
 ## 6. Save-path map — every step reuses the settings page's write path
 
 > **Rule (§3.1):** a wizard step must call the SAME write path the settings page uses.

@@ -3592,6 +3592,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // corex-feature-registry.md §6.4. The saver keeps its original route name/URL (the wizard and tests use it).
     Route::get('/features', [\App\Http\Controllers\CoreX\FeaturePageController::class, 'index'])->middleware(['permission:agency_features.manage', 'agency.required'])->name('corex.features.index');
     Route::post('/settings/features', [\App\Http\Controllers\CoreX\FeatureSettingsController::class, 'update'])->middleware('permission:agency_features.manage')->name('corex.settings.features.update');
+    // What the agency does (sales / rentals / both) — seeds the feature switches. Shared with the wizard's identity step.
+    Route::post('/settings/agency-type', [\App\Http\Controllers\CoreX\AgencyTypeController::class, 'update'])->middleware('permission:agency_features.manage')->name('corex.settings.agency-type.update');
     // AT-392 authoriser flow, 2026-09-08 — RO/CO decision actions. A
     // separate prefix/controller, gated on RO/CO tier membership
     // (User::isRentalApplicationRO()/isRentalApplicationCO()), not the

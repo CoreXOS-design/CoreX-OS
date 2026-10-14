@@ -296,14 +296,20 @@ class AgencySetupWizardController extends Controller
             foreach (($config['savers'] ?? []) as $saver) {
                 // Some canonical savers take the Agency as a second argument
                 // (e.g. CompanySettingsController@update). Declared per-saver.
-                $args = [$request];
+                // Called through the container so a saver may also type-hint
+                // services (ProformaSettingsController@update needs its
+                // ProformaAdminService; StaleRulesController@updateListingWindow
+                // its ProspectingConfigurationService). Calling with the request
+                // alone crashed those two with ArgumentCountError for every
+                // agency on first save (14 Oct 2026, new-agency walk).
+                $params = [Request::class => $request, 'request' => $request];
                 if (!empty($saver['pass_agency'])) {
-                    $args[] = $this->agency();
+                    $params[Agency::class] = $this->agency();
                 }
 
                 try {
                     session()->forget('errors');
-                    app($saver['controller'])->{$saver['method']}(...$args);
+                    app()->call([app($saver['controller']), $saver['method']], $params);
 
                     $errors = session('errors');
                     if ($errors instanceof \Illuminate\Support\ViewErrorBag && $errors->any()) {
