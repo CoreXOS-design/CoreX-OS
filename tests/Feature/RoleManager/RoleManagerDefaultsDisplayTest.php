@@ -281,6 +281,40 @@ final class RoleManagerDefaultsDisplayTest extends TestCase
         $this->assertStringContainsString('Default breadth when no scope is stored', $page['html']);
     }
 
+    /**
+     * 14 Oct 2026 (cc3, new-agency walk): ~50 console errors "defaultLine is not defined". The function had been
+     * pasted INSIDE a checkbox's @change attribute instead of the roleManager() component, so every row that
+     * calls it threw. The test above only looked for the word, which is why it passed. This one checks WHERE the
+     * function is defined, and that the component script is valid JavaScript.
+     */
+    public function test_default_line_is_defined_once_inside_the_role_manager_component(): void
+    {
+        $html = $this->page()['html'];
+
+        $scriptStart = strpos($html, 'function roleManager');
+        $this->assertNotFalse($scriptStart, 'the roleManager() component script must be on the page');
+        $this->assertSame(1, substr_count($html, 'defaultLine(viewKey) {'), 'defaultLine must be defined exactly once');
+        $this->assertGreaterThan($scriptStart, strpos($html, 'defaultLine(viewKey) {'), 'defaultLine must be defined inside the component script, not in the markup above it');
+        $this->assertStringContainsString('defaultLine(', substr($html, 0, $scriptStart), 'rows must call it');
+
+        // Every @change/x-on attribute handler must be a closed, well-formed expression (the paste broke one).
+        preg_match_all('/@change="([^"]*)"/s', $html, $m);
+        foreach ($m[1] as $handler) {
+            $this->assertStringNotContainsString('defaultLine(viewKey)', $handler);
+            $this->assertStringNotContainsString("\n        },", $handler, 'a function body leaked into an event handler');
+        }
+
+        if (is_executable('/usr/bin/node') || is_executable('/usr/local/bin/node')) {
+            preg_match_all('#<script\b[^>]*>(.*?)</script>#s', $html, $scripts);
+            $component = collect($scripts[1])->first(fn ($js) => str_contains($js, 'function roleManager'));
+            $file = tempnam(sys_get_temp_dir(), 'rm') . '.js';
+            file_put_contents($file, $component);
+            exec('node --check ' . escapeshellarg($file) . ' 2>&1', $out, $code);
+            @unlink($file);
+            $this->assertSame(0, $code, "roleManager() script is not valid JavaScript:\n" . implode("\n", $out));
+        }
+    }
+
     /** @return array<string,?string> active grant rows of the agent role in this agency: key => scope */
     private function activeRows(): array
     {
