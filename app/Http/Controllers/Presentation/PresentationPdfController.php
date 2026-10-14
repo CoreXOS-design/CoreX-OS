@@ -141,7 +141,7 @@ class PresentationPdfController extends Controller
         $typeLabels = [
             'suburb_stats'   => 'Suburb_Report',
             'vicinity_sales' => 'Vicinity_Sales',
-            'cma'            => 'CMA_Valuation',
+            'cma'            => 'CMA_Evaluation',
         ];
 
         foreach ($typeOrder as $type) {

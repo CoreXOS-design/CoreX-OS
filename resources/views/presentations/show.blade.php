@@ -191,7 +191,7 @@
                 @endif
             </div>
             @if(($recommendedPrice['price'] ?? null) === null)
-                <div class="text-[11px] mt-0.5" style="color:var(--text-muted);">Not calculated yet &mdash; it appears once the presentation has a valuation.</div>
+                <div class="text-[11px] mt-0.5" style="color:var(--text-muted);">Not calculated yet &mdash; it appears once the presentation has an evaluation.</div>
             @endif
         </div>
         <div class="py-2 min-w-0 border-t" style="border-color:var(--border);">

@@ -9780,6 +9780,7 @@
                             <div class="text-xs mt-0.5" style="color:var(--text-muted);" x-text="[nc.phone, nc.email].filter(Boolean).join(' · ')"></div>
                             <div class="text-xs font-medium mt-0.5" style="color:var(--brand-icon);">New contact (will be created)</div>
                         </div>
+                        <input type="hidden" :name="'pending_new_contacts['+idx+'][confirmed_new]'" :value="nc.confirmed_new ? 1 : 0" form="prop-update-form">
                         <input type="hidden" :name="'pending_new_contacts['+idx+'][first_name]'" :value="nc.first_name" form="prop-update-form">
                         <input type="hidden" :name="'pending_new_contacts['+idx+'][last_name]'"  :value="nc.last_name"  form="prop-update-form">
                         <input type="hidden" :name="'pending_new_contacts['+idx+'][phone]'"      :value="nc.phone"      form="prop-update-form">
@@ -9879,10 +9880,27 @@
                             <p class="mt-1 text-[11px]" style="color:var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
                         </div>
                     </div>
-                    <button type="button" @click="addNew()"
+                    {{-- The phone / email typed above already belongs to a contact: ask, never substitute. --}}
+                    <div x-show="duplicate" x-cloak data-new-contact-duplicate class="rounded-md p-4 mb-3" style="background:var(--surface); border:1px solid var(--brand-icon);">
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">
+                            This <span x-text="duplicate && duplicate.matched === 'email' ? 'email address' : 'number'"></span> belongs to <span x-text="duplicate ? duplicate.name : ''"></span>.
+                        </div>
+                        <div class="text-xs mt-1" style="color:var(--text-muted);" x-text="duplicate ? [duplicate.phone, duplicate.email !== '—' ? duplicate.email : ''].filter(Boolean).join(' · ') : ''"></div>
+                        <div class="text-xs mt-2" style="color:var(--text-secondary);">Use that contact, or create a new one?</div>
+                        <div class="flex flex-wrap gap-2 mt-3">
+                            <button type="button" @click="useDuplicate()" data-new-contact-use-existing
+                                    class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button,#0ea5e9);">Use <span x-text="duplicate ? duplicate.name : ''"></span></button>
+                            <button type="button" @click="createAnyway()" x-show="duplicate && duplicate.can_create_anyway" data-new-contact-create-new
+                                    class="px-4 py-2 rounded-md text-sm font-semibold" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">Create a new contact</button>
+                            <button type="button" @click="duplicate = null"
+                                    class="px-4 py-2 rounded-md text-sm font-semibold" style="color:var(--text-muted);">Change the details</button>
+                        </div>
+                        <p class="text-xs mt-2" x-show="duplicate && !duplicate.can_create_anyway" style="color:var(--text-muted);">Your agency does not allow a second contact with the same number or email.</p>
+                    </div>
+                    <button type="button" @click="addNew()" :disabled="checking"
                             class="px-5 py-2 rounded-md text-sm font-semibold text-white"
                             style="background:var(--brand-button,#0ea5e9);">
-                        Add to Pending
+                        <span x-text="checking ? 'Checking…' : 'Add to Pending'">Add to Pending</span>
                     </button>
                 </div>
             </div>
@@ -11602,6 +11620,8 @@ function pendingContactsManager(searchUrl, seed = []) {
         pendingNew: [], // new contacts to create+link: { first_name, last_name, phone, email, contact_type_id }
         newForm: { first_name: '', last_name: '', phone: '', email: '', contact_type_id: '', id_number: '' },
         showNewForm: false,
+        duplicate: null,   // the existing contact whose phone / email the agent just typed (null = no clash, or already answered)
+        checking: false,
 
         async search() {
             if (this.query.length < 1) { this.results = []; this.searched = false; return; }
@@ -11634,15 +11654,56 @@ function pendingContactsManager(searchUrl, seed = []) {
         remove(idx)    { this.pending.splice(idx, 1); },
         removeNew(idx) { this.pendingNew.splice(idx, 1); },
 
-        addNew() {
+        async addNew() {
             if (!this.newForm.first_name.trim() || !this.newForm.last_name.trim() || !this.newForm.phone.trim()) {
                 alert('First name, last name and phone are required.');
                 return;
             }
-            this.pendingNew.push({ ...this.newForm });
+            this.duplicate = null;
+            // A number / email that already belongs to a contact is put to the agent - it is never swapped in silently.
+            this.checking = true;
+            try {
+                const res = await fetch(@js(route('corex.contacts.check-duplicate')), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': @js(csrf_token()), 'Accept': 'application/json' },
+                    body: JSON.stringify({ phone: this.newForm.phone.trim(), email: this.newForm.email.trim() || null }),
+                });
+                const data = await res.json();
+                if (data && data.found) {
+                    const digits = v => String(v || '').replace(/\D/g, '');
+                    data.matched = (this.newForm.email.trim() && String(data.email || '').toLowerCase() === this.newForm.email.trim().toLowerCase()
+                        && digits(data.phone) !== digits(this.newForm.phone)) ? 'email' : 'phone';
+                    this.duplicate = data;
+                    return;
+                }
+            } catch (e) {
+                // Could not ask: the server asks again on save and refuses a clash, so nothing is swapped silently either way.
+            } finally {
+                this.checking = false;
+            }
+            this.commitNew(false);
+        },
+
+        commitNew(confirmedNew) {
+            this.pendingNew.push({ ...this.newForm, confirmed_new: confirmedNew });
             this.newForm      = { first_name: '', last_name: '', phone: '', email: '', contact_type_id: '', id_number: '' };
             this.showNewForm  = false;
+            this.duplicate    = null;
         },
+
+        // "Use that contact": the typed details are dropped and the existing contact is queued exactly as if it had been searched and added.
+        useDuplicate() {
+            const d = this.duplicate;
+            if (!d) { return; }
+            if (!this.pending.find(p => p.id === d.id)) {
+                this.pending.push({ id: d.id, name: d.name, phone: d.phone || '', email: d.email && d.email !== '—' ? d.email : '' });
+            }
+            this.newForm     = { first_name: '', last_name: '', phone: '', email: '', contact_type_id: '', id_number: '' };
+            this.showNewForm = false;
+            this.duplicate   = null;
+        },
+
+        createAnyway() { this.commitNew(true); },
     };
 }
 

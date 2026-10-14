@@ -138,7 +138,7 @@ return [
         'vad_filter'           => env('AI_VOICE_VAD_FILTER', false),
         'no_speech_threshold'  => env('AI_VOICE_NO_SPEECH_THRESHOLD', 0.3),
         'log_prob_threshold'   => env('AI_VOICE_LOGPROB_THRESHOLD', -1.0),
-        'initial_prompt'       => env('AI_VOICE_INITIAL_PROMPT', 'Schedule a viewing, valuation or meeting with a contact at a property address on the KZN South Coast.'),
+        'initial_prompt'       => env('AI_VOICE_INITIAL_PROMPT', 'Schedule a viewing, evaluation or meeting with a contact at a property address on the KZN South Coast.'),
     ],
 
     'property24_syndication' => [

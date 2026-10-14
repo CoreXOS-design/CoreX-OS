@@ -373,22 +373,23 @@ class FaultPhotoMarksTest extends TestCase
         $this->assertNotContains($agentsOwn->id, array_column($row['reported_photos'], 'id'));
     }
 
-    public function test_the_contractor_and_crew_see_the_marks_and_notes_of_the_photos_the_owner_saw(): void
+    public function test_the_contractor_and_crew_see_every_fault_photo_with_the_marks_and_notes(): void
     {
         [$fault, $shared, $private] = $this->sentFaultWithTwoPhotos();
         $svc = app(Annotations::class);
         $svc->addMark($fault, $shared, $this->circle(), $this->agent);
         $svc->setNote($fault, $shared, 'Fix this joint', $this->agent);
-        $svc->setNote($fault, $private, 'Not for the crew', $this->agent);
+        $svc->setNote($fault, $private, 'Behind the tap too', $this->agent);
 
         $card = new RentalJobCard();
         $card->forceFill(['agency_id' => $this->agency->id, 'rental_fault_report_id' => $fault->id]);
         $list = $svc->forJobCard($card);
 
-        $this->assertCount(1, $list, 'the photos the work order starts with (the owner version)');
+        // 14 Oct 2026 (Johan): the crew sees what the contractor sees - every photo of the fault, not only the ones ticked Share for the owner.
+        $this->assertCount(2, $list);
         $this->assertCount(1, $list[0]['marks']);
         $this->assertSame('Fix this joint', $list[0]['note']['text']);
-        $this->assertStringNotContainsString('Not for the crew', json_encode($list));
+        $this->assertSame('Behind the tap too', $list[1]['note']['text']);
         $this->assertSame([], $svc->forJobCard((new RentalJobCard())->forceFill(['agency_id' => $this->agency->id])), 'a job with no fault shows nothing');
     }
 

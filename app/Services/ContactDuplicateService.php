@@ -170,6 +170,20 @@ class ContactDuplicateService
     }
 
     /**
+     * May this user, having been told a contact with the same phone / email already exists, still create a new one?
+     * hard_block_request: never (they ask the owner for access instead); hard_block_override: admins only; auto_link and soft_warn: yes -
+     * the user has been asked and has chosen. The same gate PropertyContactController::createAndLink applies to its "Create anyway".
+     */
+    public static function mayCreateDespiteMatch(string $mode, string $effectiveRole): bool
+    {
+        return match ($mode) {
+            'hard_block_request' => false,
+            'hard_block_override' => in_array($effectiveRole, ['admin', 'super_admin', 'owner'], true),
+            default => true,
+        };
+    }
+
+    /**
      * Log a duplicate detection event for audit.
      */
     public function logAttempt(

@@ -208,7 +208,7 @@ class RentalContractorJobService
         try {
             $issued = $this->tokens->issueFor($wo, $sender ?? $by ?? $this->anyUser($wo));
             $url = route('rentals.secure-link.show', $issued['raw_token']);
-            $photoCount = $wo->photos()->where('photo_type', RentalWorkOrder::PHOTO_REPORTED)->count();
+            $photoCount = count(app(RentalFaultPhotoAnnotationService::class)->contractorProblemPhotos($wo));   // what the job page will show
             $mail = new RentalContractorJobMail(
                 $wo, $contact['name'] ?: $provider->name, $url, $issued['token']->expires_at?->format('j M Y'), $photoCount,
                 trim((string) ($wo->property?->access_notes ?? '')) ?: null, $this->tenantLine($wo), $this->agentLine($sender), $sender,

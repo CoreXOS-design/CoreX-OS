@@ -401,7 +401,7 @@ return [
                 'element' => '[data-tour="tools-cma-notes"]',
                 'do'      => ['action' => 'fill', 'say' => 'Type the selling points that back up your figure.'],
                 'title'   => 'Key features',
-                'body'    => 'Add the selling points that justify your figure — sea views, a renovated kitchen, walking distance to the beach. This is what turns a number into a credible valuation.',
+                'body'    => 'Add the selling points that justify your figure — sea views, a renovated kitchen, walking distance to the beach. This is what turns a number into a credible evaluation.',
             ],
             [
                 'element'       => '[data-tour="tools-cma-contact"]',

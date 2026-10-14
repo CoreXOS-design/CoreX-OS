@@ -54,7 +54,9 @@ class FicaPublicController extends Controller
                 return ['name' => $doc->file_name, 'status' => 'existing', 'id' => $doc->id];
             });
 
-        return view('fica.form', compact('submission', 'contact', 'agency', 'token', 'returnUrl', 'returnContext', 'existingDocuments'));
+        $trustPhrase = \App\Services\Compliance\FicaTrustAccount::phraseFor($submission->agency_id ? (int) $submission->agency_id : null);
+
+        return view('fica.form', compact('submission', 'contact', 'agency', 'token', 'returnUrl', 'returnContext', 'existingDocuments', 'trustPhrase'));
     }
 
     /**

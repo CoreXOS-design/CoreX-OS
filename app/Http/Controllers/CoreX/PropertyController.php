@@ -1171,6 +1171,56 @@ class PropertyController extends Controller
     }
 
     /**
+     * New-property create: every "new contact" the agent queued is checked against the agency's book BEFORE anything is saved. A phone /
+     * email that already belongs to someone is put to the agent ("use that contact, or create a new one?") and is never swapped in
+     * silently - this used to link the existing contact to the new property with no warning (rental re-walk, 13 Oct 2026). The form asks
+     * first; this is the backstop for a post that skipped the question. An entry the agent confirmed as new (`confirmed_new`) goes
+     * through unless the agency's duplicate mode forbids creating a second one for this user.
+     *
+     * @throws \Illuminate\Validation\ValidationException nothing has been saved yet when this is thrown
+     */
+    private function guardPendingContactDuplicates(Request $request, int $agencyId): void
+    {
+        if ($agencyId <= 0) {
+            return;
+        }
+        $service = app(\App\Services\ContactDuplicateService::class);
+        $mode = $service->resolveMode($agencyId);
+        $role = (string) auth()->user()?->effectiveRole();
+
+        foreach ((array) $request->input('pending_new_contacts', []) as $nc) {
+            if (empty($nc['first_name']) || empty($nc['last_name']) || empty($nc['phone'])) {
+                continue;
+            }
+            $probe = [
+                'phone' => substr((string) $nc['phone'], 0, 30),
+                'email' => ! empty($nc['email']) ? substr((string) $nc['email'], 0, 150) : null,
+            ];
+            $existing = $service->findDuplicates($probe, $agencyId)->first();
+            if (! $existing) {
+                continue;
+            }
+            $name = trim((string) $existing->full_name) ?: ('contact #' . $existing->id);
+            $match = $service->identifyMatch($probe, $existing, $agencyId);
+            $what = $match['field'] === 'email' ? 'email address' : 'number';
+            $confirmed = filter_var($nc['confirmed_new'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+            if (! $confirmed) {
+                $service->logAttempt($agencyId, (int) auth()->id(), $mode, $match['field'], $match['value'], $existing->id, $probe, 'rejected');
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'contacts' => "This {$what} belongs to {$name}. Use that contact, or create a new one - nothing was saved.",
+                ]);
+            }
+            if (! \App\Services\ContactDuplicateService::mayCreateDespiteMatch($mode, $role)) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'contacts' => "This {$what} belongs to {$name}, and your agency does not allow a second contact with it. Use that contact instead - nothing was saved.",
+                ]);
+            }
+            $service->logAttempt($agencyId, (int) auth()->id(), $mode, $match['field'], $match['value'], $existing->id, $probe, 'created_anyway');
+        }
+    }
+
+    /**
      * AT-221 Layer 1 — reject, at capture, a description carrying content the
      * listing portals refuse (built from their real rejection reasons). Throws a
      * validation error on `description` so the agent fixes it inline before the
@@ -1418,6 +1468,9 @@ class PropertyController extends Controller
                 ->withErrors(['contacts' => 'A contact must be linked to the property before saving.']);
         }
 
+        // A new contact whose phone / email already belongs to someone is NEVER swapped for that someone behind the agent's back.
+        $this->guardPendingContactDuplicates($request, (int) ($user->effectiveAgencyId() ?: 0));
+
         $data = $this->processSpacesJson($data);
         $data = $this->applyP24Location($data);
 
@@ -1566,8 +1619,7 @@ class PropertyController extends Controller
             }
         }
 
-        // Create + link new contacts added during create (with duplicate detection)
-        $dupService = app(\App\Services\ContactDuplicateService::class);
+        // Create + link new contacts added during create (a match was already put to the agent - see guardPendingContactDuplicates)
 
         // AT-253 (STANDARDS Rule 17) — DERIVE the agency from the PROPERTY these contacts are
         // being attached to, not from the acting user. The contacts belong to the property's
@@ -1587,24 +1639,8 @@ class PropertyController extends Controller
                 'phone'      => substr($nc['phone'],       0, 30),
                 'email'      => !empty($nc['email']) ? substr($nc['email'], 0, 150) : null,
             ];
-            // Auto-link if duplicate found (non-blocking in bulk create context)
-            $existing = $dupService->findDuplicates($ncData, $agencyId)->first();
-            if ($existing) {
-                $linkResult = \App\Services\Property\ContactPropertyLinker::link($existing->id, $property->id, $defaultLinkRole);
-                $wasLinked = ! $linkResult->isNew;
-                $match = $dupService->identifyMatch($ncData, $existing, $agencyId);
-                $dupService->logAttempt($agencyId, auth()->id(), 'auto_link', $match['field'], $match['value'], $existing->id, $ncData, 'auto_linked');
-                if (!$wasLinked) {
-                    \App\Models\PropertySellerLink::ensureExists($property->id, $existing->id);
-                    event(new \App\Events\Contact\ContactLinkedToProperty(
-                        contact: $existing,
-                        property: $property,
-                        role: $defaultLinkRole,
-                        actorUserId: auth()->id(),
-                    ));
-                }
-                continue;
-            }
+            // A matching contact was already put to the agent (guardPendingContactDuplicates, before anything was saved): an entry
+            // that reaches here either matches nobody or is one the agent chose to create as new. It is never swapped for the match.
             $ncData['contact_type_id'] = !empty($nc['contact_type_id']) ? (int) $nc['contact_type_id'] : null;
             $ncData['created_by_user_id'] = auth()->id();
 

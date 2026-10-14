@@ -1585,7 +1585,14 @@
                                 <span class="text-xs ml-2" style="color:var(--text-muted);">{{ $fhelp }} Standard: {{ $fdefault }}.</span>
                             </div>
                         @endforeach
-                        <button type="submit" class="corex-btn-primary text-xs">Save FICA time windows</button>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);" for="rental_trust_account_name">Trust account name (rent and deposits)</label>
+                            <input type="text" id="rental_trust_account_name" name="rental_trust_account_name" maxlength="{{ \App\Services\Compliance\FicaTrustAccount::NAME_MAX }}"
+                                   value="{{ old('rental_trust_account_name', $agency->rental_trust_account_name) }}" placeholder="e.g. Smith Property Trust Account"
+                                   class="w-full max-w-md rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <p class="text-xs mt-1" style="color:var(--text-muted);">How your clients are told to refer to the trust account their rent and deposit are paid into, on the FICA form. Leave blank to say "the agency's trust account".</p>
+                        </div>
+                        <button type="submit" class="corex-btn-primary text-xs">Save FICA settings</button>
                     </form>
                 </div>
             </div>
@@ -3485,10 +3492,10 @@
                                      market norm (from 105 evidenced CMA reports):
                                      10% below, 13% above. --}}
                                 <div class="mt-3 pt-3" style="border-top:1px dashed var(--border);">
-                                    <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color:var(--text-secondary);">Valuation band (recommended range around the indicated value)</div>
+                                    <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color:var(--text-secondary);">Evaluation band (recommended range around the indicated value)</div>
                                     <div class="grid grid-cols-2 gap-3">
                                         <div>
-                                            <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Valuation band — below middle (%)</label>
+                                            <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Evaluation band — below middle (%)</label>
                                             <input type="number" min="0" max="40" step="0.5" name="cma_band_lower_pct"
                                                    value="{{ number_format($cmaBandLower, 2, '.', '') }}"
                                                    class="w-full rounded-md px-3 py-2 text-sm"
@@ -3496,7 +3503,7 @@
                                             <div class="text-[11px] mt-1" style="color:var(--text-muted);">How far the recommended price range sits below the indicated value. CMA market norm ≈ 10% below.</div>
                                         </div>
                                         <div>
-                                            <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Valuation band — above middle (%)</label>
+                                            <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Evaluation band — above middle (%)</label>
                                             <input type="number" min="0" max="40" step="0.5" name="cma_band_upper_pct"
                                                    value="{{ number_format($cmaBandUpper, 2, '.', '') }}"
                                                    class="w-full rounded-md px-3 py-2 text-sm"
@@ -3603,7 +3610,7 @@
                         'market_overview'    => 'Suburb-level market trends, median pricing and absorption.',
                         'recent_sales'       => 'Comparable sales table with per-row distance, size and price.',
                         'spatial_view'       => 'Inline map showing the subject and comparable pins.',
-                        'cma_analysis'       => 'Lower / Middle / Upper valuation bands with condition adjustment.',
+                        'cma_analysis'       => 'Lower / Middle / Upper evaluation bands with condition adjustment.',
                         'active_competition' => 'Live listings competing for the same buyer pool.',
                         'inflow_absorption'  => 'New listings from P24 alerts and stock absorption rate.',
                         'holding_cost'       => 'Monthly cost of staying on market — rates, bond, levies, opportunity cost.',

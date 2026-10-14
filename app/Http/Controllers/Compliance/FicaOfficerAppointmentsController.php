@@ -198,6 +198,8 @@ class FicaOfficerAppointmentsController extends Controller
         foreach (\App\Services\Compliance\FicaWindows::WINDOWS as $key => [$default, $min, $max]) {
             $rules[$key] = ['nullable', 'integer', "min:{$min}", "max:{$max}"];
         }
+        // The name the FICA form's payment guidance gives this agency's trust account (text, not a window; same guard, same saver).
+        $rules['rental_trust_account_name'] = ['nullable', 'string', 'max:' . \App\Services\Compliance\FicaTrustAccount::NAME_MAX];
         $validated = $request->validate($rules);
 
         $update = [];
@@ -206,10 +208,13 @@ class FicaOfficerAppointmentsController extends Controller
                 $update[$key] = ($validated[$key] ?? null) === null ? null : (int) $validated[$key];
             }
         }
+        if ($request->has('rental_trust_account_name')) {
+            $update['rental_trust_account_name'] = trim((string) ($validated['rental_trust_account_name'] ?? '')) ?: null; // blank = the neutral wording
+        }
         if ($update !== []) {
             \App\Models\Agency::withoutGlobalScopes()->whereKey($agencyId)->update($update);
         }
 
-        return back()->with('success', 'FICA time windows saved.')->with('tab', 'user');
+        return back()->with('success', 'FICA settings saved.')->with('tab', 'user');
     }
 }

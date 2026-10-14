@@ -172,3 +172,7 @@ clear message where the DB privilege does not — proven on QA1 on-site).
 - No new "settings" (nothing for the Setup Wizard).
 - No retroactive attribution of past unlogged contact changes — the guarantee is **from this build forward**.
 - Property audit is unchanged except the pillar-agnostic `AuditContext` extraction (BC-preserving).
+
+## Event `agreement_writeback` (14 Oct 2026)
+Written by `AgreementRecordWriteBack` (category `contact`, source `agreement`, metadata `flow_id` + `field`) when Fill & review saves a landlord / tenant / seller / buyer value back onto the contact. Spec: leases.md "Agreement write-back".
+

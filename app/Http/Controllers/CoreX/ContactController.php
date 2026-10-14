@@ -1192,8 +1192,15 @@ class ContactController extends Controller
             return response()->json(['found' => false]);
         }
 
+        $mode = app(ContactDuplicateService::class)->resolveMode($agencyId);
+
         return response()->json([
             'found'          => true,
+            // The new-property form needs the id to offer "use that contact", and the agency's mode to know whether "create a new one"
+            // is allowed for this user (the same rule PropertyController::guardPendingContactDuplicates enforces on save).
+            'id'             => $duplicate->id,
+            'mode'           => $mode,
+            'can_create_anyway' => ContactDuplicateService::mayCreateDespiteMatch($mode, (string) auth()->user()?->effectiveRole()),
             'name'           => $duplicate->full_name,
             'phone'          => $duplicate->phone,
             'email'          => $duplicate->email ?? '—',

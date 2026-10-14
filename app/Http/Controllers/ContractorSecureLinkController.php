@@ -63,10 +63,8 @@ class ContractorSecureLinkController extends Controller
 
         $workOrder = $record->workOrder()->with(['property', 'quotes', 'photos', 'supplier'])->first();
         $jobs = app(\App\Services\Rentals\RentalContractorJobService::class);
-        // the reported photos, with the office's marks and notes (they help the repair) - the same payload the crew and the staff screens use
-        $photos = app(\App\Services\Rentals\RentalFaultPhotoAnnotationService::class)->workOrderPayload(
-            $workOrder, $workOrder->photos->where('photo_type', RentalWorkOrder::PHOTO_REPORTED)->values(), \App\Services\Rentals\RentalFaultPhotoAnnotationService::AUDIENCE_CONTRACTOR
-        );
+        // the photos of the problem - every photo of the fault, read-only, with the office's marks and notes (they help the repair)
+        $photos = app(\App\Services\Rentals\RentalFaultPhotoAnnotationService::class)->contractorProblemPhotos($workOrder);
         $record->forceFill(['last_used_at' => now()])->save();
 
         return view('rentals.secure-link.show', [

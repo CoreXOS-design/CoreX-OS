@@ -1375,14 +1375,14 @@ return [
 
     'presentations' => [
         'title' => 'Presentations & CMA',
-        'intro' => 'These settings decide how CoreX builds the valuation you put in front of a seller.',
+        'intro' => 'These settings decide how CoreX builds the evaluation you put in front of a seller.',
         'what' => [
             'title' => 'What a CMA is',
             'body'  => 'A CMA — Comparative Market Analysis — is how you justify a price to a seller. CoreX finds '
                 . 'recent sales of similar properties near theirs ("comparables", or comps), and uses them to '
                 . 'produce a defensible price range. The settings below tell it how far to look, how far back to '
                 . 'go, and how many comparables it needs before it will call the evidence strong. More comps means '
-                . 'a more confident valuation — but search too wide and you start comparing a beachfront house to '
+                . 'a more confident evaluation — but search too wide and you start comparing a beachfront house to '
                 . 'one three suburbs inland.',
         ],
         'savers' => [
@@ -1391,7 +1391,7 @@ return [
         'controls' => [
             ['key' => 'presentations_coverage_rich_threshold', 'source' => 'agency', 'type' => 'number', 'default' => 12, 'min' => 1, 'max' => 999,
              'label' => 'Comparables needed for "strong evidence"',
-             'explain' => 'Find at least this many comparable sales and CoreX marks the valuation as strongly evidenced. Must be the highest of the three thresholds.',
+             'explain' => 'Find at least this many comparable sales and CoreX marks the evaluation as strongly evidenced. Must be the highest of the three thresholds.',
              'affects' => 'The confidence badge your seller sees on the presentation. A "strong" badge is the one that wins mandates.'],
             ['key' => 'presentations_coverage_moderate_threshold', 'source' => 'agency', 'type' => 'number', 'default' => 6, 'min' => 1, 'max' => 999,
              'label' => 'Comparables needed for "moderate evidence"',
@@ -1400,11 +1400,11 @@ return [
             ['key' => 'presentations_coverage_thin_threshold', 'source' => 'agency', 'type' => 'number', 'default' => 3, 'min' => 1, 'max' => 999,
              'label' => 'Comparables needed for "thin evidence"',
              'explain' => 'The floor. Below this, CoreX warns you there is not enough recent evidence to price confidently. Must be less than or equal to the moderate threshold.',
-             'affects' => 'When CoreX warns an agent that a valuation is under-evidenced before they present it to a seller.'],
+             'affects' => 'When CoreX warns an agent that an evaluation is under-evidenced before they present it to a seller.'],
             ['key' => 'presentations_default_period_months', 'source' => 'agency', 'type' => 'number', 'default' => 12, 'min' => 1, 'max' => 60,
              'label' => 'How far back to look (months)',
              'explain' => 'Only sales concluded within this many months count as comparables. Twelve months suits most markets; stretch it in a quiet suburb where little sells, shorten it in a fast-moving one.',
-             'affects' => 'Which past sales are allowed into the valuation. Too long and you are pricing off a different market.'],
+             'affects' => 'Which past sales are allowed into the evaluation. Too long and you are pricing off a different market.'],
             ['key' => 'presentations_default_comp_scope', 'source' => 'agency', 'type' => 'select', 'default' => 'radius_all',
              'options' => ['radius_all' => 'A radius around the property', 'suburb_only' => 'The same suburb only'],
              'label' => 'Where to look for comparables',
@@ -1708,6 +1708,11 @@ return [
              'label' => '"Expiring soon" looks ahead (days)',
              'explain' => 'How far ahead the "expiring soon" list looks for FICA approvals about to lapse.',
              'affects' => 'Which FICA approvals appear under "Expiring soon" in document filing.'],
+            // Trust account name on the FICA form's payment guidance (was one agency's name in the wording). Text, has()-guarded by saveWindowSettings (§6.1).
+            ['key' => 'rental_trust_account_name', 'source' => 'agency', 'type' => 'text', 'placeholder' => 'e.g. Smith Property Trust Account',
+             'label' => 'Trust account name (rent and deposits)',
+             'explain' => 'How your clients should refer to the trust account their rent and deposit are paid into. Tenants and landlords see it in the payment guidance on the FICA form. Leave it blank and the form says "the agency\'s trust account".',
+             'affects' => 'The wording of the payment hints on the FICA form your tenants and landlords fill in, e.g. "paid via EFT to the Smith Property Trust Account".'],
         ],
     ],
 

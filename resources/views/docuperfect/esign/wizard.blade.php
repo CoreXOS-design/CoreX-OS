@@ -1267,6 +1267,21 @@
                                        :placeholder="fieldLabel(f)">
                             </template>
 
+                            {{-- Agreement write-back: what the agent typed here is new to CoreX - offer to keep it on the record it pre-fills from. --}}
+                            <template x-if="wbOffer(f)">
+                                <label class="flex items-start gap-2 mt-1 text-xs cursor-pointer" style="color: var(--text-secondary);" data-writeback-tick>
+                                    <input type="checkbox" class="mt-0.5" :checked="wbOn(f)" @change="wbSet(f, $event.target.checked)">
+                                    <span>Also update <span x-text="writeBackMeta[f.id].target"></span>?
+                                        <template x-if="writeBackMeta[f.id].record !== ''">
+                                            <span style="color: var(--text-muted);">It currently says &ldquo;<span x-text="writeBackMeta[f.id].record"></span>&rdquo;.</span>
+                                        </template>
+                                        <template x-if="writeBackMeta[f.id].record === ''">
+                                            <span style="color: var(--text-muted);">It has no <span x-text="writeBackMeta[f.id].what"></span> yet.</span>
+                                        </template>
+                                    </span>
+                                </label>
+                            </template>
+
                             {{-- Date --}}
                             <template x-if="fieldInputType(f) === 'date'">
                                 <input type="date"
@@ -1929,6 +1944,8 @@ function esignWizard() {
     // THAT specific recipient's contact. Single-recipient roles +
     // creator/agent fields pass through with no suffix.
     const serverExpandedWizardFields = @json($expandedWizardFields ?? []);
+    // Step 5: fields that can be saved back onto the contact / property they pre-fill from (AgreementRecordWriteBack::meta)
+    const serverWriteBackMeta = @json($writeBackMeta ?? new \stdClass);
     const serverAllWizardFields = @json($allWizardFields ?? []);
     const serverPageImages = @json($pageImages ?? []);
     const serverRecipients = @json($recipients ?? []);
@@ -2352,6 +2369,8 @@ function esignWizard() {
         expandedWizardFields: serverExpandedWizardFields || [],
         allWizardFields: serverAllWizardFields || [],
         fieldValues: {},
+        writeBackMeta: serverWriteBackMeta || {},
+        writeBack: {},   // field id => the agent's tick on "Also update the record?" (absent = the default)
         fieldPartyOverrides: {},
         highlightedFieldId: null,
 
@@ -2413,6 +2432,13 @@ function esignWizard() {
             const frValues = serverStepData?.fill_review?.fieldValues || {};
             Object.keys(frValues).forEach(k => {
                 if (frValues[k]) this.fieldValues[k] = frValues[k];
+            });
+
+            // Restore the agent's "Also update the record?" ticks - only for the very value they were made about (a new value starts from the default)
+            const savedWb = serverStepData?.fill_review?.writeBack || {};
+            Object.keys(savedWb).forEach(k => {
+                const d = savedWb[k];
+                if (d && typeof d === 'object' && String(this.fieldValues[k] || '').trim() === String(d.value || '').trim()) this.writeBack[k] = !!d.on;
             });
 
             // Restore party overrides from fill_review step data
@@ -3059,6 +3085,23 @@ function esignWizard() {
             return 'text';
         },
 
+        // ── Agreement write-back: the inline "Also update the landlord's record?" tick ──
+        // Shown only when the agent has supplied something the record did not already hold: non-blank, different from the record and
+        // from what the pre-fill showed. Fields a document may only FILL (email / phone / ID) show it only over an EMPTY record.
+        wbOffer(f) {
+            const m = this.writeBackMeta && this.writeBackMeta[f.id];
+            if (!m) return false;
+            const typed = String(this.fieldValues[f.id] || '').trim();
+            if (typed === '' || typed === m.record || typed === m.prefill) return false;
+            return m.record === '' || m.can_overwrite;
+        },
+        wbOn(f) {
+            if (Object.prototype.hasOwnProperty.call(this.writeBack, f.id)) return !!this.writeBack[f.id];
+            const m = this.writeBackMeta[f.id];
+            return !!m && m.record === '';
+        },
+        wbSet(f, on) { this.writeBack = { ...this.writeBack, [f.id]: !!on }; },
+
         setFieldValue(fieldId, value) {
             this.fieldValues = { ...this.fieldValues, [fieldId]: value };
             // Immediate client-side preview update
@@ -3641,7 +3684,7 @@ function esignWizard() {
                     });
                     return detailsData;
                 }
-                case 5: return { fieldValues: { ...this.fieldValues }, partyOverrides: { ...this.fieldPartyOverrides }, clauses: this.selectedClauses, other_conditions_text: this.otherConditionsText, other_condition_frames: this.otherConditionFrames };
+                case 5: return { fieldValues: { ...this.fieldValues }, writeBack: Object.fromEntries(Object.keys(this.writeBackMeta || {}).filter(id => this.wbOffer({ id })).map(id => [id, { on: this.wbOn({ id }), value: String(this.fieldValues[id] || '').trim() }])), partyOverrides: { ...this.fieldPartyOverrides }, clauses: this.selectedClauses, other_conditions_text: this.otherConditionsText, other_condition_frames: this.otherConditionFrames };
                 case 6: return {
                     delivery_mode: this.deliveryMode,
                     parties: this.signingActions.map((action, i) => ({
