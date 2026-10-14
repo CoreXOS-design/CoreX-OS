@@ -491,6 +491,17 @@
                         x-text="markAllGoodBusy ? 'Marking…' : 'All Good — whole inspection'"></button>
             </div>
         </div>
+        {{-- Spec §58 - the "All Good" question is asked here, in the page (a native confirm() freezes the tab until answered). --}}
+        <div x-show="markAllGoodAsk" x-cloak data-qa="mark-all-good-ask" class="rounded-md px-3 py-2 flex items-center justify-between gap-3 flex-wrap"
+             style="background:var(--surface-2); border:1px solid var(--border);">
+            <span class="text-xs" style="color:var(--text-secondary);" x-text="markAllGoodQuestion()"></span>
+            <span class="flex items-center gap-2">
+                <button type="button" data-qa="mark-all-good-confirm" @click="markAllGood({{ $sectionJs }}, true)"
+                        class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Yes, mark them</button>
+                <button type="button" data-qa="mark-all-good-cancel" @click="markAllGoodAsk = false"
+                        class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);">Cancel</button>
+            </span>
+        </div>
 
         {{-- Item 3, 2026-09-22 — bulk upload straight to the whole
              inspection, then tag. Untagged photos land here; the tray's
