@@ -285,9 +285,22 @@ class LeaseCaptureService
             throw ValidationException::withMessages(['signed_document' => 'Attach the signed copy.']);
         }
 
+        $this->lastWasDuplicate = false;
+
         $captureKey = $this->storedKey($input['capture_key'] ?? null, $user);
         if ($captureKey && ($existing = Lease::withoutGlobalScopes()->where('capture_key', $captureKey)->first())) {
+            $this->lastWasDuplicate = true;
+
             return $existing;
+        }
+
+        // The same capture pressed again from a freshly opened screen (back button, reload, a second tab) carries a NEW key,
+        // so the key above cannot see it. A lease for the same property, tenants, start date and outcome made moments ago
+        // IS that capture - hand it back instead of making a second one (Cape walk, 14 Oct: leases 135 + 136).
+        if ($twin = $this->recentTwin($input, $intent, $user, $property, $previous)) {
+            $this->lastWasDuplicate = true;
+
+            return $twin;
         }
 
         $storedPath = null;
@@ -384,6 +397,8 @@ class LeaseCaptureService
             // Two submits of the same screen raced past the lookup above — the other one won; return its lease.
             $this->discardStored($storedPath);
             if ($captureKey && ($existing = Lease::withoutGlobalScopes()->where('capture_key', $captureKey)->first())) {
+                $this->lastWasDuplicate = true;
+
                 return $existing;
             }
             throw $e;
@@ -395,6 +410,50 @@ class LeaseCaptureService
     }
 
     // ── Internals ─────────────────────────────────────────────────────────────────────────────
+
+    /** Minutes within which the same capture, pressed again, is the same lease rather than a second one. */
+    public const DUPLICATE_WINDOW_MINUTES = 30;
+
+    /** True when the last capture() handed back a lease that already existed (a repeat press) instead of creating one. */
+    public bool $lastWasDuplicate = false;
+
+    /**
+     * A lease made in the last DUPLICATE_WINDOW_MINUTES, by the same agency, for the same property, the same start date,
+     * the same tenants (a renewal: the same lease being renewed) and the same outcome (lease only / prepare for signing /
+     * signed copy). Not archived. Null when there is none - including when the agent deliberately changed anything.
+     */
+    private function recentTwin(array $input, string $intent, User $user, Property $property, ?Lease $previous): ?Lease
+    {
+        $start = $input['start_date'] ?? null;
+        if (! $start) {
+            return null;
+        }
+
+        $candidates = Lease::query()
+            ->where('agency_id', $property->agency_id)
+            ->where('property_id', $property->id)
+            ->whereDate('start_date', Carbon::parse($start)->toDateString())
+            ->where('created_at', '>=', now()->subMinutes(self::DUPLICATE_WINDOW_MINUTES))
+            ->when($previous, fn ($q) => $q->where('previous_lease_id', $previous->id), fn ($q) => $q->whereNull('previous_lease_id'))
+            ->with('tenants')
+            ->latest('id')
+            ->get();
+
+        $wanted = collect((array) ($input['tenant_contact_ids'] ?? []))->map(fn ($id) => (int) $id)->sort()->values()->all();
+
+        foreach ($candidates as $candidate) {
+            if (! $previous && $candidate->tenants->pluck('contact_id')->map(fn ($id) => (int) $id)->sort()->values()->all() !== $wanted) {
+                continue;
+            }
+            $madeFor = LeaseEvent::query()->where('lease_id', $candidate->id)->where('event_type', LeaseEvent::TYPE_LEASE_CREATED)->value('metadata');
+            $madeFor = is_string($madeFor) ? json_decode($madeFor, true) : $madeFor;
+            if (($madeFor['intent'] ?? null) === $intent) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
 
     /** The agreement the lease is for: the one posted (must be the agency's own and ready) or the default. */
     private function resolveAgreement(int $agencyId, mixed $agreementId, string $intent): ?RentalLeaseTemplate

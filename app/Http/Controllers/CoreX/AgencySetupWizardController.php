@@ -214,6 +214,9 @@ class AgencySetupWizardController extends Controller
                 'wzInventoryConditionStates' => \App\Models\RentalInventorySetting::conditionStatesFor($agency->id),
                 // §45.4 item 3 (Build I-2) — ACTIVE custom room types only; the wizard never renders archived ones.
                 'wzCustomRoomTypes' => array_values(array_filter(\App\Models\RentalInspectionSetting::customRoomTypesFor($agency->id), fn ($t) => ! $t['archived'])),
+                // §55 - the standard room list per kind of property, plus the types an agent may pick from.
+                'wzRoomTemplates' => \App\Models\RentalInspectionSetting::roomTemplatesFor($agency->id),
+                'wzRoomTemplateTypeOptions' => \App\Models\RentalInspectionSetting::roomTypeOptionsFor($agency->id),
                 // LEASE-AGREEMENT BEGIN (leases.md §15.14 — Build L0): done / not done for the lease-agreement row.
                 'wzLeaseAgreementLinked' => app(\App\Services\Rentals\LeaseAgreementTemplateGuard::class)->linkedFor((int) $agency->id) !== null,
                 // LEASE-AGREEMENT END
@@ -293,14 +296,20 @@ class AgencySetupWizardController extends Controller
             foreach (($config['savers'] ?? []) as $saver) {
                 // Some canonical savers take the Agency as a second argument
                 // (e.g. CompanySettingsController@update). Declared per-saver.
-                $args = [$request];
+                // Called through the container so a saver may also type-hint
+                // services (ProformaSettingsController@update needs its
+                // ProformaAdminService; StaleRulesController@updateListingWindow
+                // its ProspectingConfigurationService). Calling with the request
+                // alone crashed those two with ArgumentCountError for every
+                // agency on first save (14 Oct 2026, new-agency walk).
+                $params = [Request::class => $request, 'request' => $request];
                 if (!empty($saver['pass_agency'])) {
-                    $args[] = $this->agency();
+                    $params[Agency::class] = $this->agency();
                 }
 
                 try {
                     session()->forget('errors');
-                    app($saver['controller'])->{$saver['method']}(...$args);
+                    app()->call([app($saver['controller']), $saver['method']], $params);
 
                     $errors = session('errors');
                     if ($errors instanceof \Illuminate\Support\ViewErrorBag && $errors->any()) {

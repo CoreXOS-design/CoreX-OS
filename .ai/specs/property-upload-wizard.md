@@ -310,3 +310,9 @@ A separate prompt (`/prompts/mobile-property-wizard.md`) briefs the mobile Claud
 - Seller/landlord contact wizard integration at step 3.
 - Video upload.
 - Matterport tour upload in-wizard.
+
+## Rental wizard fixes (14 Oct 2026, QA1 - cc3's new-agency walk; tests `PropertyWizardRentalTest`)
+
+- **The rent is the rent.** For a rental, the step-1 price box ("Monthly rental") is saved to `rental_amount` and the sale `price` stays 0 - the same carry-through the classic form got on 13 Oct. Before this the rent landed in the sale price, so the header read "R 0" (and the publish check, which reads the effective price, refused the listing). Resuming a rental draft shows the rent in that box; switching a resumed draft back to a sale moves the figure back to `price` and clears the rent.
+- **Step 3 keeps the deposit and lease start** (they were already saved by the server; the page now also says why when a save fails - a banner on step 3 - instead of sitting there silently, and a second press while saving does nothing).
+- **One draft per wizard session.** The page generates a `wizard_token` when it opens and sends it with every step-1 save (`properties.wizard_token`, nullable, indexed). Saves carrying the same token run one at a time (cache lock) and find the agent's own unpublished draft with that token, updating it in place - a double press or a retry makes no second draft. A token never reaches another agent's draft or a published listing. A save with no token (older clients, the API) behaves as before.

@@ -109,6 +109,16 @@ class ValidateFeatures extends Command
             }
         }
 
+        // nav_permission names the permission(s) the feature's menu entry checks — each must be a key
+        // that exists today (a retired key such as 'view_rentals' pointed at nothing and nobody noticed).
+        foreach ($registry as $key => $def) {
+            foreach ((array) ($def['nav_permission'] ?? []) as $navKey) {
+                if (!isset($allKeys[$navKey])) {
+                    $errors[] = "[$key] nav_permission names unknown permission key '$navKey'.";
+                }
+            }
+        }
+
         // Cycle detection (DFS).
         $cycle = $this->findCycle($registry);
         if ($cycle !== null) {

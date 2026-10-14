@@ -57,6 +57,14 @@ class RentalListsWizardSaver extends Controller
         }
     }
 
+    /** §55 - the standard room list per kind of property; same no-op-unless-marker discipline as the lists above. */
+    public function inspectionRoomTemplates(Request $request): void
+    {
+        if ($request->has('room_templates_submitted')) {
+            app(RentalInspectionSettingsController::class)->updateRoomTemplates($request);
+        }
+    }
+
     public function inventoryConditionStates(Request $request): void
     {
         if ($request->has('inventory_condition_states_submitted')) {

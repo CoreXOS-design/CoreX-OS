@@ -753,17 +753,10 @@
             --}}
             uploads: {{ Js::from($existingDocuments) }},
 
-            entityType: '',
+            // Opens filled in from the contact CoreX already holds (App\Services\Compliance\FicaFormPrefill); all of it stays editable.
+            entityType: {{ Js::from($prefill['entity_type'] ?? '') }},
 
-            personal: {
-                full_name: '',
-                id_number: '',
-                sa_citizen: '',
-                residential_address: '',
-                phone: '',
-                email: '',
-                tax_number: '',
-            },
+            personal: {{ Js::from($prefill['personal'] ?? ['full_name' => '', 'id_number' => '', 'sa_citizen' => '', 'residential_address' => '', 'phone' => '', 'email' => '', 'tax_number' => '']) }},
 
             entity: {
                 company_name: '', company_reg_number: '', company_sa_presence: '',

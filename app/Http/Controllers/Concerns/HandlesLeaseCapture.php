@@ -127,8 +127,10 @@ trait HandlesLeaseCapture
         $input['signed_document'] = $request->file('signed_document');
         $intent = (string) $input['intent'];
 
+        $service = app(LeaseCaptureService::class);
+
         try {
-            $lease = app(LeaseCaptureService::class)->capture($input, $intent, $request->user(), $previous);
+            $lease = $service->capture($input, $intent, $request->user(), $previous);
         } catch (LeaseCaptureIncompleteException $e) {
             // The list (with a link to fix each gap) rides along so the screen can show it beside the errors.
             return back()->withInput()->withErrors($e->errors())->with('capture_gaps', $e->missing);
@@ -141,15 +143,18 @@ trait HandlesLeaseCapture
         // "Prepare for signing": the agent lands on the finished agreement (Fill & review) to check it and sign
         // first — nothing has been sent to anyone (§15.4).
         if ($intent === LeaseCaptureService::INTENT_LEASE_AND_SIGN && $lease->signing_flow_id && ($flow = Flow::find($lease->signing_flow_id))) {
-            return redirect(app(LeaseSigningLauncher::class)->landingUrl($flow))->with('success', $this->leaseCaptureMessage($intent, $previous !== null));
+            return redirect(app(LeaseSigningLauncher::class)->landingUrl($flow))->with('success', $service->lastWasDuplicate ? self::ALREADY_CREATED : $this->leaseCaptureMessage($intent, $previous !== null));
         }
 
         $waits = $lease->isSignedRenewalAwaitingStart();
 
-        return redirect()->route('corex.leases.show', $lease)->with('success', $waits
+        return redirect()->route('corex.leases.show', $lease)->with('success', $service->lastWasDuplicate ? self::ALREADY_CREATED : ($waits
             ? 'Renewal recorded - it starts on ' . $lease->start_date->format('j M Y') . '. The current lease stays active until then.'
-            : $this->leaseCaptureMessage($intent, $previous !== null));
+            : $this->leaseCaptureMessage($intent, $previous !== null)));
     }
+
+    /** Shown instead of "Lease created." when the same capture was pressed twice and the first press had already made the lease. */
+    private const ALREADY_CREATED = 'This lease was already created a moment ago - here it is. Nothing was created twice.';
 
     private function leaseCaptureMessage(string $intent, bool $isRenewal): string
     {

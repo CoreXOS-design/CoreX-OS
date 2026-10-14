@@ -3322,6 +3322,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.room-type-order');
     // §17, Johan 2026-09-21, from Retha's real paper form — the condition vocabulary.
     // INSPECTIONS I-2 BEGIN — §45.4 item 3, the agency's own room types.
+    // §55 - the standard room list per kind of property.
+    Route::post('/settings/rental-inspections/room-templates', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateRoomTemplates'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.room-templates');
     Route::post('/settings/rental-inspections/custom-room-types', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateCustomRoomTypes'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.custom-room-types');
     // INSPECTIONS I-2 END
@@ -3589,6 +3592,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // corex-feature-registry.md §6.4. The saver keeps its original route name/URL (the wizard and tests use it).
     Route::get('/features', [\App\Http\Controllers\CoreX\FeaturePageController::class, 'index'])->middleware(['permission:agency_features.manage', 'agency.required'])->name('corex.features.index');
     Route::post('/settings/features', [\App\Http\Controllers\CoreX\FeatureSettingsController::class, 'update'])->middleware('permission:agency_features.manage')->name('corex.settings.features.update');
+    // What the agency does (sales / rentals / both) — seeds the feature switches. Shared with the wizard's identity step.
+    Route::post('/settings/agency-type', [\App\Http\Controllers\CoreX\AgencyTypeController::class, 'update'])->middleware('permission:agency_features.manage')->name('corex.settings.agency-type.update');
     // AT-392 authoriser flow, 2026-09-08 — RO/CO decision actions. A
     // separate prefix/controller, gated on RO/CO tier membership
     // (User::isRentalApplicationRO()/isRentalApplicationCO()), not the
@@ -5798,6 +5803,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // 13 Oct 2026 - the property page's own map-strip call. routes/api.php keeps the bearer-only mobile route (its group has the
         // browser-session support stripped on purpose, bootstrap/app.php), so a signed-in page used to get a silent 401 on every load.
         Route::post('/{property}/geocode', [\App\Http\Controllers\CoreX\PropertyController::class, 'geocode'])->middleware('permission:access_properties')->name('geocode');
+        // §55 - build a property's rooms from the agency's standard checklist for its kind of property.
+        Route::post('/{property}/rental-inspection-items/seed-from-standard', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'seedFromStandardChecklist'])->middleware('permission:rental_inspections.create')->name('rental-inspection-items.seed-from-standard');
         Route::post('/{property}/rental-inspection-items/seed-from-advertising', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'seedFromAdvertising'])->middleware('permission:rental_inspections.create')->name('rental-inspection-items.seed-from-advertising');
         // 2026-09-21, Johan on property 5792 — room walking order. apply-default-order
         // is the explicit, agent-triggered one-click fix for a property's EXISTING

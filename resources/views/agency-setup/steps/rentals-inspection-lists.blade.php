@@ -13,6 +13,8 @@
          delegates when this partial's *_submitted marker is present
        - inventory_condition_states -> RentalInventorySettingsController::
          updateConditionStates (own field name: the wizard form is one combined form).
+       - room_templates -> via RentalListsWizardSaver, only when room_templates_submitted is present (every kind's list is posted);
+         the canonical saver only touches the kinds posted.
        - custom_room_types -> via RentalListsWizardSaver, only when this partial's
          custom_room_types_submitted marker is present; only ACTIVE types are rendered,
          and the canonical saver archives (never deletes) a type removed here.
@@ -184,6 +186,40 @@
             </div>
         </template>
         <button type="button" @click="types.push({ key: '', label: '' })" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="{{ $wzInput }} color:var(--text-primary);">+ Add a room type</button>
+    </div>
+
+    {{-- Standard rooms per kind of property (§55) --}}
+    <div class="p-4 space-y-3" style="{{ $wzBox }}" data-qa="wz-room-templates"
+         x-data="{
+             types: {{ Js::from(collect($wzRoomTemplateTypeOptions ?? [])->map(fn ($o) => ['key' => $o['key'], 'label' => $o['label']])->values()) }},
+             lists: {{ Js::from($wzRoomTemplates ?? []) }},
+             add(f) { this.lists[f].push({ type: this.types[0].key, count: 1 }); },
+         }">
+        <input type="hidden" name="room_templates_submitted" value="1">
+        <h4 class="text-sm font-semibold" style="color:var(--text-primary);">Standard rooms for a new rental property</h4>
+        <p class="text-xs" style="color:var(--text-muted);">
+            What it is: the rooms CoreX builds for a rental property that has none yet, by kind of property &mdash; one list for a house, a flat, a townhouse and anything else. Bedrooms, bathrooms and garages use the property's own numbers when it has them.
+        </p>
+        <p class="text-[11px]" style="color:var(--text-muted);">
+            <span class="font-semibold">What this changes:</span> When an agent starts the first inspection of a property with no rooms, one press on "Build rooms from the standard checklist" creates these rooms, each with its inspection items. Properties that already have rooms are never changed.
+        </p>
+        @foreach(\App\Models\RentalInspectionSetting::ROOM_TEMPLATE_FAMILIES as $wzFamKey => $wzFamLabel)
+            <div class="space-y-2">
+                <h5 class="text-xs font-semibold" style="color:var(--text-secondary,#475569);">{{ $wzFamLabel }}</h5>
+                <input type="hidden" name="room_templates[{{ $wzFamKey }}][_present][type]" value="">  {{-- marks this kind as posted, so emptying its list saves an empty list --}}
+                <template x-for="(row, i) in lists['{{ $wzFamKey }}']" :key="i">
+                    <div class="flex items-center gap-2">
+                        <select x-model="row.type" :name="`room_templates[{{ $wzFamKey }}][${i}][type]`" class="flex-1 rounded-md px-3 py-2 text-sm" style="{{ $wzInput }}">
+                            <template x-for="t in types" :key="t.key"><option :value="t.key" x-text="t.label" :selected="t.key === row.type"></option></template>
+                        </select>
+                        <input type="number" min="1" max="{{ \App\Models\RentalInspectionSetting::ROOM_TEMPLATE_MAX_COUNT }}" x-model.number="row.count" :name="`room_templates[{{ $wzFamKey }}][${i}][count]`"
+                               class="w-20 rounded-md px-3 py-2 text-sm" style="{{ $wzInput }}" aria-label="How many">
+                        <button type="button" @click="lists['{{ $wzFamKey }}'].splice(i, 1)" class="text-xs font-semibold px-2 py-1 rounded-md" style="color:var(--ds-crimson,#e11d48);">Remove</button>
+                    </div>
+                </template>
+                <button type="button" @click="add('{{ $wzFamKey }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="{{ $wzInput }} color:var(--text-primary);">+ Add a room</button>
+            </div>
+        @endforeach
     </div>
 
     {{-- Inventory condition states --}}

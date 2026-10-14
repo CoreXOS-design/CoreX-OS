@@ -552,6 +552,37 @@ class RentalInspectionRecordingController extends Controller
     }
 
     /**
+     * POST /corex/properties/{property}/rental-inspection-items/seed-from-standard - .ai/specs/rental-inspections.md §55.
+     * "Build rooms from the standard checklist": the agency's own room list for this kind of property (Settings ->
+     * Inspections), each room with its item list. Only for a property with no rooms yet. JSON for the property
+     * tab; a plain form post (the "no rooms yet" notice on the inspection screen) gets a redirect back with a message.
+     */
+    public function seedFromStandardChecklist(Request $request, Property $property, \App\Services\Rentals\RentalInspectionFormSeeder $seeder)
+    {
+        $this->authorizePropertyForInspections($property);
+        if ($refused = $this->refuseIfTailSigned($property)) {
+            return $request->expectsJson() ? $refused : back()->withErrors(['rooms' => 'This inspection is signed and locked.']);
+        }
+        try {
+            $built = $seeder->seedFromStandardChecklist($property, $request->user());
+        } catch (\LogicException $e) {
+            return $request->expectsJson()
+                ? response()->json(['message' => $e->getMessage()], 409)
+                : back()->withErrors(['rooms' => $e->getMessage()]);
+        }
+
+        if (! $request->expectsJson()) {
+            return back()->with('success', 'Built ' . $built . ' ' . ($built === 1 ? 'room' : 'rooms') . ' from your standard checklist. Check the list, then record the inspection.');
+        }
+
+        return response()->json([
+            'built' => $built,
+            'items' => RentalInspectionItem::where('property_id', $property->id)->notRetired()->with('room')->orderBy('id')->get(),
+            'rooms' => \App\Models\PropertyRoom::where('property_id', $property->id)->where('is_retired', false)->orderBy('sort_order')->orderBy('id')->get(),
+        ]);
+    }
+
+    /**
      * POST /corex/rental-inspections/{inspection}/details — §17, the header
      * block: meter readings (free text — a body corporate property reads
      * "BODY CORP", not a number), furnished state + property type (agency-

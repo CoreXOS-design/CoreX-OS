@@ -387,3 +387,46 @@ no deal-register access), `documents.edit` (edits other people's documents), `co
 Retired keys HFC still holds and nothing reads: `view_rentals`, `access_rental_signatures`, `ppra_employment_letters.sign_as_principal`.
 
 Tests: `tests/Feature/Permissions/NewAgencyDefaultMatrixTest.php`.
+
+
+### Amendment (2026-10-14, later the same day) — every role gets everything HFC's corresponding role holds
+
+Johan on the held-back keys: **"each gets everything - they decide in setup what they want and need."** This
+supersedes the 12 Oct "bare minimum" default (§6) and the "Deliberately NOT added" list above. The canonical
+`role_defaults` now carries, for branch_manager, agent, viewer and office_admin, every key HFC's same-named role holds
+(agent +102, branch_manager +43, viewer +230, office_admin +313 on top of the first batch; admin was already complete
+via all-minus-exclude; assistant stays a zero-grant label). Only exclusions: the platform-owner-only keys (admin's
+`exclude` list — none of them is held by any HFC role) and the three retired keys. A new agency starts exactly where HFC
+is and trims per role in Role Manager.
+- Where this reaches past an older, narrower ruling it is knowingly the newer ruling that wins: AT-283 (settlement /
+  payroll / deal register are admin-only) — office_admin and viewer now default to `manage_payroll`, `run_payroll`,
+  `view_payroll_reports`, `deals_v2.*`, viewer also `access_deal_register(_v2)` and `branches.switch`; agent gets
+  `deals_v2.create/archive/override_dates` and `create_deals`.
+- Rollout consequence: `deploy:sync-reference-data` adds these keys additively to EVERY existing agency's roles on the
+  next deploy of an environment (an un-ticked/soft-deleted grant is respected; a key an agency simply never had is
+  added). QA1 gets it with this change; Staging/live only when promoted.
+- The setup wizard's Roles step is explainer-only (no grants, no tick boxes; `agency-setup/steps/roles.blade.php`) and its
+  worked example still says an agent "cannot ... approve a FICA pack" — now untrue for a fresh agency. Trimming happens
+  in Role Manager. Reported to Johan; not changed (out of this task's scope).
+
+## Menus follow permissions — no link ends in a 403 (2026-10-14, Johan; cc3's new-agency walk)
+
+**Rule.** A sidebar / menu entry only renders when the user holds the permission its page needs. Calendar, Tasks and the
+portal-access buttons showed for a minimal agent role and opened a 403.
+
+**Enforced three ways.**
+- `App\Support\Navigation\SidebarPermissionGuards` reads the sidebar's real Blade guard stack (`@permission`, `hasPermission`,
+  `hasAnyPermission`; `@else` branches and ORs do not count) and `SidebarLinksFollowPermissionsTest` fails for any link to a route
+  behind `permission:` middleware that is not inside a guard holding one of the route's keys. 34 offenders were fixed on 14 Oct
+  (Calendar, Tasks, Lost Deals, Core Matches, rentals/auctions Properties, WhatsApp consent review, Link My WhatsApp, Daily Activity,
+  Deal Register, P24 Auto-Import, the Documents menu, Staff Screening, Agency Documents, PPRA FFC Letter, Contact Governance,
+  Deal -> Property Sync). Where a link was guarded by a *different* key than its page checks, the page's key was added.
+- The same test renders the sidebar for a real agent (default matrix, and a stripped-down role) and checks every link opens.
+- `config/corex-features.php` `nav_permission` now names live keys (Rentals used the retired `view_rentals`);
+  `corex:features:validate` fails on a `nav_permission` key that does not exist.
+- The Client App access panel (contact / property pages) also needs `access_contacts`, the routes' own permission.
+
+**Known mismatch, left for Johan (product call, not changed):** `admin.deals` (Deal Register) is behind `create_deals` while the menu
+used to offer it on `view_deals` — branch managers hold `view_deals` only, so the link is now hidden from them. And
+`compliance.agency-settings.*` is behind `manage_agency_compliance` only although its controller has a branch-manager path
+(`manage_branch_compliance`), so that menu entry is now hidden from branch compliance managers.

@@ -1,10 +1,14 @@
 {{-- Client App Access panel — Spec: .ai/specs/client-auth.md --}}
 @php
     $clientUser = $contact->clientUser;
-    $canCreate  = auth()->user()->hasPermission('client_app.create_login');
-    $canReset   = auth()->user()->hasPermission('client_app.reset_password');
-    $canForce   = auth()->user()->hasPermission('client_app.force_logout');
-    $canRemove  = auth()->user()->hasPermission('client_app.remove_access');
+    // The four action routes (corex.contacts.client-login.*) sit behind access_contacts as well as the
+    // client_app.* key — this panel also renders on the Property screen, where a user may hold the
+    // client_app key without access_contacts. A button only renders when the user can use it.
+    $canUseRoutes = auth()->user()->hasPermission('access_contacts');
+    $canCreate  = $canUseRoutes && auth()->user()->hasPermission('client_app.create_login');
+    $canReset   = $canUseRoutes && auth()->user()->hasPermission('client_app.reset_password');
+    $canForce   = $canUseRoutes && auth()->user()->hasPermission('client_app.force_logout');
+    $canRemove  = $canUseRoutes && auth()->user()->hasPermission('client_app.remove_access');
     $canViewLogs= auth()->user()->hasPermission('client_app.view_logs');
 
     // Origin-agency gating — only the agency that fabricated an agency-managed

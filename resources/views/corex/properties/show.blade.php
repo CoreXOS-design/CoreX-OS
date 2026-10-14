@@ -5137,6 +5137,7 @@
                     itemStore: '{{ route('corex.properties.rental-inspection-items.store', $property) }}',
                     itemsReorder: '{{ route('corex.properties.rental-inspection-items.reorder', $property) }}',
                     seedFromAdvertising: '{{ route('corex.properties.rental-inspection-items.seed-from-advertising', $property) }}',
+                    seedFromStandard: '{{ route('corex.properties.rental-inspection-items.seed-from-standard', $property) }}',
                     startInspection: '{{ route('corex.properties.rental-inspections.start', $property) }}',
                     nextInspectionBase: '{{ url('/corex/properties/'.$property->id.'/rental-inspections') }}',
                     roomsReorder: '{{ route('corex.properties.rental-inspection-rooms.reorder', $property) }}',
@@ -5324,14 +5325,20 @@
                          panels below have nothing to record against either. --}}
                     <div x-show="!activeItems().length" class="space-y-2">
                         <p class="text-xs" style="color:var(--text-muted);">
-                            No inspection items yet. Build this property's inspection form from its
+                            No inspection items yet. Build the rooms from your agency's standard checklist for this kind of
+                            property (edit the checklist under Settings → Inspections), build them from this property's
                             advertising Spaces and ticked Features, or add rooms and meters by hand
                             below — e.g. "Bedroom 1", "Water meter". In and Out Inspection can't record
                             anything until at least one item exists here.
                         </p>
-                        <button type="button" :disabled="seedBusy" @click="seedFromAdvertising()"
-                                class="px-4 py-2 rounded-md text-xs font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
-                                x-text="seedBusy ? 'Building…' : 'Build from advertising details'"></button>
+                        <div class="flex flex-wrap gap-2">
+                            <button type="button" :disabled="seedBusy" @click="seedFromStandard()" data-qa="build-standard-rooms"
+                                    class="px-4 py-2 rounded-md text-xs font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
+                                    x-text="seedBusy ? 'Building…' : 'Build rooms from the standard checklist'"></button>
+                            <button type="button" :disabled="seedBusy" @click="seedFromAdvertising()"
+                                    class="px-4 py-2 rounded-md text-xs font-semibold" style="background:var(--surface-2); color:var(--text-secondary);"
+                                    x-text="seedBusy ? 'Building…' : 'Build from advertising details'"></button>
+                        </div>
                     </div>
 
                     {{-- 2026-09-21, Johan on property 5792 — "no logical way to line
@@ -7780,6 +7787,18 @@
                     this.itemError = '';
                     try {
                         const result = await this._post(this.inspectionUrls.seedFromAdvertising, {});
+                        this.items.push(...result.items.filter(i => !this.items.some(existing => existing.id === i.id)));
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.seedBusy = false; }
+                },
+
+                // §55 - the agency's standard room list for this kind of property. Offered wherever a property has no rooms
+                // (this tab's Inspection Items panel and the recording panel); the server refuses it for a property that has rooms.
+                async seedFromStandard() {
+                    this.seedBusy = true;
+                    this.itemError = '';
+                    try {
+                        const result = await this._post(this.inspectionUrls.seedFromStandard, {});
                         this.items.push(...result.items.filter(i => !this.items.some(existing => existing.id === i.id)));
                     } catch (e) { this.itemError = e.message; }
                     finally { this.seedBusy = false; }

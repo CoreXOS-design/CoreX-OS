@@ -151,6 +151,13 @@ final class TrackerStockAccessAndAgencyIsolationTest extends TestCase
         foreach ([$this->agent, $this->viewer] as $who) {
             $this->actingAs($who);
 
+            // Johan 14 Oct ("each gets everything"): the default VIEWER now carries what HFC's viewer holds -
+            // view_branch_stats and the properties scope - so it can open company stock and reassign it, exactly as on
+            // HFC. Only the AGENT stays shut out.
+            if ($who->role !== 'agent') {
+                continue;
+            }
+
             foreach ($this->stockRoutes() as $label => $url) {
                 $this->assertSame(403, $this->get($url)->getStatusCode(), "{$who->role} must not open {$label}");
             }

@@ -70,7 +70,8 @@ class PropertyWizardController extends Controller
             'auction_id'         => $draft->isAuction() ? ($draft->currentAuctionLot()?->auction_id) : null,
             'title'              => $draft->title,
             'property_type'      => $draft->property_type,
-            'price'              => $draft->price,
+            // A rental's rent lives in rental_amount (the sale price stays 0); the wizard's one price box shows whichever applies.
+            'price'              => $draft->listing_type === 'rental' ? ($draft->rental_amount ?: $draft->price) : $draft->price,
             'beds'               => $draft->beds,
             'baths'              => $draft->baths,
             'half_baths'         => $draft->half_baths,
@@ -158,15 +159,36 @@ class PropertyWizardController extends Controller
         ));
     }
 
-    /** STEP 1 — create the draft property with smart defaults. */
+    /**
+     * STEP 1 — create the draft property with smart defaults. One draft per wizard session: the page stamps every step-1 save
+     * with a token, and presses carrying the same token run one at a time, so a double press of "Continue" (or a retry after a
+     * slow reply) finds the draft the first press made instead of creating another.
+     */
     public function createDraft(Request $request)
     {
         /** @var User $user */
         $user = auth()->user();
         abort_unless($user->hasPermission('properties.create'), 403);
 
+        $token = trim((string) $request->input('wizard_token', ''));
+        if ($token === '') {
+            return $this->createDraftOnce($request, $user);
+        }
+
+        try {
+            return \Illuminate\Support\Facades\Cache::lock('wizard-draft:' . $user->id . ':' . sha1($token), 30)
+                ->block(20, fn () => $this->createDraftOnce($request, $user));
+        } catch (\Illuminate\Contracts\Cache\LockTimeoutException) {
+            return response()->json(['message' => 'The first save of this listing is still finishing. Wait a moment and press Continue again.'], 409);
+        }
+    }
+
+    private function createDraftOnce(Request $request, User $user)
+    {
+
         $data = $request->validate([
             'property_id'     => 'nullable|integer',   // set when resuming/editing an existing draft (AT-210)
+            'wizard_token'    => 'nullable|string|max:64',   // generated when the wizard page opens: one draft per wizard session
             'listing_type'    => 'required|string|in:sale,rental',
             'sale_method'     => 'nullable|string|in:private_treaty,auction',   // AT-432
             'auction_id'      => 'nullable|integer',                            // AT-432
@@ -219,6 +241,18 @@ class PropertyWizardController extends Controller
 
         $draftId = $data['property_id'] ?? null;
         unset($data['property_id']);
+        $wizardToken = $data['wizard_token'] ?? null;
+        unset($data['wizard_token']);
+
+        // A rental's one price box IS the rent: it goes to rental_amount, the column every rental screen, the header and the
+        // publish check read, and the sale price stays 0 (same rule as the classic form). Switching a resumed draft back to a
+        // sale clears the rent.
+        if (($data['listing_type'] ?? null) === 'rental') {
+            $data['rental_amount'] = $data['price'];
+            $data['price'] = 0;
+        } elseif ($draftId) {
+            $data['rental_amount'] = null;
+        }
 
         // Verify P24 chain and overwrite text columns with canonical names.
         $data = $this->applyP24Location($data);
@@ -227,13 +261,16 @@ class PropertyWizardController extends Controller
         // (resume, or "back → edit step 1"), UPDATE that row in place instead of
         // minting a second draft and orphaning the first. Ownership + draft state
         // are enforced, so a published or other-agent property is never mutated.
-        $existing = $draftId
-            ? Property::where('id', $draftId)
-                ->where('agent_id', $user->id)   // own draft only — mirrors start()'s ?resume scope
-                ->where('status', 'draft')
-                ->whereNull('published_at')
-                ->first()
-            : null;
+        $ownDraft = fn () => Property::where('agent_id', $user->id)   // own draft only — mirrors start()'s ?resume scope
+            ->where('status', 'draft')
+            ->whereNull('published_at');
+
+        $existing = $draftId ? $ownDraft()->where('id', $draftId)->first() : null;
+
+        // This wizard session already made a draft (the page did not hear back, or the button was pressed twice): same draft.
+        if (! $existing && $wizardToken) {
+            $existing = $ownDraft()->where('wizard_token', $wizardToken)->latest('id')->first();
+        }
 
         if ($existing) {
             $previousSuburbId = (int) ($existing->p24_suburb_id ?? 0);
@@ -260,6 +297,7 @@ class PropertyWizardController extends Controller
             // it for an owner with no home agency.
             [$data['agent_id'], $data['agency_id'], $data['branch_id']] = $this->resolveDraftAttribution($user);
             $data['status'] = 'draft';
+            $data['wizard_token'] = $wizardToken;
 
             // Observer fires saved() — published_at is null so SyncPropertyToWebsite is NOT dispatched
             $property = Property::create($data);

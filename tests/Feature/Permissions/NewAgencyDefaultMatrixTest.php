@@ -23,7 +23,7 @@ use Tests\TestCase;
  * through hand-ticked grants.
  *
  * Guards: (1) a freshly provisioned agency's roles equal the default matrix and carry the working
- * surface; (2) the management keys are NOT in the agent default; (3) every default key is a defined
+ * surface; (2) per Johan (14 Oct) every role carries EVERYTHING HFC's corresponding role holds, minus platform-owner-only and retired keys; (3) every default key is a defined
  * permission (an unknown key is silently skipped — that is how a default quietly goes missing);
  * (4) the deploy step adds missing keys to an EXISTING agency and never undoes an admin's un-tick
  * or touches a custom role.
@@ -41,12 +41,27 @@ final class NewAgencyDefaultMatrixTest extends TestCase
         'rentals.view', 'rentals.create', 'rentals.edit',
     ];
 
-    /** Management / compliance-officer / admin keys that must NOT come with the agent role. */
-    private const AGENT_MUST_NOT_HAVE = [
+    /**
+     * Johan, 14 Oct: "each gets everything - they decide in setup what they want and need." The default matrix
+     * carries EVERYTHING HFC's corresponding role holds - these are the keys that were first held back as
+     * manager / officer / HFC-specific. Agencies trim per role in Role Manager afterwards.
+     */
+    private const AGENT_ALSO_GETS = [
         'command_center.tasks.assign', 'command_center.automation.manage', 'command_center.health.view',
-        'compliance.fica.approve', 'compliance.fica.review', 'approve_rmcp', 'approve_policy',
-        'contacts.delete', 'manage_p24', 'finance.view', 'users.view', 'roles.view', 'settings.view',
-        'agency_api.manage', 'manage_activity_mappings',
+        'compliance.fica.approve', 'compliance.fica.review', 'approve_rmcp', 'approve_policy', 'compliance.whistleblow.configure',
+        'contacts.delete', 'contacts.import', 'contacts.archive', 'contacts.reassign_agent', 'properties.archive', 'delete_properties',
+        'manage_p24', 'p24.manage', 'finance.view', 'users.view', 'roles.view', 'settings.view',
+        'agency_api.manage', 'testimonials.publish', 'marketing_suppressions.manage', 'client_app.create_login',
+        'agency.authorize_external_access', 'tv_messages.create', 'targets.create', 'manage_targets', 'access_branch_assignments',
+        'deeds_capture.access', 'create_deals', 'deals_v2.create', 'documents.edit',
+        'access_listing_stock', 'access_import_listings', 'import_listings',
+    ];
+
+    /** Platform-owner-only keys + the three retired keys: never part of any non-admin default. */
+    private const NEVER_IN_A_ROLE_DEFAULT = [
+        'manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track',
+        'manage_reference_sources', 'templates.transfer',
+        'view_rentals', 'access_rental_signatures', 'ppra_employment_letters.sign_as_principal',
     ];
 
     protected function setUp(): void
@@ -103,30 +118,63 @@ final class NewAgencyDefaultMatrixTest extends TestCase
         }
     }
 
-    public function test_management_keys_are_not_handed_to_a_new_agencys_agent(): void
+    public function test_a_new_agencys_agent_also_gets_the_keys_first_held_back_as_manager_or_hfc_specific(): void
     {
         $agency = $this->newAgency();
         $granted = $this->granted('agent', $agency->id);
 
-        foreach (self::AGENT_MUST_NOT_HAVE as $key) {
-            $this->assertNotContains($key, $granted, "{$key} is not an agent default");
+        foreach (self::AGENT_ALSO_GETS as $key) {
+            $this->assertContains($key, $granted, "{$key} is part of the agent default (HFC's agent holds it)");
         }
     }
 
-    public function test_branch_manager_adds_assigning_tasks_and_viewer_gets_read_only_calendar(): void
+    public function test_no_role_default_carries_a_platform_owner_only_or_retired_key(): void
+    {
+        $agency = $this->newAgency();
+
+        foreach (['admin', 'branch_manager', 'agent', 'viewer', 'office_admin'] as $role) {
+            $this->assertSame([], array_values(array_intersect(self::NEVER_IN_A_ROLE_DEFAULT, $this->granted($role, $agency->id))), "{$role}");
+        }
+    }
+
+    public function test_office_admin_does_not_start_able_to_rewrite_roles_or_impersonate(): void
+    {
+        $agency = $this->newAgency();
+        $granted = $this->granted('office_admin', $agency->id);
+
+        // Held out pending Johan's word: they would let the first office admin make themselves admin on day one.
+        foreach (['access_role_manager', 'edit_permissions', 'change_user_roles', 'roles.edit', 'impersonate_users'] as $key) {
+            $this->assertNotContains($key, $granted, $key);
+        }
+        $this->assertContains('roles.view', $granted, 'role VIEWS are part of "everything"');
+    }
+
+    public function test_viewer_and_office_admin_carry_everything_hfcs_do(): void
+    {
+        $agency = $this->newAgency();
+
+        foreach (['viewer' => ['contacts.create', 'compliance.fica.approve', 'finance.view', 'command_center.calendar.create'],
+                  'office_admin' => ['contacts.edit', 'compliance.fica.send', 'users.view', 'command_center.tasks.create']] as $role => $keys) {
+            $granted = $this->granted($role, $agency->id);
+            foreach ($keys as $key) {
+                $this->assertContains($key, $granted, "{$role} default carries {$key} (HFC's {$role} holds it)");
+            }
+        }
+    }
+
+    public function test_branch_manager_and_viewer_get_the_calendar_and_task_board(): void
     {
         $agency = $this->newAgency();
 
         $bm = $this->granted('branch_manager', $agency->id);
         $this->assertContains('command_center.tasks.assign', $bm);
         $this->assertContains('command_center.calendar.view', $bm);
-        $this->assertNotContains('command_center.automation.manage', $bm, 'automation rules stay admin');
+        $this->assertContains('command_center.automation.manage', $bm);
 
         $viewer = $this->granted('viewer', $agency->id);
         $this->assertContains('command_center.calendar.view', $viewer);
         $this->assertContains('command_center.tasks.view', $viewer);
-        $this->assertNotContains('command_center.calendar.create', $viewer);
-        $this->assertNotContains('command_center.tasks.create', $viewer);
+        $this->assertContains('command_center.calendar.create', $viewer, "HFC's viewer holds it - 'each gets everything'");
     }
 
     public function test_every_default_key_is_a_defined_permission_so_none_is_silently_skipped(): void
@@ -155,7 +203,7 @@ final class NewAgencyDefaultMatrixTest extends TestCase
         Role::create(['name' => 'intern', 'label' => 'Intern', 'agency_id' => $agency->id]);
         RolePermission::create(['role' => 'intern', 'permission_key' => 'listings.view', 'scope' => 'own', 'agency_id' => $agency->id]);
         // ...and added a grant that is not a default for the role.
-        RolePermission::create(['role' => 'agent', 'permission_key' => 'finance.view', 'agency_id' => $agency->id]);
+        RolePermission::create(['role' => 'agent', 'permission_key' => 'view_rentals', 'agency_id' => $agency->id]);
         PermissionService::clearCache();
 
         $exit = Artisan::call('corex:sync-permissions', ['--merge-defaults' => true]);
@@ -169,7 +217,7 @@ final class NewAgencyDefaultMatrixTest extends TestCase
             $this->assertContains($key, $agent, "deploy sync must add {$key}");
         }
         $this->assertNotContains('rentals.archive', $agent, 'an admin\'s un-tick survives the deploy');
-        $this->assertContains('finance.view', $agent, 'an agency\'s extra grant is never removed');
+        $this->assertContains('view_rentals', $agent, 'an agency\'s extra grant is never removed');
         $this->assertSame(['listings.view'], $this->granted('intern', $agency->id), 'a custom role is left alone');
     }
 

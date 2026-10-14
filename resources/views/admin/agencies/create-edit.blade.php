@@ -589,6 +589,20 @@
                 </div>
             </div>
 
+            @unless($agency)
+            {{-- What the agency does: decides which features start switched on (config/agency-types.php). --}}
+            <div class="pt-2" style="border-top: 1px solid var(--border);">
+                <label class="block text-xs font-medium mb-1" for="agency_type" style="color:var(--text-secondary);">What does this agency do?</label>
+                <select id="agency_type" name="agency_type" class="w-full sm:w-72 rounded-md px-3 py-2 text-sm"
+                        style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    @foreach(\App\Services\Features\AgencyTypeFeatureSeeder::options() as $typeValue => $typeLabel)
+                        <option value="{{ $typeValue }}" @selected(old('agency_type', config('agency-types.default', 'both')) === $typeValue)>{{ $typeLabel }}</option>
+                    @endforeach
+                </select>
+                <p class="text-xs mt-1" style="color:var(--text-muted);">Decides which features start switched on: a rentals agency is not given the sales tools, a sales agency is not given the Rentals area. The agency's admin can change this later on the Features page.</p>
+            </div>
+            @endunless
+
             <label class="flex items-start gap-3 cursor-pointer pt-2" style="border-top: 1px solid var(--border);">
                 <input type="checkbox" name="is_demo" value="1" x-model="isDemo" class="mt-1 h-4 w-4 rounded cursor-pointer"
                        style="accent-color:var(--brand-icon);">

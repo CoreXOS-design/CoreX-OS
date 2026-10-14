@@ -271,16 +271,7 @@
                                                                            @change="
                                                                                const next = $event.target.checked ? 'all' : 'own';
                                                                                scopeMatrix['{{ $fViewKey }}']['{{ $role->name }}'] = next;
-                                                                               // AT-401 — one plain line saying what the system applies while nothing is stored for the role.
-        defaultLine(viewKey) {
-            const d = this.scopeDefaults[viewKey];
-            if (!d) return 'Default — nothing is stored for this role.';
-            if (!d.read) return 'Default — ' + d.note + '.';
-            const word = {own: 'Own', branch: 'Branch', all: 'All'}[d.scope] || 'None';
-            return 'Default (nothing stored for this role) — the system applies ' + word + ': ' + d.note + (d.varies ? '. Varies by screen.' : '.');
-        },
-
-        handleScopeChange('{{ $moduleKey }}', '{{ $role->name }}', next);
+                                                                               handleScopeChange('{{ $moduleKey }}', '{{ $role->name }}', next);
                                                                            "
                                                                            class="w-5 h-5 rounded-md cursor-pointer"
                                                                            style="accent-color:var(--brand-icon,#0ea5e9); border-color:var(--border);">
@@ -957,6 +948,15 @@ function roleManager() {
         selectedRoleLabel() {
             const r = rolesData.find(r => r.name === this.selectedRole);
             return r ? r.label : this.selectedRole;
+        },
+
+        // AT-401 — one plain line saying what the system applies while nothing is stored for the role.
+        defaultLine(viewKey) {
+            const d = this.scopeDefaults[viewKey];
+            if (!d) return 'Default — nothing is stored for this role.';
+            if (!d.read) return 'Default — ' + d.note + '.';
+            const word = {own: 'Own', branch: 'Branch', all: 'All'}[d.scope] || 'None';
+            return 'Default (nothing stored for this role) — the system applies ' + word + ': ' + d.note + (d.varies ? '. Varies by screen.' : '.');
         },
 
         handleScopeChange(moduleKey, roleName, scopeVal) {
