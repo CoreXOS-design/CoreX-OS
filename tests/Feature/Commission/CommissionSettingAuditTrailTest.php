@@ -87,7 +87,8 @@ final class CommissionSettingAuditTrailTest extends TestCase
     public function test_saving_with_no_actual_changes_writes_no_audit_entry(): void
     {
         [$agency, $admin] = $this->agencyAndAdmin();
-        CommissionSetting::forAgency($agency->id)->update($this->payload());
+        // the save also writes commission_split_agency = 100 - agent split, so seed it too (a new agency's neutral default is 100/0)
+        CommissionSetting::forAgency($agency->id)->update($this->payload() + ['commission_split_agency' => 20]);
 
         $before = CommissionSettingAuditEntry::where('agency_id', $agency->id)->count();
 

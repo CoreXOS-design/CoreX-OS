@@ -556,3 +556,6 @@ Route::post('settings/commission', [CommissionSettingsController::class, 'update
 - Sponsor relationship is permanent (can be transferred by admin only)
 - Cap period follows anniversary date, not calendar year
 - All amounts in ZAR (South African Rand)
+
+## New-agency defaults are neutral (14 Oct 2026)
+A new agency's commission settings start at: agent keeps 100% (agency 0%), no annual cap, no fees, mentor programme OFF, revenue share OFF, all tiers 0 (`CommissionSetting::NO_AGENCY_DEFAULTS`). The agency enters its own model in Settings / the setup wizard. Note the engine reads an annual cap of 0 as "capped from the first deal" (`AgentCapPeriod::checkCap`): an agency that enters a split or switches the mentor programme on must also enter its cap, or deals take the post-cap path (no split, no mentor fee). Tests: `AgencySetupWizardSaverGuardTest` (mentor off by default, switch-on restores the mentor fee).

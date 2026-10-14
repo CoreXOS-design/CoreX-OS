@@ -184,29 +184,19 @@ class AgencySetupWizardSaverGuardTest extends TestCase
     }
 
     /**
-     * The mentor programme is now an explicit on/off switch (2026-07-11), from
-     * both the settings page and the wizard's commission step. Default is ON, so
-     * agencies already running a mentor programme see no change in payout.
+     * The mentor programme is an explicit on/off switch (2026-07-11), from both the settings page and the wizard's
+     * commission step. A NEW agency starts with it OFF (14 Oct 2026, Cape walk: no agency's commission model is a default -
+     * the agent keeps 100% until the agency enters its own); the agency switches it on here.
      */
-    public function test_mentor_programme_toggle_saves_from_the_wizard(): void
+    public function test_mentor_programme_is_off_for_a_new_agency_and_toggles_from_the_wizard(): void
     {
         $agency = $this->agency();
         $admin  = $this->admin($agency);
 
-        $this->assertTrue(
-            (bool) CommissionSetting::forAgency($agency->id)->mentor_program_enabled,
-            'defaults ON so existing mentored agents keep their current payout'
-        );
+        $settings = CommissionSetting::forAgency($agency->id);
+        $this->assertFalse((bool) $settings->mentor_program_enabled, 'a new agency starts with no mentor programme');
+        $this->assertEquals(100, $settings->commission_split_agent, 'and the agent keeps 100% until the agency sets its own split');
 
-        $this->actingAs($admin)
-            ->post(route('corex.agency-setup.step.save', ['step' => 'commission']), $this->commissionPayload([
-                'mentor_program_enabled' => '0',
-            ]))
-            ->assertRedirect();
-
-        $this->assertFalse((bool) CommissionSetting::forAgency($agency->id)->fresh()->mentor_program_enabled);
-
-        // And back on again.
         $this->actingAs($admin)
             ->post(route('corex.agency-setup.step.save', ['step' => 'commission']), $this->commissionPayload([
                 'mentor_program_enabled' => '1',
@@ -214,24 +204,21 @@ class AgencySetupWizardSaverGuardTest extends TestCase
             ->assertRedirect();
 
         $this->assertTrue((bool) CommissionSetting::forAgency($agency->id)->fresh()->mentor_program_enabled);
+
+        // And back off again.
+        $this->actingAs($admin)
+            ->post(route('corex.agency-setup.step.save', ['step' => 'commission']), $this->commissionPayload([
+                'mentor_program_enabled' => '0',
+            ]))
+            ->assertRedirect();
+
+        $this->assertFalse((bool) CommissionSetting::forAgency($agency->id)->fresh()->mentor_program_enabled);
     }
 
-    /**
-     * The one that actually matters: switching the programme OFF must stop the
-     * mentor fee being charged, not merely hide the fields. A mentee with a live
-     * AgentMentor row must pay no mentor fee once the agency switches it off.
-     */
-    public function test_mentor_programme_off_charges_no_mentor_fee(): void
+    private function mentoredAgent(Agency $agency): User
     {
-        $agency = $this->agency();
-        $admin  = $this->admin($agency);
-
-        $mentee = User::factory()->create([
-            'agency_id' => $agency->id, 'role' => 'agent', 'is_active' => true,
-        ]);
-        $mentorAgent = User::factory()->create([
-            'agency_id' => $agency->id, 'role' => 'agent', 'is_active' => true,
-        ]);
+        $mentee = User::factory()->create(['agency_id' => $agency->id, 'role' => 'agent', 'is_active' => true]);
+        $mentorAgent = User::factory()->create(['agency_id' => $agency->id, 'role' => 'agent', 'is_active' => true]);
         AgentMentor::create([
             'agency_id'      => $agency->id,
             'mentee_user_id' => $mentee->id,
@@ -240,29 +227,50 @@ class AgencySetupWizardSaverGuardTest extends TestCase
             'assigned_at'    => now(),
         ]);
 
-        $settings = CommissionSetting::forAgency($agency->id);
+        return $mentee;
+    }
 
-        // R115 000 gross incl. VAT, R15 000 VAT => R100 000 excl. At the default
-        // 20% mentor split that is a R20 000 mentor fee.
-        $on = CommissionCalculationService::calculateDealCommission(
-            $mentee->id, '115000.00', '15000.00', 'sale', 'Mentored sale — programme ON'
-        );
-        $this->assertTrue(
-            bccomp((string) $on->mentor_fee, '0.00', 2) > 0,
-            'with the programme on, a mentored agent pays a mentor fee'
-        );
+    /**
+     * The one that actually matters: with the programme OFF - which is how a new agency starts - a mentee with a live AgentMentor
+     * row pays NO mentor fee. It must stop the fee being charged, not merely hide the fields.
+     */
+    public function test_a_new_agency_with_the_mentor_programme_off_charges_no_mentor_fee(): void
+    {
+        $agency = $this->agency();
+        $mentee = $this->mentoredAgent($agency);
 
-        // Programme OFF: same agent, same live AgentMentor row, no fee.
-        $settings->update(['mentor_program_enabled' => false]);
-
+        // R115 000 gross incl. VAT, R15 000 VAT => R100 000 excl.
         $off = CommissionCalculationService::calculateDealCommission(
-            $mentee->id, '115000.00', '15000.00', 'sale', 'Mentored sale — programme OFF'
+            $mentee->id, '115000.00', '15000.00', 'sale', 'Mentored sale - programme off (the new-agency default)'
         );
-        $this->assertSame(
-            '0.00',
-            (string) $off->mentor_fee,
-            'switching the programme off must stop the fee, not just hide the fields'
+        $this->assertSame('0.00', (string) $off->mentor_fee, 'no mentor programme, no mentor fee');
+    }
+
+    /** An agency that switches the programme ON gets the mentor fee again: the old behaviour applies from then on. */
+    public function test_an_agency_that_switches_the_mentor_programme_on_gets_the_mentor_fee(): void
+    {
+        $agency = $this->agency();
+        $mentee = $this->mentoredAgent($agency);
+
+        CommissionSetting::forAgency($agency->id)->update([
+            'mentor_program_enabled' => true, 'mentor_extra_split' => 20, 'mentor_transactions' => 3,
+            'commission_split_agent' => 80, 'commission_split_agency' => 20,
+            // the agency enters its own cap too: a cap of 0 means "capped from the first deal" (post-cap path, no split, no mentor fee)
+            'annual_cap' => 160000,
+        ]);
+
+        // R100 000 excl. VAT at a 20% mentor split is a R20 000 mentor fee.
+        $on = CommissionCalculationService::calculateDealCommission(
+            $mentee->id, '115000.00', '15000.00', 'sale', 'Mentored sale - programme switched on'
         );
+        $this->assertSame('20000.00', (string) $on->mentor_fee, 'with the programme on, a mentored agent pays the mentor fee');
+
+        // and switching it off again stops it
+        CommissionSetting::forAgency($agency->id)->update(['mentor_program_enabled' => false]);
+        $off = CommissionCalculationService::calculateDealCommission(
+            $mentee->id, '115000.00', '15000.00', 'sale', 'Mentored sale - programme switched off again'
+        );
+        $this->assertSame('0.00', (string) $off->mentor_fee);
     }
 
     // ── Feature-switchboard savers (switchboard spec §3.4) ───────────────────
