@@ -11,6 +11,7 @@ use App\Models\RentalJobDispatch;
 use App\Models\RentalPortalSetting;
 use App\Models\RentalSecureAccessToken;
 use App\Models\RentalWorkOrder;
+use App\Models\RentalWorkOrderQuote;
 use App\Models\User;
 use App\Support\WhatsAppNumberFormatter;
 use Illuminate\Database\QueryException;
@@ -36,6 +37,8 @@ class RentalContractorJobService
     public const EV_SENT = 'rental_work_order.contractor_job_sent';
     public const EV_NOT_SENT = 'rental_work_order.contractor_job_not_sent';
     public const EV_RESPONDED = 'rental_work_order.contractor_responded';
+    /** Its own alert type: NotificationDispatcher drops a second alert of the SAME type for the same work order within the person's cooldown (6 h by default), so a quote sent after "accepted" under EV_RESPONDED never reached anyone (WO 192, 14 Oct 2026). */
+    public const EV_QUOTE = 'rental_work_order.quote_received';
 
     public const RESPONSE_PENDING = 'pending';
     public const RESPONSE_ACCEPTED = 'accepted';
@@ -320,7 +323,7 @@ class RentalContractorJobService
 
     // ── the contractor answers (from their own link) ────────────────────────────────────────────────────────────────────────
 
-    public function recordResponse(RentalWorkOrder $wo, string $response, ?string $reason = null): void
+    public function recordResponse(RentalWorkOrder $wo, string $response, ?string $reason = null, ?RentalWorkOrderQuote $quote = null): void
     {
         if (! in_array($response, [self::RESPONSE_ACCEPTED, self::RESPONSE_DECLINED, self::RESPONSE_QUOTE], true)) {
             return;
@@ -336,7 +339,20 @@ class RentalContractorJobService
             default => $name . ' uploaded a quote from their link.',
         };
         $this->history($wo, null, 'contractor_response', $line);
+        if ($response === self::RESPONSE_QUOTE) {
+            $this->tell($wo, self::EV_QUOTE, 'Quote received - ' . $name . ($quote ? ' R' . number_format((float) $quote->amount, 2) : '') . ' - ' . $this->address($wo), $this->quoteBody($wo, $quote));
+
+            return;
+        }
         $this->tell($wo, self::EV_RESPONDED, $line . ' - ' . $this->address($wo), $wo->title);
+    }
+
+    /** What the contractor wrote on the quote; a document-only quote says so, with the job it is for. */
+    private function quoteBody(RentalWorkOrder $wo, ?RentalWorkOrderQuote $quote): string
+    {
+        $detail = trim((string) ($quote?->detail_text ?? ''));
+
+        return $detail !== '' ? mb_substr($detail, 0, 500) : 'Quote document attached - ' . $wo->title;
     }
 
     public static function responseLabel(?string $response): string

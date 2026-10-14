@@ -267,8 +267,8 @@ class ContractorSecureLinkController extends Controller
         unset($data['document']);
         $data['agency_service_provider_id'] = $record->agency_service_provider_id;
 
-        $workOrder->recordQuote($data, null, 'via contractor link');
-        app(\App\Services\Rentals\RentalContractorJobService::class)->recordResponse($workOrder, \App\Services\Rentals\RentalContractorJobService::RESPONSE_QUOTE);
+        $quote = $workOrder->recordQuote($data, null, 'via contractor link');
+        app(\App\Services\Rentals\RentalContractorJobService::class)->recordResponse($workOrder, \App\Services\Rentals\RentalContractorJobService::RESPONSE_QUOTE, null, $quote);
 
         $record->forceFill(['last_used_at' => now()])->save();
 
