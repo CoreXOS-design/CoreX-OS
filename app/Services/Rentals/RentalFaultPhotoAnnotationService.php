@@ -143,7 +143,7 @@ class RentalFaultPhotoAnnotationService
     }
 
     /**
-     * "Photos of the problem" on the contractor's private link: EVERY photo of the fault behind the work order (tenant's, owner's, the
+     * "Photos of the problem" on the contractor's private link AND the crew's job page: EVERY photo of the fault behind the work order (tenant's, owner's, the
      * office's - read-only, with the office's marks and notes), plus any photo the office put on the work order itself as a reported one.
      * Rental re-walk, 14 Oct 2026: a work order only started with the photos the agent ticked "Share" for the OWNER, so a fault whose
      * photos were never ticked - or that gained one after the work order was made - sent the contractor to a page with no pictures even
@@ -151,12 +151,16 @@ class RentalFaultPhotoAnnotationService
      *
      * @return array<int,array<string,mixed>>
      */
-    public function contractorProblemPhotos(\App\Models\RentalWorkOrder $workOrder): array
+    public function contractorProblemPhotos(?\App\Models\RentalWorkOrder $workOrder, ?RentalFaultReport $fault = null): array
     {
-        $reported = $workOrder->photos()->withoutGlobalScopes()->where('photo_type', \App\Models\RentalWorkOrder::PHOTO_REPORTED)->orderBy('id')->get();
-        $out = $this->workOrderPayload($workOrder, $reported, self::AUDIENCE_CONTRACTOR);
+        $reported = $workOrder
+            ? $workOrder->photos()->withoutGlobalScopes()->where('photo_type', \App\Models\RentalWorkOrder::PHOTO_REPORTED)->orderBy('id')->get()
+            : collect();
+        $out = $workOrder ? $this->workOrderPayload($workOrder, $reported, self::AUDIENCE_CONTRACTOR) : [];
 
-        $fault = RentalFaultReport::withoutGlobalScopes()->where('agency_id', $workOrder->agency_id)->where('rental_work_order_id', $workOrder->id)->first();
+        $fault ??= $workOrder
+            ? RentalFaultReport::withoutGlobalScopes()->where('agency_id', $workOrder->agency_id)->where('rental_work_order_id', $workOrder->id)->first()
+            : null;
         if (! $fault) {
             return $out;
         }
@@ -180,8 +184,8 @@ class RentalFaultPhotoAnnotationService
     }
 
     /**
-     * What the crew / contractor is shown for a job card: the photos of the fault behind it (the ones the owner saw), with the agent's marks and
-     * notes - they help the repair. Empty when the card is not tied to a fault.
+     * What the crew is shown for a job card: every photo of the fault behind it (and any photo the office put on its work order as a reported one),
+     * read-only, with the agent's marks and notes - they help the repair. Empty when the card is not tied to a fault.
      *
      * @return array<int,array<string,mixed>>
      */
@@ -196,7 +200,12 @@ class RentalFaultPhotoAnnotationService
             return [];
         }
 
-        return $this->payload($fault, collect($fault->workOrderDraft()['photos'])->values(), self::AUDIENCE_CONTRACTOR);
+        // The crew sees what the contractor sees: every photo of the fault (not just the ones ticked Share for the owner), read-only.
+        $wo = $card->rental_work_order_id
+            ? \App\Models\RentalWorkOrder::withoutGlobalScopes()->where('agency_id', $card->agency_id)->find($card->rental_work_order_id)
+            : null;
+
+        return $this->contractorProblemPhotos($wo, $fault);
     }
 
     private function who(string $audience, ?string $name): string

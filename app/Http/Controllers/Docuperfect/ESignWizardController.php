@@ -687,6 +687,10 @@ class ESignWizardController extends Controller
             'flowId'         => $flow->id,
             'manualFields'   => $manualFields,
             'contactTypes'   => $contactTypes,
+            // Step 5: which fields can be saved back onto the contact / property they pre-fill from (the inline "Also update …?" tick).
+            'writeBackMeta'  => $step === 5
+                ? app(\App\Services\Docuperfect\AgreementRecordWriteBack::class)->meta($expandedWizardFields ?: $allWizardFields, $stepData, $request->user())
+                : [],
         ]);
     }
 
@@ -982,9 +986,25 @@ class ESignWizardController extends Controller
         $flow->current_step = max($flow->current_step, $nextStep);
         $flow->save();
 
+        // Fill & review committed: what the agent supplied that CoreX did not already know goes back onto the contact / property it
+        // pre-fills from, so every later document and renewal fills itself (leases.md "Agreement write-back"). The flow is already
+        // saved, so a failure here can never lose the agent's work or stop them moving on.
+        $writtenBack = [];
+        if ($stepKey === 'fill_review') {
+            try {
+                $writtenBack = app(\App\Services\Docuperfect\AgreementRecordWriteBack::class)->apply(
+                    $stepData['fields'] ?? [], $stepData, (array) ($data['fieldValues'] ?? []), (array) ($data['writeBack'] ?? []),
+                    $request->user(), (int) $flow->id
+                );
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
         return response()->json([
             'success'   => true,
             'next_step' => $nextStep,
+            'written_back' => $writtenBack,
             'redirect'  => route('docuperfect.esign.step', ['flow' => $flow->id, 'step' => $nextStep]),
         ]);
     }
