@@ -128,7 +128,16 @@
                     </div>
                     <div class="fica-grid-full">
                         <label class="fica-label">SA Identity Number / Foreign Passport Number <span class="req">*</span></label>
-                        <input type="text" name="personal[id_number]" class="fica-input" required x-model="personal.id_number">
+                        {{-- The number on file is shown masked (****1234) and kept as it is unless they choose to change it: Edit clears the box so the
+                             full number is typed again. Nothing but the last four characters ever reaches this page. --}}
+                        <input type="hidden" name="personal[id_number_keep]" value="1" x-bind:disabled="!personal.id_number_kept">
+                        <div style="display:flex; gap:0.5rem; align-items:center;">
+                            <input type="text" name="personal[id_number]" class="fica-input" required x-model="personal.id_number" x-bind:readonly="personal.id_number_kept"
+                                   x-bind:style="personal.id_number_kept ? 'background:#f8fafc; flex:1;' : 'flex:1;'" autocomplete="off" data-qa="fica-id-number">
+                            <button type="button" x-show="personal.id_number_kept" x-cloak data-qa="fica-id-edit" style="padding:0.5rem 1rem; border:1px solid #cbd5e1; border-radius:6px; background:#fff; color:#334155; font-weight:600; cursor:pointer;"
+                                    @click="personal.id_number_kept = false; personal.id_number = ''; $nextTick(() => $el.parentElement.querySelector('input').focus())">Edit</button>
+                        </div>
+                        <p class="fica-hint" x-show="personal.id_number_kept" x-cloak>This is the number we have on file, shown in part. Press Edit only if it needs to change - then type the full number.</p>
                         <p class="fica-hint">Your SA ID or foreign passport must be inspected and a copy will be required</p>
                     </div>
                     <div class="fica-grid-full">
@@ -756,7 +765,7 @@
             // Opens filled in from the contact CoreX already holds (App\Services\Compliance\FicaFormPrefill); all of it stays editable.
             entityType: {{ Js::from($prefill['entity_type'] ?? '') }},
 
-            personal: {{ Js::from($prefill['personal'] ?? ['full_name' => '', 'id_number' => '', 'sa_citizen' => '', 'residential_address' => '', 'phone' => '', 'email' => '', 'tax_number' => '']) }},
+            personal: {{ Js::from($prefill['personal'] ?? ['full_name' => '', 'id_number' => '', 'id_number_kept' => false, 'sa_citizen' => '', 'residential_address' => '', 'phone' => '', 'email' => '', 'tax_number' => '']) }},
 
             entity: {
                 company_name: '', company_reg_number: '', company_sa_presence: '',
