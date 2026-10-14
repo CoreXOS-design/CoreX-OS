@@ -117,3 +117,42 @@ h3[data-role-token-heading] ~ h3[data-role-token-heading][data-same-role] {
 .recipient-signing-context .recipient-instance + .recipient-instance {
     margin-top: 0.75rem;
 }
+
+/* ---------------------------------------------------------------------------
+ * The document is PAPER — white in every theme.
+ *
+ * The app's dark theme (resources/css/corex.css, `html.dark …`) paints every
+ * even <tbody> row, <thead> <th> and every input/select/textarea with dark
+ * surface colours. Those rules reach INTO the document body, so on the white
+ * page a lease's "Less Agent's Service Fee" / "Net Amount to Owner" rows (the
+ * 2nd and 4th rows of the breakdown table) and its date/time inputs turned
+ * near-black. Pin them to explicit paper colours here — once, for every
+ * template on all three surfaces (wizard preview, fill & review, signing).
+ *
+ * Row / cell backgrounds carry no !important on purpose: a template's own
+ * inline shading (style="background:…") must still win. The corex.css input
+ * and <th> rules ARE !important, so these must be too (and out-specify them).
+ * ------------------------------------------------------------------------- */
+.docuperfect-document-body {
+    color-scheme: light;
+}
+
+html.dark .docuperfect-document-body tbody tr,
+html.dark .docuperfect-document-body tbody tr:nth-child(even),
+html.dark .docuperfect-document-body tbody tr:hover {
+    background-color: #fff;
+}
+
+html.dark .docuperfect-document-body thead th {
+    background-color: #f3f4f6 !important;
+    color: #1a1a1a !important;
+}
+
+html.dark .docuperfect-document-body input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+html.dark .docuperfect-document-body select,
+html.dark .docuperfect-document-body textarea {
+    background-color: #fff !important;
+    color: #1a1a1a !important;
+    border-color: #9ca3af !important;
+    color-scheme: light;
+}
