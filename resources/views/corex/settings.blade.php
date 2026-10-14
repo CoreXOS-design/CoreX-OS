@@ -323,6 +323,15 @@
                                    placeholder="e.g. Johan and Elize Properties T/A">
                         </div>
                         <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Short code</label>
+                            <input type="text" name="short_code" value="{{ old('short_code', $agency->short_code) }}" maxlength="10"
+                                   class="w-full rounded-md px-3 py-2 text-sm uppercase"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                                   placeholder="e.g. CTR">
+                            <p class="text-xs mt-1" style="color:var(--text-muted);">2 to 10 letters or numbers. Starts the numbers on your documents (payslips: CTR-202610-001). Leave blank to keep the one worked out from your name. Numbers already issued do not change.</p>
+                            @error('short_code')<p class="text-xs mt-1" style="color:#dc2626;">{{ $message }}</p>@enderror
+                        </div>
+                        <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Tagline</label>
                             <input type="text" name="tagline" value="{{ old('tagline', $agency->tagline) }}"
                                    class="w-full rounded-md px-3 py-2 text-sm"

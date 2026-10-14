@@ -88,6 +88,8 @@ class AgencyController extends Controller
             'is_demo'          => 'nullable|boolean',
             // What the agency does — seeds its feature switches (config/agency-types.php). Blank = both.
             'agency_type'      => 'nullable|in:sales,rentals,both',
+            // Letters the agency's document numbers start with (payslips). Blank = worked out from the name (Agency::saving).
+            'short_code'       => 'nullable|string|max:20',
             'trading_name'     => 'nullable|string|max:255',
             'tagline'          => 'nullable|string|max:255',
             'address'          => 'nullable|string|max:500',
@@ -120,6 +122,7 @@ class AgencyController extends Controller
             'branch_code'    => 'required|string|max:50',
         ]);
 
+        $data['short_code']    = \App\Support\AgencyShortCode::validated($data['short_code'] ?? null);
         $data['slug']          = $data['slug'] ?? Str::slug($data['name']);
         $data['sidebar_color'] = $data['sidebar_color'] ?? '#0ea5e9';
         $data['icon_color']    = $data['icon_color']    ?? '#0ea5e9';
@@ -327,6 +330,7 @@ class AgencyController extends Controller
             'button_color'    => 'nullable|string|max:20',
             'is_active'       => 'nullable|boolean',
             'trading_name'    => 'nullable|string|max:255',
+            'short_code'      => 'nullable|string|max:20',
             'tagline'         => 'nullable|string|max:255',
             'address'         => 'nullable|string|max:500',
             'phone'           => 'nullable|string|max:255',
@@ -364,6 +368,12 @@ class AgencyController extends Controller
         $data['icon_color']    = $data['icon_color']    ?? '#0ea5e9';
         $data['default_color'] = $data['default_color'] ?? '#0b2a4a';
         $data['button_color']  = $data['button_color']  ?? '#0ea5e9';
+        // Blank (or not on the form) keeps the code the agency has - it is never emptied.
+        $shortCode = $request->has('short_code') ? \App\Support\AgencyShortCode::validated($data['short_code'] ?? null, (int) $agency->id) : null;
+        unset($data['short_code']);
+        if ($shortCode !== null) {
+            $data['short_code'] = $shortCode;
+        }
         $data['is_active']       = (bool) ($data['is_active'] ?? false);
         $data['p24_enabled']     = (bool) ($data['p24_enabled'] ?? false);
         $data['pp_enabled']      = (bool) ($data['pp_enabled'] ?? false);

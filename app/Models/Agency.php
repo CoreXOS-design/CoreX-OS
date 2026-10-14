@@ -22,6 +22,20 @@ class Agency extends Model
      */
     protected static function booted(): void
     {
+        // The letters this agency's own document numbers start with (payslips: "<code>-202610-001"). Always present: typed
+        // by the agency, else worked out from its name; never a code another agency already uses. See App\Support\AgencyShortCode.
+        static::saving(function (Agency $agency) {
+            // an older migration that saves an Agency runs before the column exists on a fresh database
+            if (! \App\Support\AgencyShortCode::columnExists()) {
+                return;
+            }
+            if ($agency->exists && ! $agency->isDirty('short_code') && $agency->short_code) {
+                return;
+            }
+            $wanted = \App\Support\AgencyShortCode::clean($agency->short_code) ?? \App\Support\AgencyShortCode::fromName($agency->name);
+            $agency->short_code = \App\Support\AgencyShortCode::unique($wanted, $agency->exists ? (int) $agency->getKey() : null);
+        });
+
         static::created(function (Agency $agency) {
             \App\Services\RoleProvisioningService::provisionForAgency($agency);
         });
@@ -213,6 +227,7 @@ class Agency extends Model
         'vat_no',
         'vat_registered',
         'vat_capture_mode',
+        'short_code', // letters that start this agency's document numbers (payslips) - App\Support\AgencyShortCode; blank = from the name
         'agency_type', // sales | rentals | both — config/agency-types.php; seeds the feature switches
         'vat_settings_updated_at',
         'vat_settings_updated_by_user_id',

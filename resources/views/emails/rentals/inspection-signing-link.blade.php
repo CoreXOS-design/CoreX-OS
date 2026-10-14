@@ -7,7 +7,7 @@
 <body style="font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
 
     <div style="background-color: #276749; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
-        <h1 style="color: #ffffff; margin: 0; font-size: 22px;">{{ $canSign ? 'Please review and sign' : 'Inspection report' }}</h1>
+        <h1 style="color: #ffffff; margin: 0; font-size: 22px;">Please review and sign</h1>
     </div>
 
     <div style="padding: 30px 20px; background-color: #ffffff; border: 1px solid #e0e0e0; border-top: none;">
@@ -21,33 +21,19 @@
         @endif
 
         <p>
-            @if($canSign)
-                The {{ strtolower($inspectionLabel) }} report for <strong>{{ $propertyAddress }}</strong> is ready for you to read.
-                Open it on your phone or computer, go through the rooms and photos, and when you are happy with it you can sign it right there.
-            @else
-                The {{ strtolower($inspectionLabel) }} report for <strong>{{ $propertyAddress }}</strong> is ready to read.
-                You sign it inside CoreX with your own login and signing PIN: <strong>open the inspection in CoreX, find the Agent line and press &ldquo;Sign with PIN&rdquo;</strong>
-                (it appears once everyone else has signed). The button below is for reading the report only.
-            @endif
+            The {{ strtolower($inspectionLabel) }} report for <strong>{{ $propertyAddress }}</strong> is ready for you to read.
+            Open it on your phone or computer, go through the rooms and photos, and when you are happy with it you can sign it right there.
         </p>
 
         <div style="text-align: center; margin: 30px 0;">
             <a href="{{ $signingUrl }}" style="display: inline-block; background-color: #276749; color: #ffffff; padding: 14px 40px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
-                {{ $canSign ? 'READ AND SIGN THE REPORT' : 'READ THE REPORT' }}
+                READ AND SIGN THE REPORT
             </a>
         </div>
-
-        @if(! $canSign && ! empty($openInCoreXUrl))
-        <div style="text-align: center; margin: 0 0 24px;">
-            <a href="{{ $openInCoreXUrl }}" style="display: inline-block; background-color: #ffffff; color: #276749; border: 2px solid #276749; padding: 12px 32px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 15px;">
-                OPEN THE INSPECTION IN COREX
-            </a>
-        </div>
-        @endif
 
         <p style="font-size: 13px; color: #666;">
             This link is personal to you — please do not forward it.
-            It stops working on {{ $expiresOn }}@if($canSign), or as soon as you have signed @endif.
+            It stops working on {{ $expiresOn }}, or as soon as you have signed.
             If the button does not work, copy this address into your browser:<br>
             <span style="word-break: break-all;">{{ $signingUrl }}</span>
         </p>
