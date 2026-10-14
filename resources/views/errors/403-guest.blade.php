@@ -18,7 +18,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Link not valid — CoreX OS</title>
+    <title>Link not valid</title>
     <style>
         :root {
             --brand: #0b2a4a;
@@ -70,7 +70,7 @@
 </head>
 <body>
     <header class="brand-bar">
-        <span class="logo">Core<span class="os">X</span></span>
+        <span class="logo">{{ \App\Support\ClientBrand::NEUTRAL }}</span>
     </header>
     <main>
         <div class="card">
@@ -81,9 +81,6 @@
             </div>
             <h1>Shucks — this link isn't valid any more</h1>
             <p>This link may have expired or been mistyped. If someone sent you this link, it's best to reach out to them directly for an up-to-date one.</p>
-            <div class="actions">
-                <a href="mailto:support@corexos.co.za" class="btn">Contact CoreX support</a>
-            </div>
         </div>
     </main>
 </body>

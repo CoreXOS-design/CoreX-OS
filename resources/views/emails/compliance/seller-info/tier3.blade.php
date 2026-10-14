@@ -142,7 +142,6 @@
     {{ $agency->trading_name ?? $agency->name }}
     @if($agency->phone) &bull; {{ $agency->phone }} @endif
     @if($agency->email) &bull; {{ $agency->email }} @endif
-    <br>Powered by CoreX OS Compliance Module
 </div>
 
 </div>

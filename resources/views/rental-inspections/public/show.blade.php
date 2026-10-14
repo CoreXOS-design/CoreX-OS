@@ -65,7 +65,7 @@
                 <div class="no-print rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-sm p-3 flex items-center justify-between gap-3" data-qa="device-banner">
                     <span>Signing on {{ $signing['device_agent_name'] ?? 'the agent' }}'s device for <strong>{{ $signing['party_name'] }}</strong>. Read the report, then scroll to the end to sign.</span>
                     @if(! empty($signing['back_url']))
-                        <a href="{{ $signing['back_url'] }}" class="font-semibold underline whitespace-nowrap">Back to CoreX</a>
+                        <a href="{{ $signing['back_url'] }}" class="font-semibold underline whitespace-nowrap">Back to the inspection</a>
                     @endif
                 </div>
             @endif

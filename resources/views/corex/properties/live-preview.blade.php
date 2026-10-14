@@ -101,7 +101,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ $property->title }} — {{ $agency->name ?? config('app.name') }}</title>
+    <title>{{ $property->title }} — {{ $agency->name ?? \App\Support\ClientBrand::NEUTRAL }}</title>
     @php
         $ogDescription = Str::limit($property->excerpt ?? $property->description ?? $property->title, 160);
         $ogImageUrl = \App\Models\Property::publicImageUrl($allImages[0] ?? null)
@@ -109,7 +109,7 @@
     @endphp
     <meta name="description" content="{{ $ogDescription }}">
     <meta property="og:type" content="website">
-    <meta property="og:title" content="{{ $property->title }} — {{ $agency->name ?? config('app.name') }}">
+    <meta property="og:title" content="{{ $property->title }} — {{ $agency->name ?? \App\Support\ClientBrand::NEUTRAL }}">
     <meta property="og:description" content="{{ $ogDescription }}">
     <meta property="og:url" content="{{ url()->current() }}">
     @if($ogImageUrl)
@@ -156,7 +156,7 @@
         @if($agency && $agency->logo_path)
             <img src="{{ asset('storage/'.$agency->logo_path) }}" alt="{{ $agency->name }}" class="h-16 max-w-[300px] object-contain">
         @else
-            <span class="text-navy text-lg font-light tracking-tight">{{ $agency->name ?? config('app.name') }}</span>
+            <span class="text-navy text-lg font-light tracking-tight">{{ $agency->name ?? \App\Support\ClientBrand::NEUTRAL }}</span>
         @endif
 
         <button type="button" @click="share()"
@@ -463,7 +463,7 @@
                     @if($agency && $agency->logo_path)
                         <img src="{{ asset('storage/'.$agency->logo_path) }}" alt="{{ $agency->name }}" class="mx-auto h-16 max-w-[300px] object-contain">
                     @else
-                        <p class="text-navy text-lg font-light">{{ $agency->name ?? config('app.name') }}</p>
+                        <p class="text-navy text-lg font-light">{{ $agency->name ?? \App\Support\ClientBrand::NEUTRAL }}</p>
                     @endif
                     @if($property->branch)
                         <p class="mt-1 text-xs text-neutral-500">{{ $property->branch->name }}</p>
@@ -476,7 +476,7 @@
 
 {{-- Footer --}}
 <footer class="border-t border-slate-200 py-8 text-center text-xs text-neutral-400">
-    <p class="text-navy text-sm font-light">{{ $agency->name ?? config('app.name') }}</p>
+    <p class="text-navy text-sm font-light">{{ $agency->name ?? \App\Support\ClientBrand::NEUTRAL }}</p>
     <p class="mt-1">Shelly Beach · KZN South Coast · This is a live preview for internal use only.</p>
 </footer>
 

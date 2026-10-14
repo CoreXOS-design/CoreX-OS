@@ -6,7 +6,7 @@
     <meta name="robots" content="noindex, nofollow">
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
-    <title>@yield('title', config('app.name', 'CoreX OS'))</title>
+    <title>@yield('title', \App\Support\ClientBrand::NEUTRAL)</title>
 
     <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('images/favicon.png') }}?v=4">
     <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}?v=4">
@@ -15,12 +15,12 @@
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700&display=swap" rel="stylesheet">
 
-    {{-- Pulls in CoreX tokens via the same bundles as the guest (login) page. --}}
+    {{-- Pulls in the shared design tokens via the same bundles as the guest (login) page. --}}
     @vite(['resources/css/app.css', 'resources/css/corex.css', 'resources/js/app.js'])
 
     <style>
         /* Public-page defaults: agency tokens aren't injected on unauthenticated
-           pages, so pin CoreX corporate brand values like the guest layout. */
+           pages, so pin neutral brand values like the guest layout. */
         :root {
             --brand-default: #0b2a4a;
             --brand-button:  #00b4d8;

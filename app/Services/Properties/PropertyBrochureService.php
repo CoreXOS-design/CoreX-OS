@@ -186,7 +186,7 @@ class PropertyBrochureService
             'agent2Email' => $secondary?->email ?: '',
             'agent2Photo' => $agent2Photo,
 
-            'agencyName'  => $agency?->name ?: 'CoreX',
+            'agencyName'  => $agency?->name ?: \App\Support\ClientBrand::NEUTRAL,
             'qr'          => $qrSrc,
         ];
     }

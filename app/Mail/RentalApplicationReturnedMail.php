@@ -33,7 +33,7 @@ class RentalApplicationReturnedMail extends Mailable implements ShouldQueue
     {
         $this->agentName = $application->createdBy->name ?? 'there';
         $this->contactName = $application->contact->full_name ?: 'A tenant';
-        $this->agencyName = $application->agency->name ?? config('mail.from.name', 'CoreX OS');
+        $this->agencyName = $application->agency->name ?? \App\Support\ClientBrand::NEUTRAL_RENTALS;
         // The REVIEW screen: for a returned application the plain show page is the read-only copy, which has no way
         // on to assessing it. (review() itself falls back to show for a status it no longer applies to.)
         $this->reviewUrl = route('corex.rental-applications.review', $application);

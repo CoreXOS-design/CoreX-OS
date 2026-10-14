@@ -54,7 +54,7 @@ class RentalApplicationApprovedMail extends Mailable implements ShouldQueue
         // redeclaration; see RentalApplicationReturnedMail's own note).
         $this->onQueue('mail');
         $this->applicantName = $application->contact->full_name ?: 'there';
-        $this->agencyName = $application->agency->name ?? config('mail.from.name', 'CoreX OS');
+        $this->agencyName = $application->agency->name ?? \App\Support\ClientBrand::NEUTRAL_RENTALS;
         $this->amount = number_format((float) $application->approved_rental_amount, 2);
     }
 

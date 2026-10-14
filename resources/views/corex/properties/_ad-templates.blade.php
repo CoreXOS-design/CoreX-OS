@@ -11,9 +11,9 @@
 @php
     // For thumbnails the parent sets an explicit font-size; generator inherits from #ad-canvas via CSS
     $fs        = $baseFontPx ? "font-size:{$baseFontPx}px;" : '';
-    // Branding resolution (spec ad-manager.md §7): branch→agency logo, else CoreX wordmark.
+    // Branding resolution (spec ad-manager.md §7): branch→agency logo, else the agency's own name as text - never CoreX (Johan, 14 Oct 2026).
     $logoUrl   = $logoUrl   ?? null;
-    $agencyName= $agencyName ?? 'COREX';
+    $agencyName= $agencyName ?? '';
     $website   = $website   ?? '';
     $footerTxt = $website ?: $agencyName;
     $img4      = $img4 ?? null;
@@ -23,11 +23,11 @@
 
 {{-- Reusable logo block — pass $logoH (em height) and optional $logoColor for the wordmark. --}}
 @php
-    $renderLogo = function ($style = '', $emHeight = '2.6em', $wordColor = '#ffffff') use ($logoUrl) {
+    $renderLogo = function ($style = '', $emHeight = '2.6em', $wordColor = '#ffffff') use ($logoUrl, $agencyName) {
         if ($logoUrl) {
             return '<img src="' . e($logoUrl) . '" alt="" class="js-ad-logo" style="height:' . $emHeight . ';object-fit:contain;object-position:left center;filter:drop-shadow(0 2px 10px rgba(0,0,0,0.55));' . $style . '">';
         }
-        return '<div style="font-family:Figtree,sans-serif;font-weight:900;font-size:' . $emHeight . ';line-height:1;color:' . $wordColor . ';' . $style . '">corex<span style="color:#33c4e0">os</span></div>';
+        return '<div style="font-family:Figtree,sans-serif;font-weight:900;font-size:' . $emHeight . ';line-height:1;color:' . $wordColor . ';' . $style . '">' . e($agencyName) . '</div>';
     };
 
     // ── Agent identity (single OR co-listed two-agent split) ─────────────────

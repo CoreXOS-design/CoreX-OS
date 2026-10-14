@@ -1127,14 +1127,14 @@
                 ? '<img src="' + esc(prop.logo) + '" class="js-ad-logo" style="max-height:100%;max-width:100%;object-fit:contain;object-position:left center;">'
                 : '<div style="font-family:' + fontStack(el.fontFamily) + ';font-weight:900;line-height:1;'
                   + 'font-size:' + (el.fontSize || 28) + 'px;color:' + (el.color || '#ffffff') + ';">'
-                  + 'corex<span style="color:#33c4e0">os</span></div>';
+                  + esc(prop.agency_name || '') + '</div>';   // no logo: the agency's own name - never CoreX
             return '<div style="width:100%;height:100%;display:flex;align-items:center;padding:' + (el.padding || 0) + 'px;">'
                  + inner + '</div>';
         }
 
         if (f === 'watermark') {
             return '<div style="' + watermarkCss(el) + '">'
-                 + esc(prop.watermark || el.text || 'COREX') + '</div>';
+                 + esc(prop.watermark || el.text || prop.agency_name || '') + '</div>';
         }
 
         // Text field. An icon (Beds/Baths/Garages/Parking) sits inline before the

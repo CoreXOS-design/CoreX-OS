@@ -1073,14 +1073,14 @@ class SigningController extends Controller
         // "signing already completed" page.
         if (!$agency) {
             return [
-                'name' => config('app.name', 'CoreX OS'),
+                'name' => \App\Support\ClientBrand::NEUTRAL,
                 'logo' => null,
                 'color' => '#0b2a4a',
             ];
         }
 
         return [
-            'name' => $agency->name ?? config('app.name', 'CoreX OS'),
+            'name' => \App\Support\ClientBrand::name($agency),
             'logo' => $agency->logo_path ? asset('storage/' . $agency->logo_path) : null,
             'color' => $agency->default_color ?? $agency->button_color ?? '#0b2a4a',
         ];
