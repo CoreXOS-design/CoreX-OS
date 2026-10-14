@@ -482,6 +482,10 @@ Route::middleware('auth')->group(function () {
         // AT-451 round 2 - the live ALERT popup's feed (components/alert-popups.blade.php). Same reason as the reminders poll
         // below: it MUST be here (session cookie), not in api.php's token-only mobile group (/api/v1/notifications), which 401'd it.
         Route::get('/alerts/unread', [\App\Http\Controllers\Api\V1\AlertFeedController::class, 'unread'])->middleware('throttle:120,1')->name('alerts.unread');
+        // 14 Oct 2026 - the bell and its read writes (spec notification-system-overview.md section 16). Own alerts only; someone else's id is a 404.
+        Route::get('/alerts/bell', [\App\Http\Controllers\Api\V1\AlertFeedController::class, 'bell'])->middleware('throttle:120,1')->name('alerts.bell');
+        Route::post('/alerts/read-all', [\App\Http\Controllers\Api\V1\AlertFeedController::class, 'readAll'])->middleware('throttle:60,1')->name('alerts.read-all');
+        Route::post('/alerts/{id}/read', [\App\Http\Controllers\Api\V1\AlertFeedController::class, 'read'])->whereUuid('id')->middleware('throttle:120,1')->name('alerts.read');
 
         Route::get('/command-center/reminders/due',           [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'due'])->name('command-center.reminders.due');
         Route::post('/command-center/reminders/{log}/read',   [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'read'])->whereNumber('log')->name('command-center.reminders.read');
@@ -2145,6 +2149,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->paginate(30);
         return view('command-center.notifications', ['notifications' => $notifications]);
     })->name('command-center.notifications');
+
+    // 14 Oct 2026 - the alert inbox (spec notification-system-overview.md section 16). Own alerts only, in the query.
+    Route::get('/alerts', [\App\Http\Controllers\CoreX\AlertInboxController::class, 'index'])->name('corex.alerts.index');
+    Route::get('/alerts/{id}/open', [\App\Http\Controllers\CoreX\AlertInboxController::class, 'open'])->whereUuid('id')->name('corex.alerts.open');
+    Route::post('/alerts/{id}/read', [\App\Http\Controllers\CoreX\AlertInboxController::class, 'markRead'])->whereUuid('id')->name('corex.alerts.read');
+    Route::post('/alerts/read-all', [\App\Http\Controllers\CoreX\AlertInboxController::class, 'markAllRead'])->name('corex.alerts.read-all');
 
     // AT-451 — "all alerts switched off": the warning bar's two buttons act on the LOGGED-IN user only (no id in the URL);
     // the agency list and its per-user actions need manage_users and resolve the user inside the viewer's scoped query.

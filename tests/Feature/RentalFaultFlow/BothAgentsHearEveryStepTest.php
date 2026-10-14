@@ -189,6 +189,35 @@ final class BothAgentsHearEveryStepTest extends TestCase
         }
     }
 
+    public function test_every_rentals_alert_title_ends_with_the_property(): void
+    {
+        // 14 Oct 2026: rental_work_order.owner_decided read "Owner approved the quote (R4,120.00) - send it to the contractor" with no
+        // property while its sisters ended " - <address>". One shared helper (RentalAlertTitle) now closes every funnel.
+        $fault = $this->fault();
+        $fault->recordApproval($this->landlord, [
+            'decision' => RentalFaultReport::APPROVAL_APPROVED, 'approval_route' => RentalFaultReport::ROUTE_AGENCY_APPOINTS,
+            'evidence_type' => RentalApproval::EVIDENCE_PORTAL,
+        ]);
+        app(RentalFaultReportService::class)->notifyResolved($fault->fresh()->forceFill(['outcome' => 'repaired']), $this->propertyAgent);
+        $wo = $this->workOrder();
+        $service = app(RentalWorkOrderService::class);
+        $service->notifyCreated($wo);
+        $service->notifyCompleted($wo);
+        $service->notifyAgentOfOwnerAction($wo, 'rental_work_order.owner_decided', 'Owner approved the quote (R4,120.00) - send it to the contractor', 'b', now());
+        $service->notifyAgentOfOwnerAction($wo, 'rental_work_order.contractor_responded', 'Contractor declined the job', 'b', now());
+
+        $titles = \Illuminate\Support\Facades\DB::table('notifications')->get()
+            ->map(fn ($n) => json_decode($n->data, true))
+            ->filter(fn ($d) => str_starts_with((string) ($d['event_key'] ?? ''), 'rental_'))
+            ->mapWithKeys(fn ($d) => [$d['event_key'] => $d['title']]);
+
+        $this->assertGreaterThanOrEqual(5, $titles->count());
+        foreach ($titles as $key => $title) {
+            $this->assertStringEndsWith(' - Unit 33', $title, $key . ' => ' . $title);
+        }
+        $this->assertSame('Owner approved the quote (R4,120.00) - send it to the contractor - Unit 33', $titles['rental_work_order.owner_decided']);
+    }
+
     public function test_the_staff_member_who_creates_a_work_order_is_not_told_about_their_own_action(): void
     {
         $wo = $this->workOrder();

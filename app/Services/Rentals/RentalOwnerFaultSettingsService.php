@@ -233,7 +233,7 @@ class RentalOwnerFaultSettingsService
             $agents = app(LeaseAgentService::class)->recipientsForEvent($lease, $property, (int) $property->agency_id, null);
             foreach ($agents as $agent) {
                 app(NotificationDispatcher::class)->fire($agent, $event, $subject, [
-                    'title' => $title, 'body' => $body,
+                    'title' => \App\Support\RentalAlertTitle::withProperty($title, $property), 'body' => $body,
                     'action_url' => route('corex.properties.show', $property) . '?tab=rental', 'severity' => 'warning', 'threshold_hit_at' => now(),
                 ]);
             }

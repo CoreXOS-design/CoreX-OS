@@ -311,7 +311,7 @@ class RentalWorkOrderService
                 $eventKey,
                 $workOrder,
                 [
-                    'title' => $title,
+                    'title' => \App\Support\RentalAlertTitle::withProperty($title, $property),
                     'body' => $body,
                     'action_url' => route('corex.rental-work-orders.show', $workOrder->id),
                     'severity' => 'info',
@@ -695,7 +695,7 @@ class RentalWorkOrderService
 
         foreach ($recipients as $agent) {
             app(NotificationDispatcher::class)->fire($agent, $eventKey, $workOrder, [
-                'title' => $title,
+                'title' => \App\Support\RentalAlertTitle::withProperty($title, $property),
                 'body' => $body,
                 'action_url' => route('corex.rental-work-orders.show', $workOrder->id),
                 'severity' => 'info',

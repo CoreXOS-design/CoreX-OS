@@ -160,8 +160,9 @@
         // Compliance. Exclude them here so they fall through to the communication
         // matcher below and the correct group opens/highlights.
         $activeGroup = 'compliance';
-    } elseif (request()->routeIs('command-center.*')
-        && !request()->routeIs('command-center.buyers.*', 'command-center.settings.contact-governance*')) {
+    } elseif (request()->routeIs('corex.alerts.*')
+        || (request()->routeIs('command-center.*')
+        && !request()->routeIs('command-center.buyers.*', 'command-center.settings.contact-governance*'))) {
         // AT-108 — Buyer Pipeline (command-center.buyers.*) lives in REAL ESTATE
         // (AT-76 move), so it must NOT resolve to the Dashboard group. Excluded
         // here and added to the real-estate matcher below.
@@ -775,6 +776,7 @@
                 <div class="corex-nav-panel-title">Dashboard</div>
 
                 <a href="{{ route('command-center.today') }}" class="corex-nav-subitem {{ request()->routeIs('corex.dashboard', 'command-center.today') ? 'active' : '' }}">Today</a>
+                <a href="{{ route('corex.alerts.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.alerts.*') ? 'active' : '' }}">Alerts</a>
                 @permission('command_center.calendar.view')
                 <a href="{{ route('command-center.calendar') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.calendar') ? 'active' : '' }}">Calendar</a>
                 @endpermission
@@ -3498,12 +3500,13 @@
         </div>
         @endif
 
-        <div class="corex-user-profile">
+        <div class="corex-user-profile" style="gap:.5rem;">
             <div class="corex-user-avatar">{{ $userInitials }}</div>
             <div class="flex-1 min-w-0">
                 <div class="corex-user-name">{{ $user->name }}</div>
                 <div class="corex-user-role">{{ $userRole }}</div>
             </div>
+            @include('components.alert-bell')
             {{-- Theme Toggle --}}
             <button type="button" class="corex-theme-toggle" id="corexThemeToggle" title="Toggle light/dark theme" onclick="(function(){var d=document.documentElement,dark=d.classList.toggle('dark');var t=dark?'dark':'light';localStorage.setItem('corex-theme',t);fetch('{{ route('profile.theme') }}',{method:'PUT',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name=csrf-token]').content,'Accept':'application/json'},body:JSON.stringify({theme:t})});})()">
                 <svg class="corex-icon-moon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:1rem;height:1rem">

@@ -32,7 +32,6 @@ class NotifyAgentOfCrewLines
             ->recipientsForEvent($card->lease, $property, (int) $card->agency_id);
 
         $pricing = $event->priceRequestId !== null;
-        $address = $property->buildDisplayAddress() ?: ($property->title ?: ('Property #' . $property->id));
 
         foreach ($recipients as $agent) {
             app(NotificationDispatcher::class)->fire(
@@ -40,7 +39,7 @@ class NotifyAgentOfCrewLines
                 'rental_job_card.crew_lines_submitted',
                 $card,
                 [
-                    'title' => ($pricing ? 'Crew priced the job — ' : 'Crew sent parts and labour — ') . $address,
+                    'title' => \App\Support\RentalAlertTitle::withProperty($pricing ? 'Crew priced the job' : 'Crew sent parts and labour', $property),
                     'body' => $card->title . ': ' . $event->count . ' line' . ($event->count === 1 ? '' : 's') . ' waiting for you to accept and price.',
                     'action_url' => route('corex.rental-job-cards.show', $card->id),
                     'severity' => 'info',

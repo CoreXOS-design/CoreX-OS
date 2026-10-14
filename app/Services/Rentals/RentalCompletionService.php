@@ -785,7 +785,7 @@ class RentalCompletionService
         foreach ($recipients->unique('id')->reject(fn ($u) => $actor && (int) $u->id === (int) $actor->id) as $user) {
             try {
                 app(NotificationDispatcher::class)->fire($user, $eventKey, $wo, [
-                    'title' => $title,
+                    'title' => \App\Support\RentalAlertTitle::withProperty($title, $property, (int) $wo->property_id),
                     'body' => $body,
                     'action_url' => route('corex.rental-work-orders.show', $wo->id),
                     'severity' => $eventKey === 'rental_work_order.disputed' ? 'warning' : 'info',

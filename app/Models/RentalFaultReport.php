@@ -1016,11 +1016,10 @@ class RentalFaultReport extends Model
             $recorder = $approval->recorded_by_user_id ? User::withoutGlobalScopes()->find($approval->recorded_by_user_id) : null;
             $recipients = app(\App\Services\Rentals\LeaseAgentService::class)
                 ->recipientsForEvent($this->lease, $property, (int) $this->agency_id, $recorder);
-            $address = $property->buildDisplayAddress();
             $approved = $approval->decision === RentalApproval::DECISION_APPROVED;
             foreach ($recipients as $agent) {
                 app(\App\Services\CommandCenter\NotificationDispatcher::class)->fire($agent, 'rental_fault_report.owner_decided', $this, [
-                    'title' => ($approved ? 'Owner approved - appoint contractor' : 'Owner declined the repair') . ' - ' . $address,
+                    'title' => \App\Support\RentalAlertTitle::withProperty($approved ? 'Owner approved - appoint contractor' : 'Owner declined the repair', $property),
                     'body' => $this->title . ($approved
                         ? ($this->approval_route === self::ROUTE_OWNER_HANDLES ? ' - the owner has their own contractor: confirm them and the work order is created.' : ' - choose the contractor and the work order is created.')
                         : ' - no work order will be created.'),

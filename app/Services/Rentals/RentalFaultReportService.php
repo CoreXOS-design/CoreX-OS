@@ -209,7 +209,7 @@ class RentalFaultReportService
                 'rental_fault_report.created',
                 $faultReport,
                 [
-                    'title' => ($faultReport->isOwnerRequested() ? 'Work requested by the owner — ' : 'Fault reported — ') . ($property->buildDisplayAddress() ?: $property->title ?: ('Property #' . $property->id)),
+                    'title' => \App\Support\RentalAlertTitle::withProperty($faultReport->isOwnerRequested() ? 'Work requested by the owner' : 'Fault reported', $property),
                     'body' => $faultReport->isOwnerRequested() ? $faultReport->title . ' — arrange a contractor and a quote.' : $faultReport->title,
                     'action_url' => $faultReport->isOwnerRequested()
                         ? route('corex.rental-fault-reports.show', ['rentalFaultReport' => $faultReport->id, 'create_work_order' => 1])
@@ -242,7 +242,7 @@ class RentalFaultReportService
                 'rental_fault_report.resolved',
                 $faultReport,
                 [
-                    'title' => 'Fault report resolved — ' . ($property->buildDisplayAddress() ?: $property->title ?: ('Property #' . $property->id)),
+                    'title' => \App\Support\RentalAlertTitle::withProperty('Fault report resolved', $property),
                     'body' => $faultReport->title . ': ' . str_replace('_', ' ', ucfirst($faultReport->outcome)),
                     'action_url' => route('corex.rental-fault-reports.show', $faultReport->id),
                     'severity' => 'info',

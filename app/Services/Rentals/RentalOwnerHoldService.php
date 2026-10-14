@@ -474,6 +474,7 @@ class RentalOwnerHoldService
             return;
         }
         $url = $fault ? route('corex.rental-fault-reports.show', $fault->id) : route('corex.rental-work-orders.show', $wo->id);
+        $title = \App\Support\RentalAlertTitle::withProperty($title, $property);
         try {
             $lease = $job->lease;
             $agents = app(LeaseAgentService::class)->recipientsForEvent($lease, $property, (int) $job->agency_id);
