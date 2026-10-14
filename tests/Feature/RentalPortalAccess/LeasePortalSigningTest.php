@@ -200,7 +200,7 @@ final class LeasePortalSigningTest extends TestCase
             }
             $html = $m->render();
 
-            return str_contains($html, 'Your CoreX portal')
+            return str_contains($html, 'Your portal')
                 && str_contains($html, url('/portal') . '?email=thandi%40example.test')
                 && str_contains($html, 'report a fault')
                 && ! str_contains($html, 'approve or decline repair decisions')
@@ -236,8 +236,8 @@ final class LeasePortalSigningTest extends TestCase
         $this->setting(['tenant_portal_enabled' => false]);
         $this->sendCopies();
 
-        Mail::assertSent(SignedDocumentMail::class, fn (SignedDocumentMail $m) => $m->hasTo('thandi@example.test') && ! str_contains($m->render(), 'Your CoreX portal'));
-        Mail::assertSent(SignedDocumentMail::class, fn (SignedDocumentMail $m) => $m->hasTo('lerato@example.test') && str_contains($m->render(), 'Your CoreX portal'));
+        Mail::assertSent(SignedDocumentMail::class, fn (SignedDocumentMail $m) => $m->hasTo('thandi@example.test') && ! str_contains($m->render(), 'Your portal'));
+        Mail::assertSent(SignedDocumentMail::class, fn (SignedDocumentMail $m) => $m->hasTo('lerato@example.test') && str_contains($m->render(), 'Your portal'));
     }
 
     public function test_no_link_when_automatic_access_is_off(): void
@@ -246,7 +246,7 @@ final class LeasePortalSigningTest extends TestCase
         $this->sendCopies();
 
         Mail::assertSent(SignedDocumentMail::class, 2);
-        Mail::assertNotSent(SignedDocumentMail::class, fn (SignedDocumentMail $m) => str_contains($m->render(), 'Your CoreX portal'));
+        Mail::assertNotSent(SignedDocumentMail::class, fn (SignedDocumentMail $m) => str_contains($m->render(), 'Your portal'));
     }
 
     public function test_no_link_for_a_signer_who_is_not_a_party_to_the_lease_or_for_a_placeholder_address(): void
@@ -270,7 +270,7 @@ final class LeasePortalSigningTest extends TestCase
         $send->setAccessible(true);
         $send->invoke(app(SignatureService::class), $other->fresh(), null, []);
 
-        Mail::assertSent(SignedDocumentMail::class, fn (SignedDocumentMail $m) => ! str_contains($m->render(), 'Your CoreX portal'));
+        Mail::assertSent(SignedDocumentMail::class, fn (SignedDocumentMail $m) => ! str_contains($m->render(), 'Your portal'));
     }
 
     public function test_the_setting_has_a_wizard_control_with_a_saver_and_a_settings_page_toggle(): void

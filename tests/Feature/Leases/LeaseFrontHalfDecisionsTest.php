@@ -191,7 +191,7 @@ final class LeaseFrontHalfDecisionsTest extends TestCase
         $this->postJson('/api/v1/client-auth/otp/send', ['email' => $email])->assertOk();
 
         Mail::assertSent(ClientAuthOtpMail::class, function (ClientAuthOtpMail $mail) {
-            return $mail->agencyName === 'Karoo Lettings' && str_contains($mail->render(), 'Karoo Lettings portal') && ! str_contains($mail->render(), 'mobile app');
+            return $mail->agencyName === 'Karoo Lettings' && str_contains($mail->render(), 'Karoo Lettings portal') && ! str_contains($mail->render(), 'mobile app') && ! str_contains(strtolower($mail->render()), 'corex');
         });
     }
 
@@ -199,7 +199,7 @@ final class LeaseFrontHalfDecisionsTest extends TestCase
     {
         $email = $this->clientWith(['Karoo Lettings', 'Coast Rentals']);
         $this->postJson('/api/v1/client-auth/otp/send', ['email' => $email])->assertOk();
-        Mail::assertSent(ClientAuthOtpMail::class, fn (ClientAuthOtpMail $mail) => $mail->agencyName === null && str_contains($mail->render(), 'Enter this code to sign in'));
+        Mail::assertSent(ClientAuthOtpMail::class, fn (ClientAuthOtpMail $mail) => $mail->agencyName === null && str_contains($mail->render(), 'Enter this code to sign in') && ! str_contains(strtolower($mail->render()), 'corex'));
 
         $this->postJson('/api/v1/client-auth/otp/send', ['email' => 'nobody-' . uniqid() . '@example.test'])->assertOk();
         Mail::assertSent(ClientAuthOtpMail::class, fn (ClientAuthOtpMail $mail) => $mail->agencyName === null && $mail->to !== []);

@@ -104,7 +104,7 @@ final class LeasePaperCopyMailTest extends TestCase
         $this->assertNotNull($ownerMail);
         $this->assertCount(1, $tenantMail->attachments(), 'the signed copy is attached');
         $t = $tenantMail->render();
-        $this->assertStringContainsString('Your CoreX portal', $t);
+        $this->assertStringContainsString('Your portal', $t);
         $this->assertStringContainsString(url('/portal') . '?email=ayanda%40example.test', $t);
         $this->assertStringContainsString('report a fault', $t);
         $this->assertStringContainsString('Lease agreement', $t);
@@ -197,8 +197,8 @@ final class LeasePaperCopyMailTest extends TestCase
         $this->attachPaperCopy();
 
         Mail::assertSent(SignedDocumentMail::class, 2);
-        $this->assertStringNotContainsString('Your CoreX portal', $this->mailsTo('ayanda@example.test')->first()->render());
-        $this->assertStringContainsString('Your CoreX portal', $this->mailsTo('siya@example.test')->first()->render());
+        $this->assertStringNotContainsString('Your portal', $this->mailsTo('ayanda@example.test')->first()->render());
+        $this->assertStringContainsString('Your portal', $this->mailsTo('siya@example.test')->first()->render());
         $this->assertNull($this->tenant->fresh()->client_user_id);
     }
 
@@ -209,7 +209,7 @@ final class LeasePaperCopyMailTest extends TestCase
         $this->attachPaperCopy();
 
         Mail::assertSent(SignedDocumentMail::class, 2);
-        Mail::assertNotSent(SignedDocumentMail::class, fn (SignedDocumentMail $m) => str_contains($m->render(), 'Your CoreX portal'));
+        Mail::assertNotSent(SignedDocumentMail::class, fn (SignedDocumentMail $m) => str_contains($m->render(), 'Your portal'));
         $this->assertSame(0, ClientUser::count());
     }
 
