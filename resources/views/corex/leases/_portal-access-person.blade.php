@@ -11,7 +11,7 @@
     $roles    = $access->rolesOnLease($lease, $contact);
     $phone    = trim((string) $contact->phone);
     $waDigits = $phone !== '' ? \App\Support\WhatsAppNumberFormatter::forDeepLink($phone, $contact->primaryPhone?->dial_code ?? '+27') : '';
-    $waText   = rawurlencode('Hi ' . ($contact->first_name ?: 'there') . ', here is your CoreX portal link: ' . ($st['url'] ?? ''));
+    $waText   = rawurlencode('Hi ' . ($contact->first_name ?: 'there') . ', here is your portal link: ' . ($st['url'] ?? ''));
     $badge    = ['success' => 'ds-badge ds-badge-success', 'warning' => 'ds-badge ds-badge-warning', 'info' => 'ds-badge', 'muted' => 'ds-badge'][$st['tone']] ?? 'ds-badge';
     $post     = fn (string $action) => route('corex.leases.portal-access.' . $action, [$lease, $contact->id]);
 @endphp

@@ -38,7 +38,7 @@ class RentalPortalInviteMail extends BaseSignatureMail
         return new Envelope(
             from: $this->getFromAddress(),
             replyTo: $this->getReplyTo(),
-            subject: "{$this->agencyName} — your CoreX portal",
+            subject: "{$this->agencyName} — your portal",
         );
     }
 

@@ -195,7 +195,7 @@ class ClientAuthService
             'expires_minutes' => $expiresMin,
             // Fake @corexclient.co.za logins are not deliverable mailboxes.
             'deliver'         => !str_ends_with($email, '@' . $fakeDomain),
-            'mail'            => fn (string $code) => new ClientAuthOtpMail($code, $expiresMin, $this->singleAgencyNameFor($clientUser)),
+            'mail'            => fn (string $code) => new ClientAuthOtpMail($code, $expiresMin, $this->agencyForSignIn($email, $clientUser)),
             // Preserve the legacy columns exactly (client_user_id + email) so
             // the ClientUser->otps() relation and existing rows are unchanged.
             'attributes'      => ['client_user_id' => $clientUser?->id, 'email' => $email],
@@ -211,21 +211,25 @@ class ClientAuthService
     }
 
     /**
-     * Rentals front-half D11: the agency a client's sign-in code is for - named in the mail only when the person belongs to exactly
-     * one agency (a person across several gets the neutral wording; nothing is guessed). Null for an unknown address, so the mail
-     * never hints at whether the address is a client.
+     * The ONE agency a portal sign-in code is for, so the mail goes out as that agency (logo/name, details, sender) and never as CoreX.
+     * It is the agency of the person's contacts on this address - which is how a first-time owner / tenant, who has no login yet, is
+     * found - or, for a person with contacts at several agencies, the one their login is locked to / prefers. Anything else (several
+     * agencies and no choice made, or an address nobody knows) is null: the mail is then the neutral sign-in code, and looks the same for
+     * an unknown address as for a known one, so it never hints at whether the address is a client.
      */
-    private function singleAgencyNameFor(?ClientUser $clientUser): ?string
+    public function agencyForSignIn(string $email, ?ClientUser $clientUser): ?Agency
     {
-        if (! $clientUser) {
-            return null;
+        $agencyIds = $this->findContactsByIdentifierAcrossAgencies($email)['contacts']->pluck('agency_id')->filter()->unique()->values();
+
+        if ($agencyIds->count() > 1 && $clientUser) {
+            $chosen = collect([$clientUser->locked_to_agency_id, $clientUser->preferred_agency_id])->first(fn ($id) => $id && $agencyIds->contains((int) $id));
+            $agencyIds = $chosen ? collect([(int) $chosen]) : $agencyIds;
         }
-        $agencyIds = $clientUser->contacts()->withoutGlobalScopes()->whereNull('deleted_at')->pluck('agency_id')->filter()->unique();
         if ($agencyIds->count() !== 1) {
             return null;
         }
 
-        return \App\Models\Agency::withoutGlobalScopes()->whereKey($agencyIds->first())->value('name') ?: null;
+        return Agency::withoutGlobalScopes()->find($agencyIds->first());
     }
 
     /**

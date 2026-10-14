@@ -272,6 +272,9 @@
         .financial-table td {
             padding: 4pt 4pt;
             vertical-align: bottom;
+            /* explicit paper colour — never inherit a row/theme background */
+            background: #fff;
+            color: #1a1a1a;
         }
 
         .financial-table td:first-child {

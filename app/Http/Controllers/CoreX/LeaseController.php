@@ -662,6 +662,10 @@ class LeaseController extends Controller
                 : [],
             // leases.md §18 — the lease's notice / early-cancellation terms (the "Notice terms" card).
             'noticeTerms' => $this->noticeTermsCard($lease),
+            // rental-renewals.md §22.1 - what this lease waits on a date for, and the admin-only "run the date checks now" control.
+            'datePending' => app(\App\Services\Rentals\LeaseTermAdvanceService::class)->pendingFor($lease),
+            'mayRunDateChecks' => app(\App\Services\Rentals\LeaseTermAdvanceService::class)->mayRun($user),
+            'asOfDateAllowed' => app(\App\Services\Rentals\LeaseTermAdvanceService::class)->asOfDateAllowed((int) $lease->agency_id),
         ]);
     }
 
@@ -987,6 +991,29 @@ class LeaseController extends Controller
         }
 
         return redirect()->route('corex.leases.show', $lease)->with('success', 'Lease activated.');
+    }
+
+    /**
+     * rental-renewals.md §22.1 - "Run today's lease date checks now": the nightly leases:advance-terms logic for THIS lease only (QA / Staging
+     * have no scheduler). System owner / agency admin only; does only what the date allows; an as-of date only where the agency switched it on
+     * and the install is not production (the service refuses otherwise).
+     */
+    public function runDateChecks(Request $request, Lease $lease): RedirectResponse
+    {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
+        $service = app(\App\Services\Rentals\LeaseTermAdvanceService::class);
+        abort_unless($service->mayRun($request->user()), 403, 'Only an agency administrator can run the lease date checks.');
+
+        $data = $request->validate(['as_of' => ['nullable', 'date_format:Y-m-d']]);
+
+        try {
+            $result = $service->runForLease($lease, $data['as_of'] ?? null, $request->user());
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return back()->with('warning', collect($e->errors())->flatten()->first());
+        }
+
+        return redirect()->route('corex.leases.show', $lease)->with($result['outcome'] === 'done' ? 'success' : ($result['outcome'] === 'blocked' ? 'warning' : 'info'), $result['message']);
     }
 
     /** "out for signing", "waiting for your approval" ... in the words the hub uses. */

@@ -26,6 +26,8 @@ class LeaseEvent extends Model
     public const TYPE_RENEWAL_SIGNED_AWAITING_START = 'renewal_signed_awaiting_start';
     /** The tenancy ended on its move-out / end date (out-inspection confirmed vacant, date reached). */
     public const TYPE_TENANCY_ENDED = 'tenancy_ended';
+    /** An admin pressed "Run today's lease date checks now" with an as-of date (rental-renewals.md §22.1) - so the log shows the dates were simulated. */
+    public const TYPE_DATE_CHECKS_RUN = 'date_checks_run_manually';
 
     // LEASE-AGREEMENT BEGIN (leases.md §15.15 — Build L1). All <= 40 characters (event_type is string(40)).
     // They reach the tenancy log with no change to LeaseTimelineService (it lists every LeaseEvent row).

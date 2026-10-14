@@ -3753,6 +3753,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:lease_notice_terms.edit')->name('corex.leases.notice-terms.confirm');
         Route::post('/{lease}/activate', [\App\Http\Controllers\CoreX\LeaseController::class, 'activate'])
             ->middleware('permission:leases.create')->name('corex.leases.activate');
+        // rental-renewals.md §22.1 - "Run today's lease date checks now" (system owner / agency admin; the controller checks the role).
+        Route::post('/{lease}/run-date-checks', [\App\Http\Controllers\CoreX\LeaseController::class, 'runDateChecks'])
+            ->middleware('permission:leases.view')->name('corex.leases.run-date-checks');
         // LEASE-CAPTURE BEGIN (leases.md §15.13 — Build L3a): "Prepare again" after a declined / voided / expired agreement.
         Route::post('/{lease}/signing/prepare-again', [\App\Http\Controllers\CoreX\LeaseController::class, 'prepareAgain'])
             ->middleware('permission:leases.view')->name('corex.leases.signing.prepare-again');

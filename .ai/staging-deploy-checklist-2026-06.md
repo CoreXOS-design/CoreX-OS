@@ -76,6 +76,7 @@ The following scheduled jobs are now active (registered in `routes/console.php`)
 | `LockOldOutcomesJob` | daily 02:45 | Locks outcomes recorded >90d ago for analytics integrity (Phase 8) |
 | **`PurgeOldSnapshotViewsJob`** | daily 03:15 | **NEW (Phase 9a)** — POPIA 90-day retention for `presentation_snapshot_views` |
 | existing jobs | — | unchanged (`SyncMarketingInsightsJob`, `signatures:send-reminders`, etc) |
+| **`leases:advance-terms`** | daily 00:35 | A signed renewal goes active on its start date (the lease it renews expires with it); a tenancy ends on its move-out date once the out-inspection is on file (rental-renewals.md §22). **Needs the scheduler: without the cron above, renewals and move-outs never happen by themselves.** A Staging / QA box with no cron uses the admin button "Run today's lease date checks now" on the lease screen (§22.1). |
 
 **Manual-only commands** (do NOT schedule on production):
 - `geocoding:backfill` — Phase 3f, run weekly via cron OR manually after large data imports

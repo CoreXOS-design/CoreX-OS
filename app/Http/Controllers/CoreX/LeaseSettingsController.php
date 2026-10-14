@@ -46,6 +46,9 @@ class LeaseSettingsController extends Controller
             'requireEndOrMonthToMonthForSigning' => LeaseSetting::requireEndOrMonthToMonthForSigningFor($agencyId),
             'restoreEndDateOnLeavingMonthToMonth' => LeaseSetting::restoreEndDateOnLeavingMonthToMonthFor($agencyId),
             'signedCopyNotLiveNote' => LeaseSetting::signedCopyNotLiveNoteFor($agencyId),
+            // rental-renewals.md §22.1 - a testing knob: the card exists only where APP_ENV is not production.
+            'showAdvanceAsOfSetting' => ! app(\App\Services\Rentals\LeaseTermAdvanceService::class)->isProductionInstall(),
+            'allowAdvanceAsOfDate' => LeaseSetting::allowAdvanceAsOfDateFor($agencyId),
             'recentFrontHalfChanges' => \App\Models\RentalSettingAuditEntry::where('agency_id', $agencyId)
                 ->whereIn('setting_key', ['require_end_or_month_to_month_for_signing', 'restore_end_date_on_leaving_month_to_month', 'signed_copy_not_live_note'])
                 ->with('user')->latest('id')->limit(5)->get(),
@@ -104,6 +107,7 @@ class LeaseSettingsController extends Controller
             'require_end_or_month_to_month_for_signing' => ['nullable', 'boolean'],
             'restore_end_date_on_leaving_month_to_month' => ['nullable', 'boolean'],
             'signed_copy_not_live_note' => ['nullable', 'string', 'max:' . LeaseSetting::SIGNED_COPY_NOT_LIVE_NOTE_MAX],
+            'allow_advance_as_of_date' => ['nullable', 'boolean'],
             // Round 7 (2026-10-05) — same §6.1 nullable/has()-guard
             // reasoning; an empty array (every box unchecked) is itself a
             // valid, if unusual, choice, so 'array' here, never 'required'.
@@ -163,6 +167,10 @@ class LeaseSettingsController extends Controller
             if ($request->has($field)) {
                 $data[$field] = $request->boolean($field);
             }
+        }
+        // rental-renewals.md §22.1 - QA / Staging only; a production install never writes it (the control is not rendered there either).
+        if ($request->has('allow_advance_as_of_date') && ! app(\App\Services\Rentals\LeaseTermAdvanceService::class)->isProductionInstall()) {
+            $data['allow_advance_as_of_date'] = $request->boolean('allow_advance_as_of_date');
         }
         if ($request->has('signed_copy_not_live_note')) {
             $data['signed_copy_not_live_note'] = trim((string) ($validated['signed_copy_not_live_note'] ?? '')); // '' = say nothing extra
