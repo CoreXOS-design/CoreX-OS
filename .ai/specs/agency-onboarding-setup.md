@@ -350,7 +350,7 @@ by oversight — do not reinstate them without asking:
     savers `RentalApplicationSettingsController::updateCreditBureau` / `updateTenantedLabel`, now
     `has()`-guarded so a post that never rendered them leaves the value alone).
   - `lease_settings.show_lease_type_field` (toggle; `LeaseSettingsController::update`, already guarded).
-  - `rental_inspection_settings.require_notes_blocks_progression` (toggle) and `omr_mark_threshold`
+  - `rental_inspection_settings.form_paper_size` (select; AT-463, 15 Oct 2026 - the paper the printed site form is laid out for; has()-guarded), `rental_inspection_settings.require_notes_blocks_progression` (toggle) and `omr_mark_threshold`
     (number 0.05-0.95) — saved by `RentalInspectionSettingsController::update` (new `has()`/`filled()`
     guarded fields), and also added to the Rental Inspection Settings page so the two never drift.
   - The repeater lists — refusal reasons, inspection condition states (+ "All Good" baseline),

@@ -344,6 +344,38 @@
             is read-only, derived from the Property record (item 8: "the
             property already knows it").
         --}}
+        {{-- AT-463 / spec §60 — the printed form for site. "Print site form" is a PDF of THIS inspection's rooms and items with
+             one tick box per condition state; ticked in ink on site, it is scanned back with "Upload completed form", which
+             keeps the scan against the inspection and proposes the ticked columns for the agent to review and apply. --}}
+        <div class="rounded-md p-3 space-y-2" style="background:var(--surface-2);" data-qa="site-form">
+            <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-xs font-semibold" style="color:var(--text-secondary);">Paper form for site</span>
+                <a :href="inspectionUrls.inspectionsBase + '/' + currentInspection({{ $sectionJs }}).id + '/form'" target="_blank" rel="noopener" data-qa="print-site-form"
+                   class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border); text-decoration:none;">Print site form</a>
+                @permission('rental_inspections.create')
+                    <form method="POST" :action="inspectionUrls.inspectionsBase + '/' + currentInspection({{ $sectionJs }}).id + '/scans'" enctype="multipart/form-data" class="inline-flex">
+                        @csrf
+                        <input type="file" name="scan" accept="application/pdf,image/jpeg,image/png,image/heic,image/heif" class="hidden" x-ref="siteFormFile" @change="$el.form.submit()">
+                        <button type="button" @click="$refs.siteFormFile.click()" data-qa="upload-site-form"
+                                class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);">Upload completed form</button>
+                    </form>
+                @endpermission
+            </div>
+            <template x-if="(currentInspection({{ $sectionJs }}).site_form_scans || []).length">
+                <ul class="text-xs space-y-1" style="color:var(--text-secondary);" data-qa="site-form-scans">
+                    <template x-for="sc in currentInspection({{ $sectionJs }}).site_form_scans" :key="sc.id">
+                        <li class="flex items-center gap-2 flex-wrap">
+                            <span x-text="sc.name"></span>
+                            <span class="font-semibold" x-text="sc.status_label"></span>
+                            <span style="color:var(--text-muted);" x-text="sc.uploaded_at"></span>
+                            <a :href="sc.view_url" target="_blank" rel="noopener" class="underline" style="color:var(--brand-icon,#0ea5e9);">Open scan</a>
+                            <template x-if="sc.review_url"><a :href="sc.review_url" class="underline" style="color:var(--brand-icon,#0ea5e9);">Review</a></template>
+                        </li>
+                    </template>
+                </ul>
+            </template>
+        </div>
+
         <div class="rounded-md p-3 space-y-2" style="background:var(--surface-2);">
             <div class="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-xs" style="color:var(--text-secondary);">
                 <div><span style="color:var(--text-muted);">Landlord:</span> <span x-text="landlordContact ? (landlordContact.first_name + ' ' + landlordContact.last_name) : '—'"></span></div>

@@ -116,7 +116,7 @@
     </ol>
 
     {{-- C. Returned | Next - the first thing under the stepper, one block --}}
-    <div class="wo-next wo-next-{{ $jcBar['tone'] }}" data-next-step data-stage="{{ $stage['key'] }}" data-next="{{ $jcBar['key'] }}">
+    <div class="wo-next wo-next-{{ $jcBar['tone'] }}" data-next-step data-land-on-next data-stage="{{ $stage['key'] }}" data-next="{{ $jcBar['key'] }}">
         <div class="jc-bar-half" data-returned data-returned-anchor="{{ $jcReturned['anchor'] }}">
             <div><span class="wo-next-label">{{ $jcReturned['label'] }}</span>
                 <a href="#{{ $jcReturned['anchor'] }}" class="jc-returned-link" data-jc-go data-returned-text>{{ $jcReturned['text'] }}</a>@if($jcReturned['waiting'])<span class="jc-waiting">waiting for you</span>@endif</div>
@@ -399,6 +399,7 @@ function catalogueLinePicker(items, opts) {
         saved = raw ? JSON.parse(raw) : null;
         if (saved && Date.now() - saved.t > 120000) { saved = null; } // stale — not from the submit that just happened
     } catch (err) { saved = null; }
+    if (saved) { window.cxKeepScroll = true; } // AT-464 - a keep-scroll form asked to stay put: the layout's "land on the Next bar" leaves this page alone
 
     function restore(highlight) {
         var box = scroller();

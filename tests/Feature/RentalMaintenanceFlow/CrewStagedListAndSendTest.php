@@ -16,7 +16,7 @@ use Tests\Feature\RentalMaintenanceFlow\Concerns\BuildsPricingFixtures;
 use Tests\TestCase;
 
 /**
- * AT-465 (.ai/specs/rental-work-orders.md section 17.40) - the crew link's list and its ONE send. Johan: the crew captured 2 hours of
+ * AT-465 (.ai/specs/rental-work-orders.md section 17.41) - the crew link's list and its ONE send. Johan: the crew captured 2 hours of
  * labour, "looked for a submit" and found none. Lines go on the crew's list (stored server-side, so a refresh keeps them); nothing
  * reaches the office until the one "Send to office", which carries what the crew found, the list, and what is on it.
  */

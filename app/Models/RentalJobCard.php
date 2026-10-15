@@ -279,7 +279,7 @@ class RentalJobCard extends Model
         return $this->hasMany(RentalJobCardPriceRequest::class)->orderByDesc('requested_at')->orderByDesc('id');
     }
 
-    /** §17.40 (AT-465) — what the crew reported on each "Send to office", newest first. */
+    /** §17.41 (AT-465) — what the crew reported on each "Send to office", newest first. */
     public function crewReports(): HasMany
     {
         return $this->hasMany(RentalJobCardCrewReport::class)->orderByDesc('id');

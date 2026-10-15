@@ -50,6 +50,8 @@ return Application::configure(basePath: dirname(__DIR__))
             // AT-267 — records which records an assistant opens/edits. No-op for
             // everyone who is not an assistant (a single bool check).
             \App\Http\Middleware\LogAssistantActivity::class,
+            // AT-464 — after an action on the fault report / work order / job card screen, land on its Next bar (no controller changes needed).
+            \App\Http\Middleware\LandOnNextBar::class,
             // AT-267 / AUDIT 2026-07-26 (F1) — layer 2 of the agent's "can edit & delete my
             // records" toggle. GLOBAL on purpose: only a fraction of CoreX's mutating routes
             // pass through a per-record guard, and a hand-picked list of the rest is the thing

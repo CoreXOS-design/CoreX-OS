@@ -3,7 +3,7 @@
 namespace App\Services\Rentals;
 
 /**
- * .ai/specs/rental-work-orders.md section 17.40 (AT-465) - the crew page's NEXT bar: ONE sentence saying what the office needs
+ * .ai/specs/rental-work-orders.md section 17.41 (AT-465) - the crew page's NEXT bar: ONE sentence saying what the office needs
  * from the crew right now, and at most one button that scrolls to the right place on the page.
  *
  * Reads only the crew payload CrewJobService::payload() already built (plain values), so it can say nothing the crew page does

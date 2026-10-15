@@ -5,7 +5,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * .ai/specs/rental-work-orders.md section 17.40 (AT-465) - the crew's "Send to office" is ONE submission: what they found and
+ * .ai/specs/rental-work-orders.md section 17.41 (AT-465) - the crew's "Send to office" is ONE submission: what they found and
  * what is needed (this table), the lines they staged, their photos and receipts. One row per send, so a second batch has its
  * own findings. The lines of a send point back at it (rental_job_card_lines.rental_job_card_crew_report_id) so the office can
  * say "Crew reported ... - 3 lines, R 450.00 cost". Idempotent.

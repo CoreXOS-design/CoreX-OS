@@ -165,6 +165,19 @@
                     </p>
                 </div>
                 <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Paper for the printed site form</label>
+                    <select name="form_paper_size" class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" data-qa="form-paper-size">
+                        @foreach($formPaperSizeOptions as $key => $label)
+                            <option value="{{ $key }}" @selected(old('form_paper_size', $formPaperSize) === $key)>{{ $label }}</option>
+                        @endforeach
+                    </select>
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        The paper size the "Print site form" button lays the inspection form out for. A4 is the
+                        default. Change it only if your office prints on US Letter. A form already printed on the
+                        old size is no longer accepted when scanned back in once this changes; print a fresh one.
+                    </p>
+                </div>
+                <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Scanned-form tick-box sensitivity</label>
                     <input type="number" name="omr_mark_threshold" value="{{ old('omr_mark_threshold', $omrMarkThreshold) }}"
                            min="0.05" max="0.95" step="0.05"

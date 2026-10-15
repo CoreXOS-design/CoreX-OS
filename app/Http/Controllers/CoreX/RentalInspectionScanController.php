@@ -65,6 +65,19 @@ class RentalInspectionScanController extends Controller
         // few-page scan's rasterize-and-sample pass is a few seconds' work,
         // well within a normal request.
         $this->reader->process($scan->fresh());
+        $scan->refresh();
+
+        // AT-463 — a form that belongs to ANOTHER inspection is refused outright: it is not filed against this one (that
+        // would put someone else's paperwork in this inspection's evidence trail) and nothing was read from it.
+        if ($scan->status === RentalInspectionScan::STATUS_FAILED
+            && $scan->decoded_inspection_id !== null
+            && $scan->decoded_inspection_id !== $rentalInspection->id) {
+            $otherId = $scan->decoded_inspection_id;
+            Storage::disk('local')->delete($scan->storage_path);
+            $scan->archive($request->user());
+
+            return redirect()->back()->with('error', "That form is for inspection #{$otherId}, not this one (#{$rentalInspection->id}). It was not saved here - upload it on its own inspection.");
+        }
 
         return redirect()
             ->route('corex.rental-inspections.scans.review', [$rentalInspection, $scan])
@@ -84,10 +97,22 @@ class RentalInspectionScanController extends Controller
         $scan->load(['marks.item.room']);
         $conditionStates = RentalInspectionSetting::conditionStatesFor($rentalInspection->agency_id);
 
+        // What the web inspection says right now for each item (append-only: the last recorded one), so the agent sees
+        // each proposal next to what it would replace.
+        $onScreen = [];
+        $rows = \App\Models\RentalInspectionObservation::where('rental_inspection_id', $rentalInspection->id)
+            ->recorded()->orderBy('id')->get(['rental_inspection_item_id', 'condition']);
+        foreach ($rows as $row) {
+            $onScreen[(int) $row->rental_inspection_item_id] = (string) $row->condition;
+        }
+
         return view('corex.rental-inspections.scan-review', [
             'inspection' => $rentalInspection,
             'scan' => $scan,
             'conditionStates' => $conditionStates,
+            'onScreen' => $onScreen,
+            // A mark that only just cleared the agency's tick-box sensitivity is a doubtful one: flagged, never pre-selected.
+            'lowConfidenceBelow' => RentalInspectionSetting::omrMarkThresholdFor($rentalInspection->agency_id) * 1.5,
         ]);
     }
 
@@ -150,11 +175,20 @@ class RentalInspectionScanController extends Controller
     }
 
     /** Gated download of the retained original — same pattern as PropertyFileController::download(). */
-    public function download(RentalInspection $rentalInspection, RentalInspectionScan $scan)
+    public function download(Request $request, RentalInspection $rentalInspection, RentalInspectionScan $scan)
     {
         abort_if($scan->rental_inspection_id !== $rentalInspection->id, 404);
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
         abort_unless(Storage::disk('local')->exists($scan->storage_path), 404);
+
+        // ?view=1 opens the original in the browser (a PDF or picture), so it can be looked at against the inspection.
+        if ($request->boolean('view')) {
+            return Storage::disk('local')->response($scan->storage_path, $scan->original_filename, [
+                'Content-Type' => $scan->mime_type ?: 'application/octet-stream',
+                'Content-Disposition' => 'inline; filename="' . str_replace(['"', "\r", "\n"], '', $scan->original_filename) . '"',
+                'Cache-Control' => 'private, no-store',
+            ]);
+        }
 
         return Storage::disk('local')->download($scan->storage_path, $scan->original_filename);
     }

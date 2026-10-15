@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
- * .ai/specs/rental-work-orders.md section 17.40 (AT-465) - one "Send to office" from the crew: what they found and what is
+ * .ai/specs/rental-work-orders.md section 17.41 (AT-465) - one "Send to office" from the crew: what they found and what is
  * needed, plus how many lines went with it. Never hard-deleted.
  */
 class RentalJobCardCrewReport extends Model

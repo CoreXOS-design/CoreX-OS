@@ -620,6 +620,14 @@ see §12 for what was built 2026-09-22.
 
 ## 12. The printable OMR tick-box form (built 2026-09-22) — part 1 of a two-part job
 
+> **Changed 15 Oct 2026 (AT-463, full account in `rental-inspections.md` §60).** The form now also carries: a **QR code on every page**
+> (bottom-centre; `CXI1|inspection|page|pages|version`) beside the corner marks and the bit-grid of §12.5 - §12.2's "no QR library" is
+> superseded (`endroid/qr-code` was already a dependency; the form's QR is generated locally); a running **row number** per item
+> (`row_no` on every manifest box); a header with meter / furnished / keys / remotes fields; items **already recorded on screen printed
+> as light grey boxes** (render-time only - same version, never read as ink); and an **agency paper size** (A4 default, US Letter;
+> `manifest.page_size.key/width_pt/height_pt` - the page is no longer a constant). `LAYOUT_VERSION` 2 / `MANIFEST_VERSION` 2: the
+> manifest gains `layout_version` and `qr_codes[]`. Rows stop `QR_BOTTOM_RESERVE` (72 pt) above the bottom edge.
+
 Johan's requirement, verbatim in substance: an agent downloads a physical form, takes it to the
 property, marks it in wet ink, gets it signed, scans it back in. **"We read the form back by OMR —
 COLUMN MARKING ONLY. We do NOT read handwriting, ever. Free written text can be retyped, or the scanned
@@ -849,6 +857,14 @@ plus the download route and its cross-agency 404.
 - `tests/Feature/RentalInspections/RentalInspectionFormPdfServiceTest.php`
 
 ## 13. The OMR scan reader — part 2 of the two-part job (built 2026-09-22)
+
+> **Changed 15 Oct 2026 (AT-463, `rental-inspections.md` §60).** §13.2's pipeline is now: load the inspection's current form first (its manifest
+> gives paper size, corner marks, QR position); per uploaded page, find the corner marks, narrow orientation to two candidates, then decode the
+> **QR on a straightened crop** under each (exactly one decodes - that is the orientation AND the inspection/page/version), falling back to the
+> OMR bit-grid when the QR cannot be read; refuse the whole upload if any page names another inspection; place each page by its OWN page number
+> (not file order); name missing pages; propose nothing for a row already recorded on screen unless ticked differently; flag low-confidence
+> rows (< 1.5 x the tick-box sensitivity) and leave them blank. §13.8's "one PDF or one image per upload" is superseded: a multi-page PDF is read
+> page by page (the 22 Sep code read a multi-page PDF as its last page repeated - fixed). `rental_inspection_scans.read_notes` holds the notes.
 
 Built against §12's manifest exactly as specified — no geometry re-derived from
 `RentalInspectionFormPdfService`'s layout code. Johan, restated: **"we read the form back by OMR —

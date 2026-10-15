@@ -764,7 +764,16 @@ class RentalInspectionController extends Controller
 
         abort_unless(Storage::disk('local')->exists($form->pdf_storage_path), 404);
 
-        return Storage::disk('local')->download($form->pdf_storage_path, $service->filenameFor($form));
+        // AT-463 — "Print site form": the same version's layout with what is already recorded on screen shown greyed and
+        // the header values typed in (spec §60). Opens in the browser's own viewer so it can be printed straight away.
+        $bytes = $service->render($form, $rentalInspection);
+        $name = str_replace(['"', "\r", "\n"], '', $service->filenameFor($form));
+
+        return response($bytes, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="' . $name . '"',
+            'Cache-Control' => 'private, no-store',
+        ]);
     }
 
     /**
