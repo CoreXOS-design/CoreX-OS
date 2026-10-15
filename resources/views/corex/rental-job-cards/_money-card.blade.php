@@ -28,7 +28,8 @@
     $mcNeedsDecision = $isOpen && $mcWo && ! $mcAuthorisedAlready && app(\App\Services\Rentals\RentalAuthorisationService::class)->costBlockReason($mcWo) === null;
     // the one verdict sentence about the owner's limit (amounts are in the rows above it)
     $mcVerdict = null;
-    if ($pricesOn && $isOpen && $mcQuote['amount'] > 0) {
+    // the pre-authorisation warning only: once the cost is authorised the sentence is stale and goes (AT-460)
+    if ($pricesOn && $isOpen && $mcQuote['amount'] > 0 && ($screen['authorised']['key'] ?? '') !== 'authorised') {
         $mcVerdict = $mcRepair === null
             ? ["The owner has not set a repair limit - the owner must approve this.", 'var(--ds-crimson)']
             : ($mcQuote['within'] ? ["Inside the owner's repair limit - you can authorise it.", 'var(--ds-green)'] : ["Above the owner's repair limit - the owner must approve it.", 'var(--ds-crimson)']);

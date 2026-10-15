@@ -1032,9 +1032,11 @@ class ClientLandlordRentalsController extends Controller
         $fresh = $order->fresh();
         $quote = $fresh->quotes()->where('is_selected', true)->first();
         $money = $quote ? ' (R' . number_format((float) $quote->ownerFacingAmount(), 2) . ')' : '';
+        // AT-460: what the agent does next depends on the route - our own crew is booked, a contractor is sent the work order
+        $nextStep = $fresh->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL ? 'book the date with the crew' : 'send it to the contractor';
         app(\App\Services\Rentals\RentalWorkOrderService::class)->notifyAgentOfOwnerAction(
             $fresh, 'rental_work_order.owner_decided',
-            $data['decision'] === 'approve' ? 'Owner approved the quote' . $money . ' - send it to the contractor' : 'Owner declined the quote' . $money,
+            $data['decision'] === 'approve' ? 'Owner approved the quote' . $money . ' - ' . $nextStep : 'Owner declined the quote' . $money,
             $fresh->title . ($data['decision'] === 'decline' && trim((string) ($data['note'] ?? '')) !== '' ? ' - reason: ' . trim((string) $data['note']) : ''),
             now()
         );

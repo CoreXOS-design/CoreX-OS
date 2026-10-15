@@ -21,6 +21,7 @@
  *   approved_to_send     the owner's go-ahead is in (or the quote is within the no-approval limit) - ready to send to the contractor
  *   sent_to_contractor   the work order has gone to the contractor, who has not booked a date yet
  *   with_owner_contractor the owner's own contractor has it, no date yet
+ *   approved_to_book     (our own crew) the owner's go-ahead is in, or the price is authorised within their limit - the office books the date with the crew (AT-460)
  *
  * `status_words` are the SAME names for the raw status wherever a status is printed (the history's "from -> to", the badge's tooltip), so a
  * work order never reads "Ordered" in one place and "Sent to contractor" in another.
@@ -59,6 +60,10 @@ return [
     ],
     'sent_to_contractor' => [
         'agent' => 'Sent to contractor', 'owner' => 'With the contractor', 'tenant' => 'Created',
+    ],
+    // AT-460: an approved job for OUR OWN crew has no contractor to send it to - it is waiting for the office to book the date.
+    'approved_to_book' => [
+        'agent' => 'Approved - ready to book', 'owner' => 'Approved - being booked', 'tenant' => 'Created',
     ],
     'with_owner_contractor' => [
         'agent' => "With the owner's contractor", 'owner' => 'With your contractor', 'tenant' => 'Created',

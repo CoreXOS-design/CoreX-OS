@@ -136,7 +136,8 @@ final class ClientWorkOrderViewTest extends TestCase
 
         $this->workOrder->forceFill(['owner_approval_status' => 'approved'])->save();
         $this->card->forceFill(['status' => 'approved'])->save();
-        $table['approved'] = [$this->stageFor('landlord'), 'Created'];
+        $table['approved'] = [$this->stageFor('landlord'), 'Approved - being booked'];   // AT-460: it read "Created" until the crew was booked
+        $table['approved, tenant'] = [$this->stageFor('tenant'), 'Created'];
 
         $round = app(RentalCompletionService::class)->openRound($this->workOrder->fresh(), ['reported_by_label' => 'Team 1', 'reported_via' => 'crew_link']);
         $table['reported done (T1: waiting for the agent to close, no tenant hold)'] = [$this->stageFor(), 'Work reported finished - your agent is closing it off'];

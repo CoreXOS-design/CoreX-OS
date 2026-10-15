@@ -92,6 +92,11 @@ class RentalWorkOrderClientViewService
             if ($workOrder->status === RentalWorkOrder::STATUS_REPORTED && $workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER && $authorised) {
                 return 'approved_to_send';
             }
+            // AT-460: the same position on the internal-crew route - approved, not booked yet. It read "Created" until the crew was booked.
+            if ($workOrder->status === RentalWorkOrder::STATUS_REPORTED && $workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL
+                && ($authorised || ($card && $card->status === RentalJobCard::STATUS_APPROVED))) {
+                return 'approved_to_book';
+            }
             // P3: no quote chosen yet on the agency-contractor route
             if ($workOrder->status === RentalWorkOrder::STATUS_REPORTED && $workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER && ! $workOrder->isOwnerContractor()
                 && $audience === self::AUDIENCE_LANDLORD && ! $this->ownerVisibleQuote($workOrder)) {

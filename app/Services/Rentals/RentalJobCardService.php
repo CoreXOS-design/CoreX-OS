@@ -904,5 +904,34 @@ class RentalJobCardService
 
             throw $e;
         }
+
+        $this->recordWhoPaysAtClose($jobCard->fresh(), $by, $paidBy ?: RentalWorkOrder::PAID_BY_OWNER);
+    }
+
+    /**
+     * AT-460 - "Who pays for this job?" at the close of an own-crew job IS the agent's answer to who pays for the repair, so the fault must say so too. On the
+     * contractor route that answer is made on the work order's "Who pays" panel (a formal ruling, which the fault page reads); the job card's close form never
+     * made one, so a card closed with "Owner" left the fault on "No ruling yet". Same writer (RentalWhoPaysService::rule), so the ruling carries its history, the
+     * fault's timeline line and the owner's portal / mail exactly as a ruling made on the work order does.
+     *
+     * Only "Owner" is recorded here: a ruling that charges the tenant tells the tenant (their portal and an email), and that is not something to send on the
+     * strength of a drop-down - it stays a deliberate ruling on the work order. Nothing is recorded when the job did not come from a fault, when what was found and
+     * the cause are not entered yet (the ruling needs them), or when a ruling already exists. It never stops the close.
+     */
+    private function recordWhoPaysAtClose(RentalJobCard $jobCard, User $by, string $paidBy): void
+    {
+        if ($paidBy !== RentalWorkOrder::PAID_BY_OWNER) {
+            return;
+        }
+        $workOrder = $jobCard->workOrder()->withoutGlobalScopes()->first();
+        $whoPays = app(\App\Services\Rentals\RentalWhoPaysService::class);
+        if (! $workOrder || ! $whoPays->isFaultJob($workOrder) || $whoPays->currentRuling($workOrder) || ! $whoPays->hasFindings($workOrder)) {
+            return;
+        }
+        try {
+            $whoPays->rule($workOrder, $by, \App\Models\RentalPayerRuling::PAYER_OWNER, null, 'Chosen by ' . $by->name . ' when the job card was completed (who pays: owner).');
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Who pays: could not record the ruling at job card close', ['job_card' => $jobCard->id, 'error' => $e->getMessage()]);
+        }
     }
 }
