@@ -73,7 +73,7 @@ final class CrewJobServiceTest extends TestCase
         $this->assertArrayNotHasKey('unit_cost', $payload['materials'][0]);
         $this->assertArrayNotHasKey('cost_total', $payload['labour'][0]);
         $this->assertNull($payload['cost_total']);
-        $this->assertNull($payload['tenant']);
+        $this->assertSame([], $payload['tenant'], 'on by default (AT-459); this card has no lease, so there is no tenant to list');
         $this->assertNull($payload['crew_completed']);
         $this->assertTrue($payload['is_open']);
     }
@@ -147,6 +147,8 @@ final class CrewJobServiceTest extends TestCase
         $card = $this->makeJobCard();
         $this->attachTenant($card->fresh());
 
+        // on by default (AT-459, Johan 15 Oct 2026); an agency can switch it off, and then the payload carries no tenant at all
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_tenant_contact' => false]);
         $this->assertNull($this->service->payload($card->fresh(), $this->ctx($card))['tenant']);
 
         RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_tenant_contact' => true]);
@@ -492,7 +494,7 @@ final class CrewJobServiceTest extends TestCase
         $this->assertTrue(RentalPortalSetting::crewLinksEnabledFor($id));
         $this->assertSame(14, RentalPortalSetting::crewJobLinkExpiryDaysFor($id));
         $this->assertFalse(RentalPortalSetting::crewLinkShowCostsFor($id));
-        $this->assertFalse(RentalPortalSetting::crewLinkShowTenantContactFor($id));
+        $this->assertTrue(RentalPortalSetting::crewLinkShowTenantContactFor($id), 'on by default (AT-459)');
         $this->assertTrue(RentalPortalSetting::notifyLandlordOnCrewCompletionFor($id));
     }
 

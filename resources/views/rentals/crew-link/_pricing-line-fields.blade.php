@@ -19,13 +19,13 @@
 <label class="cj-label">What is it</label>
 <input type="text" name="description" class="cj-desc" value="{{ $l['description'] ?? '' }}" maxlength="255" autocomplete="off" placeholder="e.g. geyser element" @if($l) required @endif>
 <label class="cj-label cj-qty-label" data-part-label="How many" data-labour-label="Hours">{{ $isLabour ? 'Hours' : 'How many' }}</label>
-<input type="number" name="quantity" class="cj-qty" value="{{ $l['quantity'] ?? '1' }}" step="0.01" min="0.01" inputmode="decimal" required>
+<input type="number" name="quantity" class="cj-qty" value="{{ $l['quantity'] ?? '1' }}" step="0.01" min="0.01" inputmode="decimal" required onfocus="this.dataset.fresh=1;this.select()" onmouseup="if(this.dataset.fresh){event.preventDefault();delete this.dataset.fresh}">
 <div class="cj-part-only" @if($isLabour) hidden @endif>
     <label class="cj-label">Unit (e.g. each, metre)</label>
     <input type="text" name="unit" class="cj-unit" value="{{ $isLabour ? '' : ($l['unit'] ?? '') }}" maxlength="30" autocomplete="off">
     @if($pricesOn)
         <label class="cj-label">What it cost you, each (R)</label>
-        <input type="number" name="unit_cost" class="cj-cost" value="{{ $isLabour ? '' : ($l['unit_cost'] ?? '') }}" step="0.01" min="0" inputmode="decimal" @if($isLabour) disabled @endif>
+        <input type="number" name="unit_cost" class="cj-cost" value="{{ $isLabour ? '' : ($l['unit_cost'] ?? '') }}" step="0.01" min="0" inputmode="decimal" onfocus="this.dataset.fresh=1;this.select()" onmouseup="if(this.dataset.fresh){event.preventDefault();delete this.dataset.fresh}" @if($isLabour) disabled @endif>
         <div class="cj-muted cj-cost-hint" hidden>Filled in from the list &mdash; change it if you paid something different.</div>
     @endif
     <label class="cj-label">Receipt (optional)</label>

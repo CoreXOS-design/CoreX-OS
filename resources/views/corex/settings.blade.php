@@ -132,7 +132,7 @@
                         : null,
                     // AT-445 — .ai/specs/rental-portal-access.md §7.
                     $can('rental_portal.manage_settings')
-                        ? ['key'=>'rental-portal-settings', 'label'=>'Rental Portal', 'type'=>'link', 'href'=>route('corex.settings.rental-portal.edit'), 'keywords'=>'tenant landlord contractor portal secure link access notification crew faq fault photo help']
+                        ? ['key'=>'rental-portal-settings', 'label'=>'Rental Portal', 'type'=>'link', 'href'=>route('corex.settings.rental-portal.edit'), 'keywords'=>'tenant landlord contractor portal secure link access notification crew faq fault photo help tenant name phone contact crew contractor link']
                         : null,
                     $can('rental_notice_templates.manage_settings')
                         ? ['key'=>'rental-notice-templates', 'label'=>'Rental Notice Templates', 'type'=>'link', 'href'=>route('corex.rental-notice-templates.index'), 'keywords'=>'breach notice vacate template']
