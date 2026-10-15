@@ -119,7 +119,7 @@
                 <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
                     <input type="hidden" name="crew_link_show_tenant_contact" value="0">
                     <input type="checkbox" name="crew_link_show_tenant_contact" value="1" onchange="this.form.submit()" @checked($crewLinkShowTenantContact)>
-                    Show the tenant's name and phone to the crew
+                    Show the tenant's name and phone to the crew and contractors
                 </label>
             </form>
             <form method="POST" action="{{ route('corex.settings.rental-portal.crew-link-auto-send-on-fault-job') }}">

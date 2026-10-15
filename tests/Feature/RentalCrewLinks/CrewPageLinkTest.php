@@ -335,6 +335,8 @@ final class CrewPageLinkTest extends TestCase
         ContactPropertyLinker::link($landlord->id, $this->property->id, 'landlord');
         $job = "/secure/crews/{$this->raw}/job-cards/{$card->id}";
 
+        // on by default (AT-459, Johan 15 Oct 2026); the agency switches it off here first
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_tenant_contact' => false]);
         $off = $this->get($job)->getContent();
         $this->assertStringNotContainsString('Tina', $off);
         $this->assertStringNotContainsString('0831112222', $off);

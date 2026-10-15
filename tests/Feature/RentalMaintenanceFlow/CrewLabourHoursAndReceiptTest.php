@@ -216,6 +216,9 @@ final class CrewLabourHoursAndReceiptTest extends TestCase
         $this->assertStringNotContainsString('80.00', $html, 'no labour rate');
         $this->assertStringNotContainsString('600.00', $html, 'no selling price');
         $this->assertStringNotContainsString('100.00', $html, 'no labour selling price');
+        // clicking or tabbing into the hours / amount selects all of it, so typing replaces the figure
+        $this->assertMatchesRegularExpression('/name="quantity"[^>]*onfocus="this\.dataset\.fresh=1;this\.select\(\)"/', $html);
+        $this->assertMatchesRegularExpression('/name="unit_cost"[^>]*onfocus="this\.dataset\.fresh=1;this\.select\(\)"/', $html);
     }
 
     public function test_the_crew_never_sees_a_labour_rate_or_amount_on_their_own_labour_line(): void
@@ -307,6 +310,10 @@ final class CrewLabourHoursAndReceiptTest extends TestCase
 
         $this->assertStringContainsString('data-awaiting-line="' . $line->id . '"', $html);
         $this->assertStringContainsString('data-receipt-thumb', $html);
+        // the office add-line row's quantity / cost / price boxes select all on focus too
+        $this->assertMatchesRegularExpression('/aria-label="Qty"[^>]*onfocus="this\.dataset\.fresh=1;this\.select\(\)"/', $html);
+        $this->assertMatchesRegularExpression('/aria-label="Cost"[^>]*onfocus="this\.dataset\.fresh=1;this\.select\(\)"/', $html);
+        $this->assertMatchesRegularExpression('/aria-label="Selling price"[^>]*onfocus="this\.dataset\.fresh=1;this\.select\(\)"/', $html);
         $this->assertStringContainsString($receipt->storage_path, $html);
     }
 }

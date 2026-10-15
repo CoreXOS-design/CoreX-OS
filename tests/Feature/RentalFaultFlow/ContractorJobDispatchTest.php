@@ -167,7 +167,7 @@ final class ContractorJobDispatchTest extends TestCase
         $this->assertStringContainsString('1 photo', $html);
         $this->assertStringContainsString('/secure/work-orders/', $html, 'the link');
         $this->assertStringNotContainsString($this->landlord->email, $html, 'no owner details');
-        $this->assertStringNotContainsString('Tina', $html, 'no tenant details unless the agency switched them on for crews');
+        $this->assertStringContainsString('Tina Tenant', $html, 'tenant details are on by default (AT-459); the agency can switch them off');
         $this->assertStringNotContainsString('R ', strip_tags($html), 'no prices');
 
         $row = $this->rows($wo)->first();
@@ -221,8 +221,9 @@ final class ContractorJobDispatchTest extends TestCase
         $this->assertStringNotContainsString('Take photo', $page);
     }
 
-    public function test_the_tenant_stays_hidden_from_the_contractor_when_the_agency_has_not_allowed_it_but_access_and_maps_still_show(): void
+    public function test_the_tenant_stays_hidden_from_the_contractor_when_the_agency_switched_it_off_but_access_and_maps_still_show(): void
     {
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_tenant_contact' => false]);
         $p = $this->provider('Drip Plumbing', ['email' => 'drip@example.invalid', 'phone' => null], 'Plumbing');
         $wo = $this->appointViaFault($this->fault(), $p);
         $wo->forceFill(['access_contact_name' => 'Caretaker Carl', 'access_contact_phone' => '082 555 0101'])->save();

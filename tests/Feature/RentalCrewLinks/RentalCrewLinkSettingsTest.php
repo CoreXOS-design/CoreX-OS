@@ -39,8 +39,12 @@ final class RentalCrewLinkSettingsTest extends TestCase
         $this->assertTrue(RentalPortalSetting::crewLinksEnabledFor($id));
         $this->assertSame(14, RentalPortalSetting::crewJobLinkExpiryDaysFor($id));
         $this->assertFalse(RentalPortalSetting::crewLinkShowCostsFor($id));
-        $this->assertFalse(RentalPortalSetting::crewLinkShowTenantContactFor($id));
+        // AT-459 (Johan, 15 Oct 2026): the crew and the contractor get the tenant's name + phone unless the agency switches it off
+        $this->assertTrue(RentalPortalSetting::crewLinkShowTenantContactFor($id));
         $this->assertTrue(RentalPortalSetting::notifyLandlordOnCrewCompletionFor($id));
+
+        RentalPortalSetting::updateOrCreate(['agency_id' => $id], ['crew_link_show_tenant_contact' => false]);
+        $this->assertFalse(RentalPortalSetting::crewLinkShowTenantContactFor($id), 'an agency can still switch it off');
     }
 
     public function test_the_settings_are_per_agency(): void

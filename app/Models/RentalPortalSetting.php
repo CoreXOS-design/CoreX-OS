@@ -31,7 +31,8 @@ class RentalPortalSetting extends Model
     public const DEFAULT_CREW_JOB_LINK_EXPIRY_DAYS = 14;
     /** §17.4.7 — restated in COST terms: the crew also sees the cost figures the office entered. Never selling. */
     public const DEFAULT_CREW_LINK_SHOW_COSTS = false;
-    public const DEFAULT_CREW_LINK_SHOW_TENANT_CONTACT = false;
+    // AT-459 (Johan, 15 Oct 2026): the crew and the contractor get the tenant's name + phone unless the agency switches it off.
+    public const DEFAULT_CREW_LINK_SHOW_TENANT_CONTACT = true;
     public const DEFAULT_NOTIFY_LANDLORD_ON_CREW_COMPLETION = true;
 
     // .ai/specs/rental-work-orders.md §14.27.3 — Build 2 (crew page + client visibility).

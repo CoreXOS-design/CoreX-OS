@@ -178,12 +178,12 @@
                 @endif
             </select>
             <input type="number" {{ $named ? 'name=quantity' : 'x-ref=' . $refPrefix . 'Qty' }}
-                   step="0.01" min="0.01" value="{{ $isEdit ? $qtyValue : 1 }}" aria-label="Qty" title="Qty"
+                   step="0.01" min="0.01" value="{{ $isEdit ? $qtyValue : 1 }}" aria-label="Qty" title="Qty" onfocus="this.dataset.fresh=1;this.select()" onmouseup="if(this.dataset.fresh){event.preventDefault();delete this.dataset.fresh}"
                    @if($isEdit) required @endif
                    class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
             @if($canEditCost)
             <input type="number" {{ $named ? 'name=unit_cost' : 'x-ref=' . $refPrefix . 'UnitCost' }}
-                   step="0.01" min="0" aria-label="Cost" title="Cost (R) — what this line cost the agency"
+                   step="0.01" min="0" aria-label="Cost" title="Cost (R) — what this line cost the agency" onfocus="this.dataset.fresh=1;this.select()" onmouseup="if(this.dataset.fresh){event.preventDefault();delete this.dataset.fresh}"
                    @if($isEdit) value="{{ $costValue }}" @endif placeholder="cost"
                    class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
             @elseif($showCost)
@@ -191,7 +191,7 @@
             @endif
             @if($canPrice)
             <input type="number" {{ $named ? 'name=unit_price' : 'x-ref=' . $refPrefix . 'UnitPrice' }}
-                   step="0.01" min="0" aria-label="Selling price" title="Selling price (R) — what the owner is charged. Leave blank to price it automatically from the cost."
+                   step="0.01" min="0" aria-label="Selling price" title="Selling price (R) — what the owner is charged. Leave blank to price it automatically from the cost." onfocus="this.dataset.fresh=1;this.select()" onmouseup="if(this.dataset.fresh){event.preventDefault();delete this.dataset.fresh}"
                    @if($isEdit) value="{{ $priceValue }}" @endif placeholder="auto"
                    class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
             @else
@@ -245,7 +245,7 @@
             <option value="percent" @selected($markupTypeValue === 'percent')>% of cost</option>
             <option value="amount" @selected($markupTypeValue === 'amount')>R on the line</option>
         </select>
-        <input type="number" name="markup_value" step="0.01" min="0" value="{{ $markupAmountValue }}" aria-label="Markup value" placeholder="0" class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border); width: 80px;">
+        <input type="number" name="markup_value" step="0.01" min="0" value="{{ $markupAmountValue }}" aria-label="Markup value" onfocus="this.dataset.fresh=1;this.select()" onmouseup="if(this.dataset.fresh){event.preventDefault();delete this.dataset.fresh}" placeholder="0" class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border); width: 80px;">
         <label class="inline-flex items-center gap-1"><input type="checkbox" name="back_to_auto" value="1"> Back to automatic</label>
     </div>
     @endif

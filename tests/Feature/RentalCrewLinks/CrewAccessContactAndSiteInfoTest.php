@@ -129,8 +129,9 @@ final class CrewAccessContactAndSiteInfoTest extends TestCase
         $this->assertStringContainsString('Open in Maps', $html);
     }
 
-    public function test_the_crew_page_hides_the_tenant_unless_the_agency_allows_it(): void
+    public function test_the_crew_page_hides_the_tenant_when_the_agency_switched_it_off(): void
     {
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_tenant_contact' => false]);
         $card = $this->makeJobCard();
         $this->attachTenant($card, 'Tina', 'Tenant', '083 111 2222');
         $raw = app(RentalSecureAccessTokenService::class)->issueForJobCard($card->fresh(), $this->admin)['raw_token'];
@@ -163,8 +164,9 @@ final class CrewAccessContactAndSiteInfoTest extends TestCase
         $this->assertStringContainsString('Gate code 4321', $html);
     }
 
-    public function test_the_crew_email_leaves_the_tenant_out_when_the_agency_has_not_allowed_it(): void
+    public function test_the_crew_email_leaves_the_tenant_out_when_the_agency_switched_it_off(): void
     {
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_tenant_contact' => false]);
         $card = $this->makeJobCard();
         $this->attachTenant($card, 'Tina', 'Tenant', '083 111 2222');
 
