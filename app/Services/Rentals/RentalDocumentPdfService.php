@@ -331,7 +331,7 @@ class RentalDocumentPdfService
     {
         $lease = $notice->lease;
 
-        return $this->safeFilename(ucfirst(str_replace('_', ' ', $notice->notice_type)) . ' - ' . $this->addressOrFallback($lease?->property, 'Lease ' . $notice->lease_id));
+        return $this->safeFilename($notice->documentTitle() . ' - ' . $this->addressOrFallback($lease?->property, 'Lease ' . $notice->lease_id));
     }
 
     /** Same dompdf options as PropertyBrochureService::pdf() — one convention, not two. */

@@ -112,7 +112,7 @@ final class LeaseBreachFlowTest extends TestCase
                 && $m->sendingAgentId() === $this->agent->id
                 && str_contains($html, 'Karoo Lettings') && str_contains($html, 'R 1 500.50') && str_contains($html, 'put this right by')
                 && stripos($html, 'corex') === false
-                && count($m->attachments()) === 1 && str_contains((string) $m->envelope()->subject, 'Breach notice (payment)');
+                && count($m->attachments()) === 1 && str_contains((string) $m->envelope()->subject, 'Our breach_payment'); // the agency's own name for the document
         });
         Mail::assertSent(LeaseBreachOtherPartyMail::class, function (LeaseBreachOtherPartyMail $m) {
             $html = $m->render();
@@ -143,7 +143,7 @@ final class LeaseBreachFlowTest extends TestCase
         Sanctum::actingAs($this->clientUserFor($this->tenant), ['client']);
         $tenant = collect($this->getJson('/api/v1/client/rentals/documents')->assertOk()->json('documents'))->where('kind', 'notice')->values();
         $this->assertCount(1, $tenant);
-        $this->assertStringContainsString('Breach notice (payment)', $tenant[0]['name']);
+        $this->assertStringContainsString('Our breach_payment', $tenant[0]['name']);
 
         Sanctum::actingAs($this->clientUserFor($this->landlord), ['client']);
         $landlord = collect($this->getJson('/api/v1/client/rentals/landlord/documents')->assertOk()->json('documents'))->where('kind', 'notice')->values();
@@ -337,7 +337,7 @@ final class LeaseBreachFlowTest extends TestCase
         $this->assertSame('escalated', $fresh->status);
         $this->assertNotNull($fresh->vacate_rental_notice_id);
         $this->assertSame('notice_to_vacate', $fresh->vacateNotice->notice_type);
-        Mail::assertSent(LeaseBreachNoticeMail::class, fn ($m) => $m->hasTo($this->tenant->email) && str_contains((string) $m->envelope()->subject, 'Notice to vacate') && ! str_contains($m->render(), 'put this right by'));
+        Mail::assertSent(LeaseBreachNoticeMail::class, fn ($m) => $m->hasTo($this->tenant->email) && str_contains((string) $m->envelope()->subject, 'Our notice_to_vacate') && ! str_contains($m->render(), 'put this right by'));
         Mail::assertSent(LeaseBreachOtherPartyMail::class, fn (LeaseBreachOtherPartyMail $m) => $m->hasTo($this->landlord->email) && str_contains($m->render(), 'A notice to vacate has been issued against your tenant Tina Tenant'));
         $this->assertTrue(LeaseEvent::where('lease_id', $this->lease->id)->where('event_type', LeaseEvent::TYPE_VACATE_ISSUED)->exists());
 
