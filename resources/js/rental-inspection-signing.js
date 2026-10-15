@@ -6,7 +6,7 @@
 // cfg: { inspectionId, base }  — base is the /corex/rental-inspections URL prefix; reloadOnChange: true reloads the page
 // when a party signs (the inspection page); otherwise a 'signing-links-changed' event is dispatched for the host screen.
 window.inspectionSigningLinks = function (cfg) {
-    return {
+    return window.corexAttachSignaturePad({
         panel: null,
         loading: true,
         error: '',
@@ -20,6 +20,7 @@ window.inspectionSigningLinks = function (cfg) {
         csrf() { return document.querySelector('meta[name=csrf-token]')?.content || ''; },
 
         init() {
+            this.watchPad();
             this.load();
             // The agent's screen should notice a party signing on their own phone without a manual refresh.
             this.timer = setInterval(() => { if (!document.hidden && !this.qr.open) this.load(true); }, 15000);
@@ -129,11 +130,81 @@ window.inspectionSigningLinks = function (cfg) {
             });
         },
 
+        // The longer way: a full page that shows the whole report first, then the sign step.
         signHere(row) {
             return this.act(row, async () => {
                 const data = await this.ensure(row, 'device');
                 window.location.href = data.device_url;
             });
+        },
+
+        // ── AT-463 / §61 - "Sign now": draw the signature right here, on the agent's own screen ──────────────────────────
+        // One overlay and ONE pad (resources/js/corex-signature-pad-mixin.js - the same pad as the party's signing page), two
+        // uses: the agent signing for themselves, and a party who is standing next to the agent signing on the agent's
+        // device. Both record through the existing signature storage (RentalInspectionSignature::capture()): a party through
+        // the device-submit route (signed on the agent's device, in the agent's presence), the agent through the normal
+        // signatures route with the drawn image. Nothing here is a second way of recording a signature.
+        signNow: { open: false, kind: '', title: '', sub: '', linkId: null, typedName: '', readConfirmed: false, error: '', busy: false },
+
+        get agentRow() { return this.panel ? (this.panel.rows || []).find(r => r.is_agent) || null : null; },
+        get agentName() { return this.agentRow ? this.agentRow.name : ''; },
+
+        // Why the agent cannot sign yet, or '' when they can. The server enforces the same rules (the agent signs last).
+        get agentBlock() {
+            if (!this.panel) return 'Loading…';
+            if (!this.panel.ready_to_sign) return 'Signing is not open yet - press Ready to sign first.';
+            const waiting = (this.panel.rows || []).filter(r => !r.is_agent && !(r.recorded && r.recorded.disposition !== 'awaiting_wet_ink'));
+            if (waiting.length) return 'Everyone else signs first - waiting for ' + waiting.map(r => r.name).join(', ') + '.';
+            return '';
+        },
+
+        openSignNow(row) {
+            return this.act(row, async () => {
+                if (row.is_agent) {
+                    if (this.agentBlock) throw new Error(this.agentBlock);
+                    this.signNow = { open: true, kind: 'agent', title: 'Sign now - ' + row.name, sub: 'Draw your signature on the screen. It is recorded as signed by you, on this device, now.', linkId: null, typedName: row.name, readConfirmed: true, error: '', busy: false };
+                } else {
+                    // a live link for the party is what the signature is filed against (and is marked as used by this device)
+                    const data = await this.ensure(row, 'device');
+                    this.signNow = {
+                        open: true, kind: 'party', title: 'Sign now on this device - ' + row.name,
+                        sub: row.name + ' is signing now, on ' + (this.agentName || 'the agent') + "'s device, in " + (this.agentName || 'the agent') + "'s presence. This is recorded.",
+                        linkId: data.link_id, typedName: row.name, readConfirmed: false, error: '', busy: false,
+                    };
+                }
+                this.$nextTick(() => { this.syncPad(); this.clearPad(); });
+            });
+        },
+
+        closeSignNow() { this.signNow.open = false; this.clearPad(); },
+
+        async submitSignNow() {
+            const s = this.signNow;
+            s.error = '';
+            if (this.padIsEmpty()) { s.error = 'Please draw the signature.'; return; }
+            let url, body;
+            if (s.kind === 'agent') {
+                url = `${cfg.base}/${cfg.inspectionId}/signatures`;
+                body = { party_role: 'agent', disposition: 'signed', signature_image: this.padDataUrl(), signing_method: 'drawn' };
+            } else {
+                const name = (s.typedName || '').trim();
+                if (name.length < 2) { s.error = "Please type the signer's full name."; return; }
+                if (!s.readConfirmed) { s.error = 'Please tick that the signer has read this inspection report.'; return; }
+                url = `${this.root}/${s.linkId}/device`;
+                body = { action: 'sign', typed_name: name, signature_image: this.padDataUrl(), read_confirmed: true };
+            }
+            s.busy = true;
+            try {
+                await this.request('POST', url, body);
+                this.signNow.open = false;
+                this.clearPad();
+                this.notice = s.kind === 'agent' ? 'Your signature is recorded.' : 'Signature recorded.';
+                await this.load();
+            } catch (e) {
+                s.error = e.message;
+            } finally {
+                s.busy = false;
+            }
         },
 
         async revoke(row) {
@@ -174,7 +245,7 @@ window.inspectionSigningLinks = function (cfg) {
             if (l.live && !l.outcome_at && l.expires_at) parts.push('Live until ' + new Date(l.expires_at).toLocaleDateString([], { day: 'numeric', month: 'short' }));
             return parts.join(' · ');
         },
-    };
+    });
 };
 
 // .ai/specs/rental-inspections.md §47 — the lock on a signed / sent report.

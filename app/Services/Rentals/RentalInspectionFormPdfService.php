@@ -8,7 +8,11 @@ use App\Models\RentalInspectionForm;
 use App\Models\RentalInspectionItem;
 use App\Models\RentalInspectionSetting;
 use App\Models\User;
+use App\Models\RentalInspectionObservation;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Endroid\QrCode\ErrorCorrectionLevel;
+use Endroid\QrCode\QrCode;
+use Endroid\QrCode\Writer\PngWriter;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 
@@ -38,12 +42,17 @@ use Illuminate\Support\Facades\Storage;
  * still stated (RECOMMENDED_MIN_SCAN_DPI) as a print/detectability note,
  * not a coordinate assumption.
  *
- * No barcode/QR library — none was already in composer.json, and Johan's
- * instruction was explicit: use what's there or stop and ask. The page
- * identifier is instead a small OMR bit-grid, read by the EXACT SAME
- * column-marking mechanism as every condition tick-box — one detection
- * pipeline for the whole form, nothing the reader lane needs a second
- * library for either.
+ * Page identity is carried TWICE, deliberately (AT-463, spec §60): a QR code
+ * on every page (inspection id, page, page count, form version — the same
+ * endroid/qr-code writer the signing-link QR uses, generated locally, never
+ * a third-party service) and the original small OMR bit-grid. The reader
+ * identifies and orients a page from the QR first and falls back to the grid
+ * only when the QR cannot be read, which is also how a form printed before the
+ * QR existed still reads.
+ *
+ * What is printed on top of the blank layout for a given download (items
+ * already recorded on screen shown greyed, the header values already typed)
+ * is NOT part of the layout and never changes the form version: see render().
  */
 class RentalInspectionFormPdfService
 {
@@ -66,7 +75,7 @@ class RentalInspectionFormPdfService
     private const ID_BITS_PAGE = 8;        // up to 255 pages
     private const ID_BITS_VERSION = 8;     // up to 255 form versions
 
-    private const HEADER_HEIGHT = 132.0; // page 1 only
+    private const HEADER_HEIGHT = 150.0; // page 1 only
     private const ROOM_HEADING_HEIGHT = 16.0;
     private const CONDITION_HEADER_HEIGHT = 14.0;
     private const ROW_HEIGHT = 20.0;
@@ -80,7 +89,17 @@ class RentalInspectionFormPdfService
     /** Print/detectability note only — never part of the coordinate contract itself (see class docblock). */
     public const RECOMMENDED_MIN_SCAN_DPI = 150;
 
-    public const MANIFEST_VERSION = 1;
+    public const MANIFEST_VERSION = 2;
+
+    /** Bumped whenever the printed geometry changes, so every inspection's existing form regenerates once. */
+    public const LAYOUT_VERSION = 2;
+
+    // The QR sits bottom-CENTRE on EVERY page, inside a reserved strip the rows never enter. Centre, not a corner: the
+    // scan reader finds the four corner marks as the dark blobs nearest the corners of the picture, and a QR's finder
+    // squares near a corner compete with them once the page is rotated (measured at a 20 degree skew).
+    public const QR_SIZE = 52.0;
+    public const QR_BOTTOM_RESERVE = 72.0; // rows stop this far above the bottom edge
+    public const QR_PREFIX = 'CXI1';
 
     /**
      * The whole job: compute the layout, render the PDF, persist PDF +
@@ -94,8 +113,9 @@ class RentalInspectionFormPdfService
         $inspection->loadMissing(['property', 'lease.tenants.contact']);
         $roomGroups = $this->roomGroupsFor($inspection);
         $conditionStates = RentalInspectionSetting::conditionStatesFor($inspection->agency_id);
+        $paper = $this->paperFor($inspection->agency_id);
 
-        $contentHash = $this->contentHash($inspection, $roomGroups, $conditionStates);
+        $contentHash = $this->contentHash($inspection, $roomGroups, $conditionStates, $paper['key']);
 
         $existing = RentalInspectionForm::currentFor($inspection->id)->first();
         if ($existing && $existing->content_hash === $contentHash) {
@@ -104,20 +124,15 @@ class RentalInspectionFormPdfService
 
         $version = ($existing->version ?? 0) + 1;
 
-        $layout = $this->buildLayout($inspection, $roomGroups, $conditionStates, $version);
+        $layout = $this->buildLayout($inspection, $roomGroups, $conditionStates, $version, $paper);
 
-        $pdf = Pdf::loadView('corex.rental-inspections.form-pdf', [
-            'inspection' => $inspection,
-            'layout' => $layout,
-        ])->setPaper('a4', 'portrait');
-        $this->applyOptions($pdf);
-
-        $pdfBytes = $pdf->output();
+        // The stored copy is the BLANK form of this version (nothing recorded printed on it).
+        $pdfBytes = $this->renderLayout($inspection, $layout, []);
 
         $path = "properties/{$inspection->property_id}/rental-inspection-forms/inspection-{$inspection->id}-v{$version}.pdf";
         Storage::disk('local')->put($path, $pdfBytes);
 
-        $manifest = $this->buildManifest($inspection, $layout, $version, $contentHash);
+        $manifest = $this->buildManifest($inspection, $layout, $version, $contentHash, $paper);
 
         return RentalInspectionForm::create([
             'agency_id' => $inspection->agency_id,
@@ -131,6 +146,121 @@ class RentalInspectionFormPdfService
             'box_count' => count($layout['boxes']),
             'generated_by_user_id' => $by?->id,
         ]);
+    }
+
+    /**
+     * The PDF an agent actually takes to site: the SAME layout as `$form` (same geometry, same version, same QR codes),
+     * with the items already recorded on screen shown as greyed ticks and the header values already typed in. None of
+     * that changes the geometry, so it never creates a new form version and a scan of any earlier print of this
+     * version still reads. Falls back to the stored blank copy only if the inspection's shape has moved on since
+     * `$form` (generate() would have produced a new version, so callers pass generate()'s result).
+     */
+    public function render(RentalInspectionForm $form, RentalInspection $inspection): string
+    {
+        $inspection->loadMissing(['property', 'lease.tenants.contact']);
+        $roomGroups = $this->roomGroupsFor($inspection);
+        $conditionStates = RentalInspectionSetting::conditionStatesFor($inspection->agency_id);
+        $paperKey = $form->manifest_json['page_size']['key'] ?? RentalInspectionSetting::DEFAULT_FORM_PAPER_SIZE;
+        $paper = $this->paperByKey($paperKey);
+
+        if ($this->contentHash($inspection, $roomGroups, $conditionStates, $paper['key']) !== $form->content_hash) {
+            return (string) Storage::disk('local')->get($form->pdf_storage_path);
+        }
+
+        $layout = $this->buildLayout($inspection, $roomGroups, $conditionStates, $form->version, $paper);
+
+        return $this->renderLayout($inspection, $layout, $this->prefillFor($inspection, $conditionStates));
+    }
+
+    /** @return array{ticks: array<int, string>, header: array<string, string>} */
+    private function prefillFor(RentalInspection $inspection, array $conditionStates): array
+    {
+        $printed = array_column($conditionStates, 'key');
+        $ticks = [];
+        $latest = RentalInspectionObservation::withoutGlobalScopes()
+            ->where('rental_inspection_id', $inspection->id)
+            ->recorded()
+            ->orderBy('id')
+            ->get(['rental_inspection_item_id', 'condition']);
+        foreach ($latest as $obs) {
+            $ticks[(int) $obs->rental_inspection_item_id] = (string) $obs->condition; // append-only: the last one wins
+        }
+        $ticks = array_filter($ticks, fn ($key) => in_array($key, $printed, true));
+
+        $count = fn ($n, $desc) => trim(($n !== null && $n !== '' ? $n : '') . ($desc ? ($n !== null && $n !== '' ? ' — ' : '') . $desc : ''));
+
+        return [
+            'ticks' => $ticks,
+            'header' => [
+                'electricity' => (string) ($inspection->electricity_meter_reading ?? ''),
+                'water' => (string) ($inspection->water_meter_reading ?? ''),
+                'furnished' => (string) ($inspection->furnished_status ?? ''),
+                'keys' => $count($inspection->keys_count, $inspection->keys_description),
+                'remotes' => $count($inspection->remotes_count, $inspection->remotes_description),
+            ],
+        ];
+    }
+
+    private function renderLayout(RentalInspection $inspection, array $layout, array $prefill): string
+    {
+        $qrImages = [];
+        foreach ($layout['qr_codes'] as $qr) {
+            $qrImages[$qr['page']] = $this->qrDataUri($qr['payload']);
+        }
+
+        $pdf = Pdf::loadView('corex.rental-inspections.form-pdf', [
+            'inspection' => $inspection,
+            'layout' => $layout,
+            'qrImages' => $qrImages,
+            'prefill' => $prefill + ['ticks' => [], 'header' => []],
+        ])->setPaper([0, 0, $layout['paper']['width_pt'], $layout['paper']['height_pt']]);
+        $this->applyOptions($pdf);
+
+        return $pdf->output();
+    }
+
+    /** Generated locally with the same writer the signing-link QR uses; Quartile correction because it is read off a scan. */
+    private function qrDataUri(string $payload): string
+    {
+        $qr = new QrCode(data: $payload, errorCorrectionLevel: ErrorCorrectionLevel::Quartile, size: 240, margin: 0);
+
+        return (new PngWriter())->write($qr)->getDataUri();
+    }
+
+    /** The text a page's QR carries — the one place the format is written; parseQrPayload() is its inverse. */
+    public static function qrPayload(int $inspectionId, int $page, int $pageCount, int $version): string
+    {
+        return implode('|', [self::QR_PREFIX, $inspectionId, $page, $pageCount, $version]);
+    }
+
+    /** @return array{rental_inspection_id: int, page_number: int, page_count: int, form_version: int}|null null for anything that is not one of ours */
+    public static function parseQrPayload(string $text): ?array
+    {
+        if (! preg_match('/^' . self::QR_PREFIX . '\|(\d{1,9})\|(\d{1,3})\|(\d{1,3})\|(\d{1,3})$/', trim($text), $m)) {
+            return null;
+        }
+
+        return [
+            'rental_inspection_id' => (int) $m[1],
+            'page_number' => (int) $m[2],
+            'page_count' => (int) $m[3],
+            'form_version' => (int) $m[4],
+        ];
+    }
+
+    /** @return array{key: string, width_pt: float, height_pt: float} */
+    private function paperFor(?int $agencyId): array
+    {
+        return $this->paperByKey(RentalInspectionSetting::formPaperSizeFor($agencyId));
+    }
+
+    /** @return array{key: string, width_pt: float, height_pt: float} */
+    private function paperByKey(string $key): array
+    {
+        $paper = RentalInspectionSetting::FORM_PAPER_SIZES[$key] ?? RentalInspectionSetting::FORM_PAPER_SIZES[RentalInspectionSetting::DEFAULT_FORM_PAPER_SIZE];
+        $key = isset(RentalInspectionSetting::FORM_PAPER_SIZES[$key]) ? $key : RentalInspectionSetting::DEFAULT_FORM_PAPER_SIZE;
+
+        return ['key' => $key, 'width_pt' => (float) $paper['width_pt'], 'height_pt' => (float) $paper['height_pt']];
     }
 
     public function filenameFor(RentalInspectionForm $form): string
@@ -176,9 +306,11 @@ class RentalInspectionFormPdfService
     }
 
     /** Any change here — a room/item added, removed, renamed, reordered, or the condition vocabulary changing — must produce a new version. */
-    private function contentHash(RentalInspection $inspection, Collection $roomGroups, array $conditionStates): string
+    private function contentHash(RentalInspection $inspection, Collection $roomGroups, array $conditionStates, string $paperKey): string
     {
         $shape = [
+            'layout' => self::LAYOUT_VERSION,
+            'paper' => $paperKey,
             'property_id' => $inspection->property_id,
             'rooms' => $roomGroups->map(fn (array $g) => [
                 'room_id' => $g['room']?->id,
@@ -199,8 +331,12 @@ class RentalInspectionFormPdfService
      *   item_rows: array, boxes: array, fiducials: array, page_identifiers: array, signature_blocks: array
      * }
      */
-    private function buildLayout(RentalInspection $inspection, Collection $roomGroups, array $conditionStates, int $version): array
+    private function buildLayout(RentalInspection $inspection, Collection $roomGroups, array $conditionStates, int $version, array $paper): array
     {
+        $pw = $paper['width_pt'];
+        $ph = $paper['height_pt'];
+        $contentBottom = $ph - self::QR_BOTTOM_RESERVE;
+        $rowNo = 0;
         $page = 1;
         $y = self::MARGIN;
 
@@ -209,8 +345,8 @@ class RentalInspectionFormPdfService
         $itemRows = [];
         $boxes = [];
 
-        $ensureSpace = function (float $height) use (&$page, &$y) {
-            if ($y + $height > self::PAGE_HEIGHT - self::MARGIN) {
+        $ensureSpace = function (float $height) use (&$page, &$y, $contentBottom) {
+            if ($y + $height > $contentBottom) {
                 $page++;
                 $y = self::MARGIN;
 
@@ -266,8 +402,10 @@ class RentalInspectionFormPdfService
                     $drawConditionHeader();
                 }
 
+                $rowNo++;
                 $itemRows[] = [
                     'page' => $page, 'y' => $y,
+                    'row_no' => $rowNo,
                     'rental_inspection_item_id' => $item->id,
                     'label' => $item->label,
                     'label_x' => self::MARGIN,
@@ -280,6 +418,7 @@ class RentalInspectionFormPdfService
                     $boxY = $y + (self::ROW_HEIGHT - self::BOX_SIZE) / 2;
                     $boxes[] = [
                         'page' => $page,
+                        'row_no' => $rowNo,
                         'rental_inspection_item_id' => $item->id,
                         'room_label' => $label,
                         'item_label' => $item->label,
@@ -305,7 +444,7 @@ class RentalInspectionFormPdfService
         $ensureSpace($signatureHeight);
 
         $signatureBlocks = [];
-        $blockWidth = (self::PAGE_WIDTH - 2 * self::MARGIN - ($partyCount - 1) * self::SIGNATURE_BLOCK_GAP) / $partyCount;
+        $blockWidth = ($pw - 2 * self::MARGIN - ($partyCount - 1) * self::SIGNATURE_BLOCK_GAP) / $partyCount;
         $x = self::MARGIN;
         foreach ($tenants as $tenant) {
             $signatureBlocks[] = [
@@ -341,12 +480,19 @@ class RentalInspectionFormPdfService
         // is known, identically for every page.
         $fiducials = [];
         $pageIdentifiers = [];
+        $qrCodes = [];
         for ($p = 1; $p <= $pageCount; $p++) {
-            $fiducials = array_merge($fiducials, $this->fiducialsForPage($p));
-            $pageIdentifiers[] = $this->pageIdentifierFor($inspection->id, $p, $pageCount, $version);
+            $fiducials = array_merge($fiducials, $this->fiducialsForPage($p, $pw, $ph));
+            $pageIdentifiers[] = $this->pageIdentifierFor($inspection->id, $p, $pageCount, $version, $pw);
+            $qrCodes[] = [
+                'page' => $p,
+                'x' => round(($pw - self::QR_SIZE) / 2, 2), 'y' => round($ph - self::FIDUCIAL_INSET - self::QR_SIZE, 2), 'size' => self::QR_SIZE,
+                'payload' => self::qrPayload($inspection->id, $p, $pageCount, $version),
+            ];
         }
 
         return [
+            'paper' => $paper,
             'page_count' => $pageCount,
             'header' => $header,
             'room_headings' => $roomHeadings,
@@ -355,16 +501,17 @@ class RentalInspectionFormPdfService
             'boxes' => $boxes,
             'fiducials' => $fiducials,
             'page_identifiers' => $pageIdentifiers,
+            'qr_codes' => $qrCodes,
             'signature_blocks' => $signatureBlocks,
         ];
     }
 
     /** Four filled-square registration marks, same fixed inset on every page — a scan de-skews/scales against these. */
-    private function fiducialsForPage(int $page): array
+    private function fiducialsForPage(int $page, float $pageWidth, float $pageHeight): array
     {
         $near = self::FIDUCIAL_INSET;
-        $right = self::PAGE_WIDTH - $near - self::FIDUCIAL_SIZE;
-        $bottom = self::PAGE_HEIGHT - $near - self::FIDUCIAL_SIZE;
+        $right = $pageWidth - $near - self::FIDUCIAL_SIZE;
+        $bottom = $pageHeight - $near - self::FIDUCIAL_SIZE;
 
         return [
             ['page' => $page, 'corner' => 'top_left', 'x' => $near, 'y' => $near, 'size' => self::FIDUCIAL_SIZE, 'shape' => 'filled_square'],
@@ -396,11 +543,11 @@ class RentalInspectionFormPdfService
      * one place this geometry is computed, exactly the same way
      * pageIdentifierFor() below does internally.
      */
-    public static function pageIdentifierGridLayout(): array
+    public static function pageIdentifierGridLayout(?float $pageWidth = null): array
     {
         $totalBits = self::ID_BITS_INSPECTION + self::ID_BITS_PAGE + self::ID_BITS_VERSION;
         $gridWidth = self::ID_GRID_COLS * self::ID_BIT_SIZE + (self::ID_GRID_COLS - 1) * self::ID_BIT_GAP;
-        $gridX = self::PAGE_WIDTH - self::MARGIN - $gridWidth;
+        $gridX = ($pageWidth ?? self::PAGE_WIDTH) - self::MARGIN - $gridWidth;
         $gridY = self::MARGIN + 12.0;
 
         return [
@@ -411,14 +558,14 @@ class RentalInspectionFormPdfService
         ];
     }
 
-    private function pageIdentifierFor(int $inspectionId, int $page, int $pageCount, int $version): array
+    private function pageIdentifierFor(int $inspectionId, int $page, int $pageCount, int $version, float $pageWidth): array
     {
         $bitsInspection = $this->toBits($inspectionId, self::ID_BITS_INSPECTION);
         $bitsPage = $this->toBits($page, self::ID_BITS_PAGE);
         $bitsVersion = $this->toBits($version, self::ID_BITS_VERSION);
         $allBits = array_merge($bitsInspection, $bitsPage, $bitsVersion);
 
-        $grid = self::pageIdentifierGridLayout();
+        $grid = self::pageIdentifierGridLayout($pageWidth);
         $gridX = $grid['x'];
         $gridY = $grid['y'];
 
@@ -480,7 +627,7 @@ class RentalInspectionFormPdfService
 
     // ── The manifest — the reader lane's whole contract ────────────────
 
-    private function buildManifest(RentalInspection $inspection, array $layout, int $version, string $contentHash): array
+    private function buildManifest(RentalInspection $inspection, array $layout, int $version, string $contentHash, array $paper): array
     {
         $conditionStates = RentalInspectionSetting::conditionStatesFor($inspection->agency_id);
 
@@ -492,7 +639,12 @@ class RentalInspectionFormPdfService
             'content_hash' => $contentHash,
             'generated_at' => now()->toIso8601String(),
             'page_count' => $layout['page_count'],
-            'page_size' => ['name' => 'A4', 'width_pt' => self::PAGE_WIDTH, 'height_pt' => self::PAGE_HEIGHT],
+            'layout_version' => self::LAYOUT_VERSION,
+            'page_size' => [
+                'key' => $paper['key'],
+                'name' => RentalInspectionSetting::FORM_PAPER_SIZES[$paper['key']]['label'],
+                'width_pt' => $paper['width_pt'], 'height_pt' => $paper['height_pt'],
+            ],
             'coordinate_space' => [
                 'origin' => 'top-left',
                 'x_axis' => 'increases rightward from the left edge of the page',
@@ -503,6 +655,9 @@ class RentalInspectionFormPdfService
             ],
             'condition_states' => array_map(fn ($s) => ['key' => $s['key'], 'label' => $s['label']], $conditionStates),
             'fiducials' => $layout['fiducials'],
+            // One QR per page (spec §60): the reader's primary identification and orientation signal. `payload` is
+            // exactly what is encoded; the symbol occupies the square x,y,size in page points.
+            'qr_codes' => $layout['qr_codes'],
             'page_identifiers' => array_map(function (array $pid) {
                 return [
                     'page' => $pid['page'],
@@ -515,6 +670,7 @@ class RentalInspectionFormPdfService
             }, $layout['page_identifiers']),
             'boxes' => array_map(fn (array $b) => [
                 'page' => $b['page'],
+                'row_no' => $b['row_no'],
                 'rental_inspection_item_id' => $b['rental_inspection_item_id'],
                 'room_label' => $b['room_label'],
                 'item_label' => $b['item_label'],

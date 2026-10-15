@@ -274,7 +274,8 @@ class RentalInspectionSigningLinkService
         };
         $via = match ($s->signed_via) {
             RentalInspectionSignature::SIGNED_VIA_LINK => 'from their link',
-            RentalInspectionSignature::SIGNED_VIA_AGENT_DEVICE => "on the agent's device",
+            // §61 - a party signing on the agent's device is signing in the agent's presence; say so, with the agent's name.
+            RentalInspectionSignature::SIGNED_VIA_AGENT_DEVICE, RentalInspectionSignature::SIGNED_VIA_AGENT_SCREEN => $s->signedViaPhrase(),
             default => null,
         };
 
@@ -673,7 +674,7 @@ class RentalInspectionSigningLinkService
                 $inspection,
                 RentalInspectionAuditLog::EVENT_SIGNED_BY_LINK,
                 ucfirst($locked->party_role) . ' ' . ($outcome === RentalInspectionSigningLink::OUTCOME_SIGNED ? 'signed' : 'declined to sign') . ' ('
-                    . ($evidence['via'] === RentalInspectionSignature::SIGNED_VIA_AGENT_DEVICE ? "on the agent's device" : 'from their own link') . ') as "' . $typedName . '".',
+                    . ($evidence['via'] === RentalInspectionSignature::SIGNED_VIA_AGENT_DEVICE ? "on the agent's device" . ($by ? ", in {$by->name}'s presence" : '') : 'from their own link') . ') as "' . $typedName . '".',
                 null,
                 ['party_role' => $locked->party_role, 'link_id' => $locked->id, 'signature_id' => $signature->id, 'via' => $evidence['via']],
                 $by,

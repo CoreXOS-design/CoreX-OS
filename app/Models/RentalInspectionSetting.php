@@ -332,6 +332,16 @@ class RentalInspectionSetting extends Model
     public const DEFAULT_OMR_MARK_THRESHOLD = 0.35;
 
     /**
+     * AT-463 / rental-inspections.md §60 — the paper the printed site form is laid out for.
+     * Width x height in PDF points (1/72 in), portrait. A4 is the default.
+     */
+    public const FORM_PAPER_SIZES = [
+        'a4' => ['label' => 'A4', 'width_pt' => 595.28, 'height_pt' => 841.89],
+        'letter' => ['label' => 'US Letter', 'width_pt' => 612.0, 'height_pt' => 792.0],
+    ];
+    public const DEFAULT_FORM_PAPER_SIZE = 'a4';
+
+    /**
      * AT-433 Part C, Johan's approved default for the photo note's
      * classification. "Defect" is what the printed report's own
      * end-of-document defect-list section reads — the whole reason this
@@ -455,6 +465,7 @@ class RentalInspectionSetting extends Model
         'attended_as_labels',
         'move_out_classification_labels',
         'omr_mark_threshold',
+        'form_paper_size',
         'public_link_expiry_days',
         // §46 — signing by personal link.
         'signing_link_enabled',
@@ -1689,6 +1700,23 @@ class RentalInspectionSetting extends Model
         $noReasonNeeded = collect($states)->first(fn ($s) => empty($s['requires_notes']));
 
         return $noReasonNeeded['key'] ?? ($states[0]['key'] ?? self::DEFAULT_BASELINE_CONDITION_KEY);
+    }
+
+    /** AT-463 — the paper the agency prints the site form on; anything unrecognised reads as the default (A4). */
+    public static function formPaperSizeFor(?int $agencyId): string
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_FORM_PAPER_SIZE;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('form_paper_size');
+
+        return is_string($value) && isset(self::FORM_PAPER_SIZES[$value]) ? $value : self::DEFAULT_FORM_PAPER_SIZE;
+    }
+
+    /** @return array<string, string> key => label, for the settings select and the wizard control. */
+    public static function formPaperSizeOptions(): array
+    {
+        return array_map(fn (array $p) => $p['label'], self::FORM_PAPER_SIZES);
     }
 
     /** .ai/specs/rental-inspection-form.md §13 — read-time default, same pattern as every other column here. */

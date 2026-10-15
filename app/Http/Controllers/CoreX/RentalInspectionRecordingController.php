@@ -1541,6 +1541,8 @@ class RentalInspectionRecordingController extends Controller
             // §45.5 (Build I-3) — a representative signing on the party's own row. Checked against the
             // attendance record in RentalInspectionSignature::capture().
             'signed_by_name' => ['nullable', 'string', 'max:191'],
+            // AT-463 / §61 - "Sign now": the agent drew their own signature on screen (as opposed to the saved PIN signature).
+            'signing_method' => ['nullable', 'string', 'in:drawn'],
         ]);
 
         if ($validated['disposition'] === RentalInspectionSignature::DISPOSITION_REFUSED) {
@@ -1571,6 +1573,18 @@ class RentalInspectionRecordingController extends Controller
             ];
         } else {
             $attributes = ['recorded_by_user_id' => $request->user()->id];
+            // §61 - a signature the logged-in agent drew on screen carries who (the agent's identity), when (the row's own
+            // recorded-at), and where (IP and the device's user agent), and the report content it was given against.
+            if (($validated['signing_method'] ?? null) === 'drawn' && $validated['disposition'] === RentalInspectionSignature::DISPOSITION_SIGNED) {
+                $attributes += [
+                    'signed_via' => RentalInspectionSignature::SIGNED_VIA_AGENT_SCREEN,
+                    'signed_on_device_by_user_id' => $request->user()->id,
+                    'signed_typed_name' => mb_substr((string) $request->user()->name, 0, 191),
+                    'signed_ip' => $request->ip() ? mb_substr((string) $request->ip(), 0, 45) : null,
+                    'signed_user_agent' => $request->userAgent() ? mb_substr((string) $request->userAgent(), 0, 500) : null,
+                    'signed_report_fingerprint' => $rentalInspection->reportFingerprint(),
+                ];
+            }
         }
 
         try {

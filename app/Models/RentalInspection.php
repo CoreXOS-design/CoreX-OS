@@ -2355,6 +2355,22 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             // The "Resend report" popover must show exactly who the SERVER will send to (tenants, landlords, the agency's
             // copy addresses, the inspector, the creator) — never a list the browser rebuilds for itself.
             $insp?->setAttribute('report_recipients', $insp && $insp->status === self::STATUS_COMPLETED ? $insp->distributionRecipients() : []);
+            // AT-463 / §60 — the completed paper forms uploaded against this inspection (the panel lists them, opens the
+            // original, and links the review of what was read).
+            $insp?->setAttribute('site_form_scans', $insp ? \App\Models\RentalInspectionScan::where('rental_inspection_id', $insp->id)
+                ->latest('id')->limit(10)->get()->map(fn ($s) => [
+                    'id' => $s->id,
+                    'name' => $s->original_filename,
+                    'status' => $s->status,
+                    'status_label' => match ($s->status) {
+                        'needs_review' => 'Needs review', 'applied' => 'Applied', 'version_mismatch' => 'Form version mismatch',
+                        'failed' => 'Could not be read', default => 'Processing',
+                    },
+                    'uploaded_at' => $s->created_at?->format('Y-m-d H:i'),
+                    'review_url' => in_array($s->status, ['needs_review', 'applied', 'failed', 'version_mismatch'], true)
+                        ? route('corex.rental-inspections.scans.review', [$insp->id, $s->id]) : null,
+                    'view_url' => route('corex.rental-inspections.scans.download', [$insp->id, $s->id, 'view' => 1]),
+                ])->all() : []);
 
             return $insp;
         };

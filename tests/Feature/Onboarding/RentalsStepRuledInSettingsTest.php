@@ -46,7 +46,7 @@ final class RentalsStepRuledInSettingsTest extends TestCase
 
     /** The ruled-in controls (and their list markers): the keys a post "that never rendered the new controls" does not carry. */
     private const RULED_IN_KEYS = [
-        'credit_bureau_name', 'tenanted_label', 'show_lease_type_field', 'require_notes_blocks_progression', 'omr_mark_threshold',
+        'credit_bureau_name', 'tenanted_label', 'show_lease_type_field', 'require_notes_blocks_progression', 'omr_mark_threshold', 'form_paper_size',
         'refusal_reason_presets', 'condition_states_submitted', 'condition_states', 'baseline_condition_key',
         'photo_note_classifications_submitted', 'photo_note_classifications',
         'inventory_condition_states_submitted', 'inventory_condition_states',
@@ -182,6 +182,37 @@ final class RentalsStepRuledInSettingsTest extends TestCase
         $this->assertSame('own_1', RentalInspectionSetting::photoNoteClassificationsFor($agency->id)[0]['key']);
         $this->assertSame('own_ok', RentalInspectionSetting::conditionStatesFor($agency->id)[0]['key']);
         $this->assertSame('own_inv', RentalInventorySetting::conditionStatesFor($agency->id)[0]['key']);
+    }
+
+    /** AT-463 / rental-inspections.md §60 — the paper size for the printed site form is in the wizard like every other setting. */
+    public function test_the_site_form_paper_size_is_in_the_wizard_saves_and_is_never_reset_by_a_step_that_omits_it(): void
+    {
+        $agency = $this->agency();
+        $admin = $this->admin($agency);
+
+        $this->actingAs($admin)
+            ->get(route('corex.agency-setup.step', ['step' => 'leases']))
+            ->assertOk()
+            ->assertSee('Paper for the printed inspection site form')
+            ->assertSee('name="form_paper_size"', false)
+            ->assertSee('US Letter');
+        $this->assertSame('a4', RentalInspectionSetting::formPaperSizeFor($agency->id));
+
+        $this->actingAs($admin)
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $this->basePayload($admin, $agency) + ['form_paper_size' => 'letter'])
+            ->assertSessionHasNoErrors();
+        $this->assertSame('letter', RentalInspectionSetting::formPaperSizeFor($agency->id));
+
+        // A post that never rendered the control leaves the saved paper alone.
+        $this->actingAs($admin)
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $this->basePayload($admin, $agency))
+            ->assertSessionHasNoErrors();
+        $this->assertSame('letter', RentalInspectionSetting::formPaperSizeFor($agency->id));
+
+        // Something that is not a paper we lay out is refused, not stored.
+        $this->actingAs($admin)
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $this->basePayload($admin, $agency) + ['form_paper_size' => 'tabloid']);
+        $this->assertSame('letter', RentalInspectionSetting::formPaperSizeFor($agency->id));
     }
 
     public function test_the_lists_save_through_their_canonical_savers_when_their_markers_are_posted(): void
