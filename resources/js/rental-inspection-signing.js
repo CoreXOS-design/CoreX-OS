@@ -168,7 +168,7 @@ window.inspectionSigningLinks = function (cfg) {
                     const data = await this.ensure(row, 'device');
                     this.signNow = {
                         open: true, kind: 'party', title: 'Sign now on this device - ' + row.name,
-                        sub: row.name + ' is signing now, in ' + (this.agentName || 'the agent') + "'s presence, on " + (this.agentName ? this.agentName + "'s" : "the agent's") + ' device. This is recorded as signed on the agent\'s device.',
+                        sub: row.name + ' is signing now, on ' + (this.agentName || 'the agent') + "'s device, in " + (this.agentName || 'the agent') + "'s presence. This is recorded.",
                         linkId: data.link_id, typedName: row.name, readConfirmed: false, error: '', busy: false,
                     };
                 }

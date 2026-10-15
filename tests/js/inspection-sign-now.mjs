@@ -183,7 +183,7 @@ const signedRow = (over) => row(Object.assign({ recorded: { disposition: 'signed
     await c.openSignNow(row());
     ok(sb.calls[0].method === 'POST' && sb.calls[0].url === '/corex/rental-inspections/77/signing-links' && sb.calls[0].body.channel === 'device' && sb.calls[0].body.party_contact_id === 5, 'party: a live link is issued first, marked as used on this device');
     ok(c.signNow.open && c.signNow.kind === 'party' && c.signNow.linkId === 901, 'party: the overlay opens for that link');
-    ok(/Naledi Dlamini/.test(c.signNow.title) && /Aileen Agent's presence/.test(c.signNow.sub) && /signed on the agent's device/.test(c.signNow.sub), 'party: labelled with who is signing and that it is in the agent\'s presence');
+    ok(/Naledi Dlamini/.test(c.signNow.title) && /on Aileen Agent's device, in Aileen Agent's presence/.test(c.signNow.sub), 'party: labelled with who is signing, on whose device, in whose presence');
     ok(c.signNow.typedName === 'Naledi Dlamini', "party: the signer's name is filled in, correctable");
 
     await c.submitSignNow();

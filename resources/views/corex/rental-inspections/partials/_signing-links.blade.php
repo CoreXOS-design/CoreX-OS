@@ -96,7 +96,7 @@
             </div>
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Signature - draw with a finger or pen</label>
-                <canvas x-ref="pad" class="w-full block rounded-lg" style="height:180px; touch-action:none; background:#fff; border:1px solid var(--border);" data-qa="sign-now-pad"></canvas>
+                <canvas x-ref="pad" @pointerdown="signNow.error = ''" class="w-full block rounded-lg" style="height:180px; touch-action:none; background:#fff; border:1px solid var(--border);" data-qa="sign-now-pad"></canvas>
                 <button type="button" @click="clearPad()" class="mt-1 text-xs underline" style="color:var(--text-muted);">Clear</button>
             </div>
             <label class="flex items-start gap-2 text-sm" style="color:var(--text-secondary);" x-show="signNow.kind === 'party'">
