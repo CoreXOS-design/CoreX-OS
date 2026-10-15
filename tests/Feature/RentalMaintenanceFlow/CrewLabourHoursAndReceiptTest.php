@@ -89,7 +89,7 @@ final class CrewLabourHoursAndReceiptTest extends TestCase
         $this->assertNull($line->unit_price, 'the crew line carries no selling');
 
         // and it reaches the office when the crew presses Send
-        $this->post(route('rentals.crew-job.lines.send', $this->rawToken), ['confirm' => '1'])->assertRedirect();
+        $this->post(route('rentals.crew-job.lines.send', $this->rawToken), ['findings' => 'Found a fault; needs parts.'])->assertRedirect();
         $this->assertSame(RentalJobCardLine::OFFICE_AWAITING, $line->fresh()->office_status);
     }
 
@@ -225,7 +225,7 @@ final class CrewLabourHoursAndReceiptTest extends TestCase
     {
         $item = $this->labourItem('PLUMB-HOUR', 80.00);
         $this->postLine(['rental_catalogue_item_id' => $item->id, 'quantity' => 2])->assertRedirect();
-        $this->post(route('rentals.crew-job.lines.send', $this->rawToken), ['confirm' => '1'])->assertRedirect();
+        $this->post(route('rentals.crew-job.lines.send', $this->rawToken), ['findings' => 'Found a fault; needs parts.'])->assertRedirect();
         $line = RentalJobCardLine::where('rental_catalogue_item_id', $item->id)->firstOrFail();
 
         $block = \App\Services\Rentals\CrewPricingBlock::for($this->card->fresh(), $this->crewCtx($this->card->fresh()));
@@ -302,7 +302,7 @@ final class CrewLabourHoursAndReceiptTest extends TestCase
         $this->postForm(route('rentals.crew-job.lines.store', $this->rawToken), [
             'type' => 'part', 'description' => 'Washer', 'quantity' => 1, 'unit_cost' => '4',
         ] + ['receipt_camera' => UploadedFile::fake()->image('r.jpg')])->assertRedirect();
-        $this->post(route('rentals.crew-job.lines.send', $this->rawToken), ['confirm' => '1'])->assertRedirect();
+        $this->post(route('rentals.crew-job.lines.send', $this->rawToken), ['findings' => 'Found a fault; needs parts.'])->assertRedirect();
         $line = RentalJobCardLine::where('description', 'Washer')->firstOrFail();
         $receipt = RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_job_card_line_id', $line->id)->where('photo_type', RentalJobCardLine::RECEIPT_PHOTO_TYPE)->firstOrFail();
 

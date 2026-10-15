@@ -18,6 +18,8 @@ final class RentalCrewLinesSubmitted extends AbstractDomainEvent
         public readonly string $via,
         public readonly ?int $priceRequestId,
         ?string $traceId = null,
+        /** AT-465 - the crew report (one per send); the alert is about THIS send, so a second batch is not mistaken for the first. */
+        public readonly ?int $crewReportId = null,
     ) {
         parent::__construct($traceId);
     }
@@ -27,6 +29,6 @@ final class RentalCrewLinesSubmitted extends AbstractDomainEvent
 
     public function context(): array
     {
-        return ['count' => $this->count, 'via' => $this->via, 'rental_job_card_price_request_id' => $this->priceRequestId];
+        return ['count' => $this->count, 'via' => $this->via, 'rental_job_card_price_request_id' => $this->priceRequestId, 'rental_job_card_crew_report_id' => $this->crewReportId];
     }
 }

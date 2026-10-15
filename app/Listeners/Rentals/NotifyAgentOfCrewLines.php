@@ -33,14 +33,23 @@ class NotifyAgentOfCrewLines
 
         $pricing = $event->priceRequestId !== null;
 
+        // AT-465 - the alert's subject is THIS send (the crew report), not the card: the dispatcher's 6-hour "same alert about the same
+        // subject" cooldown would otherwise swallow the office's alert for the crew's second batch. A card with no report (an older
+        // send, or a caller that predates reports) keeps the card as the subject.
+        $report = $event->crewReportId ? \App\Models\RentalJobCardCrewReport::withoutGlobalScopes()->find($event->crewReportId) : null;
+        $subject = $report ?? $card;
+        $found = $report && trim((string) $report->findings) !== ''
+            ? ' Crew says: ' . \Illuminate\Support\Str::limit(trim((string) preg_replace('/\s+/u', ' ', (string) $report->findings)), 120)
+            : '';
+
         foreach ($recipients as $agent) {
             app(NotificationDispatcher::class)->fire(
                 $agent,
                 'rental_job_card.crew_lines_submitted',
-                $card,
+                $subject,
                 [
                     'title' => \App\Support\RentalAlertTitle::withProperty($pricing ? 'Crew priced the job' : 'Crew sent parts and labour', $property),
-                    'body' => $card->title . ': ' . $event->count . ' line' . ($event->count === 1 ? '' : 's') . ' waiting for you to accept and price.',
+                    'body' => $card->title . ': ' . $event->count . ' line' . ($event->count === 1 ? '' : 's') . ' waiting for you to accept and price.' . $found,
                     'action_url' => route('corex.rental-job-cards.show', $card->id),
                     'severity' => 'info',
                     // A discrete event — each send is a new fact, so each one notifies.

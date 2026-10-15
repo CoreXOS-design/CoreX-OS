@@ -142,7 +142,7 @@ final class CrewPriceRequestTest extends TestCase
         $line = $this->crewDraft($this->card, ['description' => 'Tap', 'unit_cost' => 80], $ctx);
         $this->assertSame(RentalJobCardLine::ORIGIN_CREW_PRICING, $line->origin);
 
-        app(\App\Services\Rentals\CrewJobService::class)->sendToOffice($this->card, $ctx);
+        app(\App\Services\Rentals\CrewJobService::class)->sendToOffice($this->card, $ctx, 'Found a fault; needs parts.');
 
         $request = $this->card->priceRequests()->firstOrFail();
         $this->assertSame(RentalJobCardPriceRequest::STATUS_SUBMITTED, $request->status);
@@ -152,12 +152,17 @@ final class CrewPriceRequestTest extends TestCase
         $this->assertSame('TestPhone/1.0', $request->submitted_device);
         $this->assertTrue($this->card->updates()->where('update_type', 'pricing_submitted')->exists());
 
-        // sending again with nothing new changes nothing and says so
+        // sending again straight away is a double-tap: nothing new goes, and it says "already sent" (0 lines), not an error
+        $this->assertSame(0, app(\App\Services\Rentals\CrewJobService::class)->sendToOffice($this->card, $ctx));
+        // ... and later, with still nothing new, it is refused
+        \Illuminate\Support\Carbon::setTestNow(now()->addMinutes(10));
         try {
             app(\App\Services\Rentals\CrewJobService::class)->sendToOffice($this->card, $ctx);
-            $this->fail('a second send with nothing new must be refused');
+            $this->fail('a send with nothing new must be refused');
         } catch (\InvalidArgumentException $e) {
             $this->assertStringContainsString('Add at least one', $e->getMessage());
+        } finally {
+            \Illuminate\Support\Carbon::setTestNow();
         }
         $this->assertSame(1, $this->card->priceRequests()->count());
 
@@ -176,7 +181,7 @@ final class CrewPriceRequestTest extends TestCase
         $this->ask();
         $ctx = $this->crewCtx($this->card);
         $line = $this->crewDraft($this->card, ['description' => 'Tap', 'unit_cost' => 100, 'quantity' => 2], $ctx);
-        app(\App\Services\Rentals\CrewJobService::class)->sendToOffice($this->card, $ctx);
+        app(\App\Services\Rentals\CrewJobService::class)->sendToOffice($this->card, $ctx, 'Found a fault; needs parts.');
         $this->assertEquals(0.0, (float) $this->card->fresh()->total_amount, 'not counted while it awaits the office');
 
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.crew-lines.accept', [$this->card, $line->id]), [])

@@ -226,7 +226,7 @@ class CrewPageController extends Controller
         }
         $this->logAction($record, $jobCard, 'Added a ' . $line->type . ' line (draft): ' . $line->description, $request);
 
-        return redirect()->route('rentals.crew-page.job', [$token, $jobCard->id])->with('success', 'Line added. Press "Send to office" when you have added everything.');
+        return redirect()->route('rentals.crew-page.job', [$token, $jobCard->id])->with('success', 'Added to your list. Nothing has gone to the office yet - press "Send to office" when your list is ready.');
     }
 
     public function updateLine(Request $request, string $token, int $card, int $line): RedirectResponse|Response
@@ -279,12 +279,15 @@ class CrewPageController extends Controller
         if (! $record || ! $jobCard) {
             return $this->unavailable();
         }
-        $request->validate(['confirm' => ['accepted']], ['confirm.accepted' => 'Tick the box to confirm before you send.']);
+        $request->validate(['findings' => ['nullable', 'string', 'max:' . CrewJobService::MAX_FINDINGS_LENGTH]], ['findings.max' => 'Keep what you found to ' . CrewJobService::MAX_FINDINGS_LENGTH . ' characters or fewer.']);
 
         try {
-            $sent = $this->jobs->sendToOffice($jobCard, CrewViewContext::forCrewPage($record, $jobCard, $request));
+            $sent = $this->jobs->sendToOffice($jobCard, CrewViewContext::forCrewPage($record, $jobCard, $request), $request->input('findings'));
         } catch (\InvalidArgumentException|\LogicException $e) {
-            return redirect()->route('rentals.crew-page.job', [$token, $jobCard->id])->withErrors(['crew' => $e->getMessage()]);
+            return redirect()->route('rentals.crew-page.job', [$token, $jobCard->id])->withErrors(['crew' => $e->getMessage()])->withInput($request->only('findings'));
+        }
+        if ($sent === 0) {
+            return redirect()->route('rentals.crew-page.job', [$token, $jobCard->id])->with('success', 'That is already with the office.');
         }
         $this->logAction($record, $jobCard, "Sent {$sent} part/labour line" . ($sent === 1 ? '' : 's') . ' to the office', $request);
 

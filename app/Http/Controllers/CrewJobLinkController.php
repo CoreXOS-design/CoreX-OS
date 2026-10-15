@@ -218,7 +218,7 @@ class CrewJobLinkController extends Controller
             return $this->unavailable();
         }
 
-        return redirect()->route('rentals.crew-job.show', $token)->with('success', 'Line added. Press "Send to office" when you have added everything.');
+        return redirect()->route('rentals.crew-job.show', $token)->with('success', 'Added to your list. Nothing has gone to the office yet - press "Send to office" when your list is ready.');
     }
 
     public function updateLine(Request $request, string $token, int $line): RedirectResponse|View
@@ -273,12 +273,15 @@ class CrewJobLinkController extends Controller
             return $this->unavailable();
         }
         [$record, $card] = $resolved;
-        $request->validate(['confirm' => ['accepted']], ['confirm.accepted' => 'Tick the box to confirm before you send.']);
+        $request->validate(['findings' => ['nullable', 'string', 'max:' . CrewJobService::MAX_FINDINGS_LENGTH]], ['findings.max' => 'Keep what you found to ' . CrewJobService::MAX_FINDINGS_LENGTH . ' characters or fewer.']);
 
         try {
-            $sent = app(CrewJobService::class)->sendToOffice($card, CrewViewContext::forJobLink($record, $card, $request));
+            $sent = app(CrewJobService::class)->sendToOffice($card, CrewViewContext::forJobLink($record, $card, $request), $request->input('findings'));
         } catch (\InvalidArgumentException|\LogicException $e) {
-            return redirect()->route('rentals.crew-job.show', $token)->withErrors(['crew' => $e->getMessage()]);
+            return redirect()->route('rentals.crew-job.show', $token)->withErrors(['crew' => $e->getMessage()])->withInput($request->only('findings'));
+        }
+        if ($sent === 0) {
+            return redirect()->route('rentals.crew-job.show', $token)->with('success', 'That is already with the office.');
         }
 
         return redirect()->route('rentals.crew-job.show', $token)->with('success', $sent === 1 ? 'Sent to the office. They will check it and price it.' : "Sent {$sent} lines to the office. They will check them and price them.");

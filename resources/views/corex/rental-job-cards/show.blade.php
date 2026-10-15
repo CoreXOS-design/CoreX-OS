@@ -133,6 +133,7 @@
     <div id="jc-layout" class="jc-layout">
         <div id="jc-left-col" class="jc-left">
             @include('corex.rental-job-cards._job-facts')
+            @include('corex.rental-job-cards._crew-reports')
             @include('corex.rental-job-cards._tasks-lines')
             @include('corex.rental-job-cards._signoff-box')
             @if($stage['can']['signed_copy'] || $signedCopies->isNotEmpty())

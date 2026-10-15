@@ -91,7 +91,7 @@ final class CrewPartsPanelTest extends TestCase
         $body = $this->get($this->linkUrl())->assertOk()->getContent();
 
         $this->assertStringContainsString('Geyser element', $body);
-        $this->assertStringContainsString('Draft — not sent yet', $body);
+        $this->assertStringContainsString('On your list — not sent yet', $body);
         $this->assertStringContainsString('R 97.00', $body, "the crew's own cost");
         $this->assertStringNotContainsString('4,321.99', $body);
         $this->assertStringNotContainsString('4321.99', $body);
@@ -108,7 +108,7 @@ final class CrewPartsPanelTest extends TestCase
         $this->assertSame(RentalJobCardLine::OFFICE_CREW_DRAFT, $line->office_status);
         $this->assertStringContainsString('via crew page', (string) $line->crew_added_by_label);
 
-        $this->post(route('rentals.crew-page.lines.send', [$crewToken, $this->card->id]), ['confirm' => 1])->assertRedirect();
+        $this->post(route('rentals.crew-page.lines.send', [$crewToken, $this->card->id]), ['findings' => 'Found a fault; needs parts.'])->assertRedirect();
         $this->assertSame(RentalJobCardLine::OFFICE_AWAITING, $line->fresh()->office_status);
         $this->assertTrue(\App\Models\RentalCrewLinkEvent::withoutGlobalScopes()->where('rental_job_card_id', $this->card->id)->where('note', 'like', 'Sent 1 part/labour line%')->exists(), "the crew's own link log records it");
     }
@@ -133,7 +133,7 @@ final class CrewPartsPanelTest extends TestCase
 
         // a sent line is the office's now
         $this->postLine($this->goodLine(['description' => 'Second']));
-        $this->post(route('rentals.crew-job.lines.send', $this->rawToken), ['confirm' => 1])->assertRedirect();
+        $this->post(route('rentals.crew-job.lines.send', $this->rawToken), ['findings' => 'Found a fault; needs parts.'])->assertRedirect();
         $sent = RentalJobCardLine::where('description', 'Second')->firstOrFail();
         $this->post(route('rentals.crew-job.lines.update', [$this->rawToken, $sent->id]), $this->goodLine(['description' => 'Tampered']))
             ->assertRedirect()->assertSessionHasErrors('crew');
@@ -169,7 +169,7 @@ final class CrewPartsPanelTest extends TestCase
         // AT-459: labour is hours only — the crew never types a cost for it
         $this->postLine(['type' => 'labour', 'description' => 'Two', 'quantity' => 3]);
 
-        $this->post(route('rentals.crew-job.lines.send', $this->rawToken), ['confirm' => 1])->assertRedirect()->assertSessionHas('success');
+        $this->post(route('rentals.crew-job.lines.send', $this->rawToken), ['findings' => 'Found a fault; needs parts.'])->assertRedirect()->assertSessionHas('success');
 
         $this->assertSame(2, RentalJobCardLine::where('office_status', RentalJobCardLine::OFFICE_AWAITING)->count());
         $this->assertSame(1, $this->card->updates()->where('update_type', 'crew_lines_sent')->count(), 'ONE audit row per send, never per line');
@@ -186,21 +186,22 @@ final class CrewPartsPanelTest extends TestCase
         $this->postLine($this->goodLine(['description' => 'One']));
         $this->postLine($this->goodLine(['description' => 'Two']));
 
-        $this->post(route('rentals.crew-job.lines.send', $this->rawToken), ['confirm' => 1])->assertRedirect();
+        $this->post(route('rentals.crew-job.lines.send', $this->rawToken), ['findings' => 'Found a fault; needs parts.'])->assertRedirect();
 
         $eventTypeId = NotificationEventType::where('key', 'rental_job_card.crew_lines_submitted')->value('id');
         $this->assertNotNull($eventTypeId, 'the F9 migration registered the key');
-        $this->assertSame(1, NotificationDispatchLog::where('notification_event_type_id', $eventTypeId)->where('subject_id', $this->card->id)->count());
+        $this->assertSame(1, NotificationDispatchLog::where('notification_event_type_id', $eventTypeId)->where('subject_type', \App\Models\RentalJobCardCrewReport::class)->count(), 'the alert is about this send (the crew report), so a second batch alerts too');
     }
 
-    public function test_sending_nothing_or_without_the_tick_is_refused_in_plain_language(): void
+    public function test_sending_nothing_or_without_findings_on_the_first_send_is_refused_in_plain_language(): void
     {
-        $this->post(route('rentals.crew-job.lines.send', $this->rawToken), ['confirm' => 1])
+        $this->post(route('rentals.crew-job.lines.send', $this->rawToken), ['findings' => 'Found a fault; needs parts.'])
             ->assertSessionHasErrors('crew');
         $this->assertStringContainsString('Add at least one part or labour line', session('errors')->first('crew'));
 
         $this->postLine($this->goodLine());
-        $this->post(route('rentals.crew-job.lines.send', $this->rawToken), [])->assertSessionHasErrors('confirm');
+        $this->post(route('rentals.crew-job.lines.send', $this->rawToken), [])->assertSessionHasErrors('crew');
+        $this->assertStringContainsString('what you found', session('errors')->first('crew'));
         $this->assertSame(0, RentalJobCardLine::where('office_status', RentalJobCardLine::OFFICE_AWAITING)->count());
     }
 

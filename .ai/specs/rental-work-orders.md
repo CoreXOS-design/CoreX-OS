@@ -5127,3 +5127,57 @@ Johan's QA1 case (job card 99, item PLUMB-01): the item was saved with cost 0, m
 - **Job card line pricing (`RentalPricingService::resolveSelling`, rule 5).** Rules 1-4 are unchanged (set by hand -> line markup -> card parts/labour % -> card all-lines %). Rule 5 now reads the item's driver: `markup` -> selling = the LINE's cost + the item's markup (% of cost, or the rand amount per unit, converted to the agency's capture mode on lines), where the line cost is the office-typed cost, the crew's actual once accepted, or the catalogue's `cost_excl` when the line has none; `selling` -> the catalogue's fixed selling price, as before. The catalogue's stored selling of a markup item is never what a line is priced at. New `selling_basis` = `catalogue_markup`; the label under the selling price reads `markup 20 %` or `+ R5.00` (was "catalogue"). The add-line picker's selling placeholder says the same.
 - **Re-deriving.** Changing a line's cost (office edit, or a crew actual accepted) re-prices it through the same resolver unless the selling was set by hand (`selling_basis = manual` - unchanged). The line's own "Markup on this line" still overrides; "Back to automatic" returns to the catalogue MARKUP (not the catalogue selling). Existing lines are not mass-rewritten: they re-derive the next time they are saved, and `php artisan rentals:rederive-catalogue-markup-lines {--job-card=ID | --all} [--dry-run]` brings catalogue-sourced lines of markup items up to date (never a hand-set price, a line/card markup, or a completed/cancelled card). Run on QA1 for job card 99.
 Tests: `RentalMaintenanceFlow/CatalogueMarkupDriverTest.php`.
+
+### 17.40 Crew link: the list, the findings, and ONE "Send to office"; the NEXT bar (AT-465, 15 Oct 2026, cc6, QA1)
+
+**Johan's walk (QA1, the "Blocked drain / toilet" job, crew John Team):** he captured 2 hours of labour in the add form, then "looked for a
+submit" and found none - the only button was "Add line" at the foot of the form, under the photo field. The server log shows his link was
+opened twice and **nothing was ever posted**: the line never existed. (The earlier build already kept the crew's lines as server-side drafts
+and had a "Send to office" step; what was wrong was the page, not the storage - the form button read like a send, the real Send sat in a
+separate block that only appeared once a line existed, behind a tick box, and nothing on the page said what to do next.)
+
+**The crew's flow** (Johan): arrive -> report what you found and what you need -> send -> the office gets owner authority, or authorises
+within the owner's allowed amount -> do the work -> Mark work completed.
+
+**What the crew page does now** (both the per-job link and the crew page; one shared view):
+1. **NEXT bar** under the address block (`CrewNextBar`, read from the crew payload, key `next`): one sentence and at most one button, by state -
+   nothing sent yet ("Look at the job, then tell the office what you found ... press Send to office" / when the office asked: "The office asked you to
+   price this job: add your parts and hours, then press Send to office"), lines on the list ("Your list has N lines. Tell the office what you found,
+   then press Send to office." -> button to the Send box), sent ("Sent - waiting for the office."), approved ("Approved: booked <date>. Do the work,
+   take photos, then Mark work completed." -> button to the completion card), on hold (do not attend), completed ("Completed - thank you.").
+2. **A list, not a post.** "+ Add a part or labour" opens the form; its button reads **Add to list**; after adding, the page returns with the form
+   closed and the line on the list ("On your list - not sent yet"), with Change / Remove on each. Lines are stored server-side as the crew's drafts
+   (`office_status = crew_draft`), so a refresh keeps them and the office sees none of them. Labour is still HOURS only; the crew never prices labour.
+3. **One send.** When the list has lines, the "What did you find, and what is needed?" box appears with a sticky bottom button **Send to office (N)**
+   that submits it. The box is **required on the crew's first send for a card, optional afterwards**. One send = one `rental_job_card_crew_reports`
+   row (findings, line count, who/where), the lines it carried (`rental_job_card_lines.rental_job_card_crew_report_id`), their photos and receipts
+   (already attached per line), ONE "Crew sent N lines" history event and ONE alert. The old "tick to confirm" box is gone; the bar says "By sending
+   you confirm the costs are what you actually paid."
+4. **After sending** the lines read "Sent - waiting for the office" / "Accepted" / "Not accepted"; the crew can keep adding and send a second batch.
+5. **Mark work completed** is unchanged (offered only once the job is approved). After approval the NEXT bar's only button is Mark work completed;
+   the Parts & labour card stays on the page for a genuine extra but is no longer the call to action.
+
+**Robustness.** A send with an empty list is refused in plain words; a first send without findings is refused and the list is kept; findings are
+limited to 2000 characters. A double tap (or the same send from two tabs) takes a row lock on the card: the second finds nothing left to send and, if a
+send happened in the last 120 seconds, answers "That is already with the office." instead of an error or a second batch. An expired or revoked link
+shows the standard "no longer available" page and sends nothing.
+
+**Office side (no approval rule changed).**
+- The job card's **Returned** bar reads `Crew reported: "<findings>" - N lines, R x cost <when>` for the latest send (cost = the crew's own cost on
+  the lines of that send; omitted while it is all labour). The **Next** bar is the existing one (within the owner's limit the agent authorises;
+  above it, send the quote to the owner).
+- A **"What the crew found"** block (`_crew-reports`) on the job card (above the tasks/lines) and on the work order (above "Approve the cost").
+- The **quote PDF** gets a "What our maintenance team found" box right after Source (where it already prints the fault description), and the
+  **owner's** work-order payload appends "What our maintenance team found: ..." to its `description` (the tenant's payload is unchanged).
+
+**Alert fix found on the way.** `NotifyAgentOfCrewLines` fired the alert about the CARD, and the dispatcher's 6-hour same-event-same-subject cooldown
+silently swallowed the office's alert for any second batch (the listener's comment claimed otherwise). The alert's subject is now the crew report (one
+per send); the body adds the first 120 characters of the findings. The shared dispatcher is untouched.
+
+**Data.** Migration `2026_11_09_100000_create_rental_job_card_crew_reports_table` (new table, soft deletes, agency-scoped; one nullable column on lines).
+Setting: none (nothing here is agency-configurable, so nothing for the setup wizard).
+
+**Tests.** `RentalMaintenanceFlow/CrewStagedListAndSendTest` (two staged lines survive a refresh and nothing reaches the office; the NEXT bar in every state;
+one send = one report, one event, one alert, and the office reads it; second batch alerts again with findings optional; zero-line / no-findings /
+too-long refused; double tap sends once; expired link sends nothing; owner quote and work order carry the findings, tenant does not).
+`CrewPartsPanelTest`, `CrewLabourHoursAndReceiptTest`, `CrewPriceRequestTest` and the `BuildsPricingFixtures` helper now pass findings on a first send.

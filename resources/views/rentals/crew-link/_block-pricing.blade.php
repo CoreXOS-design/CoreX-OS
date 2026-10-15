@@ -9,7 +9,9 @@
     the crew never types, sees or is told a labour rate or amount (the office prices it).
     The crew types the ACTUAL COST of each part and nothing else about money: there is no selling price, markup, margin, job
     total, owner or approval figure anywhere in this partial or in the $block it reads (CrewPricingBlock — guarded by
-    CrewPayloadNeverCarriesSellingTest). Lines the crew adds are DRAFTS — in no total anywhere — until "Send to office".
+    CrewPayloadNeverCarriesSellingTest). Lines the crew adds go on THEIR LIST (AT-465: stored server-side as drafts, so a refresh keeps them) — in no total anywhere and
+    never seen by the office — until the ONE sticky "Send to office", which carries the list, the photos and receipts on it, and
+    "what did you find / what is needed" (required on the first send) as a single submission.
 
     Receives $block = CrewPricingBlock::for($card, $ctx) ([] for a closed card) and inherits $actions from _job-body:
       line_add, line_update (url with the literal "__LINE__"), line_archive (same), lines_send.
@@ -27,7 +29,7 @@
         default => 'background:#eef3f8; color:#26435f;',
     };
 @endphp
-<div class="cj-card cj-pricing" id="cj-pricing" data-crew-pricing>
+<div class="cj-card cj-pricing {{ $canWrite && !empty($block['draft_count']) ? 'has-sendbar' : '' }}" id="cj-pricing" data-crew-pricing>
     <style>
         .cj-pricing input[type=number], .cj-pricing textarea { width: 100%; min-height: 48px; padding: 11px 12px; border: 1px solid var(--cj-border); border-radius: 10px; font: inherit; font-size: 16px; background: #fff; }
         .cj-pricing textarea { min-height: 76px; }
@@ -45,6 +47,11 @@
         .cj-pricing .cj-receipt .cj-filebtn.has-file { background: #eafaf0; color: #1f8a4c; border-color: #1f8a4c; }
         .cj-pricing .cj-sr { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 0; }
         .cj-pricing .cj-receipt-name { margin-top: 6px; }
+        .cj-pricing.has-sendbar { margin-bottom: 120px; }
+        .cj-sendbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: #fff; border-top: 1px solid var(--cj-border); box-shadow: 0 -4px 14px rgba(0,0,0,.08); padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); }
+        .cj-sendbar .in { max-width: 560px; margin: 0 auto; }
+        .cj-sendbar .cj-btn { margin-top: 0; }
+        .cj-sendbar .cj-muted { text-align: center; margin-top: 6px; font-size: 12px; }
     </style>
     <h2>Parts &amp; labour</h2>
 
@@ -52,10 +59,10 @@
         <div class="cj-ask" data-price-request>
             <strong>The office asked you to price this job.</strong>
             @if(!empty($block['request']['note']))<div style="margin-top:4px;">{{ $block['request']['note'] }}</div>@endif
-            <div class="cj-muted" style="margin-top:4px;">Add every part and piece of labour with what it actually cost you, then press &ldquo;Send to office&rdquo;.</div>
+            <div class="cj-muted" style="margin-top:4px;">Add every part and piece of labour with what it actually cost you to your list, then press &ldquo;Send to office&rdquo;.</div>
         </div>
     @else
-        <div class="cj-muted" style="margin-bottom:8px;">Need something extra on this job? Add it here with what it cost and send it to the office. Nothing counts until the office accepts it.</div>
+        <div class="cj-muted" style="margin-bottom:8px;">Look at the job, then add every part and piece of labour that is needed to your list. Nothing goes to the office until you press &ldquo;Send to office&rdquo;, and nothing counts until the office accepts it.</div>
     @endif
 
     @forelse($block['lines'] as $l)
@@ -92,11 +99,11 @@
             @endif
         </div>
     @empty
-        <div class="cj-muted" data-no-lines>You have not added anything yet.</div>
+        <div class="cj-muted" data-no-lines>Your list is empty. Add a part or labour below.</div>
     @endforelse
 
     @if($canWrite)
-        <details class="cj-add" style="margin-top:10px;" @if(empty($block['lines']) && !empty($block['request'])) open @endif>
+        <details class="cj-add cj-add-new" style="margin-top:10px;" @if((empty($block['lines']) && !empty($block['request'])) || old('description') !== null || $errors->has('crew')) open @endif>
             <summary>+ Add a part or labour</summary>
             <form method="POST" action="{{ $actions['line_add'] }}" enctype="multipart/form-data" class="cj-line-form">
                 @csrf
@@ -113,16 +120,26 @@
                 @if(!empty($block['request']))
                     <label class="cj-confirm"><input type="checkbox" name="is_extra" value="1"><span>This is an extra, not part of the price you were asked for.</span></label>
                 @endif
-                <button type="submit" class="cj-btn primary">Add line</button>
+                <button type="submit" class="cj-btn primary">Add to list</button>
             </form>
         </details>
 
         @if(!empty($block['draft_count']))
-            <form method="POST" action="{{ $actions['lines_send'] }}" class="cj-send-form" style="margin-top:14px;">
+            {{-- AT-465 - the ONE send. The textarea is part of the page (so it can be filled in before the button is pressed); the
+                 button lives in the sticky bar below and submits this form through its form="" attribute. --}}
+            <form id="cj-send-form" method="POST" action="{{ $actions['lines_send'] }}" class="cj-send-form" style="margin-top:14px;">
                 @csrf
-                <label class="cj-confirm"><input type="checkbox" name="confirm" value="1" required><span>I have added everything, and the costs are what I actually paid.</span></label>
-                <button type="submit" class="cj-btn ok">Send to office ({{ $block['draft_count'] }})</button>
+                <div id="cj-send"></div>
+                <label class="cj-label" for="cj-findings">What did you find, and what is needed?@if(empty($block['first_send'])) <span class="cj-muted">(optional this time)</span>@endif</label>
+                <textarea id="cj-findings" name="findings" rows="4" maxlength="{{ \App\Services\Rentals\CrewJobService::MAX_FINDINGS_LENGTH }}" @if(!empty($block['first_send'])) required @endif placeholder="e.g. Basin trap is cracked and leaking. Needs a new trap and about 2 hours to fit.">{{ old('findings') }}</textarea>
+                <div class="cj-muted" style="margin-top:6px;">Your list ({{ $block['draft_count'] }} {{ $block['draft_count'] === 1 ? 'line' : 'lines' }}), and the photos and receipts on it, go to the office with this.</div>
             </form>
+            <div class="cj-sendbar" data-crew-sendbar>
+                <div class="in">
+                    <button type="submit" form="cj-send-form" class="cj-btn ok">Send to office ({{ $block['draft_count'] }})</button>
+                    <div class="cj-muted">By sending you confirm the costs are what you actually paid.</div>
+                </div>
+            </div>
         @endif
     @endif
 
@@ -178,7 +195,12 @@
             }
             root.querySelectorAll('.cj-line-form').forEach(wire);
             root.querySelectorAll('form:not(.cj-line-form)').forEach(function (f) {
-                f.addEventListener('submit', function () { var b = f.querySelector('button[type=submit]'); if (b) { setTimeout(function () { b.disabled = true; }, 0); } });
+                f.addEventListener('submit', function () {
+                    // a button inside the form, or - for the sticky "Send to office" - one that points at it with form="id": one tap only
+                    var btns = Array.prototype.slice.call(f.querySelectorAll('button[type=submit]'));
+                    if (f.id) { btns = btns.concat(Array.prototype.slice.call(document.querySelectorAll('button[type=submit][form="' + f.id + '"]'))); }
+                    btns.forEach(function (b) { setTimeout(function () { b.disabled = true; }, 0); });
+                });
             });
         })();
     </script>

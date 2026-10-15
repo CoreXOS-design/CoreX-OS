@@ -254,6 +254,25 @@ class RentalWorkOrderClientViewService
     }
 
     /**
+     * AT-465 - the OWNER's quote already shows the work order's description; when the crew reported what they found and what is
+     * needed, that text follows it, so the owner reads why the work is quoted. Tenants never see it.
+     */
+    private function descriptionFor(RentalWorkOrder $workOrder, ?\App\Models\RentalJobCard $card, string $audience): ?string
+    {
+        $description = $workOrder->description;
+        if ($audience !== self::AUDIENCE_LANDLORD || ! $card) {
+            return $description;
+        }
+        $found = \App\Models\RentalJobCardCrewReport::withoutGlobalScopes()->where('rental_job_card_id', $card->id)
+            ->whereNotNull('findings')->orderBy('id')->pluck('findings')->map(fn ($f) => trim((string) $f))->filter()->all();
+        if ($found === []) {
+            return $description;
+        }
+
+        return trim((string) $description . "\n\nWhat our maintenance team found: " . implode("\n", $found));
+    }
+
+    /**
      * One work order as a client sees it.
      *
      * @return array<string, mixed>
@@ -271,7 +290,7 @@ class RentalWorkOrderClientViewService
         $payload = [
             'id' => $workOrder->id,
             'title' => $workOrder->title,
-            'description' => $workOrder->description,
+            'description' => $this->descriptionFor($workOrder, $card, $audience),
             'property_id' => $workOrder->property_id,
             'property_address' => $property?->buildDisplayAddress(),
             'lease_id' => $workOrder->lease_id,

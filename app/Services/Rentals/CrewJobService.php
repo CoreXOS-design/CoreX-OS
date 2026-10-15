@@ -8,6 +8,7 @@ use App\Models\Agency;
 use App\Models\RentalJobCard;
 use App\Events\Rentals\RentalCrewLinesSubmitted;
 use App\Models\RentalCatalogueItem;
+use App\Models\RentalJobCardCrewReport;
 use App\Models\RentalJobCardLine;
 use App\Models\RentalJobCardPriceRequest;
 use App\Models\RentalJobCardTask;
@@ -36,6 +37,10 @@ class CrewJobService
     public const PHOTO_TYPES = [RentalWorkOrder::PHOTO_IN_PROGRESS, RentalWorkOrder::PHOTO_COMPLETED];
     /** §17.5.1 — up to three photos explain one crew line (an extra); they are stored against the LINE, not the job gallery. */
     public const MAX_LINE_PHOTOS = 3;
+    /** AT-465 - the crew's "what did you find / what is needed" on a send. */
+    public const MAX_FINDINGS_LENGTH = 2000;
+    /** AT-465 - a second "Send to office" this soon after a send is a double-tap, not a new batch. */
+    public const DOUBLE_SEND_WINDOW_SECONDS = 120;
 
     /**
      * The crew's view of a card (§14.27.5). Deliberately a flat array of
@@ -96,7 +101,7 @@ class CrewJobService
 
         $branding = Agency::publicBrandingFor($ctx->agencyId);
 
-        return [
+        $payload = [
             'agency' => ['name' => $branding['name'], 'logo_url' => $branding['logoUrl'] ? (\App\Support\PortalLogo::urlFor($ctx->agencyId) ?? $branding['logoUrl']) : null, 'color' => $branding['colors']['default']],
             'title' => $card->title,
             'work_order_id' => $card->rental_work_order_id,
@@ -145,6 +150,11 @@ class CrewJobService
                 'dispute' => CrewDisputeBlock::for($card, $ctx),
             ],
         ];
+
+        // AT-465 - the NEXT bar at the top of the crew page: one sentence, at most one button (read from the payload above).
+        $payload['next'] = CrewNextBar::for($payload);
+
+        return $payload;
     }
 
     /** Tick or untick a task. */
@@ -339,25 +349,61 @@ class CrewJobService
      * answered becomes `submitted` (with who/when/IP/device). ONE audit line, ONE domain event (→ one in-app note to the
      * property's agent) per send, never per line. Returns how many lines were sent.
      */
-    public function sendToOffice(RentalJobCard $card, CrewViewContext $ctx): int
+    public function sendToOffice(RentalJobCard $card, CrewViewContext $ctx, ?string $findings = null): int
     {
         $this->assertReachable($card, $ctx);
         $card->assertContentEditable();
 
+        $findings = trim((string) $findings);
+        if (mb_strlen($findings) > self::MAX_FINDINGS_LENGTH) {
+            throw new \InvalidArgumentException('Keep what you found to ' . self::MAX_FINDINGS_LENGTH . ' characters or fewer.');
+        }
+
         $sent = 0;
         $requestId = null;
-        DB::transaction(function () use ($card, $ctx, &$sent, &$requestId) {
+        $duplicate = false;
+        $reportId = null;
+        DB::transaction(function () use ($card, $ctx, $findings, &$sent, &$requestId, &$duplicate, &$reportId) {
+            // The card row is the lock: two taps of "Send to office" (or the same send from two tabs) queue here, so the second
+            // one finds no drafts left rather than sending the batch twice.
+            RentalJobCard::withoutGlobalScopes()->whereKey($card->id)->lockForUpdate()->first();
+
             $drafts = RentalJobCardLine::withoutGlobalScopes()
                 ->where('rental_job_card_id', $card->id)->whereNull('deleted_at')
                 ->whereIn('origin', [RentalJobCardLine::ORIGIN_CREW_PRICING, RentalJobCardLine::ORIGIN_CREW_EXTRA])
                 ->where('office_status', RentalJobCardLine::OFFICE_CREW_DRAFT)
                 ->lockForUpdate()->get();
             if ($drafts->isEmpty()) {
-                throw new \InvalidArgumentException('Add at least one part or labour line before you send to the office.');
+                // a double-tap: the batch the crew just sent is already with the office - say so instead of an error
+                $recent = RentalJobCardCrewReport::withoutGlobalScopes()->where('rental_job_card_id', $card->id)
+                    ->where('created_at', '>=', now()->subSeconds(self::DOUBLE_SEND_WINDOW_SECONDS))->exists();
+                if ($recent) {
+                    $duplicate = true;
+
+                    return;
+                }
+                throw new \InvalidArgumentException('Add at least one part or labour line to your list before you send to the office.');
             }
 
+            // What did you find / what is needed: required on the crew's FIRST send for this card, optional after.
+            $firstSend = ! RentalJobCardCrewReport::withoutGlobalScopes()->where('rental_job_card_id', $card->id)->exists();
+            if ($firstSend && $findings === '') {
+                throw new \InvalidArgumentException('Tell the office what you found and what is needed before you send.');
+            }
+
+            $report = RentalJobCardCrewReport::withoutGlobalScopes()->create([
+                'agency_id' => $card->agency_id,
+                'rental_job_card_id' => $card->id,
+                'findings' => $findings !== '' ? $findings : null,
+                'line_count' => $drafts->count(),
+                'sent_label' => mb_substr($ctx->actorLabel, 0, 191),
+                'sent_via' => mb_substr($ctx->via, 0, 20),
+                'sent_ip' => $ctx->ip,
+            ]);
+
+            $reportId = $report->id;
             RentalJobCardLine::withoutGlobalScopes()->whereIn('id', $drafts->pluck('id'))
-                ->update(['office_status' => RentalJobCardLine::OFFICE_AWAITING]);
+                ->update(['office_status' => RentalJobCardLine::OFFICE_AWAITING, 'rental_job_card_crew_report_id' => $report->id]);
             $sent = $drafts->count();
 
             $pricingRequestIds = $drafts->where('origin', RentalJobCardLine::ORIGIN_CREW_PRICING)->pluck('rental_job_card_price_request_id')->filter()->unique();
@@ -374,14 +420,19 @@ class CrewJobService
                     ]);
             }
 
-            $note = "{$sent} line" . ($sent === 1 ? '' : 's') . " ({$ctx->actorLabel}" . ($ctx->ip ? ", IP {$ctx->ip}" : '') . ')';
+            $note = "{$sent} line" . ($sent === 1 ? '' : 's') . " ({$ctx->actorLabel}" . ($ctx->ip ? ", IP {$ctx->ip}" : '') . ')'
+                . ($findings !== '' ? ' - ' . \Illuminate\Support\Str::limit(preg_replace('/\s+/u', ' ', $findings), 200) : '');
             $card->logUpdate('crew_lines_sent', null, $note);
             if ($requestId) {
                 $card->logUpdate('pricing_submitted', null, "Crew sent their prices ({$ctx->actorLabel}" . ($ctx->ip ? ", IP {$ctx->ip}" : '') . ')');
             }
         });
 
-        RentalCrewLinesSubmitted::dispatch($card, $sent, $ctx->via, $requestId);
+        if ($duplicate) {
+            return 0;
+        }
+
+        RentalCrewLinesSubmitted::dispatch($card, $sent, $ctx->via, $requestId, null, $reportId);
         $this->touchToken($ctx);
 
         return $sent;

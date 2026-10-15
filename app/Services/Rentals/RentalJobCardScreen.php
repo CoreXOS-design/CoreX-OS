@@ -119,9 +119,23 @@ final class RentalJobCardScreen
                 $waiting ? $waiting . ' waiting' : null,
                 $rejected ? $rejected . ' not accepted' : null,
             ]);
+            $text = 'Crew sent ' . $s($crewLines->count(), 'line', 'lines') . ' ' . $fmt($sentAt) . ($parts ? ' - ' . implode(', ', $parts) : '');
+
+            // AT-465 - when the crew also said what they found: "Crew reported: <findings> - N lines, R x cost" (the latest send).
+            $report = $card->crewReports->first();
+            if ($report) {
+                $batch = $card->lines->where('rental_job_card_crew_report_id', $report->id);
+                $cost = (float) $batch->whereNotNull('cost_total')->sum('cost_total');
+                $found = trim((string) preg_replace('/\s+/u', ' ', (string) $report->findings));
+                $text = 'Crew reported: ' . ($found !== '' ? '"' . \Illuminate\Support\Str::limit($found, 110) . '" - ' : '')
+                    . $s($batch->count() ?: $report->line_count, 'line', 'lines') . ($cost > 0 ? ', ' . self::money($cost) . ' cost' : '')
+                    . ' ' . $fmt($report->created_at) . ($parts ? ' - ' . implode(', ', $parts) : '');
+                $sentAt = $report->created_at;
+            }
+
             $events->push([
                 'at' => $sentAt, 'anchor' => 'jc-lines', 'waiting' => $waiting > 0, 'tone' => $waiting > 0 ? 'warn' : 'info',
-                'text' => 'Crew sent ' . $s($crewLines->count(), 'line', 'lines') . ' ' . $fmt($sentAt) . ($parts ? ' - ' . implode(', ', $parts) : ''),
+                'text' => $text,
             ]);
         }
 
