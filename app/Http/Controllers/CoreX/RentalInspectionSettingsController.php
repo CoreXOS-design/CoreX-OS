@@ -113,6 +113,9 @@ class RentalInspectionSettingsController extends Controller
             'requireNotesBlocksProgression' => RentalInspectionSetting::requireNotesBlocksProgressionFor($agencyId),
             'allItemsRequiredToComplete' => RentalInspectionSetting::allItemsRequiredToCompleteFor($agencyId),
             'omrMarkThreshold' => RentalInspectionSetting::omrMarkThresholdFor($agencyId),
+            // AT-463 / §60 — the paper the printed site form is laid out for.
+            'formPaperSize' => RentalInspectionSetting::formPaperSizeFor($agencyId),
+            'formPaperSizeOptions' => RentalInspectionSetting::formPaperSizeOptions(),
             // §43 — schedule/reschedule/cancel notifications.
             'notifyTenantEnabled' => RentalInspectionSetting::notifyTenantFor($agencyId),
             'notifyLandlordEnabled' => RentalInspectionSetting::notifyLandlordFor($agencyId),
@@ -163,6 +166,8 @@ class RentalInspectionSettingsController extends Controller
             'signatures_required_interim' => ['nullable', 'boolean'],
             'signatures_required_routine' => ['nullable', 'boolean'],
             'omr_mark_threshold' => ['nullable', 'numeric', 'min:0.05', 'max:0.95'],
+            // AT-463 / §60 — has()-guarded below: a wizard step that does not render the select must not reset it.
+            'form_paper_size' => ['nullable', 'string', 'in:' . implode(',', array_keys(RentalInspectionSetting::FORM_PAPER_SIZES))],
             // §52 — the walk's rules, each has()-guarded below; the reminder lead saves only when filled.
             'signing_reminder_lead_days' => ['nullable', 'integer', 'min:0', 'max:30'],
         ] + array_fill_keys(array_keys(RentalInspectionSetting::INSPECTION_RULES), ['nullable', 'boolean']));
@@ -210,6 +215,9 @@ class RentalInspectionSettingsController extends Controller
         // default) alone; a number saves.
         if ($request->filled('omr_mark_threshold')) {
             $attributes['omr_mark_threshold'] = round((float) $validated['omr_mark_threshold'], 2);
+        }
+        if ($request->filled('form_paper_size')) {
+            $attributes['form_paper_size'] = $validated['form_paper_size'];
         }
 
         // Guarded on has(), not just validated() — the wizard step (§4/§8's

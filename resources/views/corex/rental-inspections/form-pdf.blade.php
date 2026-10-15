@@ -8,9 +8,9 @@
        and origin RentalInspectionFormPdfService::buildManifest() records.
        No px, no % — an absolute-pt box here is an absolute-pt box there,
        with zero unit conversion in either direction. */
-    @page { margin: 0; size: A4 portrait; }
+    @page { margin: 0; size: {{ $layout['paper']['width_pt'] }}pt {{ $layout['paper']['height_pt'] }}pt; }
     body { margin: 0; padding: 0; font-family: Helvetica, Arial, sans-serif; color: #111; }
-    .page { position: relative; width: {{ $pw = \App\Services\Rentals\RentalInspectionFormPdfService::PAGE_WIDTH }}pt; height: {{ $ph = \App\Services\Rentals\RentalInspectionFormPdfService::PAGE_HEIGHT }}pt; page-break-after: always; }
+    .page { position: relative; width: {{ $pw = $layout['paper']['width_pt'] }}pt; height: {{ $ph = $layout['paper']['height_pt'] }}pt; page-break-after: always; }
     .page:last-child { page-break-after: auto; }
     .abs { position: absolute; }
     .fiducial-square { background: #000; }
@@ -22,6 +22,14 @@
     .cond-label { font-size: 6pt; text-align: center; }
     .item-label { font-size: 8pt; }
     .box-outline { border: 1pt solid #000; }
+    /* An item already recorded on screen: a LIGHT grey fill. The scan reader counts a pixel as ink only below mid-grey,
+       so this never reads as a mark - it only shows the agent what is already on the web inspection. */
+    .box-pre { background: #d2d2d2; }
+    .row-no { font-size: 6pt; color: #666; }
+    .field-label { font-size: 6.5pt; color: #444; }
+    .field-line { border-bottom: 0.5pt solid #555; font-size: 8.5pt; height: 12pt; }
+    .qr-caption { font-size: 6.5pt; color: #333; }
+    .legend { font-size: 6.5pt; color: #444; }
     .notes-outline { border: 0.5pt solid #999; }
     .header-line { font-size: 8.5pt; }
     .header-title { font-size: 13pt; font-weight: bold; }
@@ -59,6 +67,19 @@
             @endif
         @endforeach
 
+        {{-- QR code — every page, same place (bottom-centre, well away from the corner registration marks): inspection id, page,
+             page count and form version. The scan reader identifies and orients the page from this first; the OMR
+             grid above is its fallback. --}}
+        @foreach($layout['qr_codes'] as $qr)
+            @if($qr['page'] === $p)
+                <img class="abs" src="{{ $qrImages[$p] }}" alt="" style="left:{{ $qr['x'] }}pt; top:{{ $qr['y'] }}pt; width:{{ $qr['size'] }}pt; height:{{ $qr['size'] }}pt;">
+                <div class="abs qr-caption" style="left:{{ $qr['x'] + $qr['size'] + 8 }}pt; top:{{ $qr['y'] + 14 }}pt; width:{{ $pw - 36 - ($qr['x'] + $qr['size'] + 8) }}pt;">
+                    Inspection #{{ $inspection->id }} &middot; page {{ $p }} of {{ $layout['page_count'] }}<br>
+                    Tick ONE box per row, in ink. Do not write inside the boxes. Keep the whole page flat and in frame when scanning.
+                </div>
+            @endif
+        @endforeach
+
         @if($p === 1)
             {{-- Header — property, inspection type/date, parties. Plain
                  printed text, never geometry-tracked (nothing here is
@@ -70,7 +91,20 @@
                 <div class="header-line">Landlord: {{ trim($layout['header']['landlord']) ?: '—' }}</div>
                 <div class="header-line">Tenant(s): {{ count($layout['header']['tenants']) ? implode(', ', $layout['header']['tenants']) : '—' }}</div>
                 <div class="header-line">Inspecting agent: {{ $layout['header']['agent'] ?? '—' }}</div>
+                <div class="legend">{{ count($prefill['ticks']) ? 'Grey boxes are already recorded on screen (' . count($prefill['ticks']) . ' items). Tick a different box to change one.' : 'Nothing recorded on screen yet.' }}</div>
             </div>
+            {{-- Header fields the agent fills on site (never machine-read): shows what is already on the web inspection. --}}
+            @php
+                $fieldW = ($pw - 72 - 2 * 12) / 3;
+                $fields = [
+                    ['Electricity meter', 'electricity', 0, 0], ['Water meter', 'water', 1, 0], ['Furnished', 'furnished', 2, 0],
+                    ['Keys (number / description)', 'keys', 0, 1], ['Remotes (number / description)', 'remotes', 1, 1],
+                ];
+            @endphp
+            @foreach($fields as [$flabel, $fkey, $col, $frow])
+                <div class="abs field-label" style="left:{{ 36 + $col * ($fieldW + 12) }}pt; top:{{ $layout['header']['y'] + 96 + $frow * 26 }}pt; width:{{ $fieldW }}pt;">{{ $flabel }}</div>
+                <div class="abs field-line" style="left:{{ 36 + $col * ($fieldW + 12) }}pt; top:{{ $layout['header']['y'] + 105 + $frow * 26 }}pt; width:{{ $fieldW }}pt;">{{ $prefill['header'][$fkey] ?? '' }}</div>
+            @endforeach
         @endif
 
         {{-- Room headings (repeated as "(cont.)" whenever a room spans a page break). --}}
@@ -94,7 +128,7 @@
              for the human — never machine-read. --}}
         @foreach($layout['item_rows'] as $row)
             @if($row['page'] === $p)
-                <div class="abs item-label" style="left:{{ $row['label_x'] }}pt; top:{{ $row['y'] + 5 }}pt; width:120pt;">{{ $row['label'] }}</div>
+                <div class="abs item-label" style="left:{{ $row['label_x'] }}pt; top:{{ $row['y'] + 5 }}pt; width:122pt;"><span class="row-no">{{ $row['row_no'] }}</span>&nbsp; {{ $row['label'] }}</div>
                 <div class="abs notes-outline" style="left:{{ $row['notes_x'] }}pt; top:{{ $row['y'] }}pt; width:{{ $row['notes_width'] }}pt; height:18pt;"></div>
             @endif
         @endforeach
@@ -103,7 +137,7 @@
              same one written into the manifest's own "boxes" block. --}}
         @foreach($layout['boxes'] as $box)
             @if($box['page'] === $p)
-                <div class="abs box-outline" style="left:{{ $box['x'] }}pt; top:{{ $box['y'] }}pt; width:{{ $box['width'] }}pt; height:{{ $box['height'] }}pt;"></div>
+                <div class="abs box-outline {{ ($prefill['ticks'][$box['rental_inspection_item_id']] ?? null) === $box['condition_key'] ? 'box-pre' : '' }}" style="left:{{ $box['x'] }}pt; top:{{ $box['y'] }}pt; width:{{ $box['width'] }}pt; height:{{ $box['height'] }}pt;"></div>
             @endif
         @endforeach
 
