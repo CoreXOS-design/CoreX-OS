@@ -1520,9 +1520,33 @@
         {{-- .prop-section clips its overflow, which makes it the (non-scrolling) scrollport a sticky child sticks inside - the bar would sit
              at the end of the page. `clip` keeps the clipping without becoming a scroll container, so the bar sticks to the tab panel. --}}
         <style>.prop-section:has([data-qa="signoff-bar"]) { overflow: clip !important; }</style>
-        <div x-data="{ signOpen: false, openedOnce: false }"
-             x-effect="if (!openedOnce && currentInspection({{ $sectionJs }}).status === 'awaiting_signature') { signOpen = true; openedOnce = true; }"
-             @signing-open.window="signOpen = true"
+        {{-- 15 Oct 2026 (Johan, AT-463): the signing drawer is CLOSED until the agent presses "Ready to sign" (or the inspection is
+             already awaiting signature when the screen loads). The agent's own open/close choice is remembered for the browser
+             session, per inspection, so a reload does not undo it; pressing "Ready to sign" always opens it. Storage is a
+             convenience only - every read/write is guarded, and with it blocked the rule above still holds. --}}
+        <div x-data="{
+                 signOpen: false, signKey: null, signStatus: null,
+                 setSignOpen(v) {
+                     this.signOpen = v;
+                     if (!this.signKey) return;
+                     try { sessionStorage.setItem('corex.signoff.' + this.signKey, v ? '1' : '0'); } catch (e) {}
+                 },
+                 syncSign(insp) {
+                     if (!insp || !insp.id) return;
+                     const awaiting = insp.status === 'awaiting_signature';
+                     if (this.signKey !== insp.id) {
+                         this.signKey = insp.id;
+                         let saved = null;
+                         try { saved = sessionStorage.getItem('corex.signoff.' + insp.id); } catch (e) {}
+                         this.signOpen = saved === '1' ? true : (saved === '0' ? false : awaiting);
+                     } else if (awaiting && this.signStatus !== null && this.signStatus !== 'awaiting_signature') {
+                         this.setSignOpen(true);
+                     }
+                     this.signStatus = insp.status;
+                 }
+             }"
+             x-effect="syncSign(currentInspection({{ $sectionJs }}))"
+             @signing-open.window="setSignOpen(true)"
              data-qa="signoff-bar" class="sticky bottom-0 rounded-md" style="z-index:30; background:var(--surface); border:1px solid var(--border); box-shadow:0 -8px 20px rgba(0,0,0,.08);">
             <div x-show="signOpen" x-cloak class="px-3 pt-2 space-y-2" style="max-height:60vh; overflow-y:auto; border-bottom:1px solid var(--border);" data-qa="signoff-drawer">
         {{-- Conductor brief 2026-09-29 — "print for signature": the same
@@ -1751,7 +1775,7 @@
                               class="text-xs font-semibold px-2 py-1 rounded-md" style="background:color-mix(in srgb, #059669 14%, transparent); color:#059669;">Ready to complete</span>
                     </div>
                     <div class="flex items-center gap-2">
-                        <button type="button" @click="signOpen = !signOpen" data-qa="signoff-toggle"
+                        <button type="button" @click="setSignOpen(!signOpen)" data-qa="signoff-toggle"
                                 class="px-4 py-2 rounded-md text-sm font-semibold" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);"
                                 x-text="signOpen ? 'Hide signing' : 'Signing'"></button>
                         <template x-if="!['awaiting_signature', 'completed', 'cancelled'].includes(currentInspection({{ $sectionJs }}).status)">

@@ -7991,3 +7991,17 @@ From cc5's walk of an incoming inspection:
 - **Observations are grouped by item once per change**: `_observationsByItem()` (show.blade.php) builds `item id -> observations` per inspection, keyed on the observations array's identity and length (observations are append-only), held in a plain `WeakMap` outside Alpine's reactive state; the four readers above look their item up instead of scanning. Same results, no behaviour change.
 
 **Files.** `resources/views/corex/properties/show.blade.php` (`markAllGood`, `markAllGoodAsk`, `_observationsByItem`, the four readers), `resources/views/corex/properties/partials/rental-inspection-recording.blade.php`.
+
+---
+
+## 59. The signing drawer stays closed until "Ready to sign", and remembers the agent's choice (15 Oct 2026, cc1; Johan, property 5647 / inspection 160; AT-463; QA1 only)
+
+**What Johan saw.** The Signing block on the inspection panel opened expanded. Measured on QA1 the same morning: a plain draft (inspection 126, 0/57) already had the drawer closed, but an inspection that is *awaiting signature* force-opened it on EVERY page load (`openedOnce` was per page, not per agent), covering up to 60% of the screen with no memory that the agent had shut it.
+
+**Rule now** (`rental-inspection-recording.blade.php`, the `signoff-bar` component):
+- Closed on any draft / in-progress inspection.
+- Opens when the agent presses **Ready to sign** (the status flips in the page), and opens by default when the screen loads on an inspection that is already awaiting signature.
+- The agent's own Signing / Hide signing choice is remembered per inspection for the browser session (`sessionStorage` key `corex.signoff.<inspection id>`); a reload keeps it. Pressing Ready to sign always opens it, even if the agent had closed it on the draft. Storage is a convenience only: every read/write is guarded, and with it blocked the closed-by-default rule still holds.
+- The sticky bar itself (one-line state, **Signing**, **Ready to sign**, **Complete**) is unchanged and always visible.
+
+**Tests.** `tests/js/inspection-signoff-default.mjs` loads the real x-data out of the Blade and runs 12 cases; `RentalInspectionSignoffDefaultTest` runs it and pins the wiring.
