@@ -112,7 +112,7 @@ class RentalPortalDocumentService
                 $lease = $leaseById->get($notice->lease_id);
                 $property = $lease ? $properties->get($lease->property_id) : null;
                 $address = $property?->buildDisplayAddress() ?: ('Lease #' . $notice->lease_id);
-                $label = \App\Models\RentalNoticeTemplate::labelFor($notice->notice_type);
+                $label = $notice->documentTitle();
                 $rows->push($this->row($notice->document, self::KIND_NOTICE, 'Notice', $label, "{$label} — {$address}", $notice->sent_at ?? $notice->document->created_at, $property, $lease));
             });
 

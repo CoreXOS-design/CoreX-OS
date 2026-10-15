@@ -48,6 +48,17 @@ class RentalNotice extends Model
         return $this->belongsTo(RentalNoticeTemplate::class, 'rental_notice_template_id');
     }
 
+    /**
+     * What the agency calls this document ("Notice of breach") - its own template's name - for the email subject, the file name and the portal.
+     * Falls back to the generic type label only when the template is gone. Read without scopes: a client-portal request has no agency context.
+     */
+    public function documentTitle(): string
+    {
+        $name = trim((string) RentalNoticeTemplate::withoutGlobalScopes()->withTrashed()->whereKey($this->rental_notice_template_id)->value('name'));
+
+        return $name !== '' ? $name : RentalNoticeTemplate::labelFor($this->notice_type);
+    }
+
     public function document(): BelongsTo
     {
         return $this->belongsTo(Document::class);
