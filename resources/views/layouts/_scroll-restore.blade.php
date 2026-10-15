@@ -26,11 +26,24 @@
       • explicit URL #fragment wins — defers to ->withFragment() anchors
       • consume-once — restore clears the key so unrelated later visits land at top
 
+    AT-464 - "land on the Next bar": when the redirect was flashed `land_on_next` (App\Http\Middleware\LandOnNextBar - a posted
+    action that came back to the fault report / work order / job card screen) the saved scroll position is DROPPED and the page is put on
+    the element marked `data-land-on-next` (the top status / Next bar), which is briefly highlighted. A page that has already placed the
+    user deliberately (the job card's keep-scroll forms) sets window.cxKeepScroll and is left alone.
+
     Included by layouts/corex.blade.php and layouts/corex-app.blade.php only.
 --}}
+<style>
+    [data-land-on-next] { scroll-margin-top: 12px; }
+    @keyframes cxLandFlash { 0% { box-shadow: 0 0 0 0 rgba(14,165,233,.55); } 35% { box-shadow: 0 0 0 5px rgba(14,165,233,.35); } 100% { box-shadow: 0 0 0 0 rgba(14,165,233,0); } }
+    .cx-land-flash { animation: cxLandFlash 1.6s ease-out 1; border-radius: 8px; }
+    @media (prefers-reduced-motion: reduce) { .cx-land-flash { animation: none; outline: 2px solid rgba(14,165,233,.6); } }
+</style>
 <script>
 (function () {
     'use strict';
+
+    var LAND_ON_NEXT = {{ session('land_on_next') ? 'true' : 'false' }};
 
     // Stop the browser from also trying to restore window scroll (always 0 here).
     if ('scrollRestoration' in history) {
@@ -62,7 +75,43 @@
     // in case beforeunload is skipped for a programmatic form submit.
     document.addEventListener('submit', save, true);
 
+    // AT-464 - put the page on the Next bar (the first element marked data-land-on-next) and flash every marked element once.
+    // If the bar sits inside the first screenful the whole top of the page is shown (header and stepper stay in view); otherwise
+    // the bar is scrolled to the top edge. Repeated a few times so late-rendering content cannot push it away.
+    function landOnNext() {
+        var flashed = false;
+        function go() {
+            if (window.cxKeepScroll) return; // a form that asked to keep its place
+            var box = scroller();
+            if (!box) return;
+            var els = document.querySelectorAll('[data-land-on-next]');
+            if (els.length) {
+                var top = els[0].getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
+                box.scrollTop = (top + els[0].offsetHeight < box.clientHeight - 16) ? 0 : Math.max(0, top - 12);
+                if (!flashed) {
+                    flashed = true;
+                    Array.prototype.forEach.call(els, function (el) {
+                        el.classList.add('cx-land-flash');
+                        setTimeout(function () { el.classList.remove('cx-land-flash'); }, 2200);
+                    });
+                }
+            } else {
+                box.scrollTop = 0;
+            }
+        }
+        go();
+        requestAnimationFrame(function () { go(); requestAnimationFrame(go); });
+        setTimeout(go, 60);
+        setTimeout(go, 200);
+        window.addEventListener('load', function () { setTimeout(go, 30); });
+    }
+
     function restore() {
+        if (LAND_ON_NEXT) {
+            try { sessionStorage.removeItem(keyFor()); } catch (e) {} // the old position is not wanted - drop it
+            landOnNext();
+            return;
+        }
         // An explicit URL #fragment (e.g. a controller's ->withFragment) must win:
         // let the anchor position the page and drop any stored scroll for this url.
         if (location.hash && location.hash.length > 1) {

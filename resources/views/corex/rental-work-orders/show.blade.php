@@ -153,7 +153,7 @@
 
     {{-- C. next --}}
     @php $nb = $woNext['button'] ?? null; @endphp
-    <div class="wo-next wo-next-{{ $woNext['tone'] }}" data-next-step data-next="{{ $woNext['key'] }}"
+    <div class="wo-next wo-next-{{ $woNext['tone'] }}" data-next-step data-land-on-next data-next="{{ $woNext['key'] }}"
          @if($woNext['key'] === 'owner_declined') data-quote-declined @endif
          @if($woNext['key'] === 'waiting_owner') data-quote-sent-to-owner @endif
          @if($woNext['key'] === 'quote_not_selected') data-quote-not-selected @endif

@@ -62,7 +62,8 @@
         </div>
     @endif
 
-    <div class="flex items-center justify-between">
+    {{-- AT-464 - after an action the page lands here (title + status) and on the appoint-contractor block just under it. --}}
+    <div class="flex items-center justify-between" data-land-on-next>
         <div>
             <h1 class="text-lg font-semibold">{{ $faultReport->title }}</h1>
             <span class="ds-badge {{ $statusBadgeClass }}">{{ $faultReport->statusLabel() }}</span>
@@ -175,7 +176,7 @@
          above everything else, no toggle and no button that scrolls somewhere else. --}}
     @permission('rental_fault_reports.raise_work_order')
         @if($stage === 'appoint')
-            <div class="rounded-md p-4 space-y-2" style="background: color-mix(in srgb, var(--ds-green) 8%, var(--surface)); border: 1px solid var(--ds-green);" data-appoint-contractor id="appoint-contractor">
+            <div class="rounded-md p-4 space-y-2" style="background: color-mix(in srgb, var(--ds-green) 8%, var(--surface)); border: 1px solid var(--ds-green);" data-appoint-contractor data-land-on-next id="appoint-contractor">
                 <div class="text-sm font-semibold">Owner approved &mdash; appoint the contractor</div>
                 @if($faultReport->workOrderBlockReason() === null)
                     @include('corex.rental-fault-reports._raise-work-order-form', ['secondary' => false])
