@@ -73,9 +73,9 @@ class RentalPricingService
 
         // 5 — the catalogue item has a default selling price, in the agency's capture mode.
         $item = $line->rental_catalogue_item_id ? ($line->catalogueItem ?? RentalCatalogueItem::find($line->rental_catalogue_item_id)) : null;
-        if ($item && $item->default_price !== null) {
+        if ($item && $item->selling_excl !== null) {
             $agency = $this->agencyFor($card);
-            $unit = $agency ? $this->vat->catalogueDefaultPriceForLine($item, $agency) : (float) $item->default_price;
+            $unit = $agency ? $this->vat->catalogueDefaultPriceForLine($item, $agency) : (float) $item->selling_excl;
             if ($unit !== null) {
                 return new SellingResolution($unit, round($qty * $unit, 2), RentalJobCardLine::BASIS_CATALOGUE_PRICE);
             }

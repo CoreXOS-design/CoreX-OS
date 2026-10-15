@@ -4501,6 +4501,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // §17.14 / §17.11 — the pricing settings (default markups; the estimate wording) — own narrow savers, siblings of the work-order settings savers.
     Route::post('/settings/rental-work-orders/default-markups', [\App\Http\Controllers\CoreX\RentalWorkOrderPricingSettingsController::class, 'updateDefaultMarkups'])
         ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.default-markups');
+    Route::post('/settings/rental-work-orders/catalogue-markup', [\App\Http\Controllers\CoreX\RentalWorkOrderPricingSettingsController::class, 'updateCatalogueMarkup'])
+        ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.catalogue-markup');
     Route::post('/settings/rental-work-orders/quote-estimate-term', [\App\Http\Controllers\CoreX\RentalWorkOrderPricingSettingsController::class, 'updateQuoteEstimateTerm'])
         ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.quote-estimate-term');
     // BUILD 1 END

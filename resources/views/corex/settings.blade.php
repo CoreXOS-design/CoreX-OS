@@ -128,7 +128,7 @@
                         ? ['key'=>'title-deeds-settings', 'label'=>'Title Deeds', 'type'=>'link', 'href'=>route('corex.settings.title-deeds.edit'), 'keywords'=>'title deed register pin collection representative consent phone authority letter id photo signature reminder lock attempts contact changed']
                         : null,
                     $can('rental_work_orders.manage_settings')
-                        ? ['key'=>'rental-work-orders-settings', 'label'=>'Rental Work Orders', 'type'=>'link', 'href'=>route('corex.settings.rental-work-orders.edit'), 'keywords'=>'work order spend threshold no approval owner authorisation fault job card markup variation dispute crew link price capture printed costs']
+                        ? ['key'=>'rental-work-orders-settings', 'label'=>'Rental Work Orders', 'type'=>'link', 'href'=>route('corex.settings.rental-work-orders.edit'), 'keywords'=>'work order spend threshold no approval owner authorisation fault job card markup variation dispute crew link price capture printed costs catalogue parts labour default markup rand percent cost selling price']
                         : null,
                     // AT-445 — .ai/specs/rental-portal-access.md §7.
                     $can('rental_portal.manage_settings')

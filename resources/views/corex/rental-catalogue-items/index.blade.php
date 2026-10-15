@@ -4,7 +4,7 @@
     AT-442 — the agency's own parts & labour catalogue consumed by internal
     job cards. CRUD/list-screen floor (BUILD_STANDARD §1a-§1d): search
     (code, description), sort (sort_order default; code, description,
-    default_price), filter (type, active/archived), pagination, real empty
+    selling_excl, and cost_excl for anyone who may see costs), filter (type, active/archived), pagination, real empty
     state, agency scoping via BelongsToAgency + AgencyScope on the model.
 
     2026-10-05 (Johan QA1 finding) — split the old single `name` column
@@ -14,8 +14,9 @@
 
     Pastel-style enhancement, 2026-10-05: type/unit are now agency-
     configurable lists; the price column splits into excl/VAT type/incl
-    (RentalJobCardVatService::catalogueItemPrices()) since default_price is
+    (RentalJobCardVatService::catalogueItemPrices()) since the price is
     always stored excl-VAT regardless of capture mode.
+    §17.38: the single price column became Cost excl (view_costs only) + Selling excl, both sortable.
 --}}
 
 @section('content')
@@ -73,10 +74,13 @@
                     <th class="text-left px-4 py-2 font-medium"><a href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'description'])) }}">Description</a></th>
                     <th class="text-left px-4 py-2 font-medium">Type</th>
                     <th class="text-left px-4 py-2 font-medium">Unit</th>
-                    <th class="text-right px-4 py-2 font-medium"><a href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'default_price'])) }}">Excl VAT</a></th>
+                    @if($canViewCosts)
+                        <th class="text-right px-4 py-2 font-medium"><a href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'cost_excl'])) }}">Cost excl</a></th>
+                    @endif
+                    <th class="text-right px-4 py-2 font-medium"><a href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'selling_excl'])) }}">Selling excl</a></th>
                     @if($agency?->vat_registered)
                         <th class="text-left px-4 py-2 font-medium">VAT type</th>
-                        <th class="text-right px-4 py-2 font-medium">Incl VAT</th>
+                        <th class="text-right px-4 py-2 font-medium">Selling incl</th>
                     @endif
                     <th class="text-right px-4 py-2 font-medium">Actions</th>
                 </tr>
@@ -89,6 +93,9 @@
                         <td class="px-4 py-2">{{ $item->description }}</td>
                         <td class="px-4 py-2"><span class="ds-badge {{ $item->kind() === 'labour' ? 'ds-badge-info' : 'ds-badge-muted' }}">{{ $item->catalogueItemType->name ?? '—' }}</span></td>
                         <td class="px-4 py-2">{{ $item->catalogueUnit->name ?? '—' }}</td>
+                        @if($canViewCosts)
+                            <td class="px-4 py-2 text-right">{{ $item->cost_excl !== null ? 'R' . number_format((float) $item->cost_excl, 2) : '—' }}</td>
+                        @endif
                         <td class="px-4 py-2 text-right">{{ $prices['excl'] !== null ? 'R' . number_format($prices['excl'], 2) : '—' }}</td>
                         @if($agency?->vat_registered)
                             <td class="px-4 py-2">{{ $prices['label'] ?? '—' }}</td>
@@ -113,7 +120,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="{{ $agency?->vat_registered ? 8 : 6 }}" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
+                        <td colspan="{{ 6 + ($agency?->vat_registered ? 2 : 0) + ($canViewCosts ? 1 : 0) }}" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
                             @if(request('q') || request('type'))
                                 No catalogue items match this filter.
                             @else

@@ -487,6 +487,7 @@ return [
             // §17.14 / §17.11 — own narrow savers, has()-guarded (a key absent from this step's POST is never touched).
             ['controller' => \App\Http\Controllers\CoreX\RentalWorkOrderPricingSettingsController::class, 'method' => 'updateDefaultMarkups'],
             ['controller' => \App\Http\Controllers\CoreX\RentalWorkOrderPricingSettingsController::class, 'method' => 'updateQuoteEstimateTerm'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalWorkOrderPricingSettingsController::class, 'method' => 'updateCatalogueMarkup'],
             // BUILD 1 END
             // BUILD 2 BEGIN — approvals savers (external-quote fee)
             // §17.14 — ONE narrow saver for the approvals controls below; every field is has()-guarded in it, so a wizard step that posts
@@ -989,6 +990,15 @@ return [
              'label' => 'Estimate wording on owner quotes',
              'explain' => 'The short paragraph printed on every quote sent to an owner, telling them the quote is an estimate and what happens if the real cost turns out different. Leave it as it is to use the standard wording, or rewrite it in your own words.',
              'affects' => 'The wording the owner reads at the bottom of the quote PDF and in the quote email. The wording in force on the day a quote is sent is kept with that quote, so changing it later never alters a quote already sent.'],
+            ['key' => 'catalogue_default_markup_type', 'source' => 'rental_work_orders', 'type' => 'select', 'default' => 'percent',
+             'options' => ['percent' => 'A percentage of the cost', 'rand' => 'A fixed amount (R)'],
+             'label' => 'Default markup on a new catalogue item — how it is worked out',
+             'explain' => 'When you add a part or a piece of labour to your catalogue, CoreX works out its selling price as the cost plus a markup. This chooses whether that starting markup is a percentage of the cost or a fixed rand amount. You can still change the markup on each item.',
+             'affects' => 'The unit the markup box starts in on the Parts & Labour catalogue form. It does nothing while the amount below is 0.'],
+            ['key' => 'catalogue_default_markup_value', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 0, 'min' => 0, 'step' => 0.01,
+             'label' => 'Default markup on a new catalogue item (0 = none)',
+             'explain' => 'The markup a new catalogue item starts with. Type the cost on the form and the selling price fills in from it.',
+             'affects' => 'The selling price a new catalogue item gets when you type its cost. 0 (the default) means the selling price starts equal to the cost; for example 20 % turns a cost of R100 into R120.'],
             // BUILD 1 END
             // BUILD 2 BEGIN — approvals controls (.ai/specs/rental-work-orders.md §17.14)
             ['key' => 'external_quote_markup_type', 'source' => 'rental_work_orders', 'type' => 'select', 'default' => 'percent',
