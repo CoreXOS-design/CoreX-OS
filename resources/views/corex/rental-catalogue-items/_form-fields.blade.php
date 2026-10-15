@@ -109,6 +109,10 @@
                 this.sellIncl = s === null ? '' : f2(this.incl(s));
                 this.apply();
             },
+            // Clicking or tabbing into an amount selects all of it, so typing replaces the figure (a browser's mouseup would otherwise drop the caret in and undo the selection).
+            selectAll(e) { this.freshFocus = true; e.target.select(); },
+            keepSelected(e) { if (this.freshFocus) { e.preventDefault(); this.freshFocus = false; } },
+            freshFocus: false,
             tidy(prop) { this[prop] = f2(num(this[prop])); },
             vat(exclProp, inclProp) {
                 const e = num(this[exclProp]), i = num(this[inclProp]);
@@ -202,12 +206,12 @@
 
             @if($canViewCosts)
                 <span class="cip-label">Cost</span>
-                <input type="text" inputmode="decimal" name="cost_excl" :value="costExcl" @input="typeCostExcl($event.target.value)" @change="tidy('costExcl')" class="prop-input" autocomplete="off">
+                <input type="text" inputmode="decimal" @focus="selectAll($event)" @mouseup="keepSelected($event)" name="cost_excl" :value="costExcl" @input="typeCostExcl($event.target.value)" @change="tidy('costExcl')" class="prop-input" autocomplete="off">
                 <input type="text" :value="vat('costExcl', 'costIncl')" readonly tabindex="-1" class="prop-input" aria-label="Cost VAT">
-                <input type="text" inputmode="decimal" name="cost_incl" :value="costIncl" @input="typeCostIncl($event.target.value)" @change="tidy('costIncl')" class="prop-input" autocomplete="off">
+                <input type="text" inputmode="decimal" @focus="selectAll($event)" @mouseup="keepSelected($event)" name="cost_incl" :value="costIncl" @input="typeCostIncl($event.target.value)" @change="tidy('costIncl')" class="prop-input" autocomplete="off">
 
                 <span class="cip-label">Markup</span>
-                <input type="text" inputmode="decimal" name="markup_value" :value="markupValue" @input="typeMarkup($event.target.value)" @change="tidy('markupValue')" class="prop-input" autocomplete="off" aria-label="Markup value">
+                <input type="text" inputmode="decimal" @focus="selectAll($event)" @mouseup="keepSelected($event)" name="markup_value" :value="markupValue" @input="typeMarkup($event.target.value)" @change="tidy('markupValue')" class="prop-input" autocomplete="off" aria-label="Markup value">
                 <div class="cip-radios">
                     <input type="hidden" name="markup_type" :value="markupType">
                     <label><input type="radio" :checked="markupType === 'rand'" @change="setMarkupType('rand')"> R</label>
@@ -217,9 +221,9 @@
             @endif
 
             <span class="cip-label">Selling</span>
-            <input type="text" inputmode="decimal" name="selling_excl" :value="sellExcl" @input="typeSellExcl($event.target.value)" @change="tidy('sellExcl')" class="prop-input" autocomplete="off">
+            <input type="text" inputmode="decimal" @focus="selectAll($event)" @mouseup="keepSelected($event)" name="selling_excl" :value="sellExcl" @input="typeSellExcl($event.target.value)" @change="tidy('sellExcl')" class="prop-input" autocomplete="off">
             <input type="text" :value="vat('sellExcl', 'sellIncl')" readonly tabindex="-1" class="prop-input" aria-label="Selling VAT">
-            <input type="text" inputmode="decimal" name="selling_incl" :value="sellIncl" @input="typeSellIncl($event.target.value)" @change="tidy('sellIncl')" class="prop-input" autocomplete="off">
+            <input type="text" inputmode="decimal" @focus="selectAll($event)" @mouseup="keepSelected($event)" name="selling_incl" :value="sellIncl" @input="typeSellIncl($event.target.value)" @change="tidy('sellIncl')" class="prop-input" autocomplete="off">
         </div>
     </div>
 </div>

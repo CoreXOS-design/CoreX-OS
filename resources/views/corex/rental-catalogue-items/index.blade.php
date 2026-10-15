@@ -94,7 +94,20 @@
                         <td class="px-4 py-2"><span class="ds-badge {{ $item->kind() === 'labour' ? 'ds-badge-info' : 'ds-badge-muted' }}">{{ $item->catalogueItemType->name ?? '—' }}</span></td>
                         <td class="px-4 py-2">{{ $item->catalogueUnit->name ?? '—' }}</td>
                         @if($canViewCosts)
-                            <td class="px-4 py-2 text-right">{{ $item->cost_excl !== null ? 'R' . number_format((float) $item->cost_excl, 2) : '—' }}</td>
+                            <td class="px-4 py-2 text-right">
+                                @if($item->cost_excl !== null)
+                                    {{ 'R' . number_format((float) $item->cost_excl, 2) }}
+                                @elseif($item->kind() === 'labour' && $status !== 'archived')
+                                    {{-- A labour line costs crew hours x the rate: an empty rate breaks the line, so say so and link straight to the fix. --}}
+                                    @permission('rental_catalogue.manage')
+                                        <a href="{{ route('corex.rental-catalogue-items.edit', $item) }}" class="underline" style="color: var(--ds-crimson);">— set cost</a>
+                                    @else
+                                        <span style="color: var(--ds-crimson);">— set cost</span>
+                                    @endpermission
+                                @else
+                                    —
+                                @endif
+                            </td>
                         @endif
                         <td class="px-4 py-2 text-right">{{ $prices['excl'] !== null ? 'R' . number_format($prices['excl'], 2) : '—' }}</td>
                         @if($agency?->vat_registered)

@@ -335,6 +335,45 @@ final class CataloguePricingBlockTest extends TestCase
             ->assertDontSee('Cost excl')->assertDontSee('R10.00')->assertSee('Selling excl')->assertSee('R30.00');
     }
 
+    public function test_every_amount_box_on_the_pricing_block_selects_its_whole_content_on_focus(): void
+    {
+        $this->world();
+        $item = $this->store(['cost_excl' => 0, 'selling_excl' => 0]);
+
+        foreach ([route('corex.rental-catalogue-items.create'), route('corex.rental-catalogue-items.edit', $item)] as $url) {
+            $html = $this->actingAs($this->user)->get($url)->assertOk()->getContent();
+            foreach (['cost_excl', 'cost_incl', 'markup_value', 'selling_excl', 'selling_incl'] as $name) {
+                $this->assertSame(1, preg_match('/<input[^>]*name="' . $name . '"[^>]*>/', $html, $m), "{$name} box not found");
+                $this->assertStringContainsString('@focus="selectAll($event)"', $m[0], "{$name} must select all on focus");
+                $this->assertStringContainsString('@mouseup="keepSelected($event)"', $m[0], "{$name} must keep the selection on click");
+            }
+        }
+    }
+
+    public function test_a_labour_item_with_no_cost_shows_set_cost_as_a_link_to_edit_and_nothing_else_does(): void
+    {
+        $this->world();
+        $labourType = RentalCatalogueItemType::where('agency_id', $this->agency->id)->where('kind', 'labour')->firstOrFail()->id;
+        $labour = $this->store(['code' => 'HOURLY', 'rental_catalogue_item_type_id' => $labourType, 'selling_excl' => 450]);
+        $this->store(['code' => 'PART-NOCOST', 'selling_excl' => 20]);
+        $this->store(['code' => 'LAB-COSTED', 'rental_catalogue_item_type_id' => $labourType, 'cost_excl' => 200, 'selling_excl' => 450]);
+
+        $page = $this->actingAs($this->user)->get(route('corex.rental-catalogue-items.index'))->assertOk();
+        $html = $page->getContent();
+        $this->assertSame(1, substr_count($html, '— set cost'), 'only the labour item with an empty cost');
+        $this->assertStringContainsString('href="' . route('corex.rental-catalogue-items.edit', $labour) . '"', $html);
+        $this->assertMatchesRegularExpression('/<a href="[^"]*rental-catalogue-items\/' . $labour->id . '\/edit"[^>]*>— set cost<\/a>/', $html);
+
+        // someone who cannot see costs is told nothing about them
+        $without = $this->agentHolding(['rental_catalogue.view', 'rental_catalogue.manage']);
+        $this->actingAs($without)->get(route('corex.rental-catalogue-items.index'))->assertOk()->assertDontSee('set cost');
+
+        // someone who can see costs but not manage the catalogue sees the words without a link
+        $viewer = $this->agentHolding(['rental_catalogue.view', 'rental_job_cards.view_costs']);
+        $viewerHtml = $this->actingAs($viewer)->get(route('corex.rental-catalogue-items.index'))->assertOk()->assertSee('set cost')->getContent();
+        $this->assertDoesNotMatchRegularExpression('/<a [^>]*>— set cost<\/a>/', $viewerHtml);
+    }
+
     // ── the crew ────────────────────────────────────────────────────────────────────────
 
     public function test_the_crew_is_never_handed_a_catalogue_items_selling_price_or_markup(): void
