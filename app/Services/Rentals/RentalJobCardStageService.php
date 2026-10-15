@@ -165,6 +165,8 @@ class RentalJobCardStageService
             $labels['quoted'] = 'Price confirmed - cost to authorise';
         }
 
-        return ['key' => $key, 'label' => $labels[$key], 'next' => $next, 'open' => $open, 'authorised' => $authorised, 'quote' => $quote, 'can' => $can, 'later' => $later];
+        // AT-460: the facts behind the draft-stage "next" (RentalJobCardScreen words its own one-line version of them)
+        return ['key' => $key, 'label' => $labels[$key], 'next' => $next, 'open' => $open, 'authorised' => $authorised, 'quote' => $quote, 'can' => $can, 'later' => $later,
+            'has_lines' => $hasLines, 'unpriced' => $unpriced, 'prices_on' => $pricesOn];
     }
 }

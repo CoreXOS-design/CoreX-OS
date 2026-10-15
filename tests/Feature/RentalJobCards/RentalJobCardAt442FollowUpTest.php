@@ -364,7 +364,7 @@ final class RentalJobCardAt442FollowUpTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('2,000.00', false);
-        $response->assertSee("Inside the owner's repair limit", false);
+        $response->assertSee("Inside the owner's repair limit");
     }
 
     public function test_show_screen_flags_a_total_over_the_threshold(): void
@@ -379,7 +379,7 @@ final class RentalJobCardAt442FollowUpTest extends TestCase
         $response = $this->actingAs($this->admin)->get(route('corex.rental-job-cards.show', $jobCard));
 
         $response->assertOk();
-        $response->assertSee("Above the owner's repair limit", false);
+        $response->assertSee("Above the owner's repair limit");
     }
 
     // ── #8 — an owner quote must never be addressed to a tenant ──────────

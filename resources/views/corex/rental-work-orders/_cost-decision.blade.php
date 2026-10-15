@@ -6,6 +6,9 @@
     Above the limit, or with no limit set, the owner decides first (their link, or the agent recording their words). Replaces the old "Emergency approval" form AND the old
     separate "Approval" section: ONE section - status, the owner's limits, the amount, the buttons, and below them the records (who, basis, when).
     Expects: $workOrder, $isOpen. (The rest is read here when the page did not pass it - the job card page includes this too.)
+    AT-460: the job card passes $cdCompact = true. It then owns the status, the owner's limits, the amount and the buttons itself (its Money & approval
+    card says each of those ONCE), and this partial only supplies the working parts: the typed-amount and emergency fields, the hidden Authorise / Record
+    buttons the card's one button clicks, the owner-decision dialog and the records. Without the flag (the work order screen) nothing changes.
 --}}
 @php
     $cdSvc = app(\App\Services\Rentals\RentalAuthorisationService::class);
@@ -31,6 +34,7 @@
     $cdOwnerSettings = $workOrder->property ? \App\Services\Rentals\RentalOwnerFaultSettings::for($workOrder->property) : null;
 @endphp
 <div id="cost-decision" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-cost-decision>
+    @unless($cdCompact ?? false)
     <div class="flex flex-wrap items-center gap-2">
         <div>
             <h2 class="text-sm font-semibold wo-embedded-title">Approve the cost</h2>
@@ -49,12 +53,13 @@
         @if($cdOpenVariation)<span class="ds-badge ds-badge-warning">Extra work waiting for the owner</span>@endif
         @if($cdAutoCount > 0)<span class="ds-badge ds-badge-info">{{ $cdAutoCount }} {{ $cdAutoCount > 1 ? 'extras' : 'extra' }} passed earlier under an old agreement</span>@endif
     </div>
+    @endunless
 
     @error('cost_decision')<div class="text-xs" style="color: var(--ds-crimson);" data-cost-error>{{ $message }}</div>@enderror
 
-    @if($cdAuthorised)
+    @if($cdAuthorised && ! ($cdCompact ?? false))
         <p class="text-sm" data-cost-authorised>Anything above the authorised amount goes to the owner as a request for the extra.@if($costActive->owner_told_at) The owner was told on {{ $costActive->owner_told_at->copy()->setTimezone($cdTz)->format('j M Y H:i') }}.@endif</p>
-    @elseif($cdLegacy || $cdEmActive)
+    @elseif(($cdLegacy || $cdEmActive) && ! ($cdCompact ?? false))
         <p class="text-sm" data-cost-legacy>This cost was approved before authorisation records were kept: {{ $workOrder->approvalBasisLabel() ?? 'approved' }}@if($workOrder->approved_amount !== null) &mdash; R{{ number_format((float) $workOrder->approved_amount, 2) }}@endif.</p>
     @endif
 
@@ -82,7 +87,7 @@
         </div>
     @endif
 
-    @if(($cdDeclined || $workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_DECLINED) && $isOpen)
+    @if(($cdDeclined || $workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_DECLINED) && $isOpen && ! ($cdCompact ?? false))
         <p class="text-sm" data-cost-declined-guidance>The owner declined this. Capture another quote and approve its cost, or cancel the work order.</p>
     @endif
 
@@ -120,7 +125,9 @@
              x-on:keydown.escape.window="open = false" class="space-y-3" data-cost-actions>
 
             <div class="text-sm" data-cost-amount>
+                @unless($cdCompact ?? false)
                 <template x-if="measure !== null"><span><span style="color: var(--text-muted);" x-text="label + ':'"></span> <strong x-text="money(measure)"></strong> <span class="text-xs" style="color: var(--text-muted);">(what the owner pays, VAT included)</span></span></template>
+                @endunless
                 <template x-if="measure === null">
                     <span class="flex flex-wrap items-center gap-2">
                         <label class="text-xs font-medium" for="cost-typed">Or type the amount for a small job (R):</label>
@@ -139,7 +146,12 @@
             </div>
             @endif
 
+            @if($cdCompact ?? false)
+            {{-- the owner-limit sentence lives in the job card's Money & approval card, once; here only the one thing the form still has to say --}}
+            <p class="text-xs font-semibold rounded-md px-3 py-2" style="border: 1px solid var(--ds-amber, #f59e0b); background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, var(--surface));" x-show="emergency && reason.trim() === ''" x-cloak data-cost-line>Write why this is an emergency - it is required.</p>
+            @else
             <p class="text-xs font-semibold rounded-md px-3 py-2" style="border: 1px solid var(--ds-amber, #f59e0b); background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, var(--surface));" x-text="line" data-cost-line></p>
+            @endif
 
             <form x-ref="authForm" method="POST" action="{{ route('corex.rental-work-orders.cost.authorise', $workOrder) }}" class="hidden" data-cost-authorise-form>
                 @csrf
@@ -148,7 +160,7 @@
                 <input type="hidden" name="emergency_reason" x-bind:value="emergency ? reason : ''">
             </form>
 
-            <div class="flex flex-wrap gap-2" data-cost-buttons>
+            <div class="flex flex-wrap gap-2" data-cost-buttons @if($cdCompact ?? false) style="display:none;" aria-hidden="true" @endif>
                 @if($cdCanAuthorise)
                     <button type="button" class="corex-btn-primary text-xs flex-1" x-show="can || coversByEmergency" x-bind:disabled="!can || busy" x-bind:style="(!can || busy) ? 'opacity:.45; cursor:not-allowed;' : ''" x-on:click="authorise()" data-cost-authorise
                             x-text="amount !== null ? 'Authorise ' + money(amount) + ' within the ' + word : 'Authorise within the ' + word">Authorise within the repair limit</button>
@@ -223,6 +235,7 @@
     @endif
 
     @if($costRows->isNotEmpty())
+        @if($cdCompact ?? false)<details class="text-xs"><summary class="cursor-pointer" style="color: var(--text-muted);">Authorisation records ({{ $costRows->count() }})</summary>@endif
         <ul class="space-y-1 text-xs" data-cost-records>
             @foreach($costRows as $cr)
                 <li @if($cr->superseded_at) style="opacity:.65" @endif data-cost-record="{{ $cr->id }}" data-cost-basis="{{ $cr->basis }}">
@@ -232,6 +245,7 @@
                 </li>
             @endforeach
         </ul>
+        @if($cdCompact ?? false)</details>@endif
     @endif
 </div>
 @once

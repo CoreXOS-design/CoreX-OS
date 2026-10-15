@@ -611,8 +611,8 @@ final class ContractorJobDispatchTest extends TestCase
         $this->assertCount(1, $this->mailsTo('crew@example.invalid'));
         $html = $this->actingAs($this->agent)->get(route('corex.rental-job-cards.show', $card))->assertOk()->getContent();
         $this->assertStringContainsString('data-crew-sent', $html);
-        $this->assertStringContainsString('Send the crew link again', $html);
-        $this->assertStringContainsString('data-crew-send-standalone', $html, 'visible from the first moment (the card is still in its draft stage here)');
+        $this->assertStringContainsString('Resend link', $html);   // AT-460: the Crew card's button
+        $this->assertStringContainsString('data-crew-card', $html, 'visible from the first moment (the card is still in its draft stage here)');
         $this->assertStringContainsString('data-crew-send', $html);   // the existing "Email a link" form (the Resend) lives in the full crew panel once the card is booked
     }
 

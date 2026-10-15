@@ -34,7 +34,7 @@
     parts 20 % / job 15 % / catalogue / agency default / no markup applied"). Cost and margin
     exist in the markup ONLY when $showCost (the viewer holds rental_job_cards.view_costs) —
     absent, not hidden. Only ACCEPTED lines arrive here: a crew's pending lines have their own
-    block (_pricing-panel).
+    block (_awaiting-rows).
 
     Expects: $lines (Collection<RentalJobCardLine>), $pricesOn (bool),
     $vat (array, RentalJobCardVatService::breakdown() shape), $jobCard,

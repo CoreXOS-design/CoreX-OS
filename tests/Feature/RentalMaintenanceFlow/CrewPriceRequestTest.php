@@ -326,7 +326,7 @@ final class CrewPriceRequestTest extends TestCase
         $seen = $this->actingAs($withCosts)->get(route('corex.rental-job-cards.show', $this->card))->assertOk()->getContent();
         $this->assertStringContainsString('data-crew-awaiting', $seen);
         $this->assertStringContainsString('Distinctive washer', $seen);
-        $this->assertStringContainsString('R61.31', $seen);
+        $this->assertStringContainsString('value="61.31"', $seen, 'AT-460: the crew cost sits in the Cost column of the row, ready to confirm');
         $this->assertStringContainsString('Priced by crew — awaiting you', $seen);
 
         $blind = $this->actingAs($withoutCosts)->get(route('corex.rental-job-cards.show', $this->card))->assertOk()->getContent();

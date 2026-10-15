@@ -385,7 +385,7 @@ final class RentalJobCardFollowUpsTest extends TestCase
         // Cleared by the re-send; the screen lists both, Rev 1 as Superseded.
         $this->assertFalse($card->fresh()->quoteChangedSinceSent());
         $html = $this->show($card);
-        $this->assertStringContainsString('Quote Rev 2', $html);
+        $this->assertStringContainsString('Rev 2 sent', $html);   // AT-460: the Money & approval card's quote line (was a header chip)
         $this->assertStringContainsString('Superseded', $html);
         $this->assertStringContainsString('Re-send revised quote (Rev 3)', $html);
         $this->assertStringNotContainsString('Changed since sent', $html);

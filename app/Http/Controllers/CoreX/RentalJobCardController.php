@@ -247,6 +247,7 @@ class RentalJobCardController extends Controller
             // reached through the linked work order (a job card has no
             // inspection FK of its own — rentals-rebuild.md §15.3).
             'workOrder.photos', 'workOrder.reportedInspectionObservation.inspection',
+            'rentalFaultReport.photos', // AT-460 - the fault's photos now sit in the Photos block, not in a Source box
             'updates.createdByUser', 'createdByUser',
             'workerSignedOffByUser', 'agentSignedOffByUser', 'tenantConfirmedByUser',
         ]);
@@ -278,12 +279,36 @@ class RentalJobCardController extends Controller
         $awaitingPhotos = $awaitingLines->isEmpty() ? collect() : \App\Models\RentalWorkOrderPhoto::withoutGlobalScopes()
             ->whereIn('rental_job_card_line_id', $awaitingLines->pluck('id'))->where('photo_type', RentalJobCardLine::PHOTO_TYPE)->orderBy('id')->get()->groupBy('rental_job_card_line_id');
 
+        // J3/J5: the ONE answer to "which stage is this card in and what can be pressed now".
+        $stage = app(\App\Services\Rentals\RentalJobCardStageService::class)->forCard($rentalJobCard);
+        $crewStatus = app(\App\Services\Rentals\RentalContractorJobService::class)->crewStatusFor($rentalJobCard);
+        $crewLinksEnabled = \App\Models\RentalPortalSetting::crewLinksEnabledFor($rentalJobCard->agency_id);
+        // AT-460 - the stepper, the "Returned" / "Next" bar and the money card's "Authorised" fact: a read of the state above, writes nothing.
+        $screen = app(\App\Services\Rentals\RentalJobCardScreen::class)->build($rentalJobCard, $stage, [
+            'can' => [
+                'send_quote' => $user->hasPermission('rental_job_cards.send_quote'),
+                'share' => $user->hasPermission('rental_job_cards.share'),
+                'create' => $user->hasPermission('rental_job_cards.create'),
+                'sign_off' => $user->hasPermission('rental_job_cards.sign_off'),
+                'record_approval' => $user->hasPermission('rental_work_orders.record_approval'),
+            ],
+            'awaitingLines' => $awaitingLines,
+            'quoteChanged' => $rentalJobCard->quoteChangedSinceSent($currentQuote) && ! $rentalJobCard->workOrder?->hasApprovedBaseline(),
+            'quoteRevisions' => $quoteRevisions,
+            'quoteFormOn' => $user->hasPermission('rental_job_cards.send_quote') && $rentalJobCard->property?->landlordContact() !== null && ! $rentalJobCard->workOrder?->hasApprovedBaseline(),
+            'crewSent' => (bool) $crewStatus['sent'],
+            'crewLinksEnabled' => $crewLinksEnabled,
+        ]);
+
         return view('corex.rental-job-cards.show', [
             'jobCard' => $rentalJobCard,
+            'screen' => $screen,
+            'crewStatus' => $crewStatus,
+            'ownerSettings' => $rentalJobCard->property ? \App\Services\Rentals\RentalOwnerFaultSettings::for($rentalJobCard->property) : null,
             // AT-459 - who lets the worker in, as the work order holds it (the card's own copy, then the property's note, when it has none)
             'access' => \App\Services\Rentals\JobSiteInfo::accessContact($rentalJobCard->workOrder, $rentalJobCard),
             'crewLink' => $crewLink,
-            'crewLinksEnabled' => \App\Models\RentalPortalSetting::crewLinksEnabledFor($rentalJobCard->agency_id),
+            'crewLinksEnabled' => $crewLinksEnabled,
             'signedCopies' => $rentalJobCard->signedCopies()->with('uploadedBy')->get(),
             'quoteRevisions' => $quoteRevisions,
             'currentQuote' => $currentQuote,
@@ -308,8 +333,7 @@ class RentalJobCardController extends Controller
             // AT-442 fix #6 — same figure RentalWorkOrderController::show() already surfaces.
             // section 22.6: the owner's repair limit, read ONLY through the owner-settings resolver (null = the owner must approve)
             'noApprovalThreshold' => $rentalJobCard->property ? \App\Services\Rentals\RentalOwnerFaultSettings::for($rentalJobCard->property)->repairLimit() : null,
-            // J3/J5: the ONE answer to "which stage is this card in and what can be pressed now".
-            'stage' => app(\App\Services\Rentals\RentalJobCardStageService::class)->forCard($rentalJobCard),
+            'stage' => $stage,
             'crews' => RentalCrew::query()->active()->orderBy('name')->get(),
             'catalogueItems' => RentalCatalogueItem::query()->active()->with(['catalogueItemType', 'catalogueUnit'])->orderBy('sort_order')->get(),
             'catalogueItemTypes' => RentalCatalogueItemType::active()->where('agency_id', $rentalJobCard->agency_id)->orderBy('sort_order')->get(),
