@@ -38,6 +38,7 @@ class RentalNoticeService
         'agency_phone_secondary' => 'Your agency\'s second phone', 'agency_reg_no' => 'Your agency\'s company registration number',
         'agency_ffc_no' => 'Your agency\'s Fidelity Fund Certificate number', 'agency_vat_no' => 'Your agency\'s VAT number',
         'tenant_email' => 'The tenant\'s email address(es)',
+        'payment_proof_email' => 'Where the tenant sends proof of payment (Settings -> Leases "Rental payment proof email"; your agency email when blank)',
         'amount' => 'The outstanding amount (payment breach)', 'clause' => 'The lease clause(s) quoted (the template\'s default clause block, edited per notice)', 'reason' => 'The reason / what the breach is',
         'breach_date' => 'The date the breach notice was issued', 'remedy_days' => 'Days allowed to remedy', 'remedy_deadline' => 'The last day to remedy the breach',
         'breach_summary' => 'The tenant\'s breach notices on file (date and reason), for a notice to vacate',
@@ -74,6 +75,8 @@ class RentalNoticeService
             'agency_ffc_no' => trim((string) ($agency?->ffc_no ?? '')),
             'agency_vat_no' => trim((string) ($agency?->vat_no ?? '')),
             'tenant_email' => $lease->tenantContacts()->map(fn ($c) => trim((string) $c->email))->filter()->unique()->implode(', '),
+            // the agency's own setting (its agency email when blank) - never a constant
+            'payment_proof_email' => \App\Models\LeaseSetting::paymentProofEmailFor((int) $lease->agency_id),
         ];
         if ($breach) {
             $figures['breach_date'] = $breach->issued_on->format('j F Y');

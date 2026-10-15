@@ -110,13 +110,44 @@ class LeaseBreach extends Model
         return $this->breach_party === Lease::NOTICE_BY_LANDLORD ? Lease::NOTICE_BY_TENANT : Lease::NOTICE_BY_LANDLORD;
     }
 
-    /** The remedy window has passed (the deadline is before today). */
+    /** The remedy-by date has been reached (today or earlier) - "was it fixed?" is now the question (rental-notices.md §7b). */
     public function remedyWindowPassed(): bool
     {
-        return $this->remedy_deadline !== null && $this->remedy_deadline->lt(\Carbon\Carbon::today());
+        return $this->remedy_deadline !== null && $this->remedy_deadline->lte(\Carbon\Carbon::today());
     }
 
-    /** A notice to vacate may be issued: a tenant breach, still unremedied, once the remedy window has passed. */
+    /** Days from today to the remedy-by date: positive = days left, 0 = due today, negative = overdue. Null once the breach is closed or has no date. */
+    public function daysToRemedy(): ?int
+    {
+        if (! $this->isIssued() || $this->remedy_deadline === null) {
+            return null;
+        }
+
+        return (int) \Carbon\Carbon::today()->diffInDays($this->remedy_deadline->copy()->startOfDay(), false);
+    }
+
+    /** "7 days left" / "1 day left" / "due today" / "1 day overdue" / "3 days overdue"; null when there is nothing to count down. */
+    public function daysLeftText(): ?string
+    {
+        $d = $this->daysToRemedy();
+        if ($d === null) {
+            return null;
+        }
+        if ($d === 0) {
+            return 'due today';
+        }
+        $n = abs($d);
+
+        return $n . ' ' . ($n === 1 ? 'day' : 'days') . ($d > 0 ? ' left' : ' overdue');
+    }
+
+    /** The remedy-by date has passed and no remedy is recorded: the breach is ready for a notice to vacate (shown red). */
+    public function isOverdue(): bool
+    {
+        return ($this->daysToRemedy() ?? 0) < 0;
+    }
+
+    /** A notice to vacate may be issued: a tenant breach, still unremedied, from the remedy-by date onward. */
     public function canIssueVacate(): bool
     {
         return $this->isIssued() && $this->breach_party === Lease::NOTICE_BY_TENANT && $this->remedyWindowPassed();

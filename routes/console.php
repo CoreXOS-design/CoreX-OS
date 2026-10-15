@@ -38,6 +38,10 @@ Schedule::command('webinars:send-reminders')->hourly()->withoutOverlapping();
 // also flagged as overdue.
 Schedule::command('leases:auto-month-to-month')->dailyAt('05:30')->withoutOverlapping();
 
+// .ai/specs/rental-notices.md §7b (AT-462) — a breach notice's remedy-by date has been reached and the breach is still open: tell the
+// lease's agents once ("was it fixed?"). The lease screen's Next bar asks the same question live.
+Schedule::command('breaches:check-remedy-dates')->dailyAt('06:15')->withoutOverlapping();
+
 // Lease expiry checks — runs daily at 06:00
 Schedule::command('signatures:check-lease-expiry')->dailyAt('06:00');
 

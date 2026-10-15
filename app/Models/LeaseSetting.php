@@ -60,6 +60,8 @@ class LeaseSetting extends Model
     public const REMEDY_BASES = ['business', 'calendar'];
     public const DEFAULT_BREACH_REMEDY_DAY_BASIS = 'business';
     public const DEFAULT_VACATE_TIME = '12:00';
+    /** rental-notices.md §7b - days from the day a notice to vacate is sent to the date the tenant must be out (editable on each notice). */
+    public const DEFAULT_VACATE_NOTICE_DAYS = 30;
 
     // .ai/specs/leases.md §18.2 — the agency's DEFAULT notice / early-cancellation terms, written onto a new lease (editable
     // per lease) and onto old leases by `leases:backfill-notice-terms`. Neutral, configurable, nothing hardcoded elsewhere.
@@ -113,6 +115,8 @@ class LeaseSetting extends Model
         'breach_remedy_business_days',
         'breach_remedy_day_basis',
         'vacate_time',
+        'vacate_notice_days',
+        'payment_proof_email',
         'tenant_notice_period_unit',
         'default_earliest_notice_months',
         'default_early_cancellation_allowed',
@@ -236,6 +240,39 @@ class LeaseSetting extends Model
         $v = self::withoutGlobalScopes()->where('agency_id', $agencyId)->value('vacate_time');
 
         return is_string($v) && preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $v) ? $v : self::DEFAULT_VACATE_TIME;
+    }
+
+    /** Days between sending a notice to vacate and the date the tenant must be out by (rental-notices.md §7b). */
+    public static function vacateNoticeDaysFor(?int $agencyId): int
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_VACATE_NOTICE_DAYS;
+        }
+        $v = self::withoutGlobalScopes()->where('agency_id', $agencyId)->value('vacate_notice_days');
+
+        return is_numeric($v) && (int) $v > 0 ? (int) $v : self::DEFAULT_VACATE_NOTICE_DAYS;
+    }
+
+    /** The setting itself: what the agency typed, or null when it uses the default (its own email). */
+    public static function paymentProofEmailSettingFor(?int $agencyId): ?string
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return null;
+        }
+        $v = trim((string) self::withoutGlobalScopes()->where('agency_id', $agencyId)->value('payment_proof_email'));
+
+        return $v !== '' ? $v : null;
+    }
+
+    /** Where a tenant sends proof of payment: the agency's "Rental payment proof email", else the agency's own email (never a constant). */
+    public static function paymentProofEmailFor(?int $agencyId): string
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return '';
+        }
+
+        return self::paymentProofEmailSettingFor($agencyId)
+            ?? trim((string) Agency::withoutGlobalScopes()->whereKey($agencyId)->value('email'));
     }
 
     /** Days after a lease's end date before it goes month-to-month on its own (leases.md §5.3). */

@@ -150,7 +150,7 @@ final class AgencyNoticeDocumentsTest extends TestCase
         $this->assertSame('7 calendar days', $breach->remedyWindowLabel());
         $show = $this->actingAs($this->agent)->get(route('corex.breaches.show', $breach->id))->assertOk()->getContent();
         $this->assertStringContainsString('7 calendar days', $show);
-        $this->assertStringContainsString('7 calendar days are allowed', $this->actingAs($this->agent)->get(route('corex.leases.breaches.create', $this->lease))->getContent());
+        $this->assertStringContainsString('>7 calendar days</span> are allowed', $this->actingAs($this->agent)->get(route('corex.leases.breaches.create', $this->lease))->getContent());
     }
 
     public function test_the_default_remedy_window_is_still_twenty_business_days(): void

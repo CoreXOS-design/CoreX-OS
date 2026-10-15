@@ -123,7 +123,7 @@
                     </p>
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Business days a tenant has to put a breach right (before a notice to vacate)</label>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Days a tenant has to put a breach right (used when a breach notice template does not set its own)</label>
                     <input type="number" name="breach_remedy_business_days" value="{{ old('breach_remedy_business_days', $breachRemedyBusinessDays) }}"
                            min="1" max="365" class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
                     <p class="text-xs mt-2" style="color: var(--text-muted);">
@@ -146,6 +146,20 @@
                     <input type="time" name="vacate_time" value="{{ old('vacate_time', $vacateTime) }}" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
                     <p class="text-xs mt-2" style="color: var(--text-muted);">
                         Default is {{ $vacateTimeDefault }}. The agent picks the date when the notice to vacate is made; this is the time it starts with.
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Days for notice to vacate</label>
+                    <input type="number" name="vacate_notice_days" value="{{ old('vacate_notice_days', $vacateNoticeDays) }}" min="1" max="365" class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is {{ $vacateNoticeDaysDefault }}. A notice to vacate starts with the date this many days after the day it is sent; the agent can change the date on the notice. Leave blank for the default.
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Rental payment proof email</label>
+                    <input type="email" name="payment_proof_email" value="{{ old('payment_proof_email', $paymentProofEmail) }}" maxlength="191" placeholder="{{ $agencyEmail }}" class="w-full max-w-sm rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" data-qa="payment-proof-email">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Where a tenant is asked to send proof of payment in a payment breach notice (the <code>&#123;&#123;payment_proof_email&#125;&#125;</code> in your template). Leave blank to use your agency email{{ $agencyEmail !== '' ? ' (' . $agencyEmail . ')' : '' }}.
                     </p>
                 </div>
                 <div>
