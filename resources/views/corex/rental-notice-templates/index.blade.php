@@ -53,6 +53,7 @@
                     <th class="text-left px-4 py-2 font-medium">
                         <a href="{{ route('corex.rental-notice-templates.index', array_merge(request()->except('page'), ['sort' => 'notice_type'])) }}">Type</a>
                     </th>
+                    <th class="text-left px-4 py-2 font-medium">Remedy days</th>
                     <th class="text-right px-4 py-2 font-medium">Actions</th>
                 </tr>
             </thead>
@@ -61,6 +62,7 @@
                     <tr style="border-top: 1px solid var(--border);">
                         <td class="px-4 py-2">{{ $template->name }}</td>
                         <td class="px-4 py-2">{{ \App\Models\RentalNoticeTemplate::labelFor($template->notice_type) }}</td>
+                        <td class="px-4 py-2" data-qa="template-remedy-days-cell">{{ $template->remedy_days ? $template->remedy_days . ' days' : '—' }}</td>
                         <td class="px-4 py-2 text-right space-x-2">
                             @permission('rental_notice_templates.manage_settings')
                                 @if($status === 'archived')
@@ -80,7 +82,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="3" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
+                        <td colspan="4" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
                             @if(request('q') || request('notice_type'))
                                 No templates match this filter.
                             @else

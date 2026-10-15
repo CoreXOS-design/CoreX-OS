@@ -602,8 +602,8 @@ return [
              'affects' => 'When a tenant gives notice to end a fixed-term lease early, the notice review checks the end date against this many business days (weekends and public holidays do not count) and flags it when it is shorter.'],
             // rental-notices.md §5 - same saver, has()-guarded there (§6.1).
             ['key' => 'breach_remedy_business_days', 'source' => 'leases', 'type' => 'number', 'default' => 20, 'min' => 1, 'max' => 365,
-             'label' => 'Business days a tenant has to put a breach right',
-             'explain' => 'When you issue a breach notice, this is how many business days the tenant has to put the breach right before a notice to vacate may be issued. 20 business days is the period the Consumer Protection Act uses; change it only if your legal advice says otherwise.',
+             'label' => 'Days a tenant has to put a breach right (when a notice template does not set its own)',
+             'explain' => 'When you issue a breach notice, this is how many days the tenant has to put the breach right (counted as business or calendar days, next setting) unless the notice template names its own number. 20 business days is the period the Consumer Protection Act uses; change it only if your legal advice says otherwise.',
              'affects' => 'The deadline printed on the lease screen and in the breach notice, and when "Notice to vacate" becomes available for a breach that has not been remedied.'],
             // rental-notices.md §5 (AT-462) - same saver, has()-guarded there (§6.1).
             ['key' => 'breach_remedy_day_basis', 'source' => 'leases', 'type' => 'select', 'default' => 'business',
@@ -615,6 +615,15 @@ return [
              'label' => 'Time of day a notice to vacate asks the tenant to be out by (24-hour, e.g. 12:00)',
              'explain' => 'When you make a notice to vacate you pick the date the tenant must be out; this is the time of day on that date.',
              'affects' => 'The time a new notice to vacate starts with (the agent can change it for one notice). Blank means 12:00.'],
+            // rental-notices.md §7b (AT-462) - same saver, has()-guarded there (§6.1).
+            ['key' => 'vacate_notice_days', 'source' => 'leases', 'type' => 'number', 'default' => 30, 'min' => 1, 'max' => 365,
+             'label' => 'Days for notice to vacate',
+             'explain' => 'When a tenant has not put a breach right and you send a notice to vacate, this is how many days after the day it is sent the tenant must be out of the property.',
+             'affects' => 'The date a new notice to vacate starts with (today plus this many days). The agent can change the date on each notice. Blank means 30.'],
+            ['key' => 'payment_proof_email', 'source' => 'leases', 'type' => 'text', 'default' => '',
+             'label' => 'Rental payment proof email',
+             'explain' => 'The email address a tenant is asked to send proof of payment to in a payment breach notice. Leave blank to use your agency email.',
+             'affects' => 'The address printed in your payment breach notices wherever the template says the proof-of-payment address. Blank means your agency email.'],
             ['key' => 'default_earliest_notice_months', 'source' => 'leases', 'type' => 'number', 'default' => null, 'min' => 0, 'max' => 60,
              'label' => 'Notice may not be given before (months into the lease)',
              'explain' => 'Some leases do not allow notice during the first months. Fill in how many months in; leave blank when notice may be given from the start.',

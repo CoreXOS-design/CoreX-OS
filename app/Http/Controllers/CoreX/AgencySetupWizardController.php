@@ -704,6 +704,8 @@ class AgencySetupWizardController extends Controller
                     'breach_remedy_business_days' => LeaseSetting::breachRemedyBusinessDaysFor($agency->id),
                     'breach_remedy_day_basis' => LeaseSetting::breachRemedyDayBasisFor($agency->id),
                     'vacate_time' => LeaseSetting::vacateTimeFor($agency->id),
+                    'vacate_notice_days' => LeaseSetting::vacateNoticeDaysFor($agency->id),
+                    'payment_proof_email' => LeaseSetting::paymentProofEmailSettingFor($agency->id) ?? '',
                     // leases.md §18.2 — the notice / early-cancellation defaults (each needs its own explicit arm, §6.2).
                     'tenant_notice_period_unit' => LeaseSetting::tenantNoticePeriodUnitFor($agency->id),
                     'default_earliest_notice_months' => LeaseSetting::earliestNoticeMonthsFor($agency->id),

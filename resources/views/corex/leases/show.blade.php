@@ -465,7 +465,40 @@
             @endforeach
         </div>
     </div>
-            @if($nextStep)
+            @if($nextStep && !empty($nextStep['breach_followup']))
+                {{-- rental-notices.md §7b (AT-462) - the breach's remedy-by date is reached: was it fixed? Two answers, both on the bar. --}}
+                @php $bf = $nextStep['breach_followup']; @endphp
+                <div class="rounded-md p-3 space-y-2" style="background: color-mix(in srgb, var(--ds-amber, #d97706) 10%, var(--surface)); border: 1px solid var(--ds-amber, #d97706);" data-qa="next-breach-followup">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <span class="text-sm font-medium">Next: {{ $nextStep['label'] }}<span class="block text-xs font-normal" style="color: var(--text-muted);">{{ $bf['detail'] }}</span></span>
+                        @if($bf['can_act'])
+                            <div class="flex flex-wrap items-center gap-2">
+                                <button type="button" class="corex-btn-primary text-xs" data-qa="next-breach-remedied" onclick="document.getElementById('next-breach-remedy-form').classList.toggle('hidden')">Breach remedied</button>
+                                @if($bf['tenant'])
+                                    <a href="{{ route('corex.breaches.show', $bf['breach_id']) }}#vacate-box" class="corex-btn-outline text-xs" data-qa="next-breach-vacate">Send notice to vacate</a>
+                                @endif
+                            </div>
+                        @endif
+                    </div>
+                    @if($bf['can_act'])
+                        <form id="next-breach-remedy-form" method="POST" action="{{ route('corex.breaches.remedy', $bf['breach_id']) }}" class="hidden" data-qa="next-breach-remedy-form">
+                            @csrf
+                            <input type="hidden" name="return" value="lease">
+                            <div class="flex flex-wrap items-end gap-2">
+                            <div>
+                                <label class="text-xs" for="next-remedied-on" style="color: var(--text-muted);">Put right on</label><br>
+                                <input type="date" id="next-remedied-on" name="remedied_on" value="{{ now()->toDateString() }}" max="{{ now()->toDateString() }}" class="prop-input">
+                            </div>
+                            <div class="flex-1" style="min-width: 14rem;">
+                                <label class="text-xs" for="next-remedy-note" style="color: var(--text-muted);">Note</label><br>
+                                <input type="text" id="next-remedy-note" name="note" maxlength="1000" class="prop-input w-full" placeholder="e.g. paid in full on 20 Oct">
+                            </div>
+                            <button type="submit" class="corex-btn-primary text-xs">Record it and close the breach</button>
+                            </div>
+                        </form>
+                    @endif
+                </div>
+            @elseif($nextStep)
                 <div class="rounded-md p-3 flex items-center justify-between" style="background: color-mix(in srgb, var(--brand-button, #0ea5e9) 8%, var(--surface)); border: 1px solid var(--brand-button, #0ea5e9);">
                     <span class="text-sm font-medium">Next: {{ $nextStep['label'] }}</span>
                     {{-- leases.md §15.13 — a step with nothing to click is a statement; "Prepare again" is a form post. --}}

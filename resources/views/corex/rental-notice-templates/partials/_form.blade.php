@@ -39,6 +39,12 @@
     <p class="text-xs mb-1" style="color: var(--text-muted);">The clause block your notice quotes, as it appears in your lease (one clause per paragraph). The notice prints it where the template says @{{clause}}; the agent can edit it for each breach notice. Leave blank if the template spells the clauses out itself.</p>
     <textarea name="default_clause" rows="6" maxlength="5000" class="prop-input">{{ old('default_clause', $template?->default_clause) }}</textarea>
 </div>
+<div data-qa="template-remedy-days">
+    <label class="prop-label">Days to put the breach right (breach notices)</label>
+    <p class="text-xs mb-1" style="color: var(--text-muted);">The remedy period this breach notice gives, in days. Leave blank to use your agency's default (Settings &rarr; Leases). The remedy-by date on the notice is the day it is sent plus this many days.</p>
+    <input type="number" name="remedy_days" value="{{ old('remedy_days', $template?->remedy_days) }}" min="1" max="365" class="prop-input" style="max-width: 8rem;">
+    @error('remedy_days')<p class="text-xs mt-1" style="color:#b91c1c;">{{ $message }}</p>@enderror
+</div>
 <label class="flex items-center gap-2 text-sm">
     <input type="hidden" name="is_active" value="0">
     <input type="checkbox" name="is_active" value="1" @checked(old('is_active', $template?->is_active ?? true))>
