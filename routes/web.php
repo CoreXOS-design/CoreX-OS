@@ -3851,6 +3851,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         });
     });
 
+    // AT-466 - the "Notices" menu item: lands on the first notices tab the user may open (?tab=breaches|received|sent|templates). The tabs are the four screens below.
+    Route::get('notices', [\App\Http\Controllers\CoreX\NoticesHubController::class, 'index'])
+        ->middleware('permission:rental_breaches.view,rental_notices.review,rental_notices.create,rental_notice_templates.manage_settings')->name('corex.notices.index');
+
     // .ai/specs/lease-notices.md — a notice given by the tenant / landlord: list, review, decide, send to the other party.
     Route::prefix('lease-notices')->middleware('permission:rental_notices.review')->group(function () {
         $c = \App\Http\Controllers\CoreX\LeaseNoticeController::class;

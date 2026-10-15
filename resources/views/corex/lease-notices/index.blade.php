@@ -12,6 +12,7 @@
     $arrow = fn (string $col) => $sort === $col ? ($dir === 'asc' ? ' ↑' : ' ↓') : '';
 @endphp
 <div class="p-6 space-y-4">
+    @include('corex.notices._tabs', ['active' => 'received'])
     <h1 class="text-lg font-semibold">Notices received</h1>
     <p class="text-sm" style="color: var(--text-muted);">A tenant or a landlord has given notice. Review each one against the lease and the law before anything goes to the other party.</p>
 

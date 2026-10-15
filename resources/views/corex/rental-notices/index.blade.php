@@ -11,6 +11,7 @@
 
 @section('content')
 <div class="p-6 space-y-4">
+    @include('corex.notices._tabs', ['active' => 'sent'])
     <h1 class="text-lg font-semibold">Rental Notices</h1>
 
     <form method="GET" action="{{ route('corex.rental-notices.index') }}" class="flex flex-wrap items-end gap-3">
