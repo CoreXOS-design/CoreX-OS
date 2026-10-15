@@ -646,7 +646,9 @@ class RentalJobCardController extends Controller
         $validated = $request->validate([
             'rental_catalogue_item_id' => ['nullable', Rule::exists('rental_catalogue_items', 'id')->where('agency_id', $rentalJobCard->agency_id)],
             'type' => ['nullable', 'in:labour,part'],
-            'description' => ['required', 'string', 'max:255'],
+            // AT-466 - the agent's own wording. With a catalogue item picked a blank keeps what the line already says (the item's name is only a
+            // default); a free-text line still needs its words.
+            'description' => ['required_without:rental_catalogue_item_id', 'nullable', 'string', 'max:255'],
             'unit' => ['nullable', 'string', 'max:30'],
             'quantity' => ['sometimes', 'required', 'numeric', 'min:0.01'],
             'unit_price' => ['nullable', 'numeric', 'min:0'],
