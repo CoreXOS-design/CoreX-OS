@@ -13,6 +13,8 @@
     $labourMarkup = $wo::defaultLabourMarkupPercentFor($agencyIdForPricing);
     $estimateTerm = $wo::quoteEstimateTermFor($agencyIdForPricing);
     $estimateIsDefault = trim($estimateTerm) === trim($wo::DEFAULT_QUOTE_ESTIMATE_TERM);
+    $catMarkupType = $wo::catalogueMarkupTypeFor($agencyIdForPricing);
+    $catMarkupValue = $wo::catalogueMarkupValueFor($agencyIdForPricing);
     $fmtPct = fn ($v) => rtrim(rtrim(number_format((float) $v, 2, '.', ''), '0'), '.') ?: '0';
 @endphp
 
@@ -40,6 +42,36 @@
                 </div>
             </div>
             <p class="text-xs" style="color: var(--text-muted);">For example, 20 % on parts turns a part that cost R100 into R120 on the quote. Default: 0 % (no markup).</p>
+        </div>
+    </div>
+    <div class="flex justify-end"><button type="submit" class="corex-btn-primary text-sm">Save</button></div>
+</form>
+
+<form method="POST" action="{{ route('corex.settings.rental-work-orders.catalogue-markup') }}" class="space-y-3" id="pricing-catalogue-markup">
+    @csrf
+    <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+            <h3 class="text-sm font-bold" style="color:var(--text-primary);">Default markup on new catalogue items</h3>
+        </div>
+        <div class="p-5 space-y-4">
+            <p class="text-xs" style="color: var(--text-muted);">
+                When you add an item to the Parts &amp; Labour catalogue, its markup starts at this figure, so typing the cost fills in the selling price. You can still change the markup on each item.
+            </p>
+            <div class="flex flex-wrap gap-6">
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Default markup type</label>
+                    <select name="catalogue_default_markup_type" class="w-full max-w-[180px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                        <option value="percent" @selected(old('catalogue_default_markup_type', $catMarkupType) === 'percent')>Percentage (%)</option>
+                        <option value="rand" @selected(old('catalogue_default_markup_type', $catMarkupType) === 'rand')>Amount (R)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Default markup value</label>
+                    <input type="number" name="catalogue_default_markup_value" value="{{ old('catalogue_default_markup_value', $fmtPct($catMarkupValue)) }}"
+                           min="0" step="0.01" class="w-full max-w-[140px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                </div>
+            </div>
+            <p class="text-xs" style="color: var(--text-muted);">For example, 20 % turns a cost of R100 into a selling price of R120. Default: 0 % (selling price equals cost).</p>
         </div>
     </div>
     <div class="flex justify-end"><button type="submit" class="corex-btn-primary text-sm">Save</button></div>

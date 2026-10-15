@@ -76,14 +76,15 @@ final class RentalCatalogueItemTest extends TestCase
         $this->actingAs($this->adminA)->post(route('corex.rental-catalogue-items.store'), [
             'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
             'code' => 'GEYSER-EL', 'description' => 'Geyser element',
-            'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA), 'default_price' => 450,
+            'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA), 'selling_excl' => 450,
         ])->assertRedirect(route('corex.rental-catalogue-items.index'));
 
         $item = RentalCatalogueItem::firstWhere('code', 'GEYSER-EL');
         $this->assertNotNull($item);
         $this->assertSame('Geyser element', $item->description);
         $this->assertSame($this->agencyA->id, $item->agency_id);
-        $this->assertSame('450.00', (string) $item->default_price);
+        $this->assertSame('450.00', (string) $item->selling_excl);
+        $this->assertSame('450.00', (string) $item->default_price, 'legacy column kept in step');
         $this->assertSame('part', $item->kind());
     }
 
@@ -97,6 +98,7 @@ final class RentalCatalogueItemTest extends TestCase
 
         $item = RentalCatalogueItem::firstWhere('code', 'PLUMB-CO');
         $this->assertNull($item->default_price);
+        $this->assertNull($item->selling_excl);
     }
 
     public function test_required_fields_reject_cleanly_when_empty(): void
@@ -117,7 +119,7 @@ final class RentalCatalogueItemTest extends TestCase
         $this->actingAs($this->adminA)->put(route('corex.rental-catalogue-items.update', $item), [
             'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
             'code' => 'TAP-WASH', 'description' => 'Tap washer (brass)',
-            'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA), 'default_price' => 15,
+            'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA), 'selling_excl' => 15,
         ])->assertRedirect();
 
         $this->assertSame('Tap washer (brass)', $item->fresh()->description);
@@ -188,7 +190,7 @@ final class RentalCatalogueItemTest extends TestCase
 
         $this->actingAs($this->adminA)->post(route('corex.rental-catalogue-items.store'), [
             'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
-            'code' => 'NO-VAT', 'description' => 'No-VAT item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA), 'default_price' => 100,
+            'code' => 'NO-VAT', 'description' => 'No-VAT item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA), 'selling_excl' => 100,
         ])->assertRedirect();
 
         $item = RentalCatalogueItem::firstWhere('code', 'NO-VAT');
@@ -204,11 +206,12 @@ final class RentalCatalogueItemTest extends TestCase
         $this->actingAs($this->adminA)->post(route('corex.rental-catalogue-items.store'), [
             'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
             'code' => 'EXCL-1', 'description' => 'Excl-mode item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
-            'default_price' => 100, 'default_rental_vat_type_id' => $standard->id,
+            'selling_excl' => 100, 'default_rental_vat_type_id' => $standard->id,
         ])->assertRedirect();
 
         $item = RentalCatalogueItem::firstWhere('code', 'EXCL-1');
-        $this->assertSame('100.00', (string) $item->default_price);
+        $this->assertSame('100.00', (string) $item->selling_excl);
+        $this->assertSame('115.00', (string) $item->selling_incl);
     }
 
     public function test_incl_capture_mode_converts_the_typed_amount_down_to_excl(): void
@@ -221,11 +224,12 @@ final class RentalCatalogueItemTest extends TestCase
         $this->actingAs($this->adminA)->post(route('corex.rental-catalogue-items.store'), [
             'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
             'code' => 'INCL-1', 'description' => 'Incl-mode item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
-            'default_price' => 115, 'default_rental_vat_type_id' => $standard->id,
+            'selling_incl' => 115, 'pricing_driver' => 'selling_incl', 'default_rental_vat_type_id' => $standard->id,
         ])->assertRedirect();
 
         $item = RentalCatalogueItem::firstWhere('code', 'INCL-1');
-        $this->assertSame('100.00', (string) $item->default_price);
+        $this->assertSame('100.00', (string) $item->selling_excl);
+        $this->assertSame('115.00', (string) $item->selling_incl);
     }
 
     public function test_no_vat_type_selected_stores_the_typed_amount_unconverted_even_in_incl_mode(): void
@@ -236,11 +240,12 @@ final class RentalCatalogueItemTest extends TestCase
         $this->actingAs($this->adminA)->post(route('corex.rental-catalogue-items.store'), [
             'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
             'code' => 'NO-VAT-T', 'description' => 'No-VAT-type item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
-            'default_price' => 100, 'default_rental_vat_type_id' => $noVat->id,
+            'selling_excl' => 100, 'default_rental_vat_type_id' => $noVat->id,
         ])->assertRedirect();
 
         $item = RentalCatalogueItem::firstWhere('code', 'NO-VAT-T');
-        $this->assertSame('100.00', (string) $item->default_price);
+        $this->assertSame('100.00', (string) $item->selling_excl);
+        $this->assertSame('100.00', (string) $item->selling_incl, 'No VAT: excl = incl');
     }
 
     public function test_custom_vat_rate_converts_incl_down_to_excl_using_the_typed_rate(): void
@@ -252,11 +257,11 @@ final class RentalCatalogueItemTest extends TestCase
         $this->actingAs($this->adminA)->post(route('corex.rental-catalogue-items.store'), [
             'rental_catalogue_item_type_id' => $this->partTypeId($this->agencyA),
             'code' => 'CUSTOM-1', 'description' => 'Custom-rate item', 'rental_catalogue_unit_id' => $this->eachUnitId($this->agencyA),
-            'default_price' => 110, 'default_rental_vat_type_id' => $custom->id, 'default_custom_vat_rate' => 10,
+            'selling_incl' => 110, 'pricing_driver' => 'selling_incl', 'default_rental_vat_type_id' => $custom->id, 'default_custom_vat_rate' => 10,
         ])->assertRedirect();
 
         $item = RentalCatalogueItem::firstWhere('code', 'CUSTOM-1');
-        $this->assertSame('100.00', (string) $item->default_price);
+        $this->assertSame('100.00', (string) $item->selling_excl);
         $this->assertSame('10.00', (string) $item->default_custom_vat_rate);
     }
 

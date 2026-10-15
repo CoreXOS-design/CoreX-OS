@@ -45,7 +45,7 @@
     $catalogueItemsJson = $catalogueItems->map(fn ($ci) => [
         'id' => $ci->id, 'code' => $ci->code, 'description' => $ci->description, 'label' => $ci->label(),
         'kind' => $ci->kind(), 'unit' => $ci->catalogueUnit?->name,
-        'priceForLine' => $jcAgency ? app(\App\Services\Rentals\RentalJobCardVatService::class)->catalogueDefaultPriceForLine($ci, $jcAgency) : ($ci->default_price !== null ? (float) $ci->default_price : null),
+        'priceForLine' => $jcAgency ? app(\App\Services\Rentals\RentalJobCardVatService::class)->catalogueDefaultPriceForLine($ci, $jcAgency) : ($ci->selling_excl !== null ? (float) $ci->selling_excl : null),
         // §17.4.4 — the catalogue's default COST prefills the Cost box, but only for someone who can see and set costs.
         'costForLine' => (($canViewCosts ?? false) && ($canPrice ?? false) && $jcAgency) ? app(\App\Services\Rentals\RentalJobCardVatService::class)->catalogueDefaultCostForLine($ci, $jcAgency) : null,
         'vatTypeId' => $ci->default_rental_vat_type_id,

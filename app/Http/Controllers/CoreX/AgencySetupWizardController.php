@@ -743,6 +743,8 @@ class AgencySetupWizardController extends Controller
                     'default_parts_markup_percent' => \App\Models\RentalWorkOrderSetting::defaultPartsMarkupPercentFor($agency->id),
                     'default_labour_markup_percent' => \App\Models\RentalWorkOrderSetting::defaultLabourMarkupPercentFor($agency->id),
                     'quote_estimate_term' => \App\Models\RentalWorkOrderSetting::quoteEstimateTermFor($agency->id),
+                    'catalogue_default_markup_type' => \App\Models\RentalWorkOrderSetting::catalogueMarkupTypeFor($agency->id),
+                    'catalogue_default_markup_value' => \App\Models\RentalWorkOrderSetting::catalogueMarkupValueFor($agency->id),
                     // BUILD 1 END
                     // BUILD 2 BEGIN — approvals keys
                     'external_quote_markup_type' => \App\Models\RentalWorkOrderSetting::externalQuoteMarkupTypeFor($agency->id),
