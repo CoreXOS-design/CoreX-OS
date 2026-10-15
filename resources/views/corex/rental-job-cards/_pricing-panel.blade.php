@@ -110,6 +110,10 @@
                 @endif
             </div>
             @if($l->crew_note)<div>“{{ $l->crew_note }}”</div>@endif
+            @if(($receipts ?? collect())->has($l->id) && $l->type === 'part')
+                <div class="flex items-center gap-2" data-awaiting-receipt><span style="color: var(--text-muted);">Receipt:</span> @include('corex.rental-job-cards._receipt-thumb', ['receipt' => $receipts[$l->id], 'label' => $l->description])</div>
+            @endif
+            @if($l->type === 'labour' && $l->unit_cost === null)<div style="color: var(--text-muted);" data-labour-unpriced>Labour — the crew counted the hours; set the cost and price when you accept.</div>@endif
             <div style="color: var(--text-muted);">{{ $l->crew_added_by_label }}{{ $l->crew_added_at ? ' · ' . $l->crew_added_at->format('Y-m-d H:i') : '' }}</div>
             @if(($awaitingPhotos[$l->id] ?? collect())->isNotEmpty())
                 <div class="flex gap-1 flex-wrap">@foreach($awaitingPhotos[$l->id] as $ph)<a href="{{ $ph->storage_path }}" target="_blank"><img src="{{ $ph->storage_path }}" class="rounded" style="width:56px; height:56px; object-fit:cover;" alt=""></a>@endforeach</div>

@@ -78,8 +78,14 @@
             </div>
         @endif
         @if($job['crew_name'])<div class="cj-muted" style="margin-top:6px;">Crew: {{ $job['crew_name'] }}</div>@endif
-        @if($job['access_notes'])
-            <div style="margin-top:12px; padding:10px 12px; background:#fff8e6; border:1px solid #f1dfa6; border-radius:10px; font-size:14px;"><strong>Access:</strong> {{ $job['access_notes'] }}</div>
+        @if($job['access']['any'])
+            <div style="margin-top:12px; padding:10px 12px; background:#fff8e6; border:1px solid #f1dfa6; border-radius:10px; font-size:14px;" data-access-contact>
+                <strong>Access:</strong>
+                @if($job['access']['name'] || $job['access']['phone'])
+                    {{ $job['access']['name'] }}@if($job['access']['phone'])@if($job['access']['name']) &middot; @endif<a href="tel:{{ $job['access']['tel'] }}">{{ $job['access']['phone'] }}</a>@endif
+                @endif
+                @if($job['access']['note'])<div style="margin-top:4px;">{{ $job['access']['note'] }}</div>@endif
+            </div>
         @endif
         @if($job['tenant'])
             <div style="margin-top:12px; font-size:14px;">

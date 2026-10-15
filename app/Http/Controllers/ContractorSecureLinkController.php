@@ -74,7 +74,11 @@ class ContractorSecureLinkController extends Controller
             'response' => $workOrder->contractor_response,
             'responseLabel' => $jobs::responseLabel($workOrder->contractor_response),
             'agencyName' => \App\Models\Agency::displayNameFor($workOrder->agency, 'The agency'),
-            'accessNotes' => trim((string) ($workOrder->property?->access_notes ?? '')) ?: null,
+            // AT-459 - the same facts the job email carries: who lets the contractor in (name, phone, note), the tenant (only when the agency
+            // allows crews/contractors to see them) and an Open in Maps link. Nothing here lets the contractor capture parts, labour or hours.
+            'access' => \App\Services\Rentals\JobSiteInfo::accessContact($workOrder),
+            'tenants' => \App\Models\RentalPortalSetting::crewLinkShowTenantContactFor($workOrder->agency_id) ? \App\Services\Rentals\JobSiteInfo::tenants($workOrder->lease_id) : [],
+            'mapUrl' => \App\Services\Rentals\JobSiteInfo::mapUrl($workOrder->property, (string) $workOrder->property?->buildDisplayAddress()),
             // section 22.7 - the owner stopped it: "On hold - do not attend" and nothing to answer, quote, photograph or mark done (the owner's reason is never shown here)
             'onHold' => app(\App\Services\Rentals\RentalOwnerHoldService::class)->activeFor($workOrder) !== null,
             'lookAndQuote' => app(\App\Services\Rentals\RentalWhoPaysService::class)->isFaultJob($workOrder),

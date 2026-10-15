@@ -134,6 +134,15 @@ class RentalJobCardService
                 'access_notes' => $attributes['access_notes'] ?? null,
                 'created_by_user_id' => $by->id,
             ]);
+            // AT-459 - the access contact belongs to the work order (the card reads it from there). Only when the form carried one, so a work
+            // order that already has its own access details is never blanked by a card created with the boxes left empty.
+            if ($workOrder && (filled($attributes['access_contact_name'] ?? null) || filled($attributes['access_contact_phone'] ?? null) || filled($attributes['access_notes'] ?? null))) {
+                \App\Services\Rentals\JobSiteInfo::saveAccessContact($workOrder, $jobCard, [
+                    'access_contact_name' => filled($attributes['access_contact_name'] ?? null) ? $attributes['access_contact_name'] : $workOrder->access_contact_name,
+                    'access_contact_phone' => filled($attributes['access_contact_phone'] ?? null) ? $attributes['access_contact_phone'] : $workOrder->access_contact_phone,
+                    'access_note' => filled($attributes['access_notes'] ?? null) ? $attributes['access_notes'] : $workOrder->access_note,
+                ]);
+            }
 
             foreach ($attributes['tasks'] ?? [] as $i => $taskData) {
                 $description = trim((string) ($taskData['description'] ?? ''));

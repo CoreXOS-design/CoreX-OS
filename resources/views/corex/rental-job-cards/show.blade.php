@@ -198,16 +198,30 @@
                             <label class="text-xs font-medium">Title</label>
                             <input type="text" name="title" required maxlength="191" value="{{ old('title', $displayFaultReport?->title ?? $displayWorkOrder?->title) }}" placeholder="e.g. Paint lounge and fix floor" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                         </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-xs font-medium">Access contact name</label>
+                                <input type="text" name="access_contact_name" maxlength="191" value="{{ old('access_contact_name') }}" placeholder="Who lets the worker in" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                            </div>
+                            <div>
+                                <label class="text-xs font-medium">Access contact phone</label>
+                                <input type="text" name="access_contact_phone" maxlength="50" value="{{ old('access_contact_phone') }}" placeholder="Their cell number" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                            </div>
+                        </div>
                         <div>
-                            <label class="text-xs font-medium">Access notes</label>
-                            <textarea name="access_notes" rows="2" placeholder="Gate code, dog on site, tenant works from home, etc." class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);"></textarea>
+                            <label class="text-xs font-medium">Access note</label>
+                            <textarea name="access_notes" rows="2" placeholder="Gate code, dog on site, tenant works from home, etc." class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('access_notes') }}</textarea>
                         </div>
                     </form>
                 @else
                     <div class="grid grid-cols-2 gap-3 text-sm" x-data="{ editing: false }">
                         <div x-show="!editing"><span style="color: var(--text-muted);">Tenancy:</span> {{ $jobCard->lease?->tenantNames() ?? 'None — vacancy period' }}</div>
                         <div x-show="!editing"><span style="color: var(--text-muted);">Landlord:</span> {{ $landlords->isNotEmpty() ? $landlords->map(fn ($c) => $c->full_name)->implode(', ') : 'No landlord linked' }}</div>
-                        <div x-show="!editing" class="col-span-2"><span style="color: var(--text-muted);">Access notes:</span> {{ $jobCard->access_notes ?? '—' }}</div>
+                        <div x-show="!editing" class="col-span-2" data-access-contact>
+                            <span style="color: var(--text-muted);">Access contact:</span>
+                            @if($access['name'] || $access['phone']){{ $access['name'] }}@if($access['phone'])@if($access['name']) · @endif<a href="tel:{{ $access['tel'] }}" style="text-decoration: underline;">{{ $access['phone'] }}</a>@endif @else — @endif
+                            <div><span style="color: var(--text-muted);">Access note:</span> {{ $access['note'] ?? '—' }}</div>
+                        </div>
 
                         @permission('rental_job_cards.create')
                         @if($jobCard->status === \App\Models\RentalJobCard::STATUS_DRAFT)
@@ -221,9 +235,19 @@
                                 <label class="text-xs font-medium">Title</label>
                                 <input type="text" name="title" required maxlength="191" value="{{ old('title', $jobCard->title) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                             </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="text-xs font-medium">Access contact name</label>
+                                    <input type="text" name="access_contact_name" maxlength="191" value="{{ old('access_contact_name', $jobCard->workOrder?->access_contact_name ?? $jobCard->access_contact_name) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                                </div>
+                                <div>
+                                    <label class="text-xs font-medium">Access contact phone</label>
+                                    <input type="text" name="access_contact_phone" maxlength="50" value="{{ old('access_contact_phone', $jobCard->workOrder?->access_contact_phone ?? $jobCard->access_contact_phone) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                                </div>
+                            </div>
                             <div>
-                                <label class="text-xs font-medium">Access notes</label>
-                                <textarea name="access_notes" rows="2" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('access_notes', $jobCard->access_notes) }}</textarea>
+                                <label class="text-xs font-medium">Access note</label>
+                                <textarea name="access_notes" rows="2" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('access_notes', $jobCard->workOrder?->access_note ?? $jobCard->access_notes) }}</textarea>
                             </div>
                             <div class="flex gap-2">
                                 <button type="submit" class="corex-btn-primary text-xs">Save changes</button>

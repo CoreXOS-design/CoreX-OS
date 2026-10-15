@@ -182,7 +182,9 @@ class RentalJobCardController extends Controller
             'rental_work_order_id' => ['nullable', 'exists:rental_work_orders,id'],
             'fault_report_id' => ['nullable', 'exists:rental_fault_reports,id'],
             'title' => ['required', 'string', 'max:191'],
-            'access_notes' => ['nullable', 'string'],
+            'access_contact_name' => ['nullable', 'string', 'max:191'],
+            'access_contact_phone' => ['nullable', 'string', 'max:50'],
+            'access_notes' => ['nullable', 'string', 'max:2000'],
             'tasks' => ['nullable', 'array'],
             'tasks.*.description' => ['nullable', 'string', 'max:500'],
             'tasks.*.lines' => ['nullable', 'array'],
@@ -274,10 +276,12 @@ class RentalJobCardController extends Controller
         $pricingService = app(\App\Services\Rentals\RentalPricingService::class);
         $awaitingLines = $rentalJobCard->lines->where('office_status', RentalJobCardLine::OFFICE_AWAITING)->values();
         $awaitingPhotos = $awaitingLines->isEmpty() ? collect() : \App\Models\RentalWorkOrderPhoto::withoutGlobalScopes()
-            ->whereIn('rental_job_card_line_id', $awaitingLines->pluck('id'))->orderBy('id')->get()->groupBy('rental_job_card_line_id');
+            ->whereIn('rental_job_card_line_id', $awaitingLines->pluck('id'))->where('photo_type', RentalJobCardLine::PHOTO_TYPE)->orderBy('id')->get()->groupBy('rental_job_card_line_id');
 
         return view('corex.rental-job-cards.show', [
             'jobCard' => $rentalJobCard,
+            // AT-459 - who lets the worker in, as the work order holds it (the card's own copy, then the property's note, when it has none)
+            'access' => \App\Services\Rentals\JobSiteInfo::accessContact($rentalJobCard->workOrder, $rentalJobCard),
             'crewLink' => $crewLink,
             'crewLinksEnabled' => \App\Models\RentalPortalSetting::crewLinksEnabledFor($rentalJobCard->agency_id),
             'signedCopies' => $rentalJobCard->signedCopies()->with('uploadedBy')->get(),
@@ -295,6 +299,10 @@ class RentalJobCardController extends Controller
             'margin' => $canViewCosts ? $pricingService->marginFor($rentalJobCard) : null,
             'awaitingLines' => $awaitingLines,
             'awaitingPhotos' => $awaitingPhotos,
+            // AT-459 - the crew's receipt for each part line (the newest one), office-only: shown on the awaiting block and on the accepted line.
+            'receipts' => \App\Models\RentalWorkOrderPhoto::withoutGlobalScopes()
+                ->where('rental_job_card_id', $rentalJobCard->id)->where('photo_type', RentalJobCardLine::RECEIPT_PHOTO_TYPE)
+                ->orderBy('id')->get()->keyBy('rental_job_card_line_id'),
             'openPriceRequest' => $rentalJobCard->priceRequests->firstWhere('status', \App\Models\RentalJobCardPriceRequest::STATUS_OPEN),
             'submittedPriceRequest' => $rentalJobCard->priceRequests->firstWhere('status', \App\Models\RentalJobCardPriceRequest::STATUS_SUBMITTED),
             // AT-442 fix #6 — same figure RentalWorkOrderController::show() already surfaces.
@@ -327,10 +335,14 @@ class RentalJobCardController extends Controller
 
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:191'],
-            'access_notes' => ['nullable', 'string'],
+            // AT-459 - the access contact lives on the work order (the card reads it from there); JobSiteInfo decides where it is written.
+            'access_contact_name' => ['nullable', 'string', 'max:191'],
+            'access_contact_phone' => ['nullable', 'string', 'max:50'],
+            'access_notes' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        $rentalJobCard->update($validated);
+        $rentalJobCard->update(['title' => $validated['title']]);
+        \App\Services\Rentals\JobSiteInfo::saveAccessContact($rentalJobCard->workOrder()->withoutGlobalScopes()->first(), $rentalJobCard, $validated);
 
         return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Job card updated.');
     }

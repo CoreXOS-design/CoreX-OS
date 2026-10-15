@@ -166,7 +166,8 @@ final class CrewPartsPanelTest extends TestCase
     {
         Event::fake([RentalCrewLinesSubmitted::class]);
         $this->postLine($this->goodLine(['description' => 'One']));
-        $this->postLine($this->goodLine(['description' => 'Two', 'type' => 'labour', 'unit' => 'hour', 'quantity' => 3, 'unit_cost' => '90']));
+        // AT-459: labour is hours only — the crew never types a cost for it
+        $this->postLine(['type' => 'labour', 'description' => 'Two', 'quantity' => 3]);
 
         $this->post(route('rentals.crew-job.lines.send', $this->rawToken), ['confirm' => 1])->assertRedirect()->assertSessionHas('success');
 
@@ -236,7 +237,8 @@ final class CrewPartsPanelTest extends TestCase
         $this->assertStringContainsString('not on the list', session('errors')->first('crew'));
     }
 
-    public function test_a_picked_catalogue_item_fills_the_description_but_the_crew_never_gets_its_cost_or_price(): void
+    /** AT-459: a PART's cost on file pre-fills "what it cost you" (Johan, 15 Oct 2026); the selling price and any labour rate stay out. */
+    public function test_a_picked_catalogue_item_fills_the_description_and_a_parts_cost_but_the_crew_never_gets_a_price(): void
     {
         $item = $this->catalogueItem('ELEM', 'part', 600.00, 350.00);
 
@@ -244,14 +246,14 @@ final class CrewPartsPanelTest extends TestCase
 
         $line = RentalJobCardLine::where('rental_catalogue_item_id', $item->id)->firstOrFail();
         $this->assertSame('ELEM item', $line->description);
-        $this->assertEquals(300.00, (float) $line->unit_cost, 'the crew typed 300 — the catalogue default (350) is the office\'s, never offered');
+        $this->assertEquals(300.00, (float) $line->unit_cost, 'the crew typed 300 — what they actually paid wins over the cost on file (350)');
         $this->assertNull($line->unit_price);
 
         $body = $this->get($this->linkUrl())->getContent();
         $this->assertStringContainsString('ELEM', $body);
         $this->assertStringNotContainsString('600.00', $body, 'no catalogue price');
         $this->assertStringNotContainsString('R 600', $body);
-        $this->assertStringNotContainsString('350.00', $body, 'no catalogue cost');
+        $this->assertStringContainsString('data-cost="350.00"', $body, 'the part\'s cost on file pre-fills the cost box');
     }
 
     public function test_with_pricing_off_no_cost_is_asked_for_or_stored(): void

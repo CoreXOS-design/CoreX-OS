@@ -25,6 +25,17 @@
             <strong>{{ $title }}</strong>
             @if($address)<br>{{ $address }}@endif
             @if($scheduledAt)<br>Scheduled: {{ $scheduledAt }}@endif
+            @if(!empty($mapUrl))<br><a href="{{ $mapUrl }}" style="color:#0d9488;font-weight:700;">Open in Maps</a>@endif
+            @if(!empty($tenants))
+                @foreach($tenants as $t)
+                    <br><strong>Tenant:</strong> {{ $t['name'] }}@if($t['phone']) &middot; <a href="tel:{{ $t['tel'] }}" style="color:#0d9488;">{{ $t['phone'] }}</a>@endif
+                @endforeach
+            @endif
+            @if(!empty($access['any']))
+                <br><strong>Access:</strong>
+                @if($access['name'] || $access['phone']){{ $access['name'] }}@if($access['phone'])@if($access['name']) &middot; @endif<a href="tel:{{ $access['tel'] }}" style="color:#0d9488;">{{ $access['phone'] }}</a>@endif @endif
+                @if($access['note'])<br>{{ $access['note'] }}@endif
+            @endif
         </div>
         <p style="margin: 24px 0;"><a class="btn" href="{{ $url }}">Open the job</a></p>
         <p class="muted">Or copy this link into your browser:<br>{{ $url }}</p>

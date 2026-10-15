@@ -50,14 +50,20 @@
             <h2>{{ $workOrder->title }}</h2>
             <p class="muted">{{ $workOrder->property?->buildDisplayAddress() }} &middot; from {{ $agencyName }}</p>
             <p>{{ $workOrder->description }}</p>
-            @if ($accessNotes)
-                <p class="muted"><strong>Getting in:</strong> {{ $accessNotes }}</p>
+            @if (! empty($mapUrl))
+                <p><a href="{{ $mapUrl }}" target="_blank" rel="noopener" data-open-in-maps style="display:inline-block;padding:10px 16px;background:#eef3f8;color:#26435f;border-radius:10px;font-weight:700;text-decoration:none;">Open in Maps</a></p>
             @endif
+            @if (! empty($access['any']))
+                <p class="muted" data-access-contact><strong>Getting in:</strong>
+                    @if ($access['name'] || $access['phone']){{ $access['name'] }}@if ($access['phone'])@if ($access['name']) &middot; @endif<a href="tel:{{ $access['tel'] }}">{{ $access['phone'] }}</a>@endif @endif
+                    @if ($access['note'])<br>{{ $access['note'] }}@endif
+                </p>
+            @endif
+            @foreach (($tenants ?? []) as $t)
+                <p class="muted" data-tenant><strong>Tenant:</strong> {{ $t['name'] }}@if ($t['phone']) &middot; <a href="tel:{{ $t['tel'] }}">{{ $t['phone'] }}</a>@endif</p>
+            @endforeach
             @if (! empty($lookAndQuote) && empty($unlocked))
                 <p data-look-and-quote><strong>This is a visit to look at the problem and give a quote.</strong> Any repair work is agreed with the owner separately, before it starts.</p>
-            @endif
-            @if ($jobCard?->access_notes)
-                <p class="muted"><strong>Access notes:</strong> {{ $jobCard->access_notes }}</p>
             @endif
         </div>
 

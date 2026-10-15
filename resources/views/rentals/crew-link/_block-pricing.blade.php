@@ -5,7 +5,9 @@
         crew adds while it is open belongs to that request.
     (b) "Extras during the job" — available on any open card: a note and up to 3 photos per line.
 
-    The crew types the ACTUAL COST of each line and nothing else about money: there is no selling price, markup, margin, job
+    AT-459: a PART line has the crew's actual cost (pre-filled from the list) and an optional receipt; a LABOUR line is HOURS only —
+    the crew never types, sees or is told a labour rate or amount (the office prices it).
+    The crew types the ACTUAL COST of each part and nothing else about money: there is no selling price, markup, margin, job
     total, owner or approval figure anywhere in this partial or in the $block it reads (CrewPricingBlock — guarded by
     CrewPayloadNeverCarriesSellingTest). Lines the crew adds are DRAFTS — in no total anywhere — until "Send to office".
 
@@ -37,6 +39,12 @@
         .cj-pricing .cj-ask { background: #fff8e6; border: 1px solid #f1dfa6; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; font-size: 14px; line-height: 1.45; }
         .cj-pricing .cj-photos { margin-top: 8px; }
         .cj-pricing .cj-btn.small { min-height: 44px; font-size: 14px; padding: 9px; margin-top: 8px; }
+        .cj-pricing [hidden] { display: none !important; }
+        .cj-pricing .cj-receipt { display: flex; gap: 8px; }
+        .cj-pricing .cj-receipt .cj-filebtn { position: relative; flex: 1 1 0; min-height: 52px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--cj-border); }
+        .cj-pricing .cj-receipt .cj-filebtn.has-file { background: #eafaf0; color: #1f8a4c; border-color: #1f8a4c; }
+        .cj-pricing .cj-sr { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 0; }
+        .cj-pricing .cj-receipt-name { margin-top: 6px; }
     </style>
     <h2>Parts &amp; labour</h2>
 
@@ -54,7 +62,7 @@
         <div class="cj-line" data-line-id="{{ $l['id'] }}" data-line-state="{{ $l['state'] }}">
             <div class="top">
                 <div><strong>{{ $l['description'] }}</strong>
-                    <div class="cj-muted">{{ ucfirst($l['kind']) }} &middot; {{ $l['quantity'] }}{{ $l['unit'] ? ' ' . $l['unit'] : '' }}@if($l['is_extra']) &middot; extra @endif</div>
+                    <div class="cj-muted">{{ ucfirst($l['kind']) }} &middot; {{ $l['quantity'] }}{{ $l['unit'] ? ' ' . $l['unit'] : ($l['kind'] === 'labour' ? ' hours' : '') }}@if($l['is_extra']) &middot; extra @endif</div>
                 </div>
                 @if($pricesOn && $l['cost_total'] !== null)<div style="white-space:nowrap; font-weight:700;">R {{ $l['cost_total'] }}</div>@endif
             </div>
@@ -64,28 +72,16 @@
             @if(count($l['photos']))
                 <div class="cj-photos">@foreach($l['photos'] as $p)<a href="{{ $p['url'] }}" target="_blank" rel="noopener"><img src="{{ $p['url'] }}" alt="" loading="lazy"></a>@endforeach</div>
             @endif
+            @if(!empty($l['receipt_url']))
+                <div class="cj-muted" style="margin-top:4px;" data-receipt-added>Receipt added &middot; <a href="{{ $l['receipt_url'] }}" target="_blank" rel="noopener">view</a></div>
+            @endif
 
             @if($l['editable'] && $canWrite)
                 <details class="cj-add" style="margin-top:6px;">
                     <summary>Change this line</summary>
-                    <form method="POST" action="{{ $lineUrl('line_update', $l['id']) }}" enctype="multipart/form-data">
+                    <form method="POST" action="{{ $lineUrl('line_update', $l['id']) }}" enctype="multipart/form-data" class="cj-line-form">
                         @csrf
-                        <label class="cj-label">Part or labour</label>
-                        <select name="type"><option value="part" @selected($l['kind'] === 'part')>Part</option><option value="labour" @selected($l['kind'] === 'labour')>Labour</option></select>
-                        <label class="cj-label">What is it</label>
-                        <input type="text" name="description" value="{{ $l['description'] }}" maxlength="255" required>
-                        <label class="cj-label">How many</label>
-                        <input type="number" name="quantity" value="{{ $l['quantity'] }}" step="0.01" min="0.01" inputmode="decimal" required>
-                        <label class="cj-label">Unit (e.g. each, hour)</label>
-                        <input type="text" name="unit" value="{{ $l['unit'] }}" maxlength="30">
-                        @if($pricesOn)
-                            <label class="cj-label">What it cost you, each (R)</label>
-                            <input type="number" name="unit_cost" value="{{ $l['unit_cost'] }}" step="0.01" min="0" inputmode="decimal" required>
-                        @endif
-                        <label class="cj-label">Note (optional)</label>
-                        <textarea name="note" maxlength="1000">{{ $l['note'] }}</textarea>
-                        <label class="cj-label">Add photos (up to {{ $block['photo_limit'] }} on a line)</label>
-                        <input type="file" name="photos[]" accept="image/*" multiple style="width:100%; min-height:48px; font-size:15px;">
+                        @include('rentals.crew-link._pricing-line-fields', ['l' => $l, 'block' => $block, 'pricesOn' => $pricesOn])
                         <button type="submit" class="cj-btn primary small">Save changes</button>
                     </form>
                 </details>
@@ -109,26 +105,11 @@
                     <select id="cj-cat" name="rental_catalogue_item_id" class="cj-cat-pick">
                         <option value="">— type it yourself —</option>
                         @foreach($block['catalogue'] as $c)
-                            <option value="{{ $c['id'] }}" data-desc="{{ $c['description'] }}" data-kind="{{ $c['kind'] }}" data-unit="{{ $c['unit'] }}">{{ $c['label'] }}</option>
+                            <option value="{{ $c['id'] }}" data-desc="{{ $c['description'] }}" data-kind="{{ $c['kind'] }}" data-unit="{{ $c['unit'] }}" @if($pricesOn && $c['cost'] !== null) data-cost="{{ $c['cost'] }}" @endif>{{ $c['label'] }}</option>
                         @endforeach
                     </select>
                 @endif
-                <label class="cj-label">Part or labour</label>
-                <select name="type" class="cj-kind"><option value="part">Part</option><option value="labour">Labour</option></select>
-                <label class="cj-label">What is it</label>
-                <input type="text" name="description" class="cj-desc" maxlength="255" autocomplete="off" placeholder="e.g. geyser element">
-                <label class="cj-label">How many</label>
-                <input type="number" name="quantity" value="1" step="0.01" min="0.01" inputmode="decimal" required>
-                <label class="cj-label">Unit (e.g. each, hour)</label>
-                <input type="text" name="unit" class="cj-unit" maxlength="30" autocomplete="off">
-                @if($pricesOn)
-                    <label class="cj-label">What it cost you, each (R)</label>
-                    <input type="number" name="unit_cost" step="0.01" min="0" inputmode="decimal" required>
-                @endif
-                <label class="cj-label">Note (optional)</label>
-                <textarea name="note" maxlength="1000" placeholder="Why is this needed?"></textarea>
-                <label class="cj-label">Photos (optional, up to {{ $block['photo_limit'] }})</label>
-                <input type="file" name="photos[]" accept="image/*" capture="environment" multiple style="width:100%; min-height:48px; font-size:15px;">
+                @include('rentals.crew-link._pricing-line-fields', ['l' => null, 'block' => $block, 'pricesOn' => $pricesOn])
                 @if(!empty($block['request']))
                     <label class="cj-confirm"><input type="checkbox" name="is_extra" value="1"><span>This is an extra, not part of the price you were asked for.</span></label>
                 @endif
@@ -148,16 +129,55 @@
     <script>
         (function () {
             var root = document.currentScript.parentNode;
-            var pick = root.querySelector('.cj-cat-pick');
-            if (!pick) { return; }
-            pick.addEventListener('change', function () {
-                var o = pick.options[pick.selectedIndex], form = pick.form;
-                if (!o || !o.value) { return; }
-                form.querySelector('.cj-desc').value = o.dataset.desc || '';
-                if (o.dataset.kind) { form.querySelector('.cj-kind').value = o.dataset.kind; }
-                if (o.dataset.unit) { form.querySelector('.cj-unit').value = o.dataset.unit; }
-            });
-            root.querySelectorAll('form').forEach(function (f) {
+            // One behaviour for every line form (Add and Change): which fields a Part and a Labour line show, and what a picked item fills in.
+            function wire(form) {
+                var pick = form.querySelector('.cj-cat-pick'), kind = form.querySelector('.cj-kind'), desc = form.querySelector('.cj-desc');
+                var qty = form.querySelector('.cj-qty'), unit = form.querySelector('.cj-unit'), cost = form.querySelector('.cj-cost');
+                var hint = form.querySelector('.cj-cost-hint'), partOnly = form.querySelector('.cj-part-only'), qtyLabel = form.querySelector('.cj-qty-label');
+                var qtyTouched = false, costTouched = false, itemUnit = '';
+                if (qty) { qty.addEventListener('input', function () { qtyTouched = true; }); }
+                if (cost) { cost.addEventListener('input', function () { costTouched = true; if (hint) { hint.hidden = true; } }); }
+
+                function isLabour() { return kind && kind.value === 'labour'; }
+                function hoursLabel() { return itemUnit && !/^hours?$/i.test(itemUnit) ? itemUnit.replace(/s$/i, '') + 's' : 'Hours'; }
+                function apply() {
+                    var labour = isLabour();
+                    if (partOnly) { partOnly.hidden = labour; }
+                    if (cost) { cost.disabled = labour; cost.required = !labour && !(pick && pick.value); }
+                    if (unit) { unit.disabled = labour; }
+                    if (qtyLabel) { qtyLabel.textContent = labour ? hoursLabel() : qtyLabel.dataset.partLabel; }
+                    // hours have no sensible default: an untouched "1" is cleared so the crew types what they worked
+                    if (qty && labour && !qtyTouched && qty.value === '1' && !form.dataset.edit) { qty.value = ''; }
+                    if (qty && !labour && !qtyTouched && qty.value === '') { qty.value = '1'; }
+                }
+                if (kind) { kind.addEventListener('change', apply); }
+                form.dataset.edit = form.action.indexOf('/lines/') !== -1 ? '1' : '';
+
+                if (pick) {
+                    pick.addEventListener('change', function () {
+                        var o = pick.options[pick.selectedIndex];
+                        if (!o || !o.value) { itemUnit = ''; apply(); return; }
+                        desc.value = o.dataset.desc || '';
+                        if (o.dataset.kind) { kind.value = o.dataset.kind; }
+                        itemUnit = o.dataset.unit || '';
+                        if (unit && o.dataset.unit) { unit.value = o.dataset.unit; }
+                        if (cost && o.dataset.kind !== 'labour' && o.dataset.cost && !costTouched) { cost.value = o.dataset.cost; if (hint) { hint.hidden = false; } }
+                        apply();
+                    });
+                }
+                form.querySelectorAll('.cj-filebtn input[type=file]').forEach(function (inp) {
+                    inp.addEventListener('change', function () {
+                        var name = form.querySelector('.cj-receipt-name'), btn = inp.closest('.cj-filebtn');
+                        form.querySelectorAll('.cj-filebtn').forEach(function (b) { b.classList.remove('has-file'); });
+                        form.querySelectorAll('.cj-filebtn input[type=file]').forEach(function (o) { if (o !== inp) { o.value = ''; } });
+                        if (inp.files && inp.files.length) { btn.classList.add('has-file'); if (name) { name.textContent = 'Receipt ready: ' + inp.files[0].name; } }
+                    });
+                });
+                apply();
+                form.addEventListener('submit', function () { var b = form.querySelector('button[type=submit]'); if (b) { setTimeout(function () { b.disabled = true; }, 0); } });
+            }
+            root.querySelectorAll('.cj-line-form').forEach(wire);
+            root.querySelectorAll('form:not(.cj-line-form)').forEach(function (f) {
                 f.addEventListener('submit', function () { var b = f.querySelector('button[type=submit]'); if (b) { setTimeout(function () { b.disabled = true; }, 0); } });
             });
         })();

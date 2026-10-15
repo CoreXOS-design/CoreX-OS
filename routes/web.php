@@ -4416,6 +4416,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_work_orders.view')->name('corex.rental-work-orders.who-pays.evidence');
         Route::post('/{rentalWorkOrder}/appointment', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'setAppointment'])
             ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.appointment.store');
+        // AT-459 - the access contact (name, phone, note) of an open work order, edited from the booking step.
+        Route::post('/{rentalWorkOrder}/access-contact', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'updateAccessContact'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.access-contact.update');
         Route::put('/{rentalWorkOrder}/owner-contractor', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'updateOwnerContractor'])
             ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.owner-contractor.update');
         Route::post('/{rentalWorkOrder}/notes', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'addNote'])
