@@ -10,6 +10,10 @@
             <option value="{{ $t }}" @selected(old('notice_type', $template?->notice_type ?? request('notice_type')) === $t)>{{ \App\Models\RentalNoticeTemplate::labelFor($t) }}</option>
         @endforeach
     </select>
+    {{-- which screens offer which type, so a template is never "missing" without saying why --}}
+    <p class="text-xs mt-1" style="color: var(--text-muted);" data-qa="template-type-help">
+        <strong>Breach notice (payment)</strong> is offered on the bulk payment sheet and on a lease's Breach notice screen. <strong>Breach notice (ad hoc)</strong> is offered on a lease's Breach notice screen (you give the clause and the reason there). <strong>Notice to vacate</strong> is offered on a breach once its remedy date is reached.
+    </p>
 </div>
 <div data-qa="template-upload">
     <label class="prop-label">Upload your document (Word, .docx)</label>

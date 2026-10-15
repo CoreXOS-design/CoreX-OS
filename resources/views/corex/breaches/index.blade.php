@@ -14,11 +14,14 @@
 <div class="p-6 space-y-4">
     <div class="flex items-center justify-between">
         <h1 class="text-lg font-semibold">Breach register</h1>
-        @permission('rental_breaches.manage')
+        <div class="flex items-center gap-2">
+            @include('corex.breaches._templates-link')
+            @permission('rental_breaches.manage')
 @feature('rental-leases')
-            <a href="{{ route('corex.leases.index', ['status' => 'active']) }}" class="corex-btn-outline text-xs">Choose leases for a breach notice</a>
+                <a href="{{ route('corex.leases.index', ['status' => 'active']) }}" class="corex-btn-outline text-xs">Choose leases for a breach notice</a>
 @endfeature
-        @endpermission
+            @endpermission
+        </div>
     </div>
     <p class="text-sm" style="color: var(--text-muted);">Every breach notice and notice to vacate issued on a lease, and where each stands.</p>
 

@@ -146,6 +146,83 @@ final class BreachTemplatesAndFollowUpTest extends TestCase
 
     // ── 2. payment vs ad hoc ───────────────────────────────────────────────
 
+    public function test_a_template_an_agency_creates_in_settings_is_selectable_on_the_breach_screen_and_can_be_sent(): void
+    {
+        $this->paymentTemplate();
+        $make = fn (string $name, string $type, array $over = []) => $this->actingAs($this->agent)->post(route('corex.rental-notice-templates.store'), $over + [
+            'name' => $name, 'notice_type' => $type, 'body_html' => '<p>{{reason}} - {{clause}}</p>', 'remedy_days' => 10,
+        ])->assertSessionHasNoErrors();
+
+        $make('General breach', 'breach_other');
+        $make('Older general', 'breach');
+        $make('Second payment', 'breach_payment');
+        $make('Vacate wording', 'notice_to_vacate');
+        $make('Switched off', 'breach_other', ['is_active' => 0]);
+        $screen = fn () => $this->actingAs($this->agent)->get(route('corex.leases.breaches.create', $this->lease))->assertOk()->getContent();
+
+        $html = $screen();
+        foreach (['Payment breach', 'General breach', 'Older general', 'Second payment'] as $name) {
+            $this->assertStringContainsString('>' . $name . '</option>', $html, "{$name} is selectable");
+        }
+        $this->assertStringNotContainsString('>Vacate wording</option>', $html, 'a notice to vacate is not a breach notice');
+        $this->assertStringNotContainsString('>Switched off</option>', $html, 'an inactive template is not offered');
+        $this->assertMatchesRegularExpression('/data-kind="other"[^>]*>General breach<\/option>/', $html, 'an ad hoc template opens the clause / reason fields');
+        $this->assertMatchesRegularExpression('/data-kind="payment"[^>]*>Second payment<\/option>/', $html);
+
+        // it really can be sent from the screen
+        $general = RentalNoticeTemplate::withoutGlobalScopes()->where('name', 'General breach')->firstOrFail();
+        $this->issueAdHoc($general)->assertSessionHasNoErrors();
+        $breach = LeaseBreach::withoutGlobalScopes()->firstOrFail();
+        $this->assertSame('other', $breach->kind);
+        $this->assertSame(10, (int) $breach->remedy_business_days, 'its own remedy days');
+
+        // archiving removes it from the screen, restoring brings it back
+        $this->actingAs($this->agent)->post(route('corex.rental-notice-templates.archive', $general))->assertSessionHasNoErrors();
+        $this->assertStringNotContainsString('>General breach</option>', $screen());
+        $this->actingAs($this->agent)->post(route('corex.rental-notice-templates.restore', $general->id))->assertSessionHasNoErrors();
+        $this->assertStringContainsString('>General breach</option>', $screen());
+    }
+
+    public function test_the_bulk_sheet_lists_payment_templates_only_and_says_where_the_others_are(): void
+    {
+        $this->paymentTemplate();
+        $this->adHocTemplate(['name' => 'General breach']);
+
+        $bulk = $this->actingAs($this->agent)->get(route('corex.breaches.bulk', ['leases' => [$this->lease->id]]))->assertOk()->getContent();
+
+        $this->assertStringContainsString('>Payment breach</option>', $bulk);
+        $this->assertStringNotContainsString('>General breach</option>', $bulk);
+        $this->assertStringContainsString('data-qa="bulk-templates-note"', $bulk, 'it says why an ad hoc template is not here and where to find it');
+        $this->assertStringContainsString('Breach notice</strong> button', $bulk);
+    }
+
+    public function test_a_templates_link_reaches_settings_from_the_breach_screens_for_those_who_may_manage_them(): void
+    {
+        $this->paymentTemplate();
+        $link = 'data-qa="breach-templates-link"';
+        $href = route('corex.rental-notice-templates.index');
+
+        foreach ([route('corex.leases.breaches.create', $this->lease), route('corex.breaches.index'), route('corex.breaches.bulk', ['leases' => [$this->lease->id]])] as $url) {
+            $html = $this->actingAs($this->agent)->get($url)->assertOk()->getContent();
+            $this->assertStringContainsString($link, $html, $url);
+            $this->assertStringContainsString('href="' . $href . '"', $html, $url);
+        }
+
+        // someone who may issue breaches but not manage templates is not shown a link they could not use
+        $clerk = \App\Models\User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'breach_clerk']);
+        $this->grant($clerk, ['leases.view', 'rental_breaches.view', 'rental_breaches.manage']);
+        $this->assertStringNotContainsString($link, $this->actingAs($clerk)->get(route('corex.breaches.index'))->assertOk()->getContent());
+        $this->assertStringNotContainsString($link, $this->actingAs($clerk)->get(route('corex.leases.breaches.create', $this->lease))->assertOk()->getContent());
+    }
+
+    public function test_the_template_form_says_which_screen_offers_which_type(): void
+    {
+        $html = $this->actingAs($this->agent)->get(route('corex.rental-notice-templates.create'))->assertOk()->getContent();
+
+        $this->assertStringContainsString('data-qa="template-type-help"', $html);
+        $this->assertStringContainsString('bulk payment sheet', $html);
+    }
+
     public function test_the_breach_screen_lists_every_template_and_opens_the_right_fields(): void
     {
         $this->paymentTemplate(['remedy_days' => 5]);
