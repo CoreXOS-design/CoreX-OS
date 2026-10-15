@@ -51,3 +51,6 @@ The existing agency templates screen (`RentalNoticeTemplate`, `rental_notice_tem
 ## 8. Tests
 
 `tests/Feature/RentalNotices/`: template upload (docx -> body, original kept, CRUD / archive, empty state), bulk (3 leases, amount on 2 -> 2 notices; skips named; scope; one open breach per lease), one-off, vacate gating (before / after the window, remedied, landlord breach, not offered otherwise), both parties told (rendered mails: agency-branded, no CoreX, the agent as sender), portal Documents for both parties, register (search / sort / filter / scope / archive), lease panel, remedy setting (settings + wizard). All mail faked and rendered.
+
+## Restyle (AT-455, 2026-10-15)
+The breach register uses the standard CoreX list look: flat page header, filter card, tinted status chips, table in a card with the pager in its footer. Behaviour, filters, sorting and scoping unchanged.

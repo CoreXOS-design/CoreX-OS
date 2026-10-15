@@ -1,6 +1,7 @@
 import './bootstrap';
 import './nexus-charts';
 import './corex-api';
+import './corex-date-picker';
 import './property-share';
 import './rental-inspection-signing';
 
