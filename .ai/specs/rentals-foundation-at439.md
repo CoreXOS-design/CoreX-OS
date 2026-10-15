@@ -510,3 +510,40 @@ names (`RoleManagerController`) and `corex-feature-registry.md` feature descript
 Reported to the conductor for a ruling.
 
 **Test:** `tests/Feature/Navigation/RentalsMenuLabelsTest.php` (visible labels, aliases, search reads the alias).
+
+## 13. Rentals menu grouped by action, Command Centre on top (AT-466, 15 Oct 2026, cc6, QA1)
+
+**Johan:** "the rental menu is quite large, we need to group by actions. Command centre at the top."
+
+**Order (supersedes the alphabetical order in section 12 - the panel is now `data-manual-order`, the same attribute the Command Center panel uses):**
+
+| Heading | Links, in this order |
+|---|---|
+| *(none)* | Command Centre |
+| Letting | Properties, Applications, Application Authorisation, Core Matches, Contacts, Rental Pipeline |
+| Leases | Leases, Inspections, Notices Received, Breach Register, Rental Notices |
+| Maintenance | Fault Reports, Job Cards, Crews, Parts & Labour Catalogue, Rental Work Orders, Suppliers & contractors |
+| Set-up | Fault Types, Rental Take-On Import |
+| Reports | Reports |
+
+Johan's ruling named the first five groups and the links in them. Six links he did not list are still in the panel (they carry permissions and
+feature flags of their own) and were placed by the lane by what the link is for: **Rental Pipeline** at the end of Letting; **Rental Notices** at the
+end of Leases (it sits with the other notice links); **Rental Work Orders** and **Suppliers & contractors** at the end of Maintenance;
+**Rental Take-On Import** at the end of Set-up; **Reports** under its own one-link heading, last. Moving any of them is a one-block move in
+`corex-sidebar.blade.php`.
+
+**Mechanics.** Headings use the sidebar's existing sub-heading, `<div class="corex-nav-sublabel">` (Command Center, Settings, HR already use it;
+`resources/css/corex.css`), plus `data-nav-auto-group`. No new style. Every link keeps its route, `@permission`/`@feature` gate, active-state test,
+`data-nav-alias` and favourite key (favourites are stored by path, which did not change). The Rentals section's open/closed behaviour (`rental-applications`
+group key, `inStack`) is untouched. The only gate restructure: Crews now precedes Parts & Labour Catalogue inside the same `rental_catalogue.view`
+permission that already wrapped both.
+
+**Search.** Each link carries `data-nav-group="<heading>"`; `CorexNavSearch` indexes it and matches it (rank after the label and the old-name alias,
+before the section heading), and the result shows "Rentals · Maintenance". So typing "maintenance" lists Fault Reports, Job Cards, Crews, ... Only the
+Rentals links carry the tag, so no other section's search changes.
+
+**A heading with nothing under it hides itself** (`window.CorexNavHeadings`, client-side): permissions and feature flags remove links on the server and the
+demo-sidebar curation removes them in the browser, so a heading cannot be written unconditionally. It re-runs after the curation.
+
+**Tests:** `tests/Feature/Navigation/RentalsMenuGroupsTest.php` (exact order and headings; every link tagged with its heading; manual order + search + heading script
+present); `RentalsMenuLabelsTest` now ends its slice at the last link (Reports).
