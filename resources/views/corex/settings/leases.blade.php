@@ -132,6 +132,23 @@
                     </p>
                 </div>
                 <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">The breach period counts</label>
+                    <select name="breach_remedy_day_basis" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                        <option value="business" @selected(old('breach_remedy_day_basis', $breachRemedyDayBasis) === 'business')>Business days (weekends and public holidays skipped)</option>
+                        <option value="calendar" @selected(old('breach_remedy_day_basis', $breachRemedyDayBasis) === 'calendar')>Calendar days (every day counts)</option>
+                    </select>
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Choose calendar days when your lease says "within 7 days of written notice". The deadline in the breach notice and the date a notice to vacate becomes available follow this.
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Time of day a notice to vacate asks the tenant to be out by</label>
+                    <input type="time" name="vacate_time" value="{{ old('vacate_time', $vacateTime) }}" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is {{ $vacateTimeDefault }}. The agent picks the date when the notice to vacate is made; this is the time it starts with.
+                    </p>
+                </div>
+                <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Notice may not be given before (months into the lease)</label>
                     <input type="number" name="default_earliest_notice_months" value="{{ old('default_earliest_notice_months', $earliestNoticeMonths) }}"
                            min="0" max="60" placeholder="No rule"

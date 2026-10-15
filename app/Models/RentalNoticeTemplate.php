@@ -44,6 +44,7 @@ class RentalNoticeTemplate extends Model
         'created_by_user_id',
         'source_file_name',
         'source_file_path',
+        'default_clause',
     ];
 
     protected $casts = [

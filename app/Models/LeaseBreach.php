@@ -34,13 +34,14 @@ class LeaseBreach extends Model
     protected $fillable = [
         'agency_id', 'branch_id', 'lease_id', 'kind', 'breach_party', 'amount', 'clause', 'reason', 'status', 'issued_on', 'remedy_deadline',
         'remedy_business_days', 'issued_by_user_id', 'rental_notice_id', 'batch_ref', 'remedied_at', 'remedied_by_user_id', 'remedied_note',
-        'vacate_issued_at', 'vacate_issued_by_user_id', 'vacate_rental_notice_id',
+        'vacate_issued_at', 'vacate_issued_by_user_id', 'vacate_rental_notice_id', 'remedy_day_basis', 'vacate_date', 'vacate_time',
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
         'issued_on' => 'date',
         'remedy_deadline' => 'date',
+        'vacate_date' => 'date',
         'remedied_at' => 'datetime',
         'vacate_issued_at' => 'datetime',
     ];
@@ -78,6 +79,18 @@ class LeaseBreach extends Model
     public function statusLabel(): string
     {
         return self::STATUS_LABELS[$this->status] ?? ucfirst((string) $this->status);
+    }
+
+    /** "7 calendar days" / "20 business days" - the remedy window this breach was issued under. */
+    public function remedyWindowLabel(): string
+    {
+        return (int) $this->remedy_business_days . ' ' . ($this->remedy_day_basis === 'calendar' ? 'calendar' : 'business') . ' days';
+    }
+
+    /** "12h00" - the vacate time as the notice prints it. */
+    public static function vacateTimeText(?string $hhmm): string
+    {
+        return $hhmm ? str_replace(':', 'h', substr($hhmm, 0, 5)) : '';
     }
 
     public function kindLabel(): string

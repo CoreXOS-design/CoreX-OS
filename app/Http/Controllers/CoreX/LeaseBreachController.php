@@ -85,6 +85,9 @@ class LeaseBreachController extends Controller
         return view('corex.breaches.show', [
             'breach' => $breach, 'lease' => $lease, 'vacateTemplates' => $vacateTemplates, 'canVacate' => $breach->canIssueVacate(),
             'placeholders' => RentalNoticeService::PLACEHOLDERS, 'preview' => session('breach_preview'),
+            // the notice to vacate form starts from the agency's usual time and the breach notices on file (the agent can change both)
+            'vacateTimeDefault' => \App\Models\LeaseSetting::vacateTimeFor((int) $breach->agency_id),
+            'breachSummaryDefault' => $this->notices->breachSummary($lease),
         ]);
     }
 
@@ -102,6 +105,7 @@ class LeaseBreachController extends Controller
         return view('corex.breaches.bulk', [
             'leases' => $leases, 'dropped' => $dropped, 'templates' => $this->breaches->templatesFor((int) $request->user()->effectiveAgencyId(), 'payment'),
             'remedyDays' => $this->breaches->remedyDays((int) $request->user()->effectiveAgencyId()),
+            'remedyWindow' => $this->breaches->remedyWindowText((int) $request->user()->effectiveAgencyId()),
             'placeholders' => RentalNoticeService::PLACEHOLDERS,
         ]);
     }
@@ -148,6 +152,7 @@ class LeaseBreachController extends Controller
         return view('corex.breaches.create', [
             'lease' => $lease, 'templates' => $this->breaches->templatesFor((int) $lease->agency_id, 'other'),
             'remedyDays' => $this->breaches->remedyDays((int) $lease->agency_id),
+            'remedyWindow' => $this->breaches->remedyWindowText((int) $lease->agency_id),
             'placeholders' => RentalNoticeService::PLACEHOLDERS, 'preview' => session('breach_preview'),
         ]);
     }
@@ -205,15 +210,25 @@ class LeaseBreachController extends Controller
         $breach = $this->find($request, $id);
         $data = $request->validate([
             'rental_notice_template_id' => ['required', 'integer'],
+            'vacate_date' => ['nullable', 'date'],
+            'vacate_time' => ['nullable', 'date_format:H:i'],
+            'breach_summary' => ['nullable', 'string', 'max:3000'],
             'figures_raw' => ['nullable', 'string', 'max:5000'],
             'intent' => ['required', 'in:preview,send'],
-        ], ['rental_notice_template_id.required' => 'Choose the notice to vacate template.']);
+        ], ['rental_notice_template_id.required' => 'Choose the notice to vacate template.', 'vacate_date.date' => 'That is not a date.', 'vacate_time.date_format' => 'Give the time as hours and minutes, e.g. 12:00.']);
 
         $template = $this->breaches->templatesFor((int) $breach->agency_id, 'vacate')->firstWhere('id', (int) $data['rental_notice_template_id']);
         if (! $template) {
             return back()->withErrors(['rental_notice_template_id' => 'Choose one of your agency\'s notice to vacate templates.']);
         }
         $figures = $this->parseFigures((string) ($data['figures_raw'] ?? ''));
+        // the vacate date / time and the breach summary the agent confirmed on the form (a typed name=value line still wins)
+        if (! empty($data['vacate_date'])) {
+            $figures += $this->breaches->vacateFigures($data['vacate_date'], $data['vacate_time'] ?? null, (int) $breach->agency_id);
+        }
+        if (trim((string) ($data['breach_summary'] ?? '')) !== '') {
+            $figures += ['breach_summary' => trim($data['breach_summary'])];
+        }
 
         if ($data['intent'] === 'preview') {
             $html = $this->notices->preview($template, $figures, $breach->lease, $breach, $request->user());
@@ -222,7 +237,7 @@ class LeaseBreachController extends Controller
         }
 
         try {
-            $this->breaches->issueVacate($breach, $template, $request->user(), $figures);
+            $this->breaches->issueVacate($breach, $template, $request->user(), $figures, $data['vacate_date'] ?? null, $data['vacate_time'] ?? null);
         } catch (ValidationException $e) {
             return back()->withInput()->withErrors($e->errors());
         }

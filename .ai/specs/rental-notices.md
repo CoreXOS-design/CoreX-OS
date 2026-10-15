@@ -48,6 +48,16 @@ The existing agency templates screen (`RentalNoticeTemplate`, `rental_notice_tem
 - The agreement's clauses are not stored as a pickable list, so the clause is typed.
 - The older free-form **Send notice** screen stays (for any other notice the agency has a template for), now with a real empty state linking to the templates screen.
 
+## 7a. The agency's own notice documents (AT-462, 15 Oct 2026)
+
+Built so an agency's real letters can be loaded as templates and print correctly. Everything below is configuration or agency data; CoreX still ships no wording.
+
+- **Letterhead.** Every notice PDF opens with the agency's letterhead read from the agency record - logo (branch logo first), name, address, phones (both), email, company registration, FFC, and VAT number (only when the agency is VAT-registered). A detail the agency has not filled in is left off. Templates therefore start at the date, never with a typed letterhead. Extra placeholders for the body: `agency_phone_secondary agency_reg_no agency_ffc_no agency_vat_no tenant_email breach_summary vacate_date vacate_time`.
+- **Clause block.** `rental_notice_templates.default_clause` (editable on the template form) is the clause text the notice quotes at `{{clause}}`. The one-off breach form starts its clause box from the chosen template's block and the agent edits it to quote the clause actually breached; a payment breach (no clause typed) prints the template's block as saved. Placeholder values keep their line breaks.
+- **Remedy window basis.** `lease_settings.breach_remedy_day_basis` = `business` (default; weekends and public holidays skipped) or `calendar` (a lease that says "within 7 days of written notice"). `lease_breaches.remedy_day_basis` remembers which it was issued under; screens say "7 calendar days" / "20 business days". Settings -> Leases and the Setup Wizard's Leases step (same `has()`-guarded saver).
+- **Notice to vacate captures its date and time.** The form asks the date the tenant must be out by (required, not in the past) and the time (starts from `lease_settings.vacate_time`, default 12:00, also in settings + wizard), and shows the breach notices on file (`breach_summary`: date - reason, tenant breaches not remedied) in an editable box. Stored on `lease_breaches.vacate_date / vacate_time`; printed as "30 November 2026" and "12h00". The gate is unchanged: tenant breach, still open, remedy window passed.
+- **Where a notice shows.** The lease screen's Breach panel links the breach notice and notice to vacate PDFs; both are Documents on the lease, entries in the tenancy log, and Documents (kind Notice) in both portals. (The lease screen has no separate Documents tab.)
+
 ## 8. Tests
 
 `tests/Feature/RentalNotices/`: template upload (docx -> body, original kept, CRUD / archive, empty state), bulk (3 leases, amount on 2 -> 2 notices; skips named; scope; one open breach per lease), one-off, vacate gating (before / after the window, remedied, landlord breach, not offered otherwise), both parties told (rendered mails: agency-branded, no CoreX, the agent as sender), portal Documents for both parties, register (search / sort / filter / scope / archive), lease panel, remedy setting (settings + wizard). All mail faked and rendered.

@@ -108,6 +108,7 @@ class RentalNoticeTemplateController extends Controller
             // the body is typed OR comes from an uploaded Word document (rental-notices.md §3)
             'body_html' => ['required_without:document', 'nullable', 'string', 'max:50000'],
             'document' => ['nullable', 'file', 'mimes:docx', 'max:10240'],
+            'default_clause' => ['nullable', 'string', 'max:5000'],
             'is_active' => ['nullable', 'boolean'],
         ], [
             'body_html.required_without' => 'Upload your Word document, or type the notice text.',

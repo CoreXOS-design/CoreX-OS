@@ -35,8 +35,13 @@ class RentalNoticeService
         'property_address' => 'The property\'s address', 'tenant_name' => 'The tenant(s)', 'landlord_name' => 'The landlord(s)',
         'lease_ref' => 'The lease reference', 'lease_start_date' => 'The lease start date', 'lease_end_date' => 'The lease end date',
         'monthly_rent' => 'The lease\'s monthly rent',
-        'amount' => 'The outstanding amount (payment breach)', 'clause' => 'The lease clause quoted (other breach)', 'reason' => 'The reason / what the breach is',
-        'breach_date' => 'The date the breach notice was issued', 'remedy_days' => 'Business days allowed to remedy', 'remedy_deadline' => 'The last day to remedy the breach',
+        'agency_phone_secondary' => 'Your agency\'s second phone', 'agency_reg_no' => 'Your agency\'s company registration number',
+        'agency_ffc_no' => 'Your agency\'s Fidelity Fund Certificate number', 'agency_vat_no' => 'Your agency\'s VAT number',
+        'tenant_email' => 'The tenant\'s email address(es)',
+        'amount' => 'The outstanding amount (payment breach)', 'clause' => 'The lease clause(s) quoted (the template\'s default clause block, edited per notice)', 'reason' => 'The reason / what the breach is',
+        'breach_date' => 'The date the breach notice was issued', 'remedy_days' => 'Days allowed to remedy', 'remedy_deadline' => 'The last day to remedy the breach',
+        'breach_summary' => 'The tenant\'s breach notices on file (date and reason), for a notice to vacate',
+        'vacate_date' => 'The date the tenant must be out by (notice to vacate)', 'vacate_time' => 'The time of day the tenant must be out by (notice to vacate)',
     ];
 
     /**
@@ -63,6 +68,12 @@ class RentalNoticeService
             'lease_start_date' => $lease->start_date?->format('j F Y') ?? '',
             'lease_end_date' => $lease->end_date?->format('j F Y') ?? '',
             'monthly_rent' => $lease->rental_amount ? self::money((float) $lease->rental_amount) : '',
+            // the letterhead details come from the agency record - never typed into a template
+            'agency_phone_secondary' => trim((string) ($agency?->phone_secondary ?? '')),
+            'agency_reg_no' => trim((string) ($agency?->reg_no ?? '')),
+            'agency_ffc_no' => trim((string) ($agency?->ffc_no ?? '')),
+            'agency_vat_no' => trim((string) ($agency?->vat_no ?? '')),
+            'tenant_email' => $lease->tenantContacts()->map(fn ($c) => trim((string) $c->email))->filter()->unique()->implode(', '),
         ];
         if ($breach) {
             $figures['breach_date'] = $breach->issued_on->format('j F Y');
@@ -71,9 +82,31 @@ class RentalNoticeService
             $figures['amount'] = $breach->amount !== null ? self::money((float) $breach->amount) : '';
             $figures['clause'] = (string) ($breach->clause ?? '');
             $figures['reason'] = (string) ($breach->reason ?? '');
+            if ($breach->vacate_date) {
+                $figures['vacate_date'] = $breach->vacate_date->format('j F Y');
+                $figures['vacate_time'] = LeaseBreach::vacateTimeText($breach->vacate_time);
+            }
         }
+        $figures['breach_summary'] = $this->breachSummary($lease);
 
         return array_filter($figures, fn ($v) => $v !== '');
+    }
+
+    /**
+     * The tenant's breach notices still standing on this lease (not remedied, not archived) as "date - what it was", one after another.
+     * A notice to vacate quotes it as the breaches behind the cancellation; the agent can retype it on the form.
+     */
+    public function breachSummary(Lease $lease): string
+    {
+        if (! $lease->exists) {
+            return '';
+        }
+
+        return $lease->breaches()->where('breach_party', Lease::NOTICE_BY_TENANT)->where('status', '!=', LeaseBreach::STATUS_REMEDIED)->orderBy('issued_on')->orderBy('id')->get()
+            ->map(fn (LeaseBreach $b) => $b->issued_on->format('j F Y') . ' - ' . ($b->kind === LeaseBreach::KIND_PAYMENT
+                ? 'failure to pay rent (' . self::money((float) $b->amount) . ' outstanding)'
+                : trim((string) $b->reason)))
+            ->implode('; ');
     }
 
     /** South African money: "R 1 234.50". */
@@ -86,13 +119,18 @@ class RentalNoticeService
     public function render(RentalNoticeTemplate $template, array $figures, ?Lease $lease = null, ?LeaseBreach $breach = null, ?User $agent = null): string
     {
         $values = $lease ? $this->autoFigures($lease, $breach, $agent) : [];
+        // the template's own saved clause block is the starting text of {{clause}} (the agent quotes the real clause on a one-off breach)
+        if (empty($values['clause']) && trim((string) $template->default_clause) !== '') {
+            $values['clause'] = trim((string) $template->default_clause);
+        }
         foreach ($figures as $key => $value) {
             if (trim((string) $value) !== '') {
                 $values[$key] = (string) $value;
             }
         }
 
-        return (string) preg_replace_callback(self::TOKEN, fn ($m) => array_key_exists($m[1], $values) ? e($values[$m[1]]) : $m[0], (string) $template->body_html);
+        // values are escaped, then line breaks kept (a clause block is several lines)
+        return (string) preg_replace_callback(self::TOKEN, fn ($m) => array_key_exists($m[1], $values) ? nl2br(e($values[$m[1]]), false) : $m[0], (string) $template->body_html);
     }
 
     /** Placeholders still unfilled in rendered HTML. @return list<string> */

@@ -36,6 +36,9 @@ class LeaseSettingsController extends Controller
             'cpaEarlyCancelBusinessDaysDefault' => LeaseSetting::DEFAULT_CPA_EARLY_CANCEL_BUSINESS_DAYS,
             'breachRemedyBusinessDays' => LeaseSetting::breachRemedyBusinessDaysFor($agencyId),
             'breachRemedyBusinessDaysDefault' => LeaseSetting::DEFAULT_BREACH_REMEDY_BUSINESS_DAYS,
+            'breachRemedyDayBasis' => LeaseSetting::breachRemedyDayBasisFor($agencyId),
+            'vacateTime' => LeaseSetting::vacateTimeFor($agencyId),
+            'vacateTimeDefault' => LeaseSetting::DEFAULT_VACATE_TIME,
             // leases.md §18.2 — the agency's default notice / early-cancellation terms.
             'tenantNoticePeriodUnit' => LeaseSetting::tenantNoticePeriodUnitFor($agencyId),
             'earliestNoticeMonths' => LeaseSetting::earliestNoticeMonthsFor($agencyId),
@@ -101,6 +104,9 @@ class LeaseSettingsController extends Controller
             'cpa_early_cancel_business_days' => ['nullable', 'integer', 'min:1', 'max:365'],
             // rental-notices.md §5 - business days a breach notice gives to put the breach right before a notice to vacate is allowed; same §6.1 has()-guard.
             'breach_remedy_business_days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            // rental-notices.md §5 (AT-462) - business or calendar days, and the time of day a notice to vacate asks the tenant out by; same §6.1 has()-guard.
+            'breach_remedy_day_basis' => ['nullable', 'string', 'in:' . implode(',', LeaseSetting::REMEDY_BASES)],
+            'vacate_time' => ['nullable', 'date_format:H:i'],
             // leases.md §18.2 — the same §6.1 has()-guard reasoning for every notice default below.
             'tenant_notice_period_unit' => ['nullable', 'string', 'in:' . implode(',', LeaseSetting::NOTICE_UNITS)],
             'default_earliest_notice_months' => ['nullable', 'integer', 'min:0', 'max:60'],
@@ -148,6 +154,11 @@ class LeaseSettingsController extends Controller
         if ($request->has('breach_remedy_business_days')) {
             $v = $validated['breach_remedy_business_days'] ?? null;
             $data['breach_remedy_business_days'] = $v === null || $v === '' ? null : (int) $v; // blank = back to the default
+        }
+        foreach (['breach_remedy_day_basis', 'vacate_time'] as $field) {
+            if ($request->has($field)) {
+                $data[$field] = $validated[$field] ?? null ?: null; // blank = back to the default
+            }
         }
         if ($request->has('cpa_early_cancel_business_days')) {
             $v = $validated['cpa_early_cancel_business_days'] ?? null;

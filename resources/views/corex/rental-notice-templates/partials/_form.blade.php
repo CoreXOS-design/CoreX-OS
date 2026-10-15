@@ -34,6 +34,11 @@
     </details>
     <textarea name="body_html" rows="12" class="prop-input" style="font-family: monospace;">{{ old('body_html', $template?->body_html) }}</textarea>
 </div>
+<div data-qa="template-default-clause">
+    <label class="prop-label">Lease clauses quoted by default (optional)</label>
+    <p class="text-xs mb-1" style="color: var(--text-muted);">The clause block your notice quotes, as it appears in your lease (one clause per paragraph). The notice prints it where the template says @{{clause}}; the agent can edit it for each breach notice. Leave blank if the template spells the clauses out itself.</p>
+    <textarea name="default_clause" rows="6" maxlength="5000" class="prop-input">{{ old('default_clause', $template?->default_clause) }}</textarea>
+</div>
 <label class="flex items-center gap-2 text-sm">
     <input type="hidden" name="is_active" value="0">
     <input type="checkbox" name="is_active" value="1" @checked(old('is_active', $template?->is_active ?? true))>

@@ -15,7 +15,13 @@
                 issued {{ $b->issued_on->format('j M Y') }}
                 @if($b->isIssued()) - remedy by <strong>{{ $b->remedy_deadline?->format('j M Y') }}</strong>{{ $b->remedyWindowPassed() ? ' (passed)' : '' }}@endif
             </div>
-            @feature('rental-notices')@if($canSeeBreaches)<a href="{{ route('corex.breaches.show', $b->id) }}" class="corex-btn-outline text-xs">Open</a>@endif @endfeature
+            @feature('rental-notices')@if($canSeeBreaches)
+                <div class="flex flex-wrap gap-2">
+                    @if($b->notice?->document_id)<a href="{{ route('corex.breaches.document', [$b->id, 'breach']) }}" class="corex-btn-outline text-xs" data-qa="breach-pdf-link">Breach notice (PDF)</a>@endif
+                    @if($b->vacateNotice?->document_id)<a href="{{ route('corex.breaches.document', [$b->id, 'vacate']) }}" class="corex-btn-outline text-xs" data-qa="vacate-pdf-link">Notice to vacate (PDF)</a>@endif
+                    <a href="{{ route('corex.breaches.show', $b->id) }}" class="corex-btn-outline text-xs">Open</a>
+                </div>
+            @endif @endfeature
         </div>
     @endforeach
 </div>

@@ -54,6 +54,13 @@ class LeaseSetting extends Model
     // (the Consumer Protection Act's 20 business days). An agency setting; this is only the starting value.
     public const DEFAULT_BREACH_REMEDY_BUSINESS_DAYS = 20;
 
+    // .ai/specs/rental-notices.md §5 (AT-462) - whether the remedy window counts business days (weekends and public holidays skipped)
+    // or calendar days (a lease clause that says "within 7 days of written notice"), and the time of day a notice to vacate asks the
+    // tenant to be out by. Neutral starting values; both are agency settings.
+    public const REMEDY_BASES = ['business', 'calendar'];
+    public const DEFAULT_BREACH_REMEDY_DAY_BASIS = 'business';
+    public const DEFAULT_VACATE_TIME = '12:00';
+
     // .ai/specs/leases.md §18.2 — the agency's DEFAULT notice / early-cancellation terms, written onto a new lease (editable
     // per lease) and onto old leases by `leases:backfill-notice-terms`. Neutral, configurable, nothing hardcoded elsewhere.
     public const NOTICE_UNITS = ['days', 'weeks', 'months'];
@@ -104,6 +111,8 @@ class LeaseSetting extends Model
         'tenant_notice_period_days',
         'cpa_early_cancel_business_days',
         'breach_remedy_business_days',
+        'breach_remedy_day_basis',
+        'vacate_time',
         'tenant_notice_period_unit',
         'default_earliest_notice_months',
         'default_early_cancellation_allowed',
@@ -205,6 +214,28 @@ class LeaseSetting extends Model
         $v = self::withoutGlobalScopes()->where('agency_id', $agencyId)->value('breach_remedy_business_days');
 
         return is_numeric($v) && (int) $v > 0 ? (int) $v : self::DEFAULT_BREACH_REMEDY_BUSINESS_DAYS;
+    }
+
+    /** 'business' | 'calendar' - how the breach remedy window counts (rental-notices.md §5). */
+    public static function breachRemedyDayBasisFor(?int $agencyId): string
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_BREACH_REMEDY_DAY_BASIS;
+        }
+        $v = self::withoutGlobalScopes()->where('agency_id', $agencyId)->value('breach_remedy_day_basis');
+
+        return in_array($v, self::REMEDY_BASES, true) ? $v : self::DEFAULT_BREACH_REMEDY_DAY_BASIS;
+    }
+
+    /** 'HH:MM' - the time of day a notice to vacate asks the tenant to be out by (rental-notices.md §5). */
+    public static function vacateTimeFor(?int $agencyId): string
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_VACATE_TIME;
+        }
+        $v = self::withoutGlobalScopes()->where('agency_id', $agencyId)->value('vacate_time');
+
+        return is_string($v) && preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $v) ? $v : self::DEFAULT_VACATE_TIME;
     }
 
     /** Days after a lease's end date before it goes month-to-month on its own (leases.md §5.3). */

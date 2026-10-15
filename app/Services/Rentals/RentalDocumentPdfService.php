@@ -318,6 +318,8 @@ class RentalDocumentPdfService
             'bodyHtml' => $renderedHtml,
             'logo' => $this->logoDataUri($lease?->branch?->logo_path, $lease?->agency?->logo_path),
             'agencyName' => \App\Models\Agency::displayNameFor($lease?->agency, \App\Support\ClientBrand::NEUTRAL_RENTALS),
+            // the letterhead (name, address, registration, FFC, VAT, contact) is read from the agency record - never typed into a template
+            'agency' => $lease?->agency,
         ])->setPaper('a4', 'portrait');
 
         $this->applyOptions($pdf);

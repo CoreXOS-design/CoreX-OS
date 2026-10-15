@@ -331,7 +331,7 @@ final class LeaseBreachFlowTest extends TestCase
         $html = $this->actingAs($this->agent)->get(route('corex.breaches.show', $breach->id))->getContent();
         $this->assertStringContainsString('data-qa="vacate-form"', $html);
 
-        $this->actingAs($this->agent)->post(route('corex.breaches.vacate', $breach->id), ['rental_notice_template_id' => $vacate->id, 'intent' => 'send'])->assertSessionHasNoErrors();
+        $this->actingAs($this->agent)->post(route('corex.breaches.vacate', $breach->id), ['rental_notice_template_id' => $vacate->id, 'intent' => 'send', 'vacate_date' => Carbon::today()->addDays(30)->toDateString(), 'vacate_time' => '12:00'])->assertSessionHasNoErrors();
 
         $fresh = $breach->fresh();
         $this->assertSame('escalated', $fresh->status);
@@ -405,7 +405,7 @@ final class LeaseBreachFlowTest extends TestCase
         $vacate = $this->template('notice_to_vacate');
         $breach = $this->issuePayment();
         $breach->forceFill(['remedy_deadline' => Carbon::today()->subDay()->toDateString()])->save();
-        $this->actingAs($this->agent)->post(route('corex.breaches.vacate', $breach->id), ['rental_notice_template_id' => $vacate->id, 'intent' => 'send']);
+        $this->actingAs($this->agent)->post(route('corex.breaches.vacate', $breach->id), ['rental_notice_template_id' => $vacate->id, 'intent' => 'send', 'vacate_date' => Carbon::today()->addDays(30)->toDateString(), 'vacate_time' => '12:00']);
 
         $lines = app(\App\Services\Rentals\LeaseTimelineService::class)->allEntriesFor($this->lease->fresh())->pluck('description')->implode(' | ');
         $this->assertStringContainsString('Payment breach notice issued to the tenant for R 1 500.00', $lines);

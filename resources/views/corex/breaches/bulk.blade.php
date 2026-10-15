@@ -8,7 +8,7 @@
 @section('content')
 <div class="p-6 space-y-4 max-w-6xl">
     <h1 class="text-lg font-semibold">Breach notice - payment</h1>
-    <p class="text-sm" style="color: var(--text-muted);">Fill in the amount owing on each lease. <strong>Only leases with an amount get a breach notice</strong>; leave the rest blank. The tenant has {{ $remedyDays }} business days to put it right, and the landlord is told.</p>
+    <p class="text-sm" style="color: var(--text-muted);">Fill in the amount owing on each lease. <strong>Only leases with an amount get a breach notice</strong>; leave the rest blank. The tenant has {{ $remedyWindow }} to put it right, and the landlord is told.</p>
 
     @if($dropped > 0)
         <p class="text-xs" style="color: #b45309;" data-qa="bulk-dropped">{{ $dropped }} ticked {{ $dropped === 1 ? 'lease was' : 'leases were' }} left out (not a running lease, or not one you can see).</p>
