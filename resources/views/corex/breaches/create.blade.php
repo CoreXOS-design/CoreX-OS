@@ -2,7 +2,10 @@
 
 @section('content')
 <div class="p-6 space-y-4 max-w-3xl">
-    <h1 class="text-lg font-semibold">Breach notice - {{ $lease->property?->buildDisplayAddress() ?: ('Lease #' . $lease->id) }}</h1>
+    <div class="flex items-center justify-between gap-3">
+        <h1 class="text-lg font-semibold">Breach notice - {{ $lease->property?->buildDisplayAddress() ?: ('Lease #' . $lease->id) }}</h1>
+        @include('corex.breaches._templates-link')
+    </div>
     {{-- rental-notices.md §7b - the agency's breach templates are listed here: a payment template asks for the amount outstanding, an ad hoc one for the party, the clause and the reason --}}
     <p class="text-sm" style="color: var(--text-muted);">Choose the notice to send. A <strong>payment</strong> template asks for the amount outstanding; an <strong>ad hoc</strong> one for the clause and what the breach is. The notice is made from your own template, sent from your mailbox, and the other party is told. <span data-qa="breach-window">{{ $remedyWindow }}</span> are allowed to put it right.</p>
 
