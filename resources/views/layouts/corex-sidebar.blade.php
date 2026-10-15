@@ -1290,7 +1290,7 @@
 
                 @feature('rental-applications')
                 @permission('rental_applications.view')
-                <a href="{{ route('corex.rental-applications.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.*') && !request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}">Rental Applications</a>
+                <a href="{{ route('corex.rental-applications.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.*') && !request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}" data-nav-alias="Rental Applications">Applications</a>
                 @endpermission
                 @endfeature
 
@@ -1317,7 +1317,7 @@
                      Rental Images tab. Same-day nav entry per non-negotiable #2. --}}
                 @feature('rental-inspections')
                 @permission('rental_inspections.view')
-                <a href="{{ route('corex.rental-inspections.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-inspections.*') ? 'active' : '' }}">Rental Inspections</a>
+                <a href="{{ route('corex.rental-inspections.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-inspections.*') ? 'active' : '' }}" data-nav-alias="Rental Inspections">Inspections</a>
                 @endpermission
                 @endfeature
 
@@ -1330,7 +1330,7 @@
                      catalogue. Same-day nav entry per non-negotiable #2. --}}
                 @feature('rental-faults')
                 @permission('rental_fault_types.view')
-                <a href="{{ route('corex.rental-fault-types.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-fault-types.*') ? 'active' : '' }}">Rental Fault Types</a>
+                <a href="{{ route('corex.rental-fault-types.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-fault-types.*') ? 'active' : '' }}" data-nav-alias="Rental Fault Types">Fault Types</a>
                 @endpermission
                 @endfeature
 
@@ -1339,7 +1339,7 @@
                      nav entry per non-negotiable #2. --}}
                 @feature('rental-faults')
                 @permission('rental_fault_reports.view')
-                <a href="{{ route('corex.rental-fault-reports.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-fault-reports.*') ? 'active' : '' }}">Rental Fault Reports</a>
+                <a href="{{ route('corex.rental-fault-reports.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-fault-reports.*') ? 'active' : '' }}" data-nav-alias="Rental Fault Reports">Fault Reports</a>
                 @endpermission
                 @endfeature
 
@@ -1391,13 +1391,13 @@
                 @endfeature
                 {{-- 2026-10-05 — crews are picked on job cards the same way the catalogue is, so it sits right next to it. --}}
                 @feature('rental-crews')
-                <a href="{{ route('corex.rental-crews.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-crews.*') ? 'active' : '' }}">Rental Crews</a>
+                <a href="{{ route('corex.rental-crews.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-crews.*') ? 'active' : '' }}" data-nav-alias="Rental Crews">Crews</a>
                 @endfeature
                 @endpermission
 
                 @feature('rental-applications')
                 @if($user->isRentalApplicationAuthoriser())
-                <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}">Rental Application Authorisation</a>
+                <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}" data-nav-alias="Rental Application Authorisation">Application Authorisation</a>
                 @endif
                 @endfeature
 
@@ -3765,13 +3765,15 @@ window.CorexNavSearch = (function () {
         if (!root) return [];
         const items = [];
         const seen = new Set();
-        const add = (label, href, parent, group) => {
+        const add = (label, href, parent, group, alias) => {
             label = (label || '').trim();
             if (!label) return;
             const key = (group ? 'g:' + group : 'h:' + (href || '')) + '|' + label + '|' + (parent || '');
             if (seen.has(key)) return;
             seen.add(key);
-            items.push({ label: label, href: href || null, parent: parent || '', group: group || null });
+            // alias = the link's data-nav-alias (a former/alternative name, e.g. "Rental Crews" for
+            // "Crews") — search-only, never displayed.
+            items.push({ label: label, href: href || null, parent: parent || '', group: group || null, alias: (alias || '').trim() });
         };
 
         // Top-level page links (My Portal, My Earnings, Training, …)
@@ -3795,7 +3797,7 @@ window.CorexNavSearch = (function () {
             const parent = titleEl ? firstText(titleEl) : '';
             panel.querySelectorAll('a.corex-nav-subitem').forEach(function (a) {
                 if (a.closest('.corex-nav-panel') !== panel) return;
-                add(firstText(a), a.getAttribute('href'), parent, null);
+                add(firstText(a), a.getAttribute('href'), parent, null, a.getAttribute('data-nav-alias'));
             });
         });
 
@@ -3810,10 +3812,12 @@ window.CorexNavSearch = (function () {
         for (const it of cache) {
             const label = it.label.toLowerCase();
             const parent = (it.parent || '').toLowerCase();
+            const alias = (it.alias || '').toLowerCase();
             let score = -1;
             if (label === q) score = 0;
             else if (label.startsWith(q)) score = 1;
             else if (label.indexOf(q) >= 0) score = 2;
+            else if (alias && alias.indexOf(q) >= 0) score = 2.5;
             else if (parent.startsWith(q)) score = 3;
             else if (parent.indexOf(q) >= 0) score = 4;
             if (score >= 0) scored.push({ it: it, score: score });
