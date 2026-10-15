@@ -6,8 +6,17 @@
             @if($trade)<br>Trade: {{ $trade }}@endif
             @if($description && $description !== $title)<br>{{ $description }}@endif
             @if($photoCount > 0)<br><br>{{ $photoCount }} {{ $photoCount === 1 ? 'photo' : 'photos' }} of the problem{{ $photoCount === 1 ? ' is' : ' are' }} on the job page, with our notes marked on {{ $photoCount === 1 ? 'it' : 'them' }}.@endif
-            @if($accessNotes)<br><br><strong>Getting in:</strong> {{ $accessNotes }}@endif
-            @if($tenantLine)<br><br><strong>Tenant:</strong> {{ $tenantLine }}@endif
+            @if(!empty($mapUrl))<br><br><a href="{{ $mapUrl }}" style="color:#0b2a4a;font-weight:bold;">Open in Maps</a>@endif
+            @if(!empty($access['any']))
+                <br><br><strong>Getting in:</strong>
+                @if($access['name'] || $access['phone']){{ $access['name'] }}@if($access['phone'])@if($access['name']) &middot; @endif<a href="tel:{{ $access['tel'] }}" style="color:#0b2a4a;">{{ $access['phone'] }}</a>@endif @endif
+                @if($access['note'])<br>{{ $access['note'] }}@endif
+            @elseif($accessNotes)<br><br><strong>Getting in:</strong> {{ $accessNotes }}@endif
+            @if(!empty($tenants))
+                @foreach($tenants as $t)
+                    <br><br><strong>Tenant:</strong> {{ $t['name'] }}@if($t['phone']) &middot; <a href="tel:{{ $t['tel'] }}" style="color:#0b2a4a;">{{ $t['phone'] }}</a>@endif
+                @endforeach
+            @elseif($tenantLine)<br><br><strong>Tenant:</strong> {{ $tenantLine }}@endif
             @if(!empty($calloutFee))<br><br><strong>Call-out fee on our records:</strong> {{ $calloutFee }}@if(!empty($calloutNote)) ({{ $calloutNote }})@endif. Please tell us if this is not right.@endif
         </div>
         @if(!empty($lookAndQuote))<p data-look-and-quote><strong>This is a visit to look at the problem and give a quote.</strong> Any repair work is agreed with the owner separately, before it starts.</p>@endif

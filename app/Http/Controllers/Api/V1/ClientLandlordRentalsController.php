@@ -453,7 +453,9 @@ class ClientLandlordRentalsController extends Controller
         $workOrder = RentalWorkOrder::withoutGlobalScopes()->find($variation->rental_work_order_id);
         $lines = $variation->lines()->withoutGlobalScopes()->where('office_status', \App\Models\RentalJobCardLine::OFFICE_ACCEPTED)->orderBy('id')->get();
         $photos = $lines->isEmpty() ? collect() : RentalWorkOrderPhoto::withoutGlobalScopes()
-            ->whereIn('rental_job_card_line_id', $lines->pluck('id'))->orderBy('id')->limit(6)->get();
+            ->whereIn('rental_job_card_line_id', $lines->pluck('id'))
+            ->where('photo_type', \App\Models\RentalJobCardLine::PHOTO_TYPE)   // AT-459: a crew receipt is the office's, never the owner's
+            ->orderBy('id')->limit(6)->get();
 
         return [
             'id' => $variation->id,

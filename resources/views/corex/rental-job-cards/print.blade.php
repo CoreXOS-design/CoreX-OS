@@ -65,7 +65,9 @@
         <table>
             <tr><td class="label">Property</td><td>{{ $jobCard->property?->buildDisplayAddress() ?? '—' }}</td></tr>
             <tr><td class="label">Tenant contact</td><td>{{ $jobCard->lease?->tenantNames() ?? '—' }}</td></tr>
-            <tr><td class="label">Access notes</td><td class="note">{{ $jobCard->access_notes ?? '—' }}</td></tr>
+            @php $acc = \App\Services\Rentals\JobSiteInfo::accessContact($jobCard->workOrder, $jobCard); @endphp
+            <tr><td class="label">Access contact</td><td>{{ trim(($acc['name'] ?? '') . ($acc['phone'] ? ' · ' . $acc['phone'] : '')) ?: '—' }}</td></tr>
+            <tr><td class="label">Access note</td><td class="note">{{ $acc['note'] ?? '—' }}</td></tr>
             <tr><td class="label">Crew</td><td>{{ $jobCard->crew?->name ?? ($jobCard->assigned_user_id ? 'Previously assigned: ' . ($jobCard->assignedUser?->name ?? '—') : '—') }}</td></tr>
             @if($jobCard->crew && $jobCard->crew->members->isNotEmpty())
             <tr><td class="label">Crew members</td><td>{{ $jobCard->crew->members->pluck('name')->implode(', ') }}</td></tr>

@@ -71,7 +71,9 @@ class RentalDocumentPdfService
 
         $photos = [];
         if ($lines->isNotEmpty()) {
-            RentalWorkOrderPhoto::withoutGlobalScopes()->whereIn('rental_job_card_line_id', $lines->pluck('id'))->orderBy('id')->limit(6)->get()
+            RentalWorkOrderPhoto::withoutGlobalScopes()->whereIn('rental_job_card_line_id', $lines->pluck('id'))
+                ->where('photo_type', \App\Models\RentalJobCardLine::PHOTO_TYPE)   // AT-459: a crew receipt is the office's, never the owner's
+                ->orderBy('id')->limit(6)->get()
                 ->each(function (RentalWorkOrderPhoto $p) use (&$photos) {
                     if ($uri = $this->photoDataUri($p->storage_path)) {
                         $photos[] = $uri;

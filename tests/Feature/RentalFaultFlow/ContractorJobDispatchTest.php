@@ -183,6 +183,61 @@ final class ContractorJobDispatchTest extends TestCase
         $this->assertStringContainsString('Agnes Agent', $line);
     }
 
+    /**
+     * AT-459: the contractor's email and link page carry the tenant's name + tap-to-call number (when the agency lets crews/contractors see them),
+     * who lets them in (the access contact the office keeps on the work order) and an Open in Maps link. Nothing more: no hours, parts or quote-building.
+     */
+    public function test_the_job_email_and_link_page_carry_tenant_access_contact_and_open_in_maps(): void
+    {
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_tenant_contact' => true]);
+        $p = $this->provider('Drip Plumbing', ['email' => 'drip@example.invalid', 'phone' => null], 'Plumbing');
+        $wo = $this->appointViaFault($this->fault(), $p);
+        $wo->forceFill(['access_contact_name' => 'Caretaker Carl', 'access_contact_phone' => '082 555 0101', 'access_note' => 'Gate code 4321'])->save();
+
+        app(Jobs::class)->resend($wo->fresh(), $this->agent, 'press-1');
+
+        $html = end($this->sent)[1]->render();
+        $this->assertStringContainsString('Open in Maps', $html);
+        $this->assertStringContainsString('https://www.google.com/maps/search/?api=1&amp;query=', $html);
+        $this->assertStringContainsString('Tina Tenant', $html);
+        $this->assertStringContainsString('href="tel:0821112222"', $html);
+        $this->assertStringContainsString('Caretaker Carl', $html);
+        $this->assertStringContainsString('href="tel:0825550101"', $html);
+        $this->assertStringContainsString('Gate code 4321', $html, 'the work order\'s note wins over the property\'s');
+        $this->assertStringNotContainsString('caretaker, gate code 1234', $html);
+
+        $page = $this->get(route('rentals.secure-link.show', $this->linkFor('drip@example.invalid')))->assertOk()->getContent();
+        $this->assertStringContainsString('data-open-in-maps', $page);
+        $this->assertStringContainsString('https://www.google.com/maps/search/?api=1&amp;query=', $page);
+        $this->assertStringContainsString('data-tenant', $page);
+        $this->assertStringContainsString('href="tel:0821112222"', $page);
+        $this->assertStringContainsString('data-access-contact', $page);
+        $this->assertStringContainsString('Caretaker Carl', $page);
+        $this->assertStringContainsString('href="tel:0825550101"', $page);
+        $this->assertStringContainsString('Gate code 4321', $page);
+        // crew-only: the contractor link gets no parts / labour / hours capture
+        $this->assertStringNotContainsString('Parts &amp; labour', $page);
+        $this->assertStringNotContainsString('name="unit_cost"', $page);
+        $this->assertStringNotContainsString('Take photo', $page);
+    }
+
+    public function test_the_tenant_stays_hidden_from_the_contractor_when_the_agency_has_not_allowed_it_but_access_and_maps_still_show(): void
+    {
+        $p = $this->provider('Drip Plumbing', ['email' => 'drip@example.invalid', 'phone' => null], 'Plumbing');
+        $wo = $this->appointViaFault($this->fault(), $p);
+        $wo->forceFill(['access_contact_name' => 'Caretaker Carl', 'access_contact_phone' => '082 555 0101'])->save();
+        app(Jobs::class)->resend($wo->fresh(), $this->agent, 'press-2');
+
+        $html = end($this->sent)[1]->render();
+        $page = $this->get(route('rentals.secure-link.show', $this->linkFor('drip@example.invalid')))->getContent();
+        foreach ([$html, $page] as $body) {
+            $this->assertStringNotContainsString('Tina', $body);
+            $this->assertStringNotContainsString('0821112222', $body);
+            $this->assertStringContainsString('Caretaker Carl', $body);
+            $this->assertStringContainsString('Open in Maps', $body);
+        }
+    }
+
     public function test_the_job_is_never_sent_twice_for_one_appointment_and_each_resend_press_is_one_send(): void
     {
         $p = $this->provider('Drip Plumbing', ['email' => 'drip@example.invalid'], 'Plumbing');

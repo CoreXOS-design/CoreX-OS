@@ -75,6 +75,8 @@ class RentalJobCard extends Model
         'scheduled_at',
         'due_at',
         'access_notes',
+        'access_contact_name',
+        'access_contact_phone',
         'total_amount',
         // §17.4 — the agency's own cost (sum of accepted cost_total) and the card-level markups.
         'total_cost',

@@ -212,9 +212,12 @@ class RentalContractorJobService
             $issued = $this->tokens->issueFor($wo, $sender ?? $by ?? $this->anyUser($wo));
             $url = route('rentals.secure-link.show', $issued['raw_token']);
             $photoCount = count(app(RentalFaultPhotoAnnotationService::class)->contractorProblemPhotos($wo));   // what the job page will show
+            // AT-459 — tenant (only when the agency allows it), the access contact and the Open in Maps link: the same facts as the crew link.
+            $access = JobSiteInfo::accessContact($wo);
             $mail = new RentalContractorJobMail(
                 $wo, $contact['name'] ?: $provider->name, $url, $issued['token']->expires_at?->format('j M Y'), $photoCount,
-                trim((string) ($wo->property?->access_notes ?? '')) ?: null, $this->tenantLine($wo), $this->agentLine($sender), $sender,
+                $access['note'], $this->tenantLine($wo), $this->agentLine($sender), $sender,
+                $this->tenantsFor($wo), $access, JobSiteInfo::mapUrl($wo->property, $this->address($wo)),
             );
             app(RentalMailDispatcher::class)->send($contact['email'], $mail);
             $row->forceFill(['status' => RentalJobDispatch::STATUS_SENT, 'sent_at' => now(), 'rental_secure_access_token_id' => $issued['token']->id])->save();
@@ -589,6 +592,12 @@ class RentalContractorJobService
         $number = $agent->cell ?: $agent->phone;
 
         return trim($agent->name . ($number ? ', ' . $number : ''));
+    }
+
+    /** @return array<int, array{name: string, phone: ?string, tel: ?string}> the tenants, ONLY when the agency allows crews/contractors to see them */
+    private function tenantsFor(RentalWorkOrder $wo): array
+    {
+        return RentalPortalSetting::crewLinkShowTenantContactFor($wo->agency_id) ? JobSiteInfo::tenants($wo->lease_id) : [];
     }
 
     /** The tenant's name and number ONLY when the agency has switched that on for its crews (the one existing setting) - never by default. */

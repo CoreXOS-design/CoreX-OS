@@ -48,6 +48,8 @@ class RentalJobCardLine extends Model
 
     /** §17.5.1 — rental_work_order_photos.photo_type of a photo that explains ONE crew line; never shown to a tenant/landlord and not in the job gallery. */
     public const PHOTO_TYPE = 'crew_line';
+    /** AT-459 — rental_work_order_photos.photo_type of the receipt for a crew PART line: office-only, never a client, tenant or gallery photo. */
+    public const RECEIPT_PHOTO_TYPE = 'crew_receipt';
 
     public const MARKUP_PERCENT = 'percent';
     public const MARKUP_AMOUNT = 'amount';

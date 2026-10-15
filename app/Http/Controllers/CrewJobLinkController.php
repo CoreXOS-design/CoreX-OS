@@ -176,6 +176,9 @@ class CrewJobLinkController extends Controller
         return [
             'photos' => ['nullable', 'array', 'max:' . CrewJobService::MAX_LINE_PHOTOS],
             'photos.*' => ['file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
+            // AT-459 — the receipt for a part: from the camera ("Take photo") or the phone's files ("Choose from phone"), one or the other.
+            'receipt_camera' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
+            'receipt_file' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
         ];
     }
 
@@ -185,6 +188,10 @@ class CrewJobLinkController extends Controller
             'photos.max' => 'You can add up to ' . CrewJobService::MAX_LINE_PHOTOS . ' photos to one line.',
             'photos.*.mimes' => 'Photos must be JPG, PNG, WEBP or HEIC.',
             'photos.*.max' => 'A photo is too large — each one can be up to 50 MB.',
+            'receipt_camera.mimes' => 'The receipt must be a JPG, PNG, WEBP or HEIC photo.',
+            'receipt_file.mimes' => 'The receipt must be a JPG, PNG, WEBP or HEIC photo.',
+            'receipt_camera.max' => 'The receipt photo is too large — it can be up to 50 MB.',
+            'receipt_file.max' => 'The receipt photo is too large — it can be up to 50 MB.',
         ];
     }
 
@@ -203,6 +210,7 @@ class CrewJobLinkController extends Controller
                 $request->only(['type', 'description', 'rental_catalogue_item_id', 'quantity', 'unit', 'unit_cost', 'note', 'is_extra']),
                 array_values($request->file('photos', [])),
                 CrewViewContext::forJobLink($record, $card, $request),
+                $request->file('receipt_camera') ?? $request->file('receipt_file'),
             );
         } catch (\InvalidArgumentException $e) {
             return redirect()->route('rentals.crew-job.show', $token)->withErrors(['crew' => $e->getMessage()])->withInput();
@@ -231,6 +239,7 @@ class CrewJobLinkController extends Controller
                 $request->only(['type', 'description', 'rental_catalogue_item_id', 'quantity', 'unit', 'unit_cost', 'note']),
                 array_values($request->file('photos', [])),
                 CrewViewContext::forJobLink($record, $card, $request),
+                $request->file('receipt_camera') ?? $request->file('receipt_file'),
             );
         } catch (\InvalidArgumentException|\LogicException $e) {
             return redirect()->route('rentals.crew-job.show', $token)->withErrors(['crew' => $e->getMessage()]);

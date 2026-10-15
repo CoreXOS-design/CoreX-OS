@@ -674,6 +674,43 @@
             <p class="text-sm">{{ $apptText }}</p>
         @endif
         </div>
+
+        {{-- AT-459 - who lets the worker in. Shown with the booking (the crew and the contractor are told it with the job) and editable while the job is open. --}}
+        @php $woAccess = \App\Services\Rentals\JobSiteInfo::accessContact($workOrder); @endphp
+        <div class="mt-4 text-sm" data-wo-access-contact>
+            <div class="font-medium">Access</div>
+            @if($woAccess['any'])
+                <div>
+                    @if($woAccess['name'] || $woAccess['phone']){{ $woAccess['name'] }}@if($woAccess['phone'])@if($woAccess['name']) &middot; @endif<a href="tel:{{ $woAccess['tel'] }}" style="text-decoration: underline;">{{ $woAccess['phone'] }}</a>@endif @endif
+                    @if($woAccess['note'])<div style="color: var(--text-muted);">{{ $woAccess['note'] }}</div>@endif
+                </div>
+            @else
+                <div style="color: var(--text-muted);">No access details yet &mdash; the crew or contractor is told to contact the office.</div>
+            @endif
+            @if($isOpen && $woCan['create'] && ! $workOrder->trashed())
+                <details class="mt-2">
+                    <summary class="text-xs cursor-pointer" style="color: var(--text-muted);">{{ $woAccess['any'] ? 'Change access details' : 'Add access details' }}</summary>
+                    <form method="POST" action="{{ route('corex.rental-work-orders.access-contact.update', $workOrder) }}" class="space-y-2 mt-2">
+                        @csrf
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-xs font-medium">Access contact name</label>
+                                <input type="text" name="access_contact_name" maxlength="191" value="{{ old('access_contact_name', $workOrder->access_contact_name) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                            </div>
+                            <div>
+                                <label class="text-xs font-medium">Access contact phone</label>
+                                <input type="text" name="access_contact_phone" maxlength="50" value="{{ old('access_contact_phone', $workOrder->access_contact_phone) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="text-xs font-medium">Access note</label>
+                            <textarea name="access_note" rows="2" maxlength="2000" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('access_note', $workOrder->access_note) }}</textarea>
+                        </div>
+                        <button type="submit" class="corex-btn-outline text-xs">Save access details</button>
+                    </form>
+                </details>
+            @endif
+        </div>
     </x-wo-panel>
 
     {{-- 5. Completion: mark in progress, complete, the contractor reports done, the tenant check --}}
@@ -867,6 +904,20 @@
             <div>
                 <label class="text-xs font-medium">Description</label>
                 <textarea name="description" required rows="4" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('description', $workOrder->description) }}</textarea>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="text-xs font-medium">Access contact name</label>
+                    <input type="text" name="access_contact_name" maxlength="191" value="{{ old('access_contact_name', $workOrder->access_contact_name) }}" placeholder="Who lets the worker in" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                </div>
+                <div>
+                    <label class="text-xs font-medium">Access contact phone</label>
+                    <input type="text" name="access_contact_phone" maxlength="50" value="{{ old('access_contact_phone', $workOrder->access_contact_phone) }}" placeholder="Their cell number" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                </div>
+            </div>
+            <div>
+                <label class="text-xs font-medium">Access note</label>
+                <textarea name="access_note" rows="2" maxlength="2000" placeholder="Gate code, dog on site, tenant works from home, etc." class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('access_note', $workOrder->access_note) }}</textarea>
             </div>
             <div class="wo-btnrow">
                 <button type="submit" class="corex-btn-primary text-xs">Save changes</button>

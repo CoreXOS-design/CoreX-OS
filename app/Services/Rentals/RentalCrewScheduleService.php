@@ -351,7 +351,8 @@ class RentalCrewScheduleService
             'id' => $card->id,
             'title' => $card->title,
             'address' => $this->address($property),
-            'access_notes' => $card->access_notes,
+            // AT-459 — the note as the work order holds it (the card's own, then the property's, when the work order has none)
+            'access_notes' => JobSiteInfo::accessContact($card->workOrder()->withoutGlobalScopes()->first(), $card)['note'],
             'status' => $card->status,
             'status_label' => ucfirst(str_replace('_', ' ', $card->status)),
             'time' => $scheduled?->format('H:i'),

@@ -16,8 +16,10 @@ use App\Models\RentalWorkOrderSetting;
  *
  * Returns plain values only — never a model — and NEVER selling, markup, margin or an
  * owner amount (guarded by CrewPayloadNeverCarriesSellingTest). The crew sees ONLY what the
- * crew typed (their own cost) plus the office's decision on each line; the catalogue list is
- * NAMES ONLY (no default price, no default cost).
+ * crew typed (their own cost) plus the office's decision on each line. The catalogue list is
+ * names, kinds and units; AT-459: a PART item also carries its cost on file so the cost box can be
+ * pre-filled with what it should cost (never a selling price). A LABOUR item carries no money at all:
+ * the crew counts hours and the office prices them, so no labour rate or labour amount ever reaches the crew.
  *
  * Rendered by rentals/crew-link/_block-pricing.blade.php.
  */
@@ -53,8 +55,13 @@ final class CrewPricingBlock
             ->whereIn('rental_job_card_line_id', $lines->pluck('id'))->orderBy('id')->get()->groupBy('rental_job_card_line_id');
 
         $fmt = fn ($n) => rtrim(rtrim(number_format((float) $n, 2, '.', ''), '0'), '.');
+        // AT-459 — the crew never sees a labour rate or a labour amount.
+        $isLabour = fn (RentalJobCardLine $l): bool => $l->type === RentalCatalogueItem::TYPE_LABOUR;
 
-        $rows = $lines->map(function (RentalJobCardLine $l) use ($photos, $fmt) {
+        $rows = $lines->map(function (RentalJobCardLine $l) use ($photos, $fmt, $isLabour) {
+            $own = ($photos[$l->id] ?? collect());
+            $receipt = $own->where('photo_type', RentalJobCardLine::RECEIPT_PHOTO_TYPE)->last();
+
             [$state, $label] = self::STATES[$l->office_status] ?? ['sent', 'Sent to office'];
 
             return [
@@ -65,29 +72,40 @@ final class CrewPricingBlock
                 'quantity' => $fmt($l->quantity),
                 'unit' => $l->unit,
                 // The crew's OWN entry (or the cost the office corrected it to) — a cost, never a selling price.
-                'unit_cost' => $l->unit_cost !== null ? number_format((float) $l->unit_cost, 2, '.', '') : null,
-                'cost_total' => $l->cost_total !== null ? number_format((float) $l->cost_total, 2) : null,
+                'unit_cost' => ! $isLabour($l) && $l->unit_cost !== null ? number_format((float) $l->unit_cost, 2, '.', '') : null,
+                'cost_total' => ! $isLabour($l) && $l->cost_total !== null ? number_format((float) $l->cost_total, 2) : null,
                 'note' => $l->crew_note,
                 'is_extra' => $l->origin === RentalJobCardLine::ORIGIN_CREW_EXTRA,
                 'state' => $state,
                 'state_label' => $label,
                 'reason' => $l->office_status === RentalJobCardLine::OFFICE_REJECTED ? $l->reject_reason : null,
                 'editable' => $l->office_status === RentalJobCardLine::OFFICE_CREW_DRAFT,
-                'photos' => ($photos[$l->id] ?? collect())->map(fn ($p) => ['url' => $p->storage_path])->values()->all(),
+                'photos' => $own->where('photo_type', RentalJobCardLine::PHOTO_TYPE)->map(fn ($p) => ['url' => $p->storage_path])->values()->all(),
+                // AT-459 — the receipt for a part line (the newest one if it was replaced); labour has none.
+                'receipt_url' => ! $isLabour($l) && $receipt ? $receipt->storage_path : null,
             ];
         })->values()->all();
 
-        // Names only — what the crew may pick from. Never a price, never a cost.
+        // What the crew may pick from: names, kinds and units. A PART also carries its cost on file (pre-fills "what it cost you");
+        // a LABOUR item carries no money. Never a selling price. The cost is read through the one resolver the office lines use.
+        $agency = $card->agency ?? \App\Models\Agency::withoutGlobalScopes()->find($card->agency_id);
+        $vat = app(RentalJobCardVatService::class);
         $catalogue = RentalCatalogueItem::withoutGlobalScopes()
             ->where('agency_id', $ctx->agencyId)->where('is_active', true)->whereNull('deleted_at')
-            ->with('catalogueUnit')->orderBy('sort_order')->orderBy('id')->limit(300)->get()
-            ->map(fn (RentalCatalogueItem $i) => [
-                'id' => $i->id,
-                'label' => trim(($i->code ? $i->code . ' — ' : '') . $i->description),
-                'description' => $i->description,
-                'kind' => $i->kind(),
-                'unit' => $i->catalogueUnit?->name,
-            ])->values()->all();
+            ->with(['catalogueUnit', 'catalogueItemType'])->orderBy('sort_order')->orderBy('id')->limit(300)->get()
+            ->map(function (RentalCatalogueItem $i) use ($pricesOn, $vat, $agency) {
+                $kind = $i->kind();
+                $cost = $pricesOn && $agency && $kind !== RentalCatalogueItem::TYPE_LABOUR ? $vat->catalogueDefaultCostForLine($i, $agency) : null;
+
+                return [
+                    'id' => $i->id,
+                    'label' => trim(($i->code ? $i->code . ' — ' : '') . $i->description),
+                    'description' => $i->description,
+                    'kind' => $kind,
+                    'unit' => $i->catalogueUnit?->name,
+                    'cost' => $cost !== null ? number_format($cost, 2, '.', '') : null,
+                ];
+            })->values()->all();
 
         return [
             'prices_on' => $pricesOn,

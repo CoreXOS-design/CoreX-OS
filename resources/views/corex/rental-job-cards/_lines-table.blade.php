@@ -60,7 +60,7 @@
                 <div x-show="!editing">
                     <div style="{{ $rowGridStyle }}" class="py-1 text-xs">
                         <span class="truncate" title="{{ $line->code }}" style="color: var(--text-muted); font-family: monospace; {{ $cell }}">{{ $line->code ?? '—' }}</span>
-                        <span class="truncate" title="{{ $line->description }}" style="{{ $cell }}">{{ $line->description }}</span>
+                        <span class="truncate" title="{{ $line->description }}" style="{{ $cell }}">{{ $line->description }}@if(($receipts ?? collect())->has($line->id) && $line->type === 'part') @include('corex.rental-job-cards._receipt-thumb', ['receipt' => $receipts[$line->id], 'label' => $line->description])@endif</span>
                         <span class="truncate" style="{{ $cell }}">{{ ucfirst($line->type) }}</span>
                         @if($pricesOn)
                             <span class="truncate" style="{{ $cell }}">{{ $line->unit }}</span>

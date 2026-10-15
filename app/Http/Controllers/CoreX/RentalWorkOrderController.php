@@ -693,11 +693,41 @@ class RentalWorkOrderController extends Controller
             'description' => ['required', 'string'],
             'trade_type' => ['nullable', 'string', 'max:60'],
             'priority' => ['nullable', 'in:low,normal,urgent'],
+            // AT-459 - who lets the worker in; present only when the edit dialog carried the three boxes.
+            'access_contact_name' => ['nullable', 'string', 'max:191'],
+            'access_contact_phone' => ['nullable', 'string', 'max:50'],
+            'access_note' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        $rentalWorkOrder->update($validated);
+        $access = \Illuminate\Support\Arr::only($validated, ['access_contact_name', 'access_contact_phone', 'access_note']);
+        $rentalWorkOrder->update(\Illuminate\Support\Arr::except($validated, array_keys($access)));
+        if ($request->hasAny(array_keys($access))) {
+            \App\Services\Rentals\JobSiteInfo::saveAccessContact($rentalWorkOrder, $rentalWorkOrder->jobCard()->withoutGlobalScopes()->first(), $access);
+        }
 
         return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', 'Work order updated.');
+    }
+
+    /**
+     * AT-459 - change who lets the worker in (name, phone, note) on a work order that is still open: this is the box the booking step shows,
+     * after the "Edit title and description" dialog is gone. The crew link, the contractor link, both emails and the printed job card read it.
+     */
+    public function updateAccessContact(Request $request, RentalWorkOrder $rentalWorkOrder): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
+
+        abort_if(in_array($rentalWorkOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true) || $rentalWorkOrder->trashed(),
+            409, 'This work order is closed, so the access details can no longer be changed.');
+
+        $validated = $request->validate([
+            'access_contact_name' => ['nullable', 'string', 'max:191'],
+            'access_contact_phone' => ['nullable', 'string', 'max:50'],
+            'access_note' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        \App\Services\Rentals\JobSiteInfo::saveAccessContact($rentalWorkOrder, $rentalWorkOrder->jobCard()->withoutGlobalScopes()->first(), $validated);
+
+        return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', 'Access details saved.');
     }
 
     /**
