@@ -480,3 +480,33 @@ appears), own-scope narrowing (Leases), the archived-state split (Fault Reports)
 that the CREATE form's own picker still offers a property with zero records in that section
 (`RentalWorkOrderListStandardTest::test_create_forms_own_property_picker_still_offers_properties_with_no_work_order`),
 proving item 3 did not regress the thing it was told to leave alone.
+
+## 12. Rentals menu labels - no "Rental" prefix inside the Rentals section (AT-461, 2026-10-15)
+
+**Johan, 15 Oct:** "I prefer not marked as rental as we are in the rental menu." About half the items in the Rentals
+sidebar section carried a "Rental" prefix and half did not.
+
+**Ruling (labels only):** inside the Rentals section the visible labels are now
+Applications, Application Authorisation, Crews, Fault Reports, Fault Types, Inspections
+(were Rental Applications, Rental Application Authorisation, Rental Crews, Rental Fault Reports,
+Rental Fault Types, Rental Inspections). Routes, URLs, page titles/H1s, breadcrumbs, permissions, feature flags
+and every other menu section are unchanged.
+
+**Search keeps the old wording.** Each renamed link carries `data-nav-alias="<old label>"`
+(`layouts/corex-sidebar.blade.php`, Rentals panel). `window.CorexNavSearch.build()` reads it into the index item
+and `search()` matches it (rank 2.5: after a label match, before a heading match), so "rental crews" still finds
+Crews. The alias is search-only and never displayed. Any future link can take the same attribute.
+
+**Order:** unchanged mechanism - the panel's client-side alphabetical sort runs on the visible label, so the
+renamed items simply sort under their new names.
+
+**Favourites:** keyed by page path (`p:/corex/...`), and no path changed, so every existing favourite still
+resolves. The label stored at pin time is denormalised (sidebar-favourites.md section 5.1), so an existing
+favourite keeps its old wording until its owner next saves the picker.
+
+**Not renamed, deliberately (outside the ruling's list):** Rental Take-On Import, Rental Work Orders,
+Rental Notices, Rental Pipeline still carry the prefix in the Rentals section; the Role Manager permission group
+names (`RoleManagerController`) and `corex-feature-registry.md` feature descriptions keep "Rental ..." too.
+Reported to the conductor for a ruling.
+
+**Test:** `tests/Feature/Navigation/RentalsMenuLabelsTest.php` (visible labels, aliases, search reads the alias).
