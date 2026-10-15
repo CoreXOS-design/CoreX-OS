@@ -180,12 +180,13 @@
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Scanned-form tick-box sensitivity</label>
                     <input type="number" name="omr_mark_threshold" value="{{ old('omr_mark_threshold', $omrMarkThreshold) }}"
-                           min="0.05" max="0.95" step="0.05"
+                           min="0.01" max="0.5" step="0.01"
                            class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
                     <p class="text-xs mt-2" style="color: var(--text-muted);">
-                        Default is 0.35. The share of a tick box that must be dark before a scanned paper
-                        inspection form reads it as marked. Lower it for faint or light scans; raise it if
-                        stray marks are being read as ticks.
+                        Default is 0.04. The share of the inside of a tick box that must carry ink before a
+                        scanned paper inspection form reads it as ticked (a hand tick covers about 5 to 20 percent
+                        of a box). Lower it for faint pens or light scans; raise it if stray specks are being read
+                        as ticks.
                     </p>
                 </div>
             </div>

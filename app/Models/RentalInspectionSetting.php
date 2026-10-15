@@ -324,12 +324,12 @@ class RentalInspectionSetting extends Model
     /**
      * .ai/specs/rental-inspection-form.md §13 (OMR scan reader) — the
      * fraction of a tick-box's interior that must read as dark ink for the
-     * reader to count it marked. 0.35 is deliberately forgiving of a
-     * slightly light photocopy or a phone photo's uneven lighting while
-     * still well clear of paper-texture/scan noise; an agency scanning on
-     * worse equipment can raise or lower it without a code change.
+     * reader to count it marked. AT-463 / §62: 0.04, because a HAND TICK covers
+     * 5-20 % of a box (measured on real Ricoh scans: ticks 0.05-0.19, empty
+     * boxes 0.00) - the old 0.35 was for a box filled in solid and read no real
+     * tick at all. An agency scanning on worse equipment can raise or lower it.
      */
-    public const DEFAULT_OMR_MARK_THRESHOLD = 0.35;
+    public const DEFAULT_OMR_MARK_THRESHOLD = 0.04;
 
     /**
      * AT-463 / rental-inspections.md §60 — the paper the printed site form is laid out for.

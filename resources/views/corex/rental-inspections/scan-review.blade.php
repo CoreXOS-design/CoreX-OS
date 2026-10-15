@@ -33,6 +33,28 @@
         </div>
     </div>
 
+    {{-- AT-463 / §62 - what the reader made of EACH page, in plain words: a page that could not be read says why. --}}
+    @if(! empty($scan->page_results))
+        <div class="rounded-md p-3 text-xs space-y-1" style="background: var(--surface); border: 1px solid var(--border);" data-qa="scan-page-results">
+            <p class="font-semibold" style="color: var(--text-secondary);">What was read from each page</p>
+            @foreach($scan->page_results as $pr)
+                @php $ok = ($pr['status'] ?? '') === 'read'; @endphp
+                <div class="flex items-start gap-2" data-qa="scan-page-{{ $pr['page'] }}-{{ $ok ? 'read' : 'not-read' }}">
+                    <span class="font-semibold" style="color: {{ $ok ? 'var(--ds-green)' : 'var(--ds-crimson)' }}; min-width: 5.5rem;">Page {{ $pr['page'] }}: {{ $ok ? 'read' : 'NOT read' }}</span>
+                    <span style="color: var(--text-secondary);">
+                        @if($ok)
+                            Form page {{ $pr['form_page'] }}@if(!empty($pr['anchored_by'])), placed by its {{ $pr['anchored_by'] === 'qr' ? 'QR code' : 'corner marks' }}@endif
+                            @if(isset($pr['rows'])) &middot; {{ $pr['rows'] }} rows, {{ $pr['proposed'] ?? 0 }} proposed{{ ($pr['flagged'] ?? 0) ? ', ' . $pr['flagged'] . ' to check' : '' }}@endif
+                            @if(isset($pr['printed_scale']) && abs($pr['printed_scale'] - 1) > 0.025) &middot; printed at about {{ round($pr['printed_scale'] * 100) }}% of the form size (probably Letter paper) - read anyway @endif
+                        @else
+                            {{ $pr['reason'] ?? 'This page could not be read.' }}
+                        @endif
+                    </span>
+                </div>
+            @endforeach
+        </div>
+    @endif
+
     @if(! empty($scan->read_notes))
         <div class="rounded-md p-3 text-xs space-y-1" style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); color: var(--text-secondary);" data-qa="scan-read-notes">
             @foreach($scan->read_notes as $note)
