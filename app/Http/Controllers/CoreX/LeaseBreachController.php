@@ -21,6 +21,7 @@ use Illuminate\View\View;
 class LeaseBreachController extends Controller
 {
     private const SORTS = ['issued_on', 'remedy_deadline', 'amount', 'status', 'property'];
+    private const PER_PAGE_OPTIONS = [10, 25, 50, 100];
 
     /** The register's status tiles (rental-notices.md §7b): the breach's real states, with "issued" split by whether its remedy-by date is reached. */
     private const TILES = [
@@ -73,7 +74,7 @@ class LeaseBreachController extends Controller
 
         // rental-notices.md §7b - status tiles. Each count is the SAME query the list runs (same own / branch / agency scope, search and filters)
         // plus that tile's own condition, so a tile's number is exactly the rows it shows when clicked. Clicking the active tile clears it.
-        $counts = [];
+        $counts = ['total' => (clone $query)->count()];
         foreach (array_keys(self::TILES) as $key) {
             $counts[$key] = $this->applyTile(clone $query, $key)->count();
         }
@@ -92,9 +93,16 @@ class LeaseBreachController extends Controller
         }
         $query->orderByDesc('id');
 
+        // the shared rental list controls offer the same per-page choices as the other rentals lists
+        $perPage = (int) $request->get('per_page', 25);
+        if (! in_array($perPage, self::PER_PAGE_OPTIONS, true)) {
+            $perPage = 25;
+        }
+
         return view('corex.breaches.index', [
-            'breaches' => $query->paginate(25)->withQueryString(), 'sort' => $sort, 'dir' => $dir,
+            'breaches' => $query->paginate($perPage)->withQueryString(), 'sort' => $sort, 'dir' => $dir,
             'tiles' => self::TILES, 'tileCounts' => $counts, 'tile' => $tile,
+            'perPage' => $perPage, 'perPageOptions' => self::PER_PAGE_OPTIONS, 'showArchived' => $request->boolean('archived'),
         ]);
     }
 

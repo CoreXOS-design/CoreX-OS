@@ -62,11 +62,19 @@ final class BreachRegisterTilesTest extends TestCase
         return substr_count($html, 'data-breach-row="');
     }
 
+    private const LABELS = ['total' => 'Total', 'open' => 'Open', 'reached' => 'Remedy date reached', 'remedied' => 'Remedied', 'vacate_sent' => 'Notice to vacate sent'];
+
+    /** The shared rental list tile (<x-rental-list-controls>): <a href style class="pstat-v2"> <div>COUNT</div> <div>LABEL</div> </a>. @return array{href:string,count:int,active:bool}|null */
+    private function tile(string $html, string $key): ?array
+    {
+        $re = '/<a href="([^"]*)"\s+class="pstat-v2[^"]*"\s+style="([^"]*)">\s*<div class="min-w-0">\s*<div[^>]*>([\d,]+)<\/div>\s*<div[^>]*>\s*' . preg_quote(self::LABELS[$key], '/') . '\s*<\/div>/';
+
+        return preg_match($re, $html, $m) ? ['href' => html_entity_decode($m[1]), 'count' => (int) str_replace(',', '', $m[3]), 'active' => str_contains($m[2], 'border-color')] : null;
+    }
+
     private function tileCount(string $html, string $key): int
     {
-        preg_match('/data-qa="breach-tile-' . $key . '"[^>]*data-count="(\d+)"/', $html, $m);
-
-        return (int) ($m[1] ?? -1);
+        return $this->tile($html, $key)['count'] ?? -1;
     }
 
     public function test_one_tile_per_real_state_with_its_count(): void
@@ -76,6 +84,11 @@ final class BreachRegisterTilesTest extends TestCase
         $html = $this->page();
 
         $this->assertStringContainsString('data-qa="breach-tiles"', $html);
+        // the shared component, not a hand-made strip: its own grid, its own tile classes, a Total tile first
+        $this->assertStringContainsString('class="pstat-v2 px-3.5 py-2 flex items-center justify-between gap-3 no-underline cursor-pointer"', $html);
+        $this->assertStringContainsString('grid-template-columns: repeat(5, minmax(0, 1fr))', $html);
+        $this->assertSame(5, $this->tileCount($html, 'total'));
+        $this->assertTrue($this->tile($html, 'total')['active'], 'Total is the lit tile when no filter is on');
         $this->assertSame(1, $this->tileCount($html, 'open'));
         $this->assertSame(2, $this->tileCount($html, 'reached'));
         $this->assertSame(1, $this->tileCount($html, 'remedied'));
@@ -94,10 +107,10 @@ final class BreachRegisterTilesTest extends TestCase
             $html = $this->page(['tile' => $key]);
             $this->assertSame($expected, $this->rows($html), "tile {$key} shows its count");
             $this->assertSame($expected, $this->tileCount($html, $key), "tile {$key} says its count");
-            $this->assertStringContainsString('data-active="1"', $html);
+            $this->assertTrue($this->tile($html, $key)['active'], "tile {$key} is lit");
+            $this->assertFalse($this->tile($html, 'total')['active'], 'and Total is not');
             // the active tile's link clears the filter
-            preg_match('/<a href="([^"]*)"[^>]*data-qa="breach-tile-' . $key . '"/', $html, $m);
-            $this->assertStringNotContainsString('tile=', html_entity_decode($m[1] ?? 'tile='), 'clicking the active tile again clears it');
+            $this->assertStringNotContainsString('tile=', $this->tile($html, $key)['href'], 'clicking the active tile again clears it');
         }
         $this->assertStringContainsString('reached one', $this->page(['tile' => 'reached']));
         $this->assertStringNotContainsString('open one', $this->page(['tile' => 'reached']));
@@ -109,8 +122,7 @@ final class BreachRegisterTilesTest extends TestCase
 
         $html = $this->page(['q' => 'one', 'kind' => 'payment', 'sort' => 'amount', 'dir' => 'asc']);
 
-        preg_match('/<a href="([^"]*)"[^>]*data-qa="breach-tile-reached"/', $html, $m);
-        $href = html_entity_decode($m[1]);
+        $href = $this->tile($html, 'reached')['href'];
         foreach (['tile=reached', 'q=one', 'kind=payment', 'sort=amount', 'dir=asc'] as $part) {
             $this->assertStringContainsString($part, $href);
         }
@@ -234,6 +246,32 @@ final class BreachRegisterTilesTest extends TestCase
 
         // and on the breach screen itself
         $this->assertStringContainsString('1 day overdue', $this->actingAs($this->agent)->get(route('corex.breaches.show', $late->id))->getContent());
+    }
+
+    public function test_the_register_uses_the_same_tile_markup_as_the_leases_list_and_its_per_page_and_archived_controls(): void
+    {
+        foreach (range(1, 12) as $i) {
+            $this->breach(['reason' => 'row ' . $i]);
+        }
+
+        $register = $this->page(['tile' => 'open', 'per_page' => 10]);
+        $leases = $this->actingAs($this->agent)->get(route('corex.leases.index'))->assertOk()->getContent();
+
+        // identical tile classes in both screens: one component, not a copy
+        $tileClass = 'class="pstat-v2 px-3.5 py-2 flex items-center justify-between gap-3 no-underline cursor-pointer"';
+        $this->assertStringContainsString($tileClass, $register);
+        $this->assertStringContainsString($tileClass, $leases);
+        $this->assertStringContainsString('text-lg font-bold leading-none tabular-nums', $register);
+        $this->assertStringNotContainsString('text-base font-bold leading-none tabular-nums flex-shrink-0', $register, 'no hand-made tile left');
+
+        // per page (the shared control) and the shared Show archived toggle
+        $this->assertSame(10, $this->rows($register));
+        $this->assertStringContainsString('Per page', $register);
+        $this->assertStringContainsString('Show archived', $register);
+        $this->assertStringContainsString('per_page=10', html_entity_decode($register), 'the pager keeps the page size');
+        $this->assertSame(12, $this->tileCount($register, 'open'));
+        $this->assertSame(12, $this->rows($this->page(['tile' => 'open', 'per_page' => 50])));
+        $this->assertSame(12, $this->rows($this->page(['per_page' => 7])), 'an unknown page size falls back to 25, which shows all 12');
     }
 
     public function test_an_empty_tile_says_so_with_a_real_empty_state_and_an_unknown_tile_is_ignored(): void

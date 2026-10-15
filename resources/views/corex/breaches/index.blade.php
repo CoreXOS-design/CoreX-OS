@@ -24,21 +24,30 @@
 
     {{-- rental-notices.md §7b - status tiles, the rentals command centre's pattern: click to filter, click again to clear. The number on a tile is the
          number of rows the list shows when it is clicked (same query, same own / branch / agency scope, with the search and filters below). --}}
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5" data-qa="breach-tiles">
-        @foreach($tiles as $key => $label)
-            @php $active = $tile === $key; @endphp
-            <a href="{{ route('corex.breaches.index', array_merge(request()->except(['tile', 'page']), $active ? [] : ['tile' => $key])) }}"
-               class="pstat-v2 px-2.5 py-1.5 flex items-center gap-2 no-underline cursor-pointer min-w-0"
-               title="{{ $active ? 'Showing ' . $label . ' - click to show all' : 'Show ' . $label }}" data-qa="breach-tile-{{ $key }}" data-count="{{ $tileCounts[$key] }}" @if($active) data-active="1" @endif
-               style="{{ $active ? 'border-color:color-mix(in srgb, var(--brand-icon,#6366f1) 40%, transparent);background:color-mix(in srgb, var(--brand-icon,#6366f1) 10%, var(--surface));' : '' }}">
-                <span class="text-base font-bold leading-none tabular-nums flex-shrink-0" style="color:var(--text-primary);">{{ number_format($tileCounts[$key]) }}</span>
-                <span class="text-[0.6875rem] font-medium leading-tight min-w-0" style="color:var(--text-muted);">{{ $label }}</span>
-            </a>
-        @endforeach
+    {{-- The tiles are the SHARED rentals list component (<x-rental-list-controls>: Leases, Inspections, Fault Reports, Work Orders), not a restyle: the
+         same markup, size, count styling and active highlight, a Total tile first, the same per-page and Show archived controls. --}}
+    @php
+        $tileList = collect(['total' => 'Total'] + $tiles)->map(fn ($label, $key) => [
+            'key' => $key, 'label' => $label, 'count' => $tileCounts[$key],
+            'href' => route('corex.breaches.index', array_merge(request()->except(['tile', 'page']), ($key === 'total' || $tile === $key) ? [] : ['tile' => $key])),
+            'active' => $key === 'total' ? $tile === '' : $tile === $key,
+        ])->values()->all();
+    @endphp
+    <div data-qa="breach-tiles" class="space-y-2">
+        <x-rental-list-controls
+            :tiles="$tileList"
+            route-name="corex.breaches.index"
+            :per-page="$perPage"
+            :per-page-options="$perPageOptions"
+            :archivable="true"
+            :archived="$showArchived"
+        />
     </div>
 
     <form method="GET" action="{{ route('corex.breaches.index') }}" class="flex flex-wrap items-end gap-3" data-qa="breach-filters">
         @if($tile)<input type="hidden" name="tile" value="{{ $tile }}">@endif
+        @if($showArchived)<input type="hidden" name="archived" value="1">@endif
+        @if(request('per_page'))<input type="hidden" name="per_page" value="{{ (int) request('per_page') }}">@endif
         <div>
             <label class="text-xs" style="color: var(--text-muted);">Search</label><br>
             <input type="text" name="q" value="{{ request('q') }}" placeholder="Name, address, clause or reason" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
@@ -69,7 +78,6 @@
             <label class="text-xs" style="color: var(--text-muted);">to</label><br>
             <input type="date" name="date_to" value="{{ request('date_to') }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
         </div>
-        <label class="flex items-center gap-2 text-xs pb-2"><input type="checkbox" name="archived" value="1" @checked(request()->boolean('archived'))> Archived</label>
         <button type="submit" class="corex-btn-outline text-xs">Filter</button>
         <a href="{{ route('corex.breaches.index') }}" class="corex-btn-outline text-xs">Reset</a>
     </form>
