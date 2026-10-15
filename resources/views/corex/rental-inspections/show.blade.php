@@ -795,7 +795,7 @@
                     </div>
                     <div class="text-xs mt-0.5">
                         {{ $signature->disposition === 'signed' ? 'Signed' : ucfirst(str_replace('_', ' ', (string) $signature->disposition)) }}
-                        {{ $signature->disposition_recorded_at?->format('d M Y H:i') }}{{ $signature->signed_via === 'link' ? ', from their own link' : ($signature->signed_via === 'agent_device' ? ", on the agent's device" : '') }}.
+                        {{ $signature->disposition_recorded_at?->format('d M Y H:i') }}{{ $signature->signedViaPhrase() ? ', ' . $signature->signedViaPhrase() : '' }}.
                         Voided {{ $reopenRow?->reopened_at?->format('d M Y H:i') }} when {{ $reopenRow?->reopenedBy?->name ?? 'the agent' }} reopened the report: “{{ $reopenRow?->reason }}”.
                     </div>
                 </div>

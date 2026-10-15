@@ -794,7 +794,7 @@ final class RentalInspectionSigningLinkTest extends TestCase
         $inspection = $this->inspection();
 
         $this->get(route('corex.rental-inspections.show', $inspection))->assertOk()
-            ->assertSee('data-qa="signing-links-panel"', false)->assertSee('Show QR')->assertSee('Sign on this device')->assertSee('Email everyone their link');
+            ->assertSee('data-qa="signing-links-panel"', false)->assertSee('Show QR')->assertSee('Sign now on this device')->assertSee('Email everyone their link');
         $this->get(route('corex.properties.show', ['property' => $this->property->id, 'tab' => 'inspections']))->assertOk()
             ->assertSee('data-qa="signing-links-panel"', false)->assertSee('Show QR');
     }
@@ -1284,10 +1284,16 @@ final class RentalInspectionSigningLinkTest extends TestCase
 
         // Alpine calls init() itself: a second x-init="init()" bound two pads to one canvas
         $this->assertStringNotContainsString('x-init="init()"', $html);
-        // the pad is sized on load, resize, rotation and whenever the canvas changes size, and waits for the library
+        // AT-463 - the pad is the ONE shared pad (resources/js/corex-signature-pad-mixin.js), also used by the agent's in-place
+        // "Sign now": the page builds its component from it and starts it exactly once...
+        $this->assertStringContainsString('window.corexSignaturePadMixin()', $html);
+        $this->assertStringContainsString('this.watchPad()', $html);
+        // ...and the shared pad is sized on load, resize, rotation and whenever the canvas changes size, and waits for the library
+        $mixin = (string) file_get_contents(resource_path('js/corex-signature-pad-mixin.js'));
         foreach (['syncPad', "'load'", "'resize'", "'orientationchange'", 'ResizeObserver', 'libTimer'] as $needle) {
-            $this->assertStringContainsString($needle, $html);
+            $this->assertStringContainsString($needle, $mixin);
         }
+        $this->assertStringContainsString("import './corex-signature-pad-mixin';", (string) file_get_contents(resource_path('js/app.js')));
         // the checkbox gates the button, never the pad
         $this->assertStringContainsString(":disabled=\"busy || (action === 'sign' && !readConfirmed)\"", $html);
     }
