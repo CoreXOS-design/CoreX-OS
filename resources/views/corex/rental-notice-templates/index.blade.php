@@ -8,6 +8,7 @@
 
 @section('content')
 <div class="p-6 space-y-4">
+    @include('corex.notices._tabs', ['active' => 'templates'])
     <div class="flex items-center justify-between">
         <h1 class="text-lg font-semibold">Rental Notice Templates</h1>
         @permission('rental_notice_templates.manage_settings')

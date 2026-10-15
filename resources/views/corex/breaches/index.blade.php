@@ -12,6 +12,7 @@
     $arrow = fn (string $col) => $sort === $col ? ($dir === 'asc' ? ' ↑' : ' ↓') : '';
 @endphp
 <div class="p-6 space-y-4">
+    @include('corex.notices._tabs', ['active' => 'breaches'])
     <div class="flex items-center justify-between">
         <h1 class="text-lg font-semibold">Breach register</h1>
         <div class="flex items-center gap-2">

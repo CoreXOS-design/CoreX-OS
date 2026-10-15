@@ -22,8 +22,8 @@ final class NewScreensHaveTheirMenuPlaceTest extends TestCase
     private function expected(): array
     {
         return [
-            'corex.breaches.'      => ['group' => 'rental-applications', 'item' => 'Breach Register'],
-            'corex.lease-notices.' => ['group' => 'rental-applications', 'item' => 'Notices Received'],
+            'corex.breaches.'      => ['group' => 'rental-applications', 'item' => 'Notices'],
+            'corex.lease-notices.' => ['group' => 'rental-applications', 'item' => 'Notices'],
             'corex.alerts-off.'    => ['group' => 'settings', 'item' => 'Users'],
             'corex.auctions.bidders.' => ['group' => 'auctions', 'item' => 'Auction Diary'],
             'corex.auctions.room.' => ['group' => 'auctions', 'item' => 'Auction Diary'],
@@ -60,13 +60,13 @@ final class NewScreensHaveTheirMenuPlaceTest extends TestCase
         $this->assertGreaterThan(10, $checked);
     }
 
-    public function test_the_breach_register_and_notices_received_links_exist_in_the_rentals_panel(): void
+    public function test_the_notices_link_exists_in_the_rentals_panel_and_the_old_two_are_gone(): void
     {
         $blade = (string) file_get_contents(base_path('resources/views/layouts/corex-sidebar.blade.php'));
 
-        $this->assertStringContainsString("route('corex.breaches.index')", $blade);
-        $this->assertStringContainsString("route('corex.lease-notices.index')", $blade);
-        $this->assertMatchesRegularExpression("/route\\('corex\\.breaches\\.index'\\)[^\\n]*>Breach Register</", $blade);
-        $this->assertMatchesRegularExpression("/route\\('corex\\.lease-notices\\.index'\\)[^\\n]*>Notices Received</", $blade);
+        // AT-466: Breach Register and Notices Received are tabs of ONE "Notices" item
+        $this->assertMatchesRegularExpression("/route\\('corex\\.notices\\.index'\\)[^\\n]*>Notices</", $blade);
+        $this->assertDoesNotMatchRegularExpression("/route\\('corex\\.breaches\\.index'\\)[^\\n]*>Breach Register</", $blade);
+        $this->assertDoesNotMatchRegularExpression("/route\\('corex\\.lease-notices\\.index'\\)[^\\n]*>Notices Received</", $blade);
     }
 }

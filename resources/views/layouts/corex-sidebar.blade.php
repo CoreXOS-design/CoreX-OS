@@ -241,7 +241,7 @@
         // list OR detail pages even though their nav links live in this same panel.
         // 'corex.rental-notices.*' had the identical gap (sidebar-active-item
         // audit, 2026-10-05) — its own link already lives in this panel too.
-        || request()->routeIs('corex.leases.*', 'corex.rental-inspections.*', 'corex.rental-fault-types.*', 'corex.rental-fault-reports.*', 'corex.rental-work-orders.*', 'corex.rental-notices.*', 'corex.breaches.*', 'corex.lease-notices.*', 'corex.rentals.take-on-import.*')
+        || request()->routeIs('corex.leases.*', 'corex.rental-inspections.*', 'corex.rental-fault-types.*', 'corex.rental-fault-reports.*', 'corex.rental-work-orders.*', 'corex.rental-notices.*', 'corex.breaches.*', 'corex.lease-notices.*', 'corex.notices.*', 'corex.rental-notice-templates.*', 'corex.rentals.take-on-import.*')
         // rentals-faults-work-orders.md section 20.8 - the Rentals menu's "Suppliers & contractors" link opens the SAME Supplier Directory screen
         // with ?nav=rentals so the Rentals panel stays open; the Deal Register Settings link (no ?nav) still opens its own panel below.
         || (request()->routeIs('deals-v2.suppliers.*') && request()->query('nav') === 'rentals')
@@ -1380,16 +1380,17 @@
 
                 {{-- AT-445 — .ai/specs/rental-portal-access.md §10. Same-day
                      nav entry per non-negotiable #2. --}}
+                {{-- AT-466 (Johan, 16 Oct 2026): Breach Register, Notices Received and Rental Notices (and the notice templates) are ONE menu item, "Notices",
+                     that opens a screen with tabs - Breaches | Notices received | Notices sent | Templates (App\Support\Rentals\NoticesTabs). Each tab keeps its
+                     own route and permission, so the item shows for anyone who may open at least one tab. The old names stay findable: data-nav-extra gives
+                     the menu search one entry per old name, pointing at its tab. --}}
                 @feature('rental-notices')
-                @permission('rental_notices.review')
-                <a href="{{ route('corex.lease-notices.index') }}" data-nav-group="Leases" class="corex-nav-subitem {{ request()->routeIs('corex.lease-notices.*') ? 'active' : '' }}">Notices Received</a>
-                @endpermission
-                @permission('rental_breaches.view')
-                <a href="{{ route('corex.breaches.index') }}" data-nav-group="Leases" class="corex-nav-subitem {{ request()->routeIs('corex.breaches.*') ? 'active' : '' }}">Breach Register</a>
-                @endpermission
-                @permission('rental_notices.create')
-                <a href="{{ route('corex.rental-notices.index') }}" data-nav-group="Leases" class="corex-nav-subitem {{ request()->routeIs('corex.rental-notices.*') ? 'active' : '' }}">Rental Notices</a>
-                @endpermission
+                @if($user && $user->hasAnyPermission(['rental_breaches.view', 'rental_notices.review', 'rental_notices.create', 'rental_notice_templates.manage_settings']))
+                @php
+                    $_noticesExtra = collect(\App\Support\Rentals\NoticesTabs::forUser($user))->map(fn ($t) => ['l' => $t['old'], 'h' => $t['url']])->values()->all();
+                @endphp
+                <a href="{{ route('corex.notices.index') }}" data-nav-group="Leases" data-nav-extra="{{ json_encode($_noticesExtra) }}" class="corex-nav-subitem {{ request()->routeIs('corex.notices.*', 'corex.breaches.*', 'corex.lease-notices.*', 'corex.rental-notices.*', 'corex.rental-notice-templates.*') ? 'active' : '' }}">Notices</a>
+                @endif
                 @endfeature
 
                 <div class="corex-nav-sublabel" data-nav-auto-group>Maintenance</div>
@@ -3825,6 +3826,14 @@ window.CorexNavSearch = (function () {
             panel.querySelectorAll('a.corex-nav-subitem').forEach(function (a) {
                 if (a.closest('.corex-nav-panel') !== panel) return;
                 add(firstText(a), a.getAttribute('href'), parent, null, a.getAttribute('data-nav-alias'), a.getAttribute('data-nav-group'));
+                // AT-466 - extra search entries for a merged item (data-nav-extra = [{l: old name, h: its tab's url}]): "breach register" still
+                // finds the Breaches tab of "Notices". Search-only; the Favourites picker lists them as pages too (they are real pages).
+                const extra = a.getAttribute('data-nav-extra');
+                if (extra) {
+                    try {
+                        JSON.parse(extra).forEach(function (e) { if (e && e.l && e.h) { add(e.l, e.h, parent, null, '', (a.getAttribute('data-nav-group') || '') + ' › ' + firstText(a)); } });
+                    } catch (err) { /* a malformed attribute only costs the extra entries */ }
+                }
             });
         });
 
