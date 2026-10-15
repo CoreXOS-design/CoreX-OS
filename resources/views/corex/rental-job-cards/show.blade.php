@@ -35,9 +35,11 @@
     $catalogueItemsJson = $catalogueItems->map(fn ($ci) => [
         'id' => $ci->id, 'code' => $ci->code, 'description' => $ci->description, 'label' => $ci->label(),
         'kind' => $ci->kind(), 'unit' => $ci->catalogueUnit?->name,
-        'priceForLine' => $jcAgency ? app(\App\Services\Rentals\RentalJobCardVatService::class)->catalogueDefaultPriceForLine($ci, $jcAgency) : ($ci->selling_excl !== null ? (float) $ci->selling_excl : null),
+        'priceForLine' => $jcAgency ? app(\App\Services\Rentals\RentalJobCardVatService::class)->catalogueDefaultPriceForLine($ci, $jcAgency) : (($ci->selling_excl !== null && ! $ci->pricedByMarkup()) ? (float) $ci->selling_excl : null),
         // §17.4.4 — the catalogue's default COST prefills the Cost box, but only for someone who can see and set costs.
         'costForLine' => (($canViewCosts ?? false) && ($canPrice ?? false) && $jcAgency) ? app(\App\Services\Rentals\RentalJobCardVatService::class)->catalogueDefaultCostForLine($ci, $jcAgency) : null,
+        // §17.39 — a markup-priced item has no catalogue selling to show: the picker says what the markup is instead.
+        'markupHint' => $ci->pricedByMarkup() ? ($ci->markup_type === 'rand' ? '+ R' . number_format((float) $ci->markup_value, 2) : 'markup ' . rtrim(rtrim(number_format((float) $ci->markup_value, 2), '0'), '.') . ' %') : null,
         'vatTypeId' => $ci->default_rental_vat_type_id,
         'customVatRate' => $ci->default_custom_vat_rate !== null ? (float) $ci->default_custom_vat_rate : null,
     ])->values();
@@ -331,7 +333,7 @@ function catalogueLinePicker(items, opts) {
             const u = this.field('[name="unit"], [x-ref$="Unit"]'); if (u && item.unit) u.value = item.unit;
             // §17.4.3 — the selling price is NOT copied from the catalogue any more: left blank it resolves by the pricing rules
             // (the catalogue's default price is rule 5), so a picked item still prices itself but is not frozen as "typed by hand".
-            const p = this.field('[name="unit_price"], [x-ref$="UnitPrice"]'); if (p) { p.value = ''; p.placeholder = (item.priceForLine !== null && item.priceForLine !== undefined) ? ('catalogue ' + item.priceForLine) : 'auto'; }
+            const p = this.field('[name="unit_price"], [x-ref$="UnitPrice"]'); if (p) { p.value = ''; p.placeholder = item.markupHint ? item.markupHint : ((item.priceForLine !== null && item.priceForLine !== undefined) ? ('catalogue ' + item.priceForLine) : 'auto'); }
             const k = this.field('[name="unit_cost"], [x-ref$="UnitCost"]'); if (k && item.costForLine !== null && item.costForLine !== undefined) k.value = item.costForLine;
             const v = this.field('[name="rental_vat_type_id"], [x-ref$="VatType"]');
             if (v && item.vatTypeId) { v.value = item.vatTypeId; v.dispatchEvent(new Event('change')); }

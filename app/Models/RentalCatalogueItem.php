@@ -57,6 +57,7 @@ class RentalCatalogueItem extends Model
         'selling_incl',
         'markup_type',
         'markup_value',
+        'pricing_driver',
         'default_rental_vat_type_id',
         'default_custom_vat_rate',
         'is_active',
@@ -83,6 +84,9 @@ class RentalCatalogueItem extends Model
      * fixtures) is carried across: the new figure is taken from it and the incl figure worked out at the item's VAT rate.
      * A writer that sets the new figure has the legacy column kept in step. Neither is ever derived from a stale value.
      */
+    public const DRIVER_MARKUP = 'markup';
+    public const DRIVER_SELLING = 'selling';
+
     protected static function booted(): void
     {
         static::saving(function (RentalCatalogueItem $item) {
@@ -94,8 +98,15 @@ class RentalCatalogueItem extends Model
                     $pricing ??= app(CatalogueItemPricing::class);
                     $item->{$excl} = $item->{$legacy};
                     $item->markup_value = null; // the stored markup was for the old figure — re-derived below
+                    if ($legacy === 'default_price' && $item->{$excl} !== null && ! $item->isDirty('pricing_driver')) {
+                        $item->pricing_driver = self::DRIVER_SELLING; // a writer that hands over a price is typing a selling price
+                    }
                     $item->{$incl} = $item->{$legacy} === null ? null : $pricing->inclFromExcl((float) $item->{$legacy}, $pricing->rateForItem($item));
                 }
+            }
+
+            if ($item->pricing_driver === null && $item->selling_excl !== null) {
+                $item->pricing_driver = self::DRIVER_SELLING;
             }
 
             if ($item->markup_value === null && $item->selling_excl !== null && $item->cost_excl !== null && ($item->isDirty('selling_excl') || $item->isDirty('cost_excl'))) {
@@ -108,6 +119,12 @@ class RentalCatalogueItem extends Model
                 }
             }
         });
+    }
+
+    /** True when this item is priced by cost + markup (a job card line works its selling out from the LINE's cost), not by a fixed selling price. */
+    public function pricedByMarkup(): bool
+    {
+        return $this->pricing_driver === self::DRIVER_MARKUP && $this->markup_value !== null;
     }
 
     public function catalogueItemType(): BelongsTo

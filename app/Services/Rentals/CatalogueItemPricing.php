@@ -94,7 +94,7 @@ class CatalogueItemPricing
      * Resolve the whole pricing block from what was posted. Every key of $in is nullable; empty strings count as blank.
      *
      * @param  array{cost_excl?: mixed, cost_incl?: mixed, selling_excl?: mixed, selling_incl?: mixed, markup_type?: mixed, markup_value?: mixed}  $in
-     * @return array{cost_excl: ?float, cost_incl: ?float, markup_type: string, markup_value: ?float, selling_excl: ?float, selling_incl: ?float}
+     * @return array{cost_excl: ?float, cost_incl: ?float, markup_type: string, markup_value: ?float, selling_excl: ?float, selling_incl: ?float, pricing_driver: ?string}
      */
     public function resolve(array $in, float $rate, string $costBasis, string $driver, string $defaultMarkupType = self::MARKUP_PERCENT): array
     {
@@ -115,14 +115,24 @@ class CatalogueItemPricing
 
         $sellExcl = $sellIncl = null;
 
-        // A markup can only drive the selling price when there is a cost and a markup to add to it.
-        if ($driver === self::DRIVER_MARKUP && ($costExcl === null || $markupValue === null)) {
+        // A markup can only drive the selling price when there is a markup to add. A markup with no cost yet stays the driver (the
+        // selling price is simply not known yet); a selling price that WAS typed alongside it, with nothing to add the markup to,
+        // is the user's word and wins. No markup at all = a selling price (or nothing).
+        if ($driver === self::DRIVER_MARKUP && $markupValue === null) {
+            $driver = $num('selling_excl') !== null ? self::DRIVER_SELLING_EXCL : self::DRIVER_SELLING_INCL;
+        } elseif ($driver === self::DRIVER_MARKUP && $costExcl === null && ($num('selling_excl') !== null || $num('selling_incl') !== null)) {
             $driver = $num('selling_excl') !== null ? self::DRIVER_SELLING_EXCL : self::DRIVER_SELLING_INCL;
         }
 
         if ($driver === self::DRIVER_MARKUP) {
-            $sellExcl = $this->sellingFromMarkup($costExcl, $markupValue, $markupType);
-            $sellIncl = $this->inclFromExcl($sellExcl, $rate);
+            if ($costExcl !== null) {
+                $sellExcl = $this->sellingFromMarkup($costExcl, $markupValue, $markupType);
+                $sellIncl = $this->inclFromExcl($sellExcl, $rate);
+                // A derived R0.00 (no real cost behind a % markup) is not a price: store the markup and leave the selling blank.
+                if ($sellExcl == 0.0) {
+                    $sellExcl = $sellIncl = null;
+                }
+            }
         } elseif ($driver === self::DRIVER_SELLING_INCL && $num('selling_incl') !== null) {
             $sellIncl = round($num('selling_incl'), 2);
             $sellExcl = $this->exclFromIncl($sellIncl, $rate);
@@ -144,6 +154,8 @@ class CatalogueItemPricing
             'markup_value' => $markupValue,
             'selling_excl' => $sellExcl,
             'selling_incl' => $sellIncl,
+            // What PRICES this item: the markup (a job card line works its selling out from the line's own cost) or a fixed selling price.
+            'pricing_driver' => $driver === self::DRIVER_MARKUP ? 'markup' : ($sellExcl !== null ? 'selling' : null),
         ];
     }
 }

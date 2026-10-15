@@ -129,7 +129,9 @@ class RentalCatalogueItemController extends Controller
                 'selling_incl' => $num($item->selling_incl),
                 'markup_type' => $item->markup_type ?: RentalWorkOrderSetting::catalogueMarkupTypeFor($agency?->id),
                 'markup_value' => $canViewCosts ? ($item->markup_value !== null ? (float) $item->markup_value : ($item->selling_excl === null ? RentalWorkOrderSetting::catalogueMarkupValueFor($agency?->id) : null)) : null,
-                'driver' => $item->selling_excl !== null ? CatalogueItemPricing::DRIVER_SELLING_EXCL : CatalogueItemPricing::DRIVER_MARKUP,
+                // The stored driver — NOT inferred from whether a selling figure exists, or re-saving a markup item would turn it into a fixed-price one.
+                'driver' => $item->pricing_driver === RentalCatalogueItem::DRIVER_MARKUP || ($item->pricing_driver === null && $item->selling_excl === null)
+                    ? CatalogueItemPricing::DRIVER_MARKUP : CatalogueItemPricing::DRIVER_SELLING_EXCL,
                 // An item saved before VAT types were picked shows the agency's default type — what a job card line would use anyway.
                 'vat_type_id' => $item->default_rental_vat_type_id ?: $data['defaultVatTypeId'],
                 'custom_rate' => $num($item->default_custom_vat_rate),
@@ -250,6 +252,13 @@ class RentalCatalogueItemController extends Controller
             $in['markup_value'] = $existing?->markup_value;
             $costBasis = CatalogueItemPricing::COST_BASIS_EXCL;
             $driver = $driver === CatalogueItemPricing::DRIVER_SELLING_INCL ? $driver : CatalogueItemPricing::DRIVER_SELLING_EXCL;
+            // They cannot see the markup, so saving the item without touching the selling price must not flip a markup-priced item to a fixed price.
+            if ($existing?->pricing_driver === RentalCatalogueItem::DRIVER_MARKUP && $existing->markup_value !== null) {
+                $same = fn ($posted, $stored) => $posted === null || $posted === '' || ($stored !== null && abs((float) $posted - (float) $stored) < 0.005);
+                if ($same($data['selling_excl'] ?? null, $existing->selling_excl) && $same($data['selling_incl'] ?? null, $existing->selling_incl)) {
+                    $driver = CatalogueItemPricing::DRIVER_MARKUP;
+                }
+            }
         }
 
         $priced = $this->pricing->resolve($in, $rate, $costBasis, $driver, RentalWorkOrderSetting::catalogueMarkupTypeFor($agencyId));

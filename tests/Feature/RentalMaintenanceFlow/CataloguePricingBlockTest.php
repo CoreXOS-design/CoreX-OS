@@ -395,7 +395,9 @@ final class CataloguePricingBlockTest extends TestCase
         $catalogue = $payload['blocks']['pricing']['catalogue'] ?? [];
         $this->assertNotEmpty($catalogue);
         foreach ($catalogue as $row) {
-            $this->assertSame(['id', 'label', 'description', 'kind', 'unit'], array_keys($row), 'names only — never a price, a cost or a markup');
+            // the crew may carry the item's COST (a labour rate x hours is the crew's own figure) - never a selling price, a markup or a margin
+            $this->assertSame([], array_values(array_diff(array_keys($row), ['id', 'label', 'description', 'kind', 'unit', 'cost'])), 'no key beyond names, unit and the cost');
+            $this->assertNotSame('8765.43', $row['cost'] ?? null, 'the selling price is never offered as the cost');
         }
 
         $issued = app(RentalSecureAccessTokenService::class)->issueForJobCard($card, $this->admin);

@@ -134,7 +134,8 @@ class RentalJobCardVatService
      */
     public function catalogueDefaultPriceForLine(RentalCatalogueItem $item, Agency $agency): ?float
     {
-        if ($item->selling_excl === null) {
+        // §17.39 — a markup-priced item has no fixed catalogue selling: the line's own cost + the markup make the price.
+        if ($item->selling_excl === null || $item->pricedByMarkup()) {
             return null;
         }
 
@@ -148,6 +149,27 @@ class RentalJobCardVatService
         $rate = $this->rateFor($type, $item->default_custom_vat_rate);
 
         return round($excl * (1 + $rate / 100), 2);
+    }
+
+    /**
+     * §17.39 — a markup-priced item whose markup is a rand amount: that amount (stored excl) converted to the agency's capture mode
+     * on lines, exactly as catalogueDefaultPriceForLine() converts a price. Null when the item is not rand-markup priced.
+     */
+    public function catalogueMarkupAmountForLine(RentalCatalogueItem $item, Agency $agency): ?float
+    {
+        if (! $item->pricedByMarkup() || $item->markup_type !== 'rand') {
+            return null;
+        }
+
+        $excl = (float) $item->markup_value;
+
+        if (! $agency->vat_registered || $agency->vat_capture_mode !== Agency::VAT_CAPTURE_INCL) {
+            return $excl;
+        }
+
+        $type = $item->default_rental_vat_type_id ? ($item->defaultVatType ?? RentalVatType::find($item->default_rental_vat_type_id)) : null;
+
+        return round($excl * (1 + $this->rateFor($type, $item->default_custom_vat_rate) / 100), 2);
     }
 
     /** @return array{excl: float, vat: float, incl: float} */
