@@ -43,10 +43,9 @@ class RentalPortalSettingsController extends Controller
             'defaultCrewJobLinkExpiryDays' => RentalPortalSetting::DEFAULT_CREW_JOB_LINK_EXPIRY_DAYS,
             // rental-work-orders.md §14.27.3 — Build 2 (crew page & client visibility).
             'crewPhotosVisibleToClients' => RentalPortalSetting::crewPhotosVisibleToClientsFor($agencyId),
-            'crewStandingLinkExpiryDays' => RentalPortalSetting::crewStandingLinkExpiryDaysFor($agencyId),
-            'crewPageRecentCompletedDays' => RentalPortalSetting::crewPageRecentCompletedDaysFor($agencyId),
+            'crewStandingLinkExpiryDays' => RentalPortalSetting::crewStandingLinkExpiryDaysSettingFor($agencyId),
             'crewPageUpcomingDays' => RentalPortalSetting::crewPageUpcomingDaysFor($agencyId),
-            'defaultCrewPageRecentCompletedDays' => RentalPortalSetting::DEFAULT_CREW_PAGE_RECENT_COMPLETED_DAYS,
+            'defaultCrewStandingLinkExpiryDays' => RentalPortalSetting::DEFAULT_CREW_STANDING_LINK_EXPIRY_DAYS,
             'defaultCrewPageUpcomingDays' => RentalPortalSetting::DEFAULT_CREW_PAGE_UPCOMING_DAYS,
             // rental-portal-access.md §22 — fault photos and the Home FAQ wording.
             'faultPhotoMaxCount' => RentalPortalSetting::faultPhotoMaxCountFor($agencyId),
@@ -177,9 +176,9 @@ class RentalPortalSettingsController extends Controller
     }
 
     /**
-     * §14.27.3 — how long the crew PAGE link lives. Present-but-blank means "no
-     * expiry — stands until revoked" (clears the value); absent from the post
-     * means leave it alone (agency-onboarding-setup.md §6.1).
+     * §14.27.3 / §17.42 — how long a crew's standing HOME link lives. 1–365 days; 0 = stands until revoked;
+     * present-but-blank clears the value (back to the 180-day default); absent from the post means leave it
+     * alone (agency-onboarding-setup.md §6.1).
      */
     public function updateCrewStandingLinkExpiryDays(Request $request): RedirectResponse
     {
@@ -190,8 +189,8 @@ class RentalPortalSettingsController extends Controller
         }
 
         $validated = $request->validate([
-            'crew_standing_link_expiry_days' => ['nullable', 'integer', 'min:1', 'max:365'],
-        ], ['crew_standing_link_expiry_days.*' => 'The crew page link can last between 1 and 365 days — or leave it blank to keep it until you revoke it.']);
+            'crew_standing_link_expiry_days' => ['nullable', 'integer', 'min:0', 'max:365'],
+        ], ['crew_standing_link_expiry_days.*' => 'The crew home link can last between 1 and 365 days — enter 0 to keep it until you revoke it, or leave it blank for the standard ' . RentalPortalSetting::DEFAULT_CREW_STANDING_LINK_EXPIRY_DAYS . ' days.']);
 
         RentalPortalSetting::updateOrCreate(
             ['agency_id' => $agencyId],
@@ -199,12 +198,6 @@ class RentalPortalSettingsController extends Controller
         );
 
         return redirect()->route('corex.settings.rental-portal.edit')->with('success', 'Crew page link expiry saved.');
-    }
-
-    /** §14.27.3 — "recently completed" window on the crew page; 0 hides the list. Absent or blank = leave alone. */
-    public function updateCrewPageRecentCompletedDays(Request $request): RedirectResponse
-    {
-        return $this->updateBoundedInt($request, 'crew_page_recent_completed_days', 0, 30, 'Recently-completed window');
     }
 
     /** §14.27.3 — how many days ahead the crew page's "upcoming" list reaches. Absent or blank = leave alone. */

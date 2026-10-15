@@ -16,8 +16,9 @@ use Illuminate\Mail\Mailables\Envelope;
  * mailer) — NEVER a plain Mail::to()->send(). Agency-branded, neutral wording:
  * the agency name comes from the agency record, nothing here is any one agency's.
  *
- * The raw link is in the mail only because the agent just generated it — it is
- * never stored, so it can never be re-sent later (regenerate to get a new one).
+ * The raw link is never stored. The mail carries either the link the agent just
+ * generated or, for a Resend (§17.42), a further link minted for that send — the
+ * crew's existing link keeps working.
  */
 class RentalCrewStandingLinkMail extends BaseSignatureMail
 {
