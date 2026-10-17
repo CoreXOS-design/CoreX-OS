@@ -69,7 +69,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
                 </svg>
                 <input type="text" name="q" value="{{ $q ?? '' }}" placeholder="Search code or label…"
-                       class="list-header-filter w-full" style="padding-left: 2.25rem; background: var(--surface-2);">
+                       class="list-header-filter w-full {{ !empty($q) ? 'is-active' : '' }}" style="padding-left: 2.25rem;">
             </div>
             <button type="submit" class="corex-btn-primary text-xs">Search</button>
             @if($q)
@@ -130,7 +130,7 @@
                         <td class="px-4 py-3 font-semibold" style="color: var(--text-primary);">
                             {{ $type->label }}
                             @if($type->is_system)
-                                <span class="ds-badge ds-badge-default ml-1.5">System</span>
+                                <span class="ds-badge ds-badge-default ds-badge-pill ml-1.5">System</span>
                             @endif
                         </td>
                         <td class="px-4 py-3 text-xs font-mono" style="color: var(--text-secondary);">{{ $type->sars_source_code ?? '—' }}</td>

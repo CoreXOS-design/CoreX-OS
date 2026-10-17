@@ -36,15 +36,15 @@
           style="background: var(--surface); border: 1px solid var(--border);">
         <div>
             <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">From</label>
-            <input type="date" name="from" value="{{ $dateFrom }}" class="list-header-filter">
+            <input type="date" name="from" value="{{ $dateFrom }}" class="list-header-filter {{ !empty($dateFrom) ? 'is-active' : '' }}">
         </div>
         <div>
             <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">To</label>
-            <input type="date" name="to" value="{{ $dateTo }}" class="list-header-filter">
+            <input type="date" name="to" value="{{ $dateTo }}" class="list-header-filter {{ !empty($dateTo) ? 'is-active' : '' }}">
         </div>
         <div>
             <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Status</label>
-            <select name="status" class="list-header-filter">
+            <select name="status" class="list-header-filter {{ !empty($status) ? 'is-active' : '' }}">
                 <option value="">All statuses</option>
                 @foreach(['submitted','approved','rejected','cancelled','taken'] as $s)
                     <option value="{{ $s }}" {{ $status === $s ? 'selected' : '' }}>{{ ucfirst($s) }}</option>
@@ -53,7 +53,7 @@
         </div>
         <div>
             <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Type</label>
-            <select name="type" class="list-header-filter">
+            <select name="type" class="list-header-filter {{ !empty($typeFilter) ? 'is-active' : '' }}">
                 <option value="">All types</option>
                 @foreach($leaveTypes as $lt)
                     <option value="{{ $lt->id }}" {{ ($typeFilter ?? '') == $lt->id ? 'selected' : '' }}>{{ $lt->label }}</option>
@@ -62,7 +62,7 @@
         </div>
         <div>
             <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Search</label>
-            <input type="text" name="q" value="{{ $q ?? '' }}" placeholder="Employee name..." class="list-header-filter w-40">
+            <input type="text" name="q" value="{{ $q ?? '' }}" placeholder="Employee name..." class="list-header-filter w-40 {{ !empty($q) ? 'is-active' : '' }}">
         </div>
         <button type="submit" class="corex-btn-primary text-xs">Apply</button>
         @if($hasFilters)

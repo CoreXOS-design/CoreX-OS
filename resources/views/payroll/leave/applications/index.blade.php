@@ -61,9 +61,9 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
                 </svg>
                 <input type="text" name="q" value="{{ $q ?? '' }}" placeholder="Search name or app #…"
-                       class="list-header-filter w-full" style="padding-left: 2.25rem;">
+                       class="list-header-filter w-full {{ !empty($q) ? 'is-active' : '' }}" style="padding-left: 2.25rem;">
             </div>
-            <select name="type" class="list-header-filter">
+            <select name="type" class="list-header-filter {{ !empty($typeFilter) ? 'is-active' : '' }}">
                 <option value="">All Types</option>
                 @foreach($leaveTypes as $lt)
                     <option value="{{ $lt->id }}" {{ ($typeFilter ?? '') == $lt->id ? 'selected' : '' }}>{{ $lt->label }}</option>
