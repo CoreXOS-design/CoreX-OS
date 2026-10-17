@@ -86,8 +86,8 @@
                 </svg>
                 <input type="text" name="search" value="{{ $searchTerm }}"
                        placeholder="Search address or contact…"
-                       class="w-full pl-10 pr-3 py-2 text-sm rounded-md transition-all duration-300"
-                       style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);outline:none;">
+                       class="list-header-filter w-full {{ $searchTerm !== '' ? 'is-active' : '' }}"
+                       style="padding-left:2.25rem;">
             </div>
 
             @if($canPickAgent)

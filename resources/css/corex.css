@@ -185,10 +185,9 @@ html.dark .corex-sidebar-logo .corex-logo-accent {
     content: "";
     position: absolute;
     left: 0;
-    top: 50%;
+    top: 20%;
+    bottom: 20%;
     width: 3px;
-    height: 60%;
-    margin-top: -30%;
     border-radius: 3px;
     background: color-mix(in srgb, var(--corex-sidebar-hover) 60%, transparent);
     transform: scaleY(0);
@@ -284,10 +283,9 @@ html.dark .corex-sidebar-logo .corex-logo-accent {
     content: "";
     position: absolute;
     left: 0;
-    top: 50%;
+    top: 20%;
+    bottom: 20%;
     width: 3px;
-    height: 60%;
-    margin-top: -30%;
     border-radius: 3px;
     background: color-mix(in srgb, var(--corex-sidebar-hover, #0ea5e9) 60%, transparent);
     transform: scaleY(0);
@@ -928,6 +926,88 @@ html.dark .corex-sidebar-logo .corex-logo-accent {
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-button, #0ea5e9) 15%, transparent);
 }
 
+/* Filter fields everywhere in CoreX (AT-455): the Properties look. Hover tints the edge, focus and
+   the set-filter highlight use the agency colour with no glow, and the open option list stays plain. */
+.list-header-filter { transition: border-color 200ms ease, color 200ms ease, background 200ms ease; }
+.list-header-filter:hover { border-color: color-mix(in srgb, var(--brand-button, #0ea5e9) 55%, var(--border, #d1d5db)); }
+.list-header-filter:focus { box-shadow: none; border-color: var(--brand-button, #0ea5e9); }
+.list-header-filter.is-active { border-color: var(--brand-button, #0ea5e9); color: var(--brand-button, #0ea5e9); background: color-mix(in srgb, var(--brand-button, #0ea5e9) 10%, var(--surface)); }
+.list-header-filter option { background: var(--surface); color: var(--text-primary); }
+.list-header-filter option:checked,
+.list-header-filter option:hover { background: var(--surface-2); color: var(--text-primary); }
+
+/* Filter panel (AT-455): the Properties look for any filter bar. A page adds the props-filter-panel
+   class to its filter container. No grey fill, and a lit accent edge along the top. */
+.props-filter-panel { background: transparent !important; }
+
+/* CoreX-wide filter bars (AT-455): every filter bar takes the Core Matches look without
+   editing each page. A filter panel is either marked with .props-filter-panel, or found by
+   its shape: a surface panel holding a GET filter form, or a GET filter form that is itself
+   the panel. Matching panels lose the grey fill and get the accent edge; their fields take
+   the shared filter-field look; their stacked text labels are hidden visually but still read
+   out by screen readers, so every field keeps its name. Pages with the CoreX sidebar only. */
+:is(
+    html:has(.corex-sidebar) .props-filter-panel,
+    html:has(.corex-sidebar) div[style*="var(--surface)"]:has(> form[method="GET" i] :is(select, .list-header-filter, input[name="search"], input[name="q"])),
+    html:has(.corex-sidebar) form[method="GET" i][style*="var(--surface)"]:has(:is(select, .list-header-filter, input[name="search"], input[name="q"]))
+) {
+    background: transparent !important;
+}
+
+:is(
+    html:has(.corex-sidebar) .props-filter-panel,
+    html:has(.corex-sidebar) div[style*="var(--surface)"]:has(> form[method="GET" i] :is(select, .list-header-filter, input[name="search"], input[name="q"])),
+    html:has(.corex-sidebar) form[method="GET" i][style*="var(--surface)"]:has(:is(select, .list-header-filter, input[name="search"], input[name="q"]))
+) :is(select, input[type="text"], input[type="search"], input[type="date"], input[type="number"]):not(.list-header-filter),
+html:has(.corex-sidebar) main form[method="GET" i] :is(select, input[type="text"], input[type="search"], input[type="date"], input[type="number"]):not(.list-header-filter) {
+    height: 2.25rem;
+    border: 1px solid var(--border) !important;
+    border-radius: 6px !important;
+    background: var(--surface) !important;
+    color: var(--text-primary) !important;
+    font-size: 0.8125rem;
+    transition: border-color 200ms ease;
+}
+
+:is(
+    html:has(.corex-sidebar) .props-filter-panel,
+    html:has(.corex-sidebar) div[style*="var(--surface)"]:has(> form[method="GET" i] :is(select, .list-header-filter, input[name="search"], input[name="q"])),
+    html:has(.corex-sidebar) form[method="GET" i][style*="var(--surface)"]:has(:is(select, .list-header-filter, input[name="search"], input[name="q"]))
+) :is(select, input[type="text"], input[type="search"], input[type="date"], input[type="number"]):not(.list-header-filter):hover,
+html:has(.corex-sidebar) main form[method="GET" i] :is(select, input[type="text"], input[type="search"], input[type="date"], input[type="number"]):not(.list-header-filter):hover {
+    border-color: color-mix(in srgb, var(--brand-button, #0ea5e9) 55%, var(--border)) !important;
+}
+
+:is(
+    html:has(.corex-sidebar) .props-filter-panel,
+    html:has(.corex-sidebar) div[style*="var(--surface)"]:has(> form[method="GET" i] :is(select, .list-header-filter, input[name="search"], input[name="q"])),
+    html:has(.corex-sidebar) form[method="GET" i][style*="var(--surface)"]:has(:is(select, .list-header-filter, input[name="search"], input[name="q"]))
+) :is(select, input[type="text"], input[type="search"], input[type="date"], input[type="number"]):not(.list-header-filter):focus,
+html:has(.corex-sidebar) main form[method="GET" i] :is(select, input[type="text"], input[type="search"], input[type="date"], input[type="number"]):not(.list-header-filter):focus {
+    outline: none;
+    box-shadow: none;
+    border-color: var(--brand-button, #0ea5e9) !important;
+}
+
+/* Stacked text labels: hidden on screen, kept for screen readers. Only a plain text label whose
+   very next element is its dropdown or input box is hidden. Labels used as clickable chips or
+   buttons, labels that wrap their own control, and tick-box text all stay visible. */
+:is(
+    html:has(.corex-sidebar) .props-filter-panel,
+    html:has(.corex-sidebar) div[style*="var(--surface)"]:has(> form[method="GET" i] :is(select, .list-header-filter, input[name="search"], input[name="q"])),
+    html:has(.corex-sidebar) form[method="GET" i][style*="var(--surface)"]:has(:is(select, .list-header-filter, input[name="search"], input[name="q"]))
+) label:not(:has(input, select, textarea)):has(+ :is(select, input[type="text"], input[type="search"], input[type="date"], input[type="number"])) {
+    position: absolute !important;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 /* ========== KPI Cards ========== */
 .corex-kpi-grid {
     display: grid;
@@ -1423,6 +1503,19 @@ html.dark .corex-sidebar-logo .corex-logo-accent {
 
 .ds-table tbody tr:hover {
     background: var(--surface-2);
+}
+
+/* List-row hover everywhere in CoreX (AT-455): the Contacts hover. The row turns the plain light
+   colour and lifts on a deeper shadow. Nothing moves, so a row never overlaps its neighbours.
+   Every table row in the content area of a page with the CoreX sidebar; header rows are untouched. */
+html:has(.corex-sidebar) main table tbody tr {
+    transition: background-color 200ms ease, box-shadow 220ms ease;
+}
+html:has(.corex-sidebar) main table tbody tr:hover {
+    background: var(--surface-2) !important;
+    box-shadow: 0 12px 28px -12px rgba(0, 0, 0, 0.35);
+    position: relative;
+    z-index: 1;
 }
 
 /* ===== Daily Activity page — day chips + field focus ===== */
@@ -3459,7 +3552,8 @@ html.dark .corex-ui-v2 {
      content page keeps the global dark theme untouched.
    • The sidebar is a shared component (explicitly in scope) so it goes deep on
      every page; its border + drill-down panels match the same base tone. */
-html.dark main#appScroll:has(.corex-props-v2) {
+html.dark main#appScroll:has(.corex-props-v2),
+html.dark main#appScroll:has(.corex-contacts-v2) {
     background: #020617 !important;   /* slate-950 — canvas the cards lift off */
 }
 html.dark .corex-sidebar {

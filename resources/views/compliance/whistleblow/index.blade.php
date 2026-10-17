@@ -32,7 +32,7 @@
     @endif
 
     {{-- Filters --}}
-    <form method="GET" class="flex items-center gap-3 flex-wrap" data-tour="comp-whistleblow-filters">
+    <form method="GET" class="props-filter-panel rounded-md px-4 py-3 flex items-center gap-3 flex-wrap" style="border: 1px solid var(--border);" data-tour="comp-whistleblow-filters">
         <select name="status" onchange="this.form.submit()" class="list-header-filter" data-tour="comp-whistleblow-status">
             <option value="">All Statuses</option>
             @foreach(['draft','pending_approval','changes_requested','rejected','approved','sent','acknowledged_by_ppra','closed'] as $s)

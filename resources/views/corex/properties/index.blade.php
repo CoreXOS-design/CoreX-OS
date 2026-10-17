@@ -38,7 +38,7 @@
     .props-card-rise:hover::after { opacity: 1; }
     /* Filter bar styling (option 04 look). Styling only: no filter or button moves,
        and every rule is scoped to this page's root so other screens are untouched. */
-    .corex-props-v2 .props-filter-panel { background: transparent !important; border-top: 2px solid var(--brand-icon, #0ea5e9); }
+    .corex-props-v2 .props-filter-panel { background: transparent !important; }
     .corex-props-v2 .list-header-filter { transition: border-color 200ms ease, color 200ms ease, background 200ms ease; }
     .corex-props-v2 .list-header-filter:hover { border-color: color-mix(in srgb, var(--brand-icon, #0ea5e9) 55%, var(--border)); }
     .corex-props-v2 .list-header-filter:focus { outline: none; border-color: var(--brand-icon, #0ea5e9); }
@@ -820,7 +820,7 @@
                     <div>
                         <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Min Beds</label>
                         <select name="beds_min" onchange="this.form.submit()" class="list-header-filter w-full {{ ($filters['bedsMin'] ?? '') !== '' ? 'is-active' : '' }}">
-                            <option value="">Any</option>
+                            <option value="">Any beds</option>
                             @for($i = 1; $i <= 6; $i++)
                                 <option value="{{ $i }}" {{ (string) ($filters['bedsMin'] ?? '') === (string) $i ? 'selected' : '' }}>{{ $i }}+</option>
                             @endfor
@@ -831,7 +831,7 @@
                     <div>
                         <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Min Baths</label>
                         <select name="baths_min" onchange="this.form.submit()" class="list-header-filter w-full {{ ($filters['bathsMin'] ?? '') !== '' ? 'is-active' : '' }}">
-                            <option value="">Any</option>
+                            <option value="">Any baths</option>
                             @for($i = 1; $i <= 6; $i++)
                                 <option value="{{ $i }}" {{ (string) ($filters['bathsMin'] ?? '') === (string) $i ? 'selected' : '' }}>{{ $i }}+</option>
                             @endfor

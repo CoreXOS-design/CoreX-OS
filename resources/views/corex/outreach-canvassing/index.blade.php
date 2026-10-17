@@ -92,7 +92,7 @@
 
         {{-- Filters — one GET form: search + agent (scope-limited) + window + source. --}}
         <form method="GET" action="{{ route('corex.outreach-canvassing.index') }}"
-              class="rounded-md px-4 py-3 mt-3 flex-shrink-0 flex flex-wrap items-center gap-3"
+              class="props-filter-panel rounded-md px-4 py-3 mt-3 flex-shrink-0 flex flex-wrap items-center gap-3"
               style="background: var(--surface,#fff); border: 1px solid var(--border,#e5e7eb);">
             <input type="hidden" name="tab" value="activity">
 

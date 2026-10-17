@@ -99,14 +99,13 @@
          of the bar, only rendered when the viewer actually holds more than one option
          (core_matches.all_view). The name/phone/email search box lives above the
          contact list below but posts into this same form (form="cm-filters"). --}}
-    <div class="rounded-md px-5 py-4 flex-shrink-0 mb-5" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="props-filter-panel rounded-md px-5 py-4 flex-shrink-0 mb-5" style="background:var(--surface); border:1px solid var(--border);">
         <form method="GET" id="cm-filters" class="flex items-end gap-3 flex-wrap">
             @if($isRentalEntry)<input type="hidden" name="listing_type" value="rental">@endif
             @if(count($availableScopes) > 1)<input type="hidden" name="scope" value="{{ $scope }}">@endif
 
             @if(count($availableScopes) > 1)
             <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium" style="color:var(--text-secondary);">Scope</label>
                 <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
                     @foreach($availableScopes as $s)
                     <a href="{{ request()->fullUrlWithQuery(['scope' => $s, 'agent_id' => null]) }}"
@@ -121,8 +120,7 @@
 
             @if(!$isRentalEntry)
             <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium" style="color:var(--text-secondary);">Type</label>
-                <select name="listing_type" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm"
+                <select name="listing_type" onchange="this.form.submit()" class="list-header-filter {{ request('listing_type') ? 'is-active' : '' }}"
                         style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); min-width:110px;">
                     @foreach(['' => 'All types', 'sale' => 'Sales', 'rental' => 'Rentals'] as $val => $label)
                     <option value="{{ $val }}" @selected(($listingType ?? '') === $val)>{{ $label }}</option>
@@ -132,10 +130,9 @@
             @endif
 
             <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium" style="color:var(--text-secondary);">Buyer status</label>
-                <select name="buyer_state" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm"
+                <select name="buyer_state" onchange="this.form.submit()" class="list-header-filter {{ request('buyer_state') ? 'is-active' : '' }}"
                         style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); min-width:120px;">
-                    <option value="" @selected($buyerState === '')>Any</option>
+                    <option value="" @selected($buyerState === '')>Any buyer status</option>
                     @foreach($buyerStateOptions as $state)
                     <option value="{{ $state }}" @selected($buyerState === $state)>{{ ucfirst($state) }}</option>
                     @endforeach
@@ -143,10 +140,9 @@
             </div>
 
             <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium" style="color:var(--text-secondary);">Search status</label>
-                <select name="status" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm" data-tour="re-core-matches-status"
+                <select name="status" onchange="this.form.submit()" class="list-header-filter {{ request('status') ? 'is-active' : '' }}" data-tour="re-core-matches-status"
                         style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); min-width:130px;">
-                    <option value="" @selected($statusFilter === '')>Any status</option>
+                    <option value="" @selected($statusFilter === '')>Any search status</option>
                     @foreach(['active' => 'Active', 'paused' => 'Paused', 'fulfilled' => 'Fulfilled', 'expired' => 'Expired'] as $val => $label)
                     <option value="{{ $val }}" @selected($statusFilter === $val)>{{ $label }}</option>
                     @endforeach
@@ -154,20 +150,17 @@
             </div>
 
             <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium" style="color:var(--text-secondary);">Saved from</label>
-                <input type="date" name="saved_from" value="{{ $savedFrom }}" onchange="this.form.submit()"
+                <input type="date" name="saved_from" value="{{ $savedFrom }}" onchange="this.form.submit()" aria-label="Saved from" title="Saved from"
                        class="rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
             </div>
             <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium" style="color:var(--text-secondary);">Saved to</label>
-                <input type="date" name="saved_to" value="{{ $savedTo }}" onchange="this.form.submit()"
+                <input type="date" name="saved_to" value="{{ $savedTo }}" onchange="this.form.submit()" aria-label="Saved to" title="Saved to"
                        class="rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
             </div>
 
             @if($scope !== 'own')
             <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium" style="color:var(--text-secondary);">Agent</label>
-                <select name="agent_id" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm"
+                <select name="agent_id" onchange="this.form.submit()" class="list-header-filter {{ request('agent_id') ? 'is-active' : '' }}"
                         style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); min-width:180px;">
                     <option value="all" @selected($agentId === null)>All agents</option>
                     @foreach($agents as $agent)
@@ -178,8 +171,7 @@
             @endif
 
             <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium" style="color:var(--text-secondary);">Sort</label>
-                <select name="sort" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm"
+                <select name="sort" onchange="this.form.submit()" class="list-header-filter"
                         style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); min-width:170px;">
                     <option value="priority" @selected($sort === 'priority')>Status (default)</option>
                     <option value="saved" @selected($sort === 'saved')>Most recently saved</option>
@@ -224,7 +216,7 @@
         <div class="rounded-md overflow-hidden flex flex-col max-h-[40vh] lg:max-h-none lg:h-full" style="background:var(--surface); border:1px solid var(--border);">
             <label class="flex items-center gap-2 px-3 py-2 flex-shrink-0" style="border-bottom:1px solid var(--border);">
                 <svg class="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text-muted);"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                <input type="text" name="q" form="cm-filters" value="{{ $search }}" placeholder="Search name, phone or email" data-tour="re-core-matches-search"
+                <input type="text" name="q" form="cm-filters" value="{{ $search }}" placeholder="Search name, phone or email" class="list-header-filter {{ $search !== '' ? 'is-active' : '' }}" data-tour="re-core-matches-search"
                        class="w-full text-sm bg-transparent outline-none border-0 p-0" style="color:var(--text-primary);">
             </label>
             {{-- The list loads its next batch of contacts by itself when scrolled
