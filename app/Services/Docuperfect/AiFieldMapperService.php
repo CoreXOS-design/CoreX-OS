@@ -3,6 +3,7 @@
 namespace App\Services\Docuperfect;
 
 use App\Models\AI\AiUsageEvent;
+use App\Services\AI\AiSpendGuard;
 use App\Services\AI\AiUsageRecorder;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -84,6 +85,9 @@ PROMPT;
         $blanksJson = json_encode($blanksForPrompt, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 
         $userPrompt = "Document text:\n---\n{$truncatedText}\n---\n\nDetected blank fields with context:\n{$blanksJson}\n\nMap each blank to the correct field key. Return a JSON array with one entry per blank, in the same order as the input blanks.";
+
+        // AI Spend Safety (AT-456 §A.3) — same bucket the recorder charges below.
+        app(AiSpendGuard::class)->assertAllowed();
 
         Log::info('AiFieldMapper: Sending ' . count($detectedBlanks) . ' blanks to Anthropic API');
         Log::info('AI mapper prompt', ['prompt' => mb_substr($userPrompt, 0, 5000)]);

@@ -27,6 +27,79 @@
         </div>
     </div>
 
+    @if(session('status'))
+        <div class="rounded-md px-4 py-3 text-sm"
+             style="background:color-mix(in srgb, var(--ds-green,#059669) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green,#059669) 30%, transparent); color:var(--text-primary);">
+            {{ session('status') }}
+        </div>
+    @endif
+
+    {{-- AI Spend Safety (AT-456 §A.5) --}}
+    @php
+        $statusBadge = [
+            'active'  => ['ds-badge-success', 'Active'],
+            'alerted' => ['ds-badge-warning', 'Alerted'],
+            'paused'  => ['ds-badge-danger',  'Paused'],
+        ];
+        $eventLabel = [
+            'alert'  => ['ds-badge-warning', 'Alert email sent'],
+            'pause'  => ['ds-badge-danger',  'AI paused'],
+            'resume' => ['ds-badge-success', 'AI turned back on'],
+        ];
+    @endphp
+    <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
+        <div class="px-4 py-3 border-b flex flex-wrap items-center justify-between gap-3" style="border-color:var(--border);">
+            <div>
+                <h2 class="text-sm font-semibold" style="color:var(--text-primary);">
+                    AI Spend Safety
+                    <span class="ds-badge {{ $statusBadge[$guardSnapshot['status']][0] }} ml-1">{{ $statusBadge[$guardSnapshot['status']][1] }}</span>
+                </h2>
+                <p class="text-xs mt-1" style="color:var(--text-muted);">
+                    R {{ number_format($guardSnapshot['spend_zar'], 2) }} counted since {{ $guardSnapshot['window_start']->format('d M H:i') }}
+                    @if($guardSnapshot['since_resume']) (when AI was turned back on) @endif
+                    — alert at R {{ number_format($guard['alert_zar'], 2) }}, switched off at R {{ number_format($guard['cutout_zar'], 2) }}.
+                </p>
+                @if($guardSnapshot['status'] === 'paused' && $agency->ai_paused_reason)
+                    <p class="text-xs mt-1" style="color:var(--ds-crimson,#c41e3a);">Paused {{ $agency->ai_paused_at?->format('d M Y H:i') }} — {{ $agency->ai_paused_reason }}</p>
+                @endif
+            </div>
+            <div class="flex items-center gap-2">
+                <a href="{{ route('admin.dev-settings.index', ['s' => 'ai_spend']) }}" class="corex-btn-outline text-xs">Change thresholds</a>
+                @if($guardSnapshot['status'] === 'paused')
+                    <form method="POST" action="{{ route('admin.ai-usage.resume', ['agency' => $agency->id]) }}"
+                          onsubmit="return confirm(@js('Turn AI back on for ' . $agency->name . '? Spend will be counted afresh from now.'));">
+                        @csrf
+                        <button type="submit" class="corex-btn-primary text-xs">Turn AI back on</button>
+                    </form>
+                @endif
+            </div>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full text-sm ds-table">
+                <thead>
+                    <tr style="background:var(--surface-2);">
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">When</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">What happened</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Spend at the time</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse($guardHistory as $h)
+                        <tr style="border-top:1px solid var(--border);">
+                            <td class="px-4 py-3 whitespace-nowrap" style="color:var(--text-secondary);">{{ $h->occurred_at->format('d M Y H:i') }}</td>
+                            <td class="px-4 py-3"><span class="ds-badge {{ $eventLabel[$h->type][0] ?? 'ds-badge-default' }}">{{ $eventLabel[$h->type][1] ?? ucfirst($h->type) }}</span></td>
+                            <td class="px-4 py-3 text-right font-mono" style="color:var(--text-primary);">R {{ number_format((float) $h->spend_zar, 2) }}</td>
+                            <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $h->user?->name ?? 'CoreX (automatic)' }}</td>
+                        </tr>
+                    @empty
+                        <tr><td colspan="4" class="px-4 py-8 text-center text-sm" style="color:var(--text-muted);">No alerts or pauses yet for {{ $agency->name }}.</td></tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+    </div>
+
     {{-- KPI tiles --}}
     <div class="corex-kpi-grid">
         <x-corex-kpi-card title="Total spend" :value="'R ' . number_format($totals['cost'], 2)" />

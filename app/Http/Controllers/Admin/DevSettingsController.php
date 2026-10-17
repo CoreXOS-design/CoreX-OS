@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Api\V1\MobileAppConfigController;
+use App\Models\AI\AiSpendGuardEvent;
 use App\Models\DevSetting;
+use App\Services\AI\AiSpendGuard;
 use Illuminate\Http\Request;
 
 class DevSettingsController extends Controller
@@ -19,7 +21,7 @@ class DevSettingsController extends Controller
      * Sections of the Dev Settings hub. ?s=<key> drives the right pane, same
      * contract as the main settings hub (CoreX\SettingsController::index).
      */
-    private const SECTIONS = ['compliance', 'demo', 'queue_worker_emails', 'queue_backlog_emails', 'mobile_releases'];
+    private const SECTIONS = ['compliance', 'demo', 'queue_worker_emails', 'queue_backlog_emails', 'mobile_releases', 'ai_spend'];
 
     public function index(Request $request)
     {
@@ -36,6 +38,7 @@ class DevSettingsController extends Controller
             'queueWorkerAlertEmails'   => DevSetting::queueWorkerAlertEmails(),
             'queueBacklogAlertEmails'  => DevSetting::queueBacklogAlertEmails(),
             'mobileReleases'           => $this->mobileReleaseValues(),
+            'aiSpend'                  => app(AiSpendGuard::class)->settings(),
         ]);
     }
 
@@ -75,6 +78,13 @@ class DevSettingsController extends Controller
             return redirect()->route('admin.dev-settings.index', ['s' => 'mobile_releases'])
                 ->withErrors(['mobile_releases' => $error])
                 ->with('warning', 'Other settings were saved, but the mobile release dials were not — fix the error below.');
+        }
+
+        if (($error = $this->saveAiSpendSettings($request)) !== null) {
+            return redirect()->route('admin.dev-settings.index', ['s' => 'ai_spend'])
+                ->withErrors(['ai_spend' => $error])
+                ->withInput()
+                ->with('warning', 'Other settings were saved, but AI Spend Safety was not — fix the error below.');
         }
 
         // Demo mode is an auth bypass — flipping it (on OR off) requires the
@@ -273,6 +283,87 @@ class DevSettingsController extends Controller
         foreach ($pending as $key => $value) {
             DevSetting::set($key, $value);
         }
+
+        return null;
+    }
+
+    /**
+     * AI Spend Safety thresholds (AT-456 §A.4): alert level, cut-out level, the
+     * counting window and who gets the emails. Nothing is written unless all of
+     * it validates, and a change is audited (who, old -> new) in the guard's
+     * history. Takes effect on the very next AI call — DevSetting::set() drops
+     * the cached value.
+     *
+     * @return string|null  error message, or null on success / section not rendered
+     */
+    private function saveAiSpendSettings(Request $request): ?string
+    {
+        if (! $request->has('ai_spend_present')) {
+            return null; // the form did not render this section
+        }
+
+        $emails = array_values(array_filter(
+            (array) $request->input('ai_alert_recipients', []),
+            fn ($e) => trim((string) $e) !== ''
+        ));
+
+        $validator = validator(
+            [
+                'alert'      => $request->input('ai_alert_threshold_zar'),
+                'cutout'     => $request->input('ai_cutout_threshold_zar'),
+                'window'     => $request->input('ai_guard_window_hours'),
+                'recipients' => $emails,
+            ],
+            [
+                'alert'        => 'required|numeric|gt:0|max:100000',
+                'cutout'       => 'required|numeric|gt:alert|max:100000',
+                'window'       => 'required|integer|min:1|max:168',
+                'recipients'   => 'required|array|min:1',
+                'recipients.*' => 'email:filter|max:255',
+            ],
+            [
+                'alert.required'      => 'Enter the alert level in rand.',
+                'alert.gt'            => 'The alert level must be more than R 0.',
+                'cutout.required'     => 'Enter the switch-off level in rand.',
+                'cutout.gt'           => 'The switch-off level must be higher than the alert level — otherwise AI would switch off before anyone is warned.',
+                'window.required'     => 'Enter the time window in hours.',
+                'window.min'          => 'The time window must be between 1 and 168 hours (7 days).',
+                'window.max'          => 'The time window must be between 1 and 168 hours (7 days).',
+                'window.integer'      => 'The time window must be a whole number of hours.',
+                'recipients.required' => 'Add at least one email address — otherwise nobody is told when an agency is alerted or switched off.',
+                'recipients.min'      => 'Add at least one email address — otherwise nobody is told when an agency is alerted or switched off.',
+                'recipients.*.email'  => 'One of the email addresses is not valid.',
+            ],
+        );
+
+        if ($validator->fails()) {
+            return $validator->errors()->first();
+        }
+
+        $old = app(AiSpendGuard::class)->settings();
+        $new = [
+            'alert_zar'    => round((float) $request->input('ai_alert_threshold_zar'), 2),
+            'cutout_zar'   => round((float) $request->input('ai_cutout_threshold_zar'), 2),
+            'window_hours' => (int) $request->input('ai_guard_window_hours'),
+            'recipients'   => array_values(array_unique(array_map(fn ($e) => strtolower(trim((string) $e)), $emails))),
+        ];
+
+        if ($old == $new) {
+            return null;
+        }
+
+        DevSetting::set(AiSpendGuard::KEY_ALERT_ZAR, (string) $new['alert_zar']);
+        DevSetting::set(AiSpendGuard::KEY_CUTOUT_ZAR, (string) $new['cutout_zar']);
+        DevSetting::set(AiSpendGuard::KEY_WINDOW_HOURS, (string) $new['window_hours']);
+        DevSetting::set(AiSpendGuard::KEY_RECIPIENTS, json_encode($new['recipients']));
+
+        AiSpendGuardEvent::create([
+            'agency_id'   => null,
+            'type'        => AiSpendGuardEvent::TYPE_SETTINGS,
+            'user_id'     => $request->user()?->id,
+            'details'     => ['old' => $old, 'new' => $new],
+            'occurred_at' => now(),
+        ]);
 
         return null;
     }

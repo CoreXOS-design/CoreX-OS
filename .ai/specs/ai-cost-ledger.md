@@ -3,6 +3,12 @@
 > **Status: DRAFT — awaiting review (Andre → Johan).** Not yet approved, not yet on `main`.
 > Extends `.ai/specs/mic-complete-spec.md` §3.2.6, §3.2.8 (new), §4.8.
 > Drafted: 2026-06-08 by Andre.
+>
+> **2026-10-17 — AT-456:** the per-agency monthly budget cap described below (`canMakeAiCall()`,
+> `ai_budget_*`, `AgencyAiBudgetWarning` / `AgencyAiBudgetCapped`, the budget form) is **retired**.
+> Enforcement is now AI Spend Safety (`AiSpendGuard`): a rolling-window alert + cut-out that reads
+> this same ledger. See `.ai/specs/at456-ai-tools-scheduler-and-spend-safety.md` §A. The ledger,
+> recorder and calculator in this spec are unchanged.
 
 ---
 

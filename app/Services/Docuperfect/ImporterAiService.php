@@ -2,7 +2,9 @@
 
 namespace App\Services\Docuperfect;
 
+use App\Exceptions\AI\AiPausedException;
 use App\Models\AI\AiUsageEvent;
+use App\Services\AI\AiSpendGuard;
 use App\Services\AI\AiUsageRecorder;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -70,6 +72,11 @@ class ImporterAiService
             Log::warning('ImporterAI: Claude — no API key configured');
             return null;
         }
+
+        // AI Spend Safety (AT-456 §A.3) — deliberately OUTSIDE the try below:
+        // a pause must reach the importer as a refusal, not degrade silently
+        // to the regex fallback. Same bucket the recorder charges below.
+        app(AiSpendGuard::class)->assertAllowed();
 
         $startTime = microtime(true);
 
@@ -427,6 +434,8 @@ PROMPT;
                 'insertable_blocks' => 'array of detected insertable blocks',
             ]);
             $payload = $response->outputJson ?? $this->parseJsonResponse($response->outputText) ?? [];
+        } catch (AiPausedException $e) {
+            throw $e; // AT-456 — the importer shows the refusal; never a silent empty result
         } catch (\Throwable $e) {
             Log::warning('ImporterAI: PDF vision call failed', ['error' => $e->getMessage()]);
             $payload = [];

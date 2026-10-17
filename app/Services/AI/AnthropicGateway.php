@@ -4,16 +4,14 @@ declare(strict_types=1);
 
 namespace App\Services\AI;
 
-use App\Events\AI\AgencyAiBudgetCapped;
-use App\Events\AI\AgencyAiBudgetWarning;
 use App\Events\AI\AINarrativeFailedFallback;
 use App\Events\AI\AINarrativeGenerated;
+use App\Exceptions\AI\AiPausedException;
 use App\Exceptions\AI\AnthropicApiException;
 use App\Exceptions\AI\InvalidNarrativeRequestException;
 use App\Exceptions\AI\NarrativeGenerationException;
 use App\Models\AI\AINarrativeCache;
 use App\Models\AI\AiUsageEvent;
-use App\Models\Agency;
 use App\Services\AI\DTOs\NarrativeRequest;
 use App\Services\AI\DTOs\NarrativeResponse;
 use Carbon\Carbon;
@@ -50,6 +48,7 @@ final class AnthropicGateway
     public function __construct(
         private readonly AiUsageRecorder $usageRecorder,
         private readonly AiCostCalculator $costCalculator,
+        private readonly AiSpendGuard $spendGuard,
     ) {
     }
 
@@ -58,6 +57,7 @@ final class AnthropicGateway
      *
      * @throws InvalidNarrativeRequestException Bad request shape / missing config.
      * @throws NarrativeGenerationException     API failure with no fallback.
+     * @throws AiPausedException                AI paused for the agency and no fallback.
      */
     public function generate(NarrativeRequest $request): NarrativeResponse
     {
@@ -109,18 +109,19 @@ final class AnthropicGateway
             );
         }
 
-        // ── 3b. Per-agency budget cap (MIC Phase B2) ───────────────────────
-        // Agency-scoped calls are blocked once monthly spend ≥ hard_cap_pct
-        // and overage is not allowed. Global calls (agencyId === null) are
-        // not gated here — they're governed by ANTHROPIC_ENABLED only.
-        $cappedAgency = $this->loadCappedAgency($request);
-        if ($cappedAgency !== null) {
-            $this->fireBudgetCappedEvent($cappedAgency);
-            return $this->emitFallback(
-                $request,
-                $inputHash,
-                'agency_budget_capped',
-            );
+        // ── 3b. AI Spend Safety (AT-456 §A.3) ──────────────────────────────
+        // Paused bucket (agency, or the system bucket for agency-less calls)
+        // → no spend. Cache hits above still serve: they cost nothing. With a
+        // fallback the surface degrades to its templated text; without one the
+        // caller gets the plain "AI is paused" message.
+        $bucket = $this->spendGuard->resolveAgencyId($request->agencyId);
+        if ($this->spendGuard->isPaused($bucket)) {
+            if ($request->fallbackData === null || !isset($request->fallbackData['text'])) {
+                throw new AiPausedException($bucket);
+            }
+            // The reason becomes the response's errorMessage, which surfaces like
+            // the AI summary panel show verbatim — so it is the plain sentence.
+            return $this->emitFallback($request, $inputHash, AiPausedException::MESSAGE);
         }
 
         // ── 4. Compose payload + call ──────────────────────────────────────
@@ -373,20 +374,6 @@ final class AnthropicGateway
             surfaceRef:   $request->cacheKey,
         );
 
-        // Budget warning detection — fire AgencyAiBudgetWarning once per month
-        // when usage first crosses 80%/95%/100% of the monthly cap. Failures
-        // here MUST NOT break the AI call, so wrap defensively.
-        if ($request->agencyId !== null) {
-            try {
-                $this->detectBudgetWarningCrossing($request->agencyId);
-            } catch (Throwable $e) {
-                Log::warning('AnthropicGateway: budget warning detection failed', [
-                    'agency_id' => $request->agencyId,
-                    'error'     => $e->getMessage(),
-                ]);
-            }
-        }
-
         return new NarrativeResponse(
             outputText:    $outputText,
             outputJson:    null,
@@ -539,113 +526,6 @@ final class AnthropicGateway
         // Behaviour is unchanged for the alias model ids this gateway passes
         // (exact-match short-circuit in the calculator).
         return $this->costCalculator->zar($model, $inputTokens, $outputTokens);
-    }
-
-    /**
-     * Load the Agency if the request is agency-scoped AND the agency has
-     * exhausted its monthly AI budget. Returns null when no budget check
-     * applies (global call, agency missing, or agency still has headroom).
-     *
-     * Defensive: any exception during the lookup degrades to "no cap" so a
-     * broken budgeting subsystem never blocks AI calls.
-     */
-    private function loadCappedAgency(NarrativeRequest $request): ?Agency
-    {
-        if ($request->agencyId === null) {
-            return null;
-        }
-        try {
-            $agency = Agency::query()->find($request->agencyId);
-            if ($agency === null) return null;
-            if ($agency->canMakeAiCall()) return null;
-            return $agency;
-        } catch (Throwable $e) {
-            Log::warning('AnthropicGateway: budget cap check failed', [
-                'agency_id' => $request->agencyId,
-                'error'     => $e->getMessage(),
-            ]);
-            return null;
-        }
-    }
-
-    /**
-     * One-shot per month: fire AgencyAiBudgetCapped when a call is first
-     * refused. Subsequent refusals in the same month do NOT re-fire — the
-     * `ai_budget_last_hard_stopped_at` column gates the event.
-     */
-    private function fireBudgetCappedEvent(Agency $agency): void
-    {
-        try {
-            $now            = Carbon::now();
-            $lastHardStop   = $agency->ai_budget_last_hard_stopped_at;
-            $alreadyFired   = $lastHardStop !== null
-                && $lastHardStop->copy()->startOfMonth()->equalTo($now->copy()->startOfMonth());
-            if ($alreadyFired) return;
-
-            $usedZar   = $agency->aiBudgetUsedZar($now);
-            $budgetZar = (float) ($agency->ai_monthly_budget_zar ?? 0);
-            $usedPct   = $agency->aiBudgetUsedPct($now);
-
-            $agency->ai_budget_last_hard_stopped_at = $now;
-            $agency->save();
-
-            event(new AgencyAiBudgetCapped(
-                agency:    $agency,
-                usedZar:   $usedZar,
-                budgetZar: $budgetZar,
-                usedPct:   $usedPct,
-            ));
-        } catch (Throwable $e) {
-            Log::warning('AnthropicGateway: failed to fire AgencyAiBudgetCapped', [
-                'agency_id' => $agency->id,
-                'error'     => $e->getMessage(),
-            ]);
-        }
-    }
-
-    /**
-     * Fire AgencyAiBudgetWarning once per month when usage first crosses an
-     * 80%/95%/100% threshold. Uses `ai_budget_last_warned_at` as a per-month
-     * gate so we only emit one warning per agency per month (at the highest
-     * threshold breached when first detected). Subsequent escalations within
-     * the same month do not re-fire — a finer per-threshold counter can be
-     * added later if needed.
-     */
-    private function detectBudgetWarningCrossing(int $agencyId): void
-    {
-        $agency = Agency::query()->find($agencyId);
-        if ($agency === null) return;
-
-        $budgetZar = (float) ($agency->ai_monthly_budget_zar ?? 0);
-        if ($budgetZar <= 0) return;
-
-        $now           = Carbon::now();
-        $lastWarnedAt  = $agency->ai_budget_last_warned_at;
-        $alreadyWarned = $lastWarnedAt !== null
-            && $lastWarnedAt->copy()->startOfMonth()->equalTo($now->copy()->startOfMonth());
-        if ($alreadyWarned) return;
-
-        $usedPct = $agency->aiBudgetUsedPct($now);
-        $threshold = match (true) {
-            $usedPct >= 100 => 100,
-            $usedPct >= 95  => 95,
-            $usedPct >= (int) ($agency->ai_budget_warning_pct ?? 80) => (int) ($agency->ai_budget_warning_pct ?? 80),
-            default => 0,
-        };
-        if ($threshold === 0) return;
-
-        $usedZar = $agency->aiBudgetUsedZar($now);
-
-        $agency->ai_budget_last_warned_at = $now;
-        $agency->save();
-
-        event(new AgencyAiBudgetWarning(
-            agency:       $agency,
-            thresholdPct: $threshold,
-            usedZar:      $usedZar,
-            budgetZar:    $budgetZar,
-            usedPct:      $usedPct,
-        ));
     }
 
     /**

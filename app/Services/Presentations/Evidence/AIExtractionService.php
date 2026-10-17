@@ -3,6 +3,7 @@
 namespace App\Services\Presentations\Evidence;
 
 use App\Models\AI\AiUsageEvent;
+use App\Services\AI\AiSpendGuard;
 use App\Services\AI\AiUsageRecorder;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
@@ -133,6 +134,11 @@ PROMPT;
      */
     private function callApi(string $prompt, string $model): array
     {
+        // AI Spend Safety (AT-456 §A.3) — same bucket the recorder charges below.
+        // Both public callers already degrade to "no AI result" on any failure,
+        // so a pause means no spend and no summary, never a broken ingestion.
+        app(AiSpendGuard::class)->assertAllowed();
+
         $response = $this->http->post('https://api.anthropic.com/v1/messages', [
             'headers' => [
                 'x-api-key'         => $this->apiKey(),

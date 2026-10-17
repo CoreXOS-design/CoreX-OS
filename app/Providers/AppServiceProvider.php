@@ -567,9 +567,6 @@ class AppServiceProvider extends ServiceProvider
             // 14.5 AI
             \App\Events\AI\AINarrativeGenerated::class,
             \App\Events\AI\AINarrativeFailedFallback::class,
-            // Phase B2 — agency budget signals.
-            \App\Events\AI\AgencyAiBudgetWarning::class,
-            \App\Events\AI\AgencyAiBudgetCapped::class,
             // Presentations Phase 8 — outcome capture lifecycle.
             \App\Events\Presentation\PresentationOutcomeRecorded::class,
             \App\Events\Presentation\PresentationOutcomePrompted::class,

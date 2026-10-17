@@ -6,10 +6,13 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\AI\AINarrativeCache;
+use App\Models\AI\AiSpendGuardEvent;
 use App\Models\Agency;
 use App\Services\AI\AICostAggregator;
+use App\Services\AI\AiSpendGuard;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
@@ -18,16 +21,19 @@ use Illuminate\View\View;
  * MIC Phase B2 — AI usage / cost dashboard.
  *
  * Surfaces the monthly Anthropic spend per agency, narrative-type breakdown,
- * daily burn, top consumers (agencies), and the per-agency budget control
- * form. Read-only for users with `mic.view_ai_costs`; budget edits require
- * `super_admin` role.
+ * daily burn, top consumers (agencies), and — since AT-456 — the AI Spend
+ * Safety table: each agency's rolling-window spend, Active/Alerted/Paused
+ * status, and the "Turn AI back on" control. The thresholds themselves live in
+ * Dev Settings → AI Spend Safety. Owner-only (route middleware).
  *
- * Spec: .ai/specs/mic-complete-spec.md §4.8.
+ * Spec: .ai/specs/mic-complete-spec.md §4.8, .ai/specs/at456-ai-tools-scheduler-and-spend-safety.md §A.5.
  */
 class AiUsageController extends Controller
 {
-    public function __construct(private readonly AICostAggregator $aggregator)
-    {
+    public function __construct(
+        private readonly AICostAggregator $aggregator,
+        private readonly AiSpendGuard $spendGuard,
+    ) {
         // Middleware is applied at the route level (see routes/web.php):
         // `auth` via the wrapping group, `permission:mic.view_ai_costs` per route.
         // Laravel 11/12 controllers no longer expose $this->middleware().
@@ -82,26 +88,14 @@ class AiUsageController extends Controller
             ])
             ->all();
 
-        // ── Agencies + budget status (for the management form) ──
-        $agencies = Agency::query()
-            ->orderBy('name')
-            ->get()
-            ->map(function (Agency $a) use ($monthCarbon) {
-                return [
-                    'id'                => $a->id,
-                    'name'              => $a->name,
-                    'budget_zar'        => (float) ($a->ai_monthly_budget_zar ?? 0),
-                    'used_zar'          => $a->aiBudgetUsedZar($monthCarbon),
-                    'used_pct'          => $a->aiBudgetUsedPct($monthCarbon),
-                    'status'            => $a->aiBudgetStatus($monthCarbon),
-                    'warning_pct'       => (int) ($a->ai_budget_warning_pct ?? 80),
-                    'hard_cap_pct'      => (int) ($a->ai_budget_hard_cap_pct ?? 110),
-                    'overage_allowed'   => (bool) $a->ai_budget_overage_allowed,
-                    'last_warned_at'    => $a->ai_budget_last_warned_at,
-                    'last_hard_stopped' => $a->ai_budget_last_hard_stopped_at,
-                ];
-            })
-            ->all();
+        // ── AI Spend Safety — one row per agency (AT-456 §A.5) ──
+        $agencies = $this->agencyRows($request, $monthStart, $monthEnd);
+
+        // The system bucket: AI no agency owns (e.g. the Article Library).
+        $system = [
+            'spend_zar' => $this->spendGuard->windowSpend(null),
+            'status'    => $this->spendGuard->status(null),
+        ];
 
         // ── Active cache footprint ──
         $cacheStats = [
@@ -110,8 +104,6 @@ class AiUsageController extends Controller
             'expired_active' => AINarrativeCache::query()->whereNull('deleted_at')
                                   ->where('expires_at', '<=', now())->count(),
         ];
-
-        $canEditBudgets = $request->user()?->role === 'super_admin';
 
         return view('admin.ai-usage.index', [
             'month'          => $monthCarbon->format('Y-m'),
@@ -123,8 +115,15 @@ class AiUsageController extends Controller
             'bySource'       => $bySource,
             'topAgencies'    => $topAgencies,
             'agencies'       => $agencies,
+            'system'         => $system,
+            'guard'          => $this->spendGuard->settings(),
+            'filters'        => [
+                'search' => (string) $request->query('search', ''),
+                'status' => $this->statusFilter($request),
+                'sort'   => $this->sortColumn($request),
+                'direction' => $this->sortDir($request),
+            ],
             'cacheStats'     => $cacheStats,
-            'canEditBudgets' => $canEditBudgets,
         ]);
     }
 
@@ -191,7 +190,20 @@ class AiUsageController extends Controller
                 'fallback'    => (bool) $r->fallback,
             ])->all();
 
+        // ── AI Spend Safety: live status + alert/pause/resume history (AT-456 §A.5) ──
+        $guardHistory = AiSpendGuardEvent::query()
+            ->with('user:id,name')
+            ->where('agency_id', $agency->id)
+            ->whereIn('type', [AiSpendGuardEvent::TYPE_ALERT, AiSpendGuardEvent::TYPE_PAUSE, AiSpendGuardEvent::TYPE_RESUME])
+            ->orderByDesc('occurred_at')
+            ->orderByDesc('id')
+            ->limit(50)
+            ->get();
+
         return view('admin.ai-usage.agency', [
+            'guardSnapshot' => $this->spendGuard->snapshot($agency),
+            'guard'         => $this->spendGuard->settings(),
+            'guardHistory'  => $guardHistory,
             'agency'     => $agency,
             'month'      => $monthCarbon->format('Y-m'),
             'monthLabel' => $monthCarbon->format('F Y'),
@@ -208,30 +220,134 @@ class AiUsageController extends Controller
     }
 
     /**
-     * Update an agency's AI budget. super_admin only.
+     * "Turn AI back on" for one agency (AT-456 §A.2). Owner-only at the route.
+     * Audited by AiSpendGuard::resume() (who, when, spend at the time).
      */
-    public function updateBudget(Request $request, Agency $agency): RedirectResponse
+    public function resume(Request $request, Agency $agency): RedirectResponse
     {
-        if ($request->user()?->role !== 'super_admin') {
-            abort(403, 'AI budget edits are restricted to super_admin.');
+        $this->authorizeAgency($agency);
+
+        if (!$this->spendGuard->isPaused((int) $agency->id)) {
+            return back()->with('status', "AI is already on for {$agency->name}.");
         }
 
-        $validated = $request->validate([
-            'ai_monthly_budget_zar'     => ['required', 'numeric', 'min:0', 'max:1000000'],
-            'ai_budget_warning_pct'     => ['required', 'integer', 'min:0', 'max:100'],
-            'ai_budget_hard_cap_pct'    => ['required', 'integer', 'min:50', 'max:200'],
-            'ai_budget_overage_allowed' => ['sometimes', 'boolean'],
-        ]);
+        $this->spendGuard->resume((int) $agency->id, $request->user());
 
-        $agency->update([
-            'ai_monthly_budget_zar'     => $validated['ai_monthly_budget_zar'],
-            'ai_budget_warning_pct'     => $validated['ai_budget_warning_pct'],
-            'ai_budget_hard_cap_pct'    => $validated['ai_budget_hard_cap_pct'],
-            'ai_budget_overage_allowed' => (bool) ($validated['ai_budget_overage_allowed'] ?? false),
-        ]);
+        return back()->with('status', "AI is back on for {$agency->name}. Spend is counted afresh from now.");
+    }
 
-        return redirect()->route('admin.ai-usage.index')
-            ->with('status', "Budget updated for {$agency->name}.");
+    /**
+     * "Turn AI back on" for the platform-wide system bucket (AI no agency owns).
+     */
+    public function resumeSystem(Request $request): RedirectResponse
+    {
+        if (!$this->spendGuard->isPaused(null)) {
+            return back()->with('status', 'Platform AI is already on.');
+        }
+
+        $this->spendGuard->resume(null, $request->user());
+
+        return back()->with('status', 'Platform AI is back on. Spend is counted afresh from now.');
+    }
+
+    /** Sortable columns of the per-agency table → row key. Default: 24h spend, highest first. */
+    private const SORTS = [
+        'name'        => 'name',
+        'spend_24h'   => 'spend_24h',
+        'spend_month' => 'spend_month',
+        'status'      => 'status',
+    ];
+
+    private const STATUSES = [
+        AiSpendGuard::STATUS_ACTIVE,
+        AiSpendGuard::STATUS_ALERTED,
+        AiSpendGuard::STATUS_PAUSED,
+    ];
+
+    private const PER_PAGE = 25;
+
+    /**
+     * The per-agency AI Spend Safety table: search, status filter, sort on
+     * every column, 25 per page. Agencies are few and two of the columns are
+     * computed per agency (the window floor differs after a resume), so rows
+     * are built in PHP and paged as a collection.
+     */
+    private function agencyRows(Request $request, Carbon $monthStart, Carbon $monthEnd): LengthAwarePaginator
+    {
+        $search = trim((string) $request->query('search', ''));
+        $status = $this->statusFilter($request);
+        $sort   = $this->sortColumn($request);
+        $dir    = $this->sortDir($request);
+
+        $monthSpend = DB::table('ai_usage_events')
+            ->whereNotNull('agency_id')
+            ->whereBetween('occurred_at', [$monthStart, $monthEnd])
+            ->groupBy('agency_id')
+            ->selectRaw('agency_id, SUM(cost_zar) AS cost')
+            ->pluck('cost', 'agency_id');
+
+        $rows = Agency::query()
+            ->when($search !== '', fn ($q) => $q->where('name', 'like', '%' . $search . '%'))
+            ->get()
+            ->map(function (Agency $a) use ($monthSpend) {
+                $snap = $this->spendGuard->snapshot($a);
+
+                return [
+                    'id'            => $a->id,
+                    'name'          => (string) $a->name,
+                    'spend_24h'     => $snap['spend_zar'],
+                    'since_resume'  => $snap['since_resume'],
+                    'window_start'  => $snap['window_start'],
+                    'spend_month'   => (float) ($monthSpend[$a->id] ?? 0),
+                    'status'        => $snap['status'],
+                    'paused_at'     => $a->ai_paused_at,
+                    'paused_reason' => $a->ai_paused_reason,
+                ];
+            })
+            ->when($status !== 'all', fn ($c) => $c->where('status', $status))
+            ->sortBy(
+                fn ($r) => match ($sort) {
+                    'status' => array_search($r['status'], self::STATUSES, true),
+                    'name'   => mb_strtolower($r['name']),
+                    default  => $r[self::SORTS[$sort]],
+                },
+                SORT_REGULAR,
+                $dir === 'desc',
+            )
+            ->values();
+
+        $page = LengthAwarePaginator::resolveCurrentPage();
+
+        return new LengthAwarePaginator(
+            $rows->forPage($page, self::PER_PAGE)->values(),
+            $rows->count(),
+            self::PER_PAGE,
+            $page,
+            ['path' => $request->url(), 'query' => $request->query()],
+        );
+    }
+
+    private function statusFilter(Request $request): string
+    {
+        $status = (string) $request->query('status', 'all');
+
+        return in_array($status, self::STATUSES, true) ? $status : 'all';
+    }
+
+    private function sortColumn(Request $request): string
+    {
+        $sort = (string) $request->query('sort', 'spend_24h');
+
+        return array_key_exists($sort, self::SORTS) ? $sort : 'spend_24h';
+    }
+
+    private function sortDir(Request $request): string
+    {
+        // Name reads naturally A→Z; every money/status column reads worst-first.
+        $default = $this->sortColumn($request) === 'name' ? 'asc' : 'desc';
+        $dir     = (string) $request->query('direction', $default);
+
+        return in_array($dir, ['asc', 'desc'], true) ? $dir : $default;
     }
 
     /**

@@ -326,6 +326,11 @@ class DocumentImporterController extends Controller
                 'near_misses'      => $nearMisses,
             ]);
 
+        } catch (\App\Exceptions\AI\AiPausedException $e) {
+            // AI Spend Safety (AT-456 §A.2) — plain refusal, shown by the importer as its error line.
+            @unlink($fullPath);
+
+            return response()->json(['error' => $e->getMessage()], 503);
         } catch (\Throwable $e) {
             @unlink($fullPath);
 

@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Exceptions\AI\AiPausedException;
 use App\Models\PropertyImageAnalysis;
 use App\Services\AI\VisionRecognitionService;
 use Illuminate\Bus\Queueable;
@@ -61,6 +62,14 @@ class AnalysePropertyImageJob implements ShouldQueue
                 'cost_usd'          => $result['cost_usd'],
                 'processed_at'      => now(),
                 'error'             => null,
+            ]);
+        } catch (AiPausedException $e) {
+            // AI Spend Safety (AT-456 §A.2) — a retry cannot help while paused,
+            // so fail once with the plain message instead of burning retries.
+            $analysis->update([
+                'status'       => 'failed',
+                'error'        => $e->getMessage(),
+                'processed_at' => now(),
             ]);
         } catch (\Throwable $e) {
             Log::warning('AnalysePropertyImageJob: failed', [

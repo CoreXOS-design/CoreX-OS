@@ -448,9 +448,15 @@ Route::middleware('auth')->group(function () {
         ->middleware(['owner_only', 'permission:mic.view_ai_costs'])
         ->where('agency', '[0-9]+')
         ->name('admin.ai-usage.agency');
-    Route::post('/admin/ai-usage/agencies/{agency}/budget', [\App\Http\Controllers\Admin\AiUsageController::class, 'updateBudget'])
+    // AT-456 AI Spend Safety — "Turn AI back on" after a cut-out. Replaces the
+    // retired per-agency budget form (admin.ai-usage.budget.update).
+    Route::post('/admin/ai-usage/agencies/{agency}/resume', [\App\Http\Controllers\Admin\AiUsageController::class, 'resume'])
         ->middleware(['owner_only', 'permission:mic.view_ai_costs'])
-        ->name('admin.ai-usage.budget.update');
+        ->where('agency', '[0-9]+')
+        ->name('admin.ai-usage.resume');
+    Route::post('/admin/ai-usage/system/resume', [\App\Http\Controllers\Admin\AiUsageController::class, 'resumeSystem'])
+        ->middleware(['owner_only', 'permission:mic.view_ai_costs'])
+        ->name('admin.ai-usage.system.resume');
 
 // ── CoreX Global API v1 (session-authenticated, browser-visible XHR) ──
     Route::prefix('api/v1')->name('api.v1.')->group(function () {

@@ -1,6 +1,6 @@
 # AT-456 — AI Template Builder, Article Library, Post Scheduler & AI Spend Safety
 
-> Status: **DRAFT — decisions confirmed by Johan 2026-10-14 and 2026-10-17 (all section-0 readings confirmed); spec awaiting final approval. DO NOT BUILD until Johan says go.** No code written.
+> Status: **Part A BUILT on QA2 2026-10-17 (Johan: "save spec and build") — awaiting Johan's test on QA2.** Parts B, C, D: not started; build one at a time after A is accepted.
 > Drafted 2026-10-14 on QA2 from the AT-456 investigation conversation.
 > Every business decision below is Johan's, quoted or plainly paraphrased from that conversation.
 > Pillars: **Property** (read), **Agent** (read/write own drafts + posts), **Agency** (scope + AI safety).
@@ -36,9 +36,9 @@ A comes first because B and C both spend money and A is the only thing standing 
 
 ### A.1 What is removed
 - `canMakeAiCall()` gating in `MarketingCopyService`, `AnthropicGateway`, `WarmThisWeekTilesJob`.
-- `AgencyAiBudgetWarning` event and the gateway's budget-warning detection.
+- `AgencyAiBudgetWarning` **and** `AgencyAiBudgetCapped` events (both only ever fired by the budget code) and the gateway's budget-warning detection. `Agency::canMakeAiCall()` / `aiBudgetStatus()` / `aiBudgetUsedPct()` / `aiBudgetRemaining()` and the `AI_BUDGET_STATUS_*` constants removed; `aiBudgetUsedZar()` kept (it feeds "Spend — this month").
 - The budget form/columns on `admin/ai-usage` (`ai_monthly_budget_zar`, warning %, hard-cap %, overage). Route `admin.ai-usage.budget.update` is removed.
-- DB columns `ai_monthly_budget_zar`, `ai_budget_*` are **left in place, unused** (no destructive migration now; drop in a later cleanup once nothing reads them).
+- DB columns `ai_monthly_budget_zar`, `ai_budget_*` are **left in place, unused** (no destructive migration now; drop in a later cleanup once nothing reads them). Removed from `Agency::$fillable` / `$casts` so nothing writes them.
 - `tests/Feature/AI/AiUsageDashboardTest.php` and `AiUsageLedgerIntegrationTest.php` updated for the removal.
 - **Kept:** `ai_usage_events` ledger, `AiUsageRecorder`, `AiCostCalculator`, the dashboard's spend/daily-burn views.
 
@@ -47,18 +47,34 @@ A comes first because B and C both spend money and A is the only thing standing 
 - **Alert (R30):** when an agency's 24h spend first reaches the alert level, email the alert recipients: agency name, spend, top 3 sources, link to its AI usage page. Sent **at most once per agency per 24h** (`agencies.ai_alert_last_sent_at`).
 - **Cut-out (R50):** when 24h spend reaches the cut-out level, set `agencies.ai_paused_at`, `ai_paused_reason`, `ai_paused_spend_zar`. While paused every AI call for that agency is refused with a plain message ("AI is paused for your agency — please contact CoreX support."). Email recipients the cut-out notice too.
 - **Resume:** owner-only button on the agency's AI usage page sets `agencies.ai_resumed_at` and clears the pause. The guard counts spend **since `max(now − 24h, ai_resumed_at)`** — without this an agency would re-trip instantly, because the last 24h still contains the R50. Resume also resets the alert state and writes an audit entry (who, when, spend at the time).
-- **System calls** (`agency_id` null — e.g. Article Library): same two thresholds evaluated across null-agency events platform-wide; paused flag stored as a `DevSetting` (`ai_system_paused_at`). My decision, not discussed.
+- **System calls** (`agency_id` null — e.g. Article Library): same two thresholds evaluated across null-agency events platform-wide; state stored as `DevSetting`s (`ai_system_paused_at`, `ai_system_paused_spend_zar`, `ai_system_resumed_at`, `ai_system_alert_last_sent_at`). Shown as a "Platform AI" strip above the agency table with its own **Turn AI back on**. My decision, not discussed.
+- **Bucket resolution** is identical to `AiUsageRecorder` (explicit agency → signed-in user's agency → system), so the guard always checks the bucket the recorder charges.
+- **History / audit:** every alert, cut-out, resume and settings change is a row in `ai_spend_guard_events` (agency nullable, type, spend at the time, threshold, user, details). Append-only; owner-only readers; deliberately not `BelongsToAgency` (same documented deviation as `ai_usage_events`).
+- **A cut-out supersedes the alert:** if one call jumps straight past R50, only the cut-out email is sent.
+- **Emails** are sent synchronously and best-effort (a failed send is logged and never undoes a pause); every alert/cut-out also writes `AI SPEND ALERT` (warning) / `AI SPEND CUT-OUT` (critical) to the log.
 - **Known limit:** spend is recorded after a call, so one in-flight call can overshoot R50 by its own cost. Acceptable; stated so nobody is surprised.
 
 ### A.3 One choke point — fix the class, not the instance
 - New `App\Services\AI\AiSpendGuard`: `assertAllowed(?int $agencyId): void` (throws `AiPausedException` with the friendly message) and `evaluate(?int $agencyId): void` (called by `AiUsageRecorder::record()` after each write; trips alert/cut-out).
-- **Every** direct Anthropic caller calls `assertAllowed` first: `AnthropicGateway`, `MarketingCopyService`, `IntentExtractionService`, `VisionRecognitionService`, `ImporterAiService`, `AiFieldMapperService`, `ClaudeVisionParserService`, `AIExtractionService`, `AiSummaryService`, `StrategicBriefService`, `EllieAgentService`, plus the new B and C services. Each caller's friendly-failure path already exists for `AiCopyUnavailableException`; paused maps onto the same pattern.
-- **Guard test:** a test that scans `app/` for `api.anthropic.com` / `AnthropicGateway` usage and fails if a file lacks `AiSpendGuard`, so a future service cannot bypass it silently.
+- **Every** direct Anthropic caller checks the guard first: `AnthropicGateway`, `MarketingCopyService`, `IntentExtractionService`, `VisionRecognitionService`, `ImporterAiService`, `AiFieldMapperService`, `ClaudeVisionParserService`, `AIExtractionService`, `EllieAgentService`, plus the new B and C services. (`AiSummaryService`, `StrategicBriefService`, `ThisWeekTileBuilder`, `SpotCheckMarketReportJob` and the MIC narrative endpoints go through `AnthropicGateway`, so the gateway check covers them.)
+- **What the user sees when paused, per surface (as built):**
+  | Surface | Paused behaviour |
+  |---|---|
+  | Gateway surfaces with a templated fallback (MIC briefs/narratives, This Week tiles, market-report spot check) | Templated text, no spend — exactly as before for a budget-capped agency. The fallback's reason is the plain "AI is paused…" sentence. |
+  | Gateway surfaces without a fallback (presentation AI summary, DocuPerfect PDF import) | `AiPausedException` → the surface's existing error line shows "AI is paused for your agency — please contact CoreX support." |
+  | Ad copy (`MarketingCopyService`) | Mapped onto `AiCopyUnavailableException` with the same sentence — the existing friendly path. |
+  | Ellie chat | Checked before **every** round-trip, so a cut-out stops Ellie mid-conversation; the reply is the sentence. |
+  | Mobile voice | `{"error": "<sentence>"}`, HTTP 503 — same shape as a transcribe failure. |
+  | Photo analysis (queued) | Analysis marked failed with the sentence; not retried (a retry cannot help while paused). |
+  | DocuPerfect .docx / PDF import | Import refused with the sentence as its error line (previously AI failure fell back to regex silently — a pause must not be silent). |
+  | Presentation evidence (listing/article extraction) | Already degrades to "no AI result" on any failure; a pause means no spend and no AI summary, ingestion continues. |
+- `AiPausedException` extends `RuntimeException`, so every pre-existing catch still handles it.
+- **Guard test:** `tests/Unit/AiSpendGuardCoverageTest.php` scans `app/` for `v1/messages` / `api.anthropic.com` and fails if a file lacks `AiSpendGuard`, so a future service cannot bypass it silently. (Callers that use `AnthropicGateway` are covered by the gateway itself.)
 
 ### A.4 Platform settings — new Dev Settings section "AI Spend Safety" (decision 12)
-- **Settings** (`DevSetting` store): `ai_alert_threshold_zar` (30), `ai_cutout_threshold_zar` (50), `ai_guard_window_hours` (24), `ai_alert_recipients` (`andre@corexos.co.za`, comma-separated).
-- **Where:** a new page `/admin/dev-settings/ai-spend` (route names `admin.ai-spend-settings.edit` / `.update`), `owner_only` middleware, following the existing Dev Settings sub-section pattern (`admin/dev-settings/demo-connection`, `admin/dev-settings/webinars`).
-- **Navigation:** new item in the Dev Settings group of `corex-sidebar.blade.php` (same gating as its siblings), plus a "Change thresholds" link from the AI usage page.
+- **Settings** (`DevSetting` store): `ai_alert_threshold_zar` (30), `ai_cutout_threshold_zar` (50), `ai_guard_window_hours` (24), `ai_alert_recipients` (`andre@corexos.co.za`; stored as a JSON list, same as the other Dev Settings alert lists). Defaults live in `AiSpendGuard::DEFAULT_*` and apply until the first save.
+- **Where (as built):** a new **section** of the existing Dev Settings hub — left rail group **AI → AI Spend Safety**, deep link `/admin/dev-settings?s=ai_spend` — saved by the hub's own `admin.dev-settings.update` (`owner_only`). This is how Dev Settings already holds its sections (Queue worker emails, Mobile app releases…), so it needs no new sidebar item: the existing **Dev Settings** sidebar entry reaches it. A "Change thresholds" link on the AI usage page and its agency page goes straight to the section.
+- The section is saved only when it was rendered (`ai_spend_present` marker, same guard as Mobile app releases); nothing is written unless every field validates.
 - **Validation:** alert > 0; cut-out > alert; window 1–168 hours; each recipient a valid email, at least one required. Every save writes an audit entry (who, old → new).
 - Changes take effect on the next AI call — no deploy, no cache to clear.
 - These are platform-owner controls, not agency settings → **not** in the Agency Setup Wizard (recorded in the "NOT in wizard" list below).
@@ -72,22 +88,25 @@ Per-agency table, one row per agency:
 | Spend — last 24h | live, vs R30 / R50 |
 | Spend — this month | |
 | Status | Active · Alerted · **Paused** |
-| Template generations | `used / limit` this month |
-| AI templates saved | count of `property_ad_templates.ai_generated` |
-| Library articles used | count of `agent_articles.library_article_id` |
+| Template generations | `used / limit` this month — **added with Part B** (its table does not exist yet) |
+| AI templates saved | count of `property_ad_templates.ai_generated` — **added with Part B** |
+| Library articles used | count of `agent_articles.library_article_id` — **added with Part C** |
 | Actions | **Turn AI back on** (only when Paused), View detail |
 
-- **Search:** agency name. **Sort:** every column; default = 24h spend, highest first. **Filters:** status (All · Active · Alerted · Paused), month. **Pagination:** 25. **Empty state:** "No AI usage recorded for this month."
-- Agency detail page: adds per-source breakdown, last alert/pause/resume history, and the per-agency **template generation limit** input (default 20).
+- **Search:** agency name. **Sort:** every column; default = 24h spend, highest first. **Filters:** status (All · Active · Alerted · Paused), month. **Pagination:** 25. **Empty states:** "No agencies yet." (every agency is listed, usage or not, so a usage-based message would never be true); "No agencies match these filters." + Clear filters.
+- "Spend — last 24h" is the spend the guard is counting: for an agency turned back on inside the window it is the spend since the resume, labelled "since turned back on <time>".
+- Agency detail page: per-source breakdown (existing), AI Spend Safety status + **Turn AI back on**, the alert/pause/resume history (who, when, spend at the time). The per-agency **template generation limit** input (default 20) is **added with Part B**.
 - Scoping: owner-only at the route; no agency user can reach it.
 
 ### A.6 Acceptance
-- [ ] No AI call anywhere checks `ai_monthly_budget_zar`; the budget form is gone.
-- [ ] 24h spend ≥ R30 → exactly one email to the configured recipients; second event inside 24h sends none.
-- [ ] 24h spend ≥ R50 → agency paused; Ellie, copy, briefs, voice, photo, DocuPerfect and new features all refuse with the friendly message; other agencies unaffected.
-- [ ] Resume works and the agency is not re-paused by old spend; resume is audited.
-- [ ] Guard-coverage test passes.
-- [ ] Changing a threshold or recipient in Dev Settings → AI Spend Safety changes behaviour without a deploy; the section is reachable from the sidebar and is refused for non-owners.
+Automated proof: `tests/Feature/AI/AiSpendGuardTest.php` (16 tests), `tests/Unit/AiSpendGuardCoverageTest.php`, updated `AiUsageDashboardTest` / `AiUsageLedgerIntegrationTest`.
+- [x] No AI call anywhere checks `ai_monthly_budget_zar`; the budget form is gone.
+- [x] 24h spend ≥ R30 → exactly one email to the configured recipients; second event inside 24h sends none.
+- [x] 24h spend ≥ R50 → agency paused; gateway, ad copy and Ellie proven to refuse without calling Anthropic; other agencies unaffected. (Per-surface behaviour table in §A.3.)
+- [x] Resume works and the agency is not re-paused by old spend; resume is audited; non-owner refused.
+- [x] Guard-coverage test passes.
+- [x] Changing a threshold or recipient in Dev Settings → AI Spend Safety changes behaviour without a deploy; settings changes are audited; invalid levels / empty list refused.
+- [ ] Johan tests on QA2.
 
 ---
 
@@ -206,7 +225,7 @@ Pick an ad (image + copy) and platform(s), choose a date/time; CoreX publishes i
 
 | Setting | Where | In Setup Wizard? |
 |---------|-------|------------------|
-| AI alert/cut-out thresholds, window, recipients | Dev Settings → AI Spend Safety (owner) | **No** — platform-owner control, not an agency's |
+| AI alert/cut-out thresholds, window, recipients | Dev Settings → AI Spend Safety (owner) | **No** — platform-owner control, not an agency's (decision 12) |
 | Per-agency template generation limit (default 20) | AI usage agency page (owner) | **No** — Johan sets it per agency |
 | Article sources, schedule, max per run | `/admin/article-library` (owner) | **No** — system-level |
 | (none for D) | — | n/a |
@@ -215,7 +234,7 @@ Pick an ad (image + copy) and platform(s), choose a date/time; CoreX publishes i
 Own colours/logo in B; own drafts and own count in C; own posts, scope and connection in D; own spend window and pause state in A. No HFC wording, ids or defaults anywhere; library articles carry no agency name until an agent edits their copy.
 
 ## Files (indicative)
-**A:** `Services/AI/AiSpendGuard.php`, `Exceptions/AI/AiPausedException.php`, `Mail/AiSpendAlert.php`, `Admin/AiSpendSettingsController.php` + `admin/ai-spend-settings/edit.blade.php` + Dev Settings sidebar item, edits to `AiUsageRecorder`, `AnthropicGateway`, `MarketingCopyService`, `WarmThisWeekTilesJob`, all direct callers, `Agency.php`, `AiUsageController`, `admin/ai-usage/*.blade.php`, routes, 2 migrations, tests.
+**A (as built):** `Services/AI/AiSpendGuard.php`, `Exceptions/AI/AiPausedException.php`, `Mail/AiSpendAlertMail.php` + `emails/ai-spend-alert.blade.php`, `Models/AI/AiSpendGuardEvent.php`, Dev Settings section (`DevSettingsController`, `admin/dev-settings/index.blade.php`), edits to `AiUsageRecorder`, `AnthropicGateway`, `MarketingCopyService`, `WarmThisWeekTilesJob`, all direct callers, `Agency.php`, `AiUsageController`, `admin/ai-usage/*.blade.php`, routes, 2 migrations, tests.
 **B:** `Services/AdTemplates/AiTemplateBuilderService.php`, `Tools/AdTemplateManagerController` (+ `generateWithAi`, `saveAiOption`), `tools/ad-manager/templates.blade.php`, migration, tests.
 **C:** `Services/Articles/ArticleLibraryService.php`, `ArticleScraperService` (read from table), `Admin/ArticleLibraryController`, `Tools/ArticleLibraryController`, views, `_switcher.blade.php`, 2–3 migrations, command + schedule entry, tests.
 **D:** `Console/Commands/PublishDueMarketingPosts.php`, `Jobs/PublishMarketingPostJob.php`, `Tools/ScheduledPostsController`, views, `_switcher.blade.php`, permission keys, migration, event, tests.
@@ -224,4 +243,4 @@ Own colours/logo in B; own drafts and own count in C; own posts, scope and conne
 1. ~~Article brief length~~ — **Closed 2026-10-14:** short briefs accepted (decision 9).
 2. ~~Alert recipients~~ — **Closed 2026-10-14:** `andre@corexos.co.za`; add further addresses in Dev Settings → AI Spend Safety when wanted (decision 10).
 3. ~~Section-0 readings~~ — **Closed 2026-10-17:** all three confirmed (decisions 11–13); settings get their own Dev Settings section (A.4).
-4. Final go to build Part A.
+4. ~~Final go to build Part A~~ — **Closed 2026-10-17:** "save spec and build". Part A built on QA2; awaiting Johan's test there.

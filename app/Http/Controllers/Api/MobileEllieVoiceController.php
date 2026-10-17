@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Exceptions\AI\AiPausedException;
 use App\Http\Controllers\Controller;
 use App\Services\AI\IntentExtractionService;
 use App\Services\AI\Intents\ScheduleEventIntentHandler;
@@ -56,7 +57,12 @@ class MobileEllieVoiceController extends Controller
         }
 
         // 2. Extract intent
-        $intent = $this->intent->extract($transcript);
+        try {
+            $intent = $this->intent->extract($transcript);
+        } catch (AiPausedException $e) {
+            // AI Spend Safety (AT-456 §A.2) — same error shape as a transcribe failure.
+            return response()->json(['error' => $e->getMessage()], 503);
+        }
 
         // Diagnostic trace — pins down which stage (STT vs LLM) produced a
         // wrong time. Logs the transcript (STT output) alongside the model's
