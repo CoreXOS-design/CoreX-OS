@@ -133,6 +133,12 @@ cadence. 13-month retention is a compliance/cost trade-off, not user data.
 | `DOCUPERFECT_VISION` | `docuperfect_vision` | `ClaudeVisionParserService` |
 | `MARKETING_COPY` | `marketing_copy` | `MarketingCopyService` |
 | `PRESENTATION_EVIDENCE` | `presentation_evidence` | `AIExtractionService` |
+| `ELLIE_CHAT` | `ellie_chat` | `EllieAgentService` (Ellie's tool-using chat loop) |
+| `AD_TEMPLATE` | `ad_template` | AT-456 Part B — AI Template Builder |
+| `ARTICLE_LIBRARY` | `article_library` | AT-456 Part C — Article Library (system bucket, agency NULL) |
+| `ELLIE_CHAT_PROXY` | `ellie_chat_proxy` | AT-456 gap fix — `AiChatProxyController` → hf-ai `/chat`. **Estimated** tokens (service returns no usage): `(350 prompt tokens + message chars/3.5)` in, `reply chars/3.5` out, priced as `services.hf_ai.chat_model` (default `claude-haiku-4-5`). Rows carry `surface_ref = ai_chat_proxy:estimated`. Service-side `mode: error` replies are not recorded. |
+
+**Not on the ledger, on purpose (free/local):** hf-ai `/embed` (knowledge-base embeddings, BAAI/bge-small ONNX — OpenAI was removed 2026-07-26) and `/transcribe` (self-hosted Whisper). No money is spent, so there is nothing to count or guard. `tests/Unit/AiSpendGuardCoverageTest` fails if OpenAI (`api.openai.com` / `v1/embeddings`) or a direct hf-ai `/chat` call appears in `app/` without `AiSpendGuard`.
 
 New sources append to this table — adding a surface = add a constant + one
 `record()` call, nothing else.
