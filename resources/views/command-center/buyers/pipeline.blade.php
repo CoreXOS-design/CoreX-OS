@@ -92,7 +92,7 @@
     </div>
 
     {{-- Search + filters --}}
-    <div class="rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="props-filter-panel rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="GET" action="{{ route($indexRouteName ?? 'command-center.buyers.pipeline') }}" class="flex flex-wrap items-center gap-2">
             <input type="hidden" name="view" value="{{ $view }}">
             <input type="hidden" name="scope" value="{{ $pipelineScope ?? '' }}">
@@ -101,18 +101,17 @@
             @endunless
             @if(!empty($sortBy ?? null))<input type="hidden" name="sort" value="{{ $sortBy }}">@endif
             @if(!empty($sortDir ?? null))<input type="hidden" name="dir" value="{{ $sortDir }}">@endif
-            <input type="text" name="q" data-tour="buyers-search" value="{{ $search ?? '' }}" placeholder="Search name, phone or email…"
-                   class="flex-1 min-w-[200px] px-3 py-1.5 rounded-md text-sm"
-                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-            <select name="state" onchange="this.form.submit()" class="px-3 py-1.5 rounded-md text-xs"
-                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <input class="list-header-filter {{ (($search ?? '') !== '') ? 'is-active' : '' }}" type="text" name="q" data-tour="buyers-search" value="{{ $search ?? '' }}" placeholder="Search name, phone or email…"
+                   style="flex: 1 1 0%; min-width: 200px; cursor: text;">
+            <select class="list-header-filter {{ (!empty($stateFilter ?? null)) ? 'is-active' : '' }}" name="state" onchange="this.form.submit()"
+                   >
                 <option value="">All states</option>
                 @foreach(['new' => 'New', 'warm' => 'Warm', 'cold' => 'Cold', 'lost' => 'Lost'] as $stateOptKey => $stateOptLabel)
                     <option value="{{ $stateOptKey }}" {{ ($stateFilter ?? '') === $stateOptKey ? 'selected' : '' }}>{{ $stateOptLabel }}</option>
                 @endforeach
             </select>
-            <select name="agent_id" onchange="this.form.submit()" class="px-3 py-1.5 rounded-md text-xs max-w-[200px]"
-                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <select class="list-header-filter {{ (!empty($agentFilter ?? null)) ? 'is-active' : '' }}" name="agent_id" onchange="this.form.submit()"
+                   style="max-width: 200px;">
                 <option value="">All agents</option>
                 @foreach($agentOptions ?? [] as $agentOpt)
                     <option value="{{ $agentOpt->id }}" {{ (string) ($agentFilter ?? '') === (string) $agentOpt->id ? 'selected' : '' }}>{{ $agentOpt->name }}</option>
@@ -124,13 +123,13 @@
                  who's been sitting on the board since before a given date,
                  not just what state they're in. --}}
             <span class="text-xs whitespace-nowrap" style="color: var(--text-muted);">Since</span>
-            <input type="date" name="entered_from" value="{{ $enteredFrom ?? '' }}"
-                   class="px-2 py-1.5 rounded-md text-xs" title="Entered pipeline on/after"
-                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <input class="list-header-filter {{ (!empty($enteredFrom ?? null)) ? 'is-active' : '' }}" type="date" name="entered_from" value="{{ $enteredFrom ?? '' }}"
+                   title="Entered pipeline on/after"
+                  >
             <span class="text-xs" style="color: var(--text-muted);">–</span>
-            <input type="date" name="entered_to" value="{{ $enteredTo ?? '' }}"
-                   class="px-2 py-1.5 rounded-md text-xs" title="Entered pipeline on/before"
-                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <input class="list-header-filter {{ (!empty($enteredTo ?? null)) ? 'is-active' : '' }}" type="date" name="entered_to" value="{{ $enteredTo ?? '' }}"
+                   title="Entered pipeline on/before"
+                  >
             <button type="submit" data-tour="buyers-search-btn" class="corex-btn-outline text-xs">Search</button>
             @if(($search ?? '') !== '' || !empty($stateFilter ?? null) || !empty($agentFilter ?? null))
                 <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'scope', 'lead_type'), [])) }}"

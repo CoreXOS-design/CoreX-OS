@@ -21,9 +21,8 @@
     <label class="text-[11px]" style="color:var(--text-muted);">
         Type
         <select name="type" onchange="this.form.submit()"
-                class="block mt-1 text-xs rounded px-2 py-1"
-                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-            <option value="" @selected($type === null)>All</option>
+                class="list-header-filter block mt-1 {{ $type !== null ? 'is-active' : '' }}">
+            <option value="" @selected($type === null)>All types</option>
             @foreach($types as $key => $label)
                 <option value="{{ $key }}" @selected($type === $key)>{{ $label }}</option>
             @endforeach

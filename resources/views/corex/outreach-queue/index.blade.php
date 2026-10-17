@@ -50,8 +50,9 @@
         </h2>
 
         @forelse($ready as $row)
-            <div id="oq-row-{{ $row->id }}" class="rounded-md p-4 mb-2"
-                 style="background: var(--surface); border: 1px solid var(--border);">
+            <div id="oq-row-{{ $row->id }}" class="rounded-md p-4 mb-2 transition-colors duration-150"
+                 style="background: var(--surface); border: 1px solid var(--border);"
+                 onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='var(--surface)'">
                 <div class="flex items-start justify-between gap-4">
                     <div class="min-w-0 flex-1">
                         <div class="flex items-center gap-2 mb-1 flex-wrap">
@@ -126,8 +127,9 @@
     <section>
         <h2 class="text-xs font-bold uppercase tracking-widest mb-3" style="color: var(--text-muted);">Recently removed</h2>
         @foreach($inactive as $row)
-            <div class="rounded-md px-3 py-2 mb-1.5 flex items-center justify-between gap-4"
-                 style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="rounded-md px-3 py-2 mb-1.5 flex items-center justify-between gap-4 transition-colors duration-150"
+                 style="background: var(--surface); border: 1px solid var(--border);"
+                 onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='var(--surface)'">
                 <span class="text-xs truncate" style="color: var(--text-secondary);">
                     {{ trim(($row->contact->first_name ?? '') . ' ' . ($row->contact->last_name ?? '')) ?: ('Contact #' . $row->contact_id) }}
                 </span>

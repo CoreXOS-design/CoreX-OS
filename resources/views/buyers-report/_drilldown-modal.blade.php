@@ -27,7 +27,7 @@
             </div>
             <table x-show="!drillLoading && !drillError && drillRows.length > 0" class="w-full text-xs ds-table">
                 <thead>
-                    <tr style="background:var(--surface-2);">
+                    <tr class="uppercase tracking-wide" style="background:var(--surface-2);">
                         <template x-for="c in drillColumns" :key="c.key">
                             <th class="px-3 py-2" :class="c.align === 'right' ? 'text-right' : 'text-left'" style="color:var(--text-muted);" x-text="c.label"></th>
                         </template>
