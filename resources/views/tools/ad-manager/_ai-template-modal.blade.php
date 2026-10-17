@@ -50,8 +50,6 @@
     .aitp-switch { display: flex; flex-wrap: wrap; gap: 4px; }
     .aitp-pill { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text-secondary); cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .aitp-pill[aria-pressed="true"] { background: var(--accent, #4f7cff); border-color: var(--accent, #4f7cff); color: #fff; }
-    .aitp-missing { font-size: 12px; font-weight: 600; color: var(--ds-amber, #b45309); }
-    html.dark .aitp-missing { color: #fbbf24; }
     .aitp-small { font-size: 12px; color: var(--text-secondary); }
     @media (max-width: 760px) {
         .aitp-form { grid-template-columns: minmax(0, 1fr); }
@@ -236,7 +234,6 @@
                                         </div>
 
                                         <div class="aitp-small">Style: <strong x-text="opt.style_name || 'not named'"></strong></div>
-                                        <div class="aitp-missing" x-show="missingFor(opt).length" x-text="'Missing: ' + missingFor(opt).join(', ')"></div>
                                         <template x-for="(note, t) in opt.variant_notes" :key="t">
                                             <div class="aitp-small" x-text="note"></div>
                                         </template>
@@ -350,7 +347,7 @@ function aiTemplatePanel(cfg) {
                 } else {
                     this.generationId = data.generation_id;
                     this.options = data.options.map(o => ({
-                        ...o, variants: o.variants || {}, variant_notes: o.variant_notes || {}, missing: o.missing || [],
+                        ...o, variants: o.variants || {}, variant_notes: o.variant_notes || {},
                         view: '', saving: false, saved: false, editUrl: '', err: '',
                     }));
                     // Bring the new designs into view (the body is the only thing that scrolls).
@@ -378,10 +375,6 @@ function aiTemplatePanel(cfg) {
         },
         // The property types this design has its own version for (in the order they were ticked).
         variantNames(opt) { return Object.keys(opt.variants || {}); },
-        missingFor(opt) {
-            if (opt.view && opt.variants[opt.view]) return opt.variants[opt.view].missing || [];
-            return opt.missing || [];
-        },
         showView(opt, view) { opt.view = view; this.paintPreview(opt); },
         layoutFor(opt) { return (opt.view && opt.variants[opt.view] && opt.variants[opt.view].layout) || opt.layout; },
         // Draws the chosen version into the card's preview box and keeps it scaled to the box's width as the box resizes.

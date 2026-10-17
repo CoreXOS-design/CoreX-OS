@@ -235,40 +235,111 @@ final class AiTemplateMultiTypeAndMustIncludeTest extends TestCase
         $retry = $fake->userPrompt(1);
         $this->assertStringContainsString('missing what the user ticked: QR code to the listing', $retry);
         $this->assertStringContainsString('Option 1 is missing', $retry);
+        $this->assertCount(3, $gen->options_json);
         foreach ($gen->options_json as $opt) {
-            $this->assertSame([], $opt['missing']);
             $this->assertContains('qr', array_column($opt['layout']['elements'], 'field'));
         }
         $this->assertSame(1, $this->builder()->usage($agency)['used']);
         $this->assertSame(['keys' => ['qr'], 'ribbon_text' => ''], $gen->must_include_json);
     }
 
-    public function test_a_design_that_still_lacks_a_ticked_item_after_the_retry_is_shown_marked_and_counted(): void
+    public function test_a_default_that_still_lacks_a_ticked_item_after_the_retry_is_dropped_never_shown(): void
     {
         [$agency, $user] = $this->agencyWithUser();
-        // Decision 14: the first design has the QR, two never do - the user sees all three, the two are marked.
-        $fake = $this->fakeAi(fn (array $call) => [
-            $this->design('Has QR', ['qr']), $this->design('No QR 1', []), $this->design('No QR 2', []),
-        ]);
+        // Decision 19: only the first design ever has both ticked items; the other two never do - they are dropped, not shown.
+        $fake = $this->fakeAi(fn (array $call) => $call['n'] % 2 === 1
+            ? [$this->design('Has both', ['qr', 'show_day']), $this->design('No QR 1', ['show_day']), $this->design('No QR 2', [])]
+            : [$this->design('No QR 3', ['show_day']), $this->design('No QR 4', ['qr'])]);
         $this->actingAs($user);
 
         $gen = $this->builder()->generate($user, 'x', 'facebook', null, null, 'auto', false, [], ['qr', 'show_day']);
 
         $this->assertSame(2, $fake->calls(), 'exactly one targeted retry');
         $this->assertSame(AiTemplateGeneration::STATUS_SUCCESS, $gen->status);
-        $this->assertCount(3, $gen->options_json);
-        // The design with the most of what was asked for comes first; the others say what they lack.
-        $missing = array_column($gen->options_json, 'missing');
-        $this->assertContains(['Show day date'], $missing, 'the QR-only design lacks the show day');
-        $this->assertContains(['Show day date', 'QR code to the listing'], $missing, 'screen order');
+        $this->assertCount(1, $gen->options_json, 'only the complete design is offered');
+        $this->assertSame('Has both', $gen->options_json[0]['name']);
+        $this->assertArrayNotHasKey('missing', $gen->options_json[0]);
         $this->assertSame(1, $this->builder()->usage($agency)['used'], 'what was shown is counted');
-        $this->assertSame('incomplete', collect($gen->validation_log_json)->firstWhere('name', 'No QR 1')['outcome']);
+        // What was lacking stays in the log for diagnosis.
+        $entry = collect($gen->validation_log_json)->firstWhere('name', 'No QR 1');
+        $this->assertSame('incomplete', $entry['outcome']);
+        $this->assertSame(['QR code to the listing'], $entry['missing']);
 
-        // The controller hands the marking to the card.
-        $res = $this->postGenerate($user, ['idea' => 'x', 'ad_size' => 'facebook', 'must_include' => ['qr']])->getData(true);
+        // The endpoint hands over the complete designs only, with nothing to mark.
+        $res = $this->postGenerate($user, ['idea' => 'x', 'ad_size' => 'facebook', 'must_include' => ['qr', 'show_day']])->getData(true);
         $this->assertTrue($res['ok']);
-        $this->assertArrayHasKey('missing', $res['options'][0]);
-        $this->assertContains('QR code to the listing', collect($res['options'])->pluck('missing')->flatten()->all());
+        $this->assertCount(1, $res['options']);
+        $this->assertArrayNotHasKey('missing', $res['options'][0]);
+    }
+
+    public function test_when_no_default_is_complete_the_request_is_a_friendly_failure_not_counted_but_the_spend_is_recorded(): void
+    {
+        [$agency, $user] = $this->agencyWithUser();
+        $fake = $this->fakeAi(fn () => [$this->design('A', []), $this->design('B', []), $this->design('C', [])]);
+        $this->actingAs($user);
+
+        try {
+            $this->builder()->generate($user, 'x', 'facebook', null, null, 'auto', false, [], ['qr']);
+            $this->fail('Expected a friendly failure.');
+        } catch (AiTemplateGenerationFailedException $e) {
+            $this->assertStringContainsString('couldn\'t make a design that includes everything you ticked', $e->getMessage());
+            $this->assertStringContainsString('untick something', $e->getMessage());
+        }
+
+        $this->assertSame(2, $fake->calls(), 'the one retry was still made');
+        $this->assertSame(0, $this->builder()->usage($agency)['used'], 'not counted against the allowance');
+        $gen = AiTemplateGeneration::where('agency_id', $agency)->latest('id')->firstOrFail();
+        $this->assertSame(AiTemplateGeneration::STATUS_FAILED, $gen->status);
+        // It was spent, so the ledger and the generation's cost still show it.
+        $events = AiUsageEvent::where('agency_id', $agency)->where('source', AiUsageEvent::SOURCE_AD_TEMPLATE)->get();
+        $this->assertCount(2, $events);
+        $this->assertGreaterThan(0, (float) $events->sum('cost_zar'));
+        $this->assertEqualsWithDelta((float) $events->sum('cost_zar'), (float) $gen->cost_zar, 0.001);
+
+        // And the endpoint says it as a plain sentence.
+        $res = $this->postGenerate($user, ['idea' => 'x', 'ad_size' => 'facebook', 'must_include' => ['qr']])->getData(true);
+        $this->assertFalse($res['ok']);
+        $this->assertStringContainsString('includes everything you ticked', $res['message']);
+    }
+
+    public function test_with_nothing_ticked_a_valid_design_is_always_shown_and_counted_as_before(): void
+    {
+        [$agency, $user] = $this->agencyWithUser();
+        $fake = $this->fakeAi(fn () => [$this->design('A', []), $this->design('B', []), $this->design('C', [])]);
+        $this->actingAs($user);
+
+        $gen = $this->builder()->generate($user, 'x', 'facebook', null, null, 'auto', false, [], []);
+
+        $this->assertSame(1, $fake->calls());
+        $this->assertCount(3, $gen->options_json);
+        $this->assertSame(1, $this->builder()->usage($agency)['used']);
+        $this->assertNull($gen->must_include_json);
+    }
+
+    public function test_saving_a_dropped_option_is_refused_even_if_a_stale_browser_posts_it(): void
+    {
+        [$agency, $user] = $this->agencyWithUser();
+        $this->fakeAi(fn (array $call) => $call['n'] % 2 === 1
+            ? [$this->design('Has QR', ['qr']), $this->design('No QR 1', []), $this->design('No QR 2', [])]
+            : [$this->design('No QR 3', []), $this->design('No QR 4', [])]);
+        $this->actingAs($user);
+        $gen = $this->builder()->generate($user, 'x', 'facebook', null, null, 'auto', false, [], ['qr']);
+        $this->assertCount(1, $gen->options_json);
+
+        // Options 1 and 2 were dropped: the server has no such design, whatever the browser thinks.
+        foreach ([1, 2] as $dropped) {
+            $res = $this->postSave($user, $gen, ['option' => $dropped])->getData(true);
+            $this->assertFalse($res['ok']);
+        }
+        $this->assertSame(0, PropertyAdTemplate::where('agency_id', $agency)->count());
+        $this->assertTrue($this->postSave($user, $gen, ['option' => 0])->getData(true)['ok']);
+
+        // A generation stored before this rule, whose option still carries what it lacks, is refused too.
+        $old = $gen->replicate();
+        $old->options_json = [['name' => 'Old', 'layout' => $gen->options_json[0]['layout'], 'style' => null, 'missing' => ['QR code to the listing'], 'variants' => [], 'variant_notes' => []]];
+        $old->saved_template_ids = null;
+        $old->save();
+        $this->assertFalse($this->postSave($user, $old, ['option' => 0])->getData(true)['ok']);
     }
 
     public function test_nothing_valid_is_still_a_friendly_failure_even_when_must_includes_are_ticked(): void
@@ -298,7 +369,6 @@ final class AiTemplateMultiTypeAndMustIncludeTest extends TestCase
         foreach ($gen->options_json as $opt) {
             $ribbon = collect($opt['layout']['elements'])->firstWhere('field', 'ribbon');
             $this->assertSame('Just Listed', $ribbon['text'], 'exactly as typed - not upper-cased, not the AI\'s words');
-            $this->assertSame([], $opt['missing']);
         }
         $this->assertStringContainsString('"Just Listed"', $fake->userPrompt(0));
         $this->assertSame('Just Listed', $gen->must_include_json['ribbon_text']);
@@ -318,14 +388,19 @@ final class AiTemplateMultiTypeAndMustIncludeTest extends TestCase
         [, $user] = $this->agencyWithUser();
         $this->fakeAi(fn () => array_map(fn ($n) => $this->design('R' . $n, ['ribbon']), [1, 2, 3]));
         $this->actingAs($user);
-        $gen = $this->builder()->generate($user, 'x', 'facebook', null, null, 'auto', false, [], ['ribbon'], '<i>NEW</i> ' . str_repeat('B', 60));
         // 24 capital letters cannot fit the ribbon band: the validator's fit repair would have cut the words, so the design
-        // is honestly marked as lacking the ribbon - the user's words are never silently shortened and passed off as theirs.
+        // counts as lacking the ribbon and (decision 19) is dropped - the user's words are never silently shortened and
+        // passed off as theirs. Every design is like that here, so the request is a friendly failure and not counted.
         $cleaned = AdTemplateMustIncludes::cleanRibbonText('<i>NEW</i> ' . str_repeat('B', 60));
         $this->assertSame(AdLayoutValidator::MAX_RIBBON_TEXT, mb_strlen($cleaned));
-        $stored = collect($gen->options_json[0]['layout']['elements'])->firstWhere('field', 'ribbon')['text'] ?? null;
-        $this->assertNotSame($cleaned, $stored);
-        $this->assertSame(['Corner ribbon'], $gen->options_json[0]['missing']);
+        try {
+            $this->builder()->generate($user, 'x', 'facebook', null, null, 'auto', false, [], ['ribbon'], '<i>NEW</i> ' . str_repeat('B', 60));
+            $this->fail('A ribbon that cannot carry the words whole must not be shown.');
+        } catch (AiTemplateGenerationFailedException $e) {
+            $this->assertStringContainsString('includes everything you ticked', $e->getMessage());
+        }
+        $entry = collect(AiTemplateGeneration::latest('id')->firstOrFail()->validation_log_json)->firstWhere('outcome', 'incomplete');
+        $this->assertSame(['Corner ribbon'], $entry['missing']);
     }
 
     public function test_a_ticked_ribbon_with_no_words_is_refused_before_any_ai_call(): void
@@ -370,7 +445,8 @@ final class AiTemplateMultiTypeAndMustIncludeTest extends TestCase
         $system = (string) $fake->system(0);
         $this->assertStringContainsString("use the 'logo' element", $system);
         $this->assertStringNotContainsString('do not use the logo elements', $system);
-        $this->assertSame([], $gen->options_json[0]['missing']);
+        $this->assertCount(3, $gen->options_json);
+        $this->assertContains('logo', array_column($gen->options_json[0]['layout']['elements'], 'field'));
     }
 
     // ════════════════════════════════════════════════════════════════════
@@ -523,7 +599,7 @@ final class AiTemplateMultiTypeAndMustIncludeTest extends TestCase
         }
     }
 
-    public function test_a_valid_version_that_lacks_a_ticked_item_is_retried_then_kept_and_marked(): void
+    public function test_a_version_that_lacks_a_ticked_item_is_retried_then_dropped_and_the_type_uses_the_main_design(): void
     {
         [$agency, $user] = $this->agencyWithUser();
         $this->seedTypes($agency, self::TYPES);
@@ -546,11 +622,18 @@ final class AiTemplateMultiTypeAndMustIncludeTest extends TestCase
 
         $this->assertSame(1 + 2 + 1, $fake->calls(), 'a retry round for the apartment only');
         $this->assertStringContainsString('missing what the user ticked: QR code to the listing', collect($fake->requests)->last()['user']);
+        $this->assertCount(3, $gen->options_json);
         foreach ($gen->options_json as $opt) {
-            $this->assertSame([], $opt['missing']);
-            $this->assertSame([], $opt['variants']['House']['missing']);
-            $this->assertSame(['QR code to the listing'], $opt['variants']['Apartment / Flat']['missing'], 'kept, and the card says what it lacks');
+            $this->assertSame(['House'], array_keys($opt['variants']), 'the incomplete apartment version is dropped');
+            $this->assertContains('qr', array_column($opt['variants']['House']['layout']['elements'], 'field'));
+            $this->assertSame('No separate design for Apartment / Flat — uses the main design', $opt['variant_notes']['Apartment / Flat']);
         }
+        $this->assertSame(1, $this->builder()->usage($agency)['used']);
+
+        // Saving gives the template only the complete versions; the apartment falls back to the (complete) main design.
+        $saved = PropertyAdTemplate::findOrFail($this->postSave($user, $gen, ['option' => 0])->getData(true)['id']);
+        $this->assertSame(['House'], array_keys($saved->layout_json['variants']));
+        $this->assertContains('qr', array_column($saved->resolvedLayoutFor('Apartment / Flat')['elements'], 'field'));
     }
 
     public function test_more_than_five_types_are_refused_with_no_ai_call_and_no_count(): void
@@ -689,7 +772,7 @@ final class AiTemplateMultiTypeAndMustIncludeTest extends TestCase
         $this->assertSame(['Vacant Land / Plot', 'House', 'Apartment / Flat'], $res['property_types']);
         $this->assertSame(['Vacant Land / Plot', 'House', 'Apartment / Flat'], array_keys($res['options'][0]['variants']));
         $this->assertArrayHasKey('layout', $res['options'][0]['variants']['House']);
-        $this->assertArrayHasKey('missing', $res['options'][0]['variants']['House']);
+        $this->assertArrayNotHasKey('missing', $res['options'][0]['variants']['House']);
     }
 
     public function test_the_legacy_single_property_type_stays_context_only_and_makes_no_extra_call(): void
@@ -711,7 +794,7 @@ final class AiTemplateMultiTypeAndMustIncludeTest extends TestCase
     {
         [$agency, $user] = $this->agencyWithUser();
         $this->seedTypes($agency, self::TYPES);
-        $fake = $this->smartAi();
+        $fake = $this->smartAi(defaultExtras: ['qr', 'collage']);
         $this->actingAs($user);
 
         $this->builder()->generate($user, 'x', 'facebook', null, null, 'auto', false, ['House', 'Farm'], ['qr', 'collage']);

@@ -269,6 +269,11 @@ final class AiTemplateBuilderService
         if ($generation->status !== AiTemplateGeneration::STATUS_SUCCESS || ! isset($options[$index])) {
             throw new AiTemplateGenerationFailedException('That template option no longer exists. Please generate again.');
         }
+        // Decision 19: a design that lacks a ticked item is never offered - and never saved, even if a stale browser (or a
+        // generation stored before this rule) names it.
+        if ($this->mustInclude($generation)[0] !== [] && ! empty($options[$index]['missing'])) {
+            throw new AiTemplateGenerationFailedException('That template option no longer exists. Please generate again.');
+        }
 
         return DB::transaction(function () use ($generation, $index, $user, $name, $options) {
             $row   = AiTemplateGeneration::query()->whereKey($generation->id)->lockForUpdate()->firstOrFail();
@@ -288,7 +293,7 @@ final class AiTemplateBuilderService
             $layout   = (array) $option['layout'];
             $variants = [];
             foreach ((array) ($option['variants'] ?? []) as $type => $variant) {
-                if (is_array($variant) && is_array($variant['layout'] ?? null) && trim((string) $type) !== '') {
+                if (is_array($variant) && is_array($variant['layout'] ?? null) && empty($variant['missing']) && trim((string) $type) !== '') {
                     $variants[(string) $type] = $variant['layout'];
                 }
             }
@@ -399,10 +404,15 @@ final class AiTemplateBuilderService
             $generation->validation_log_json = array_slice($log, 0, 160);
             $generation->cost_zar            = round($cost, 4);
             $generation->save();
+            // Decision 19: with items ticked, a design that lacks any of them is never shown - so no complete design is a
+            // friendly failure, not counted (the spend stays in the ledger and in cost_zar above).
+            [$ticked] = $this->mustInclude($generation);
             throw new AiTemplateGenerationFailedException(
                 $lastErr !== null
                     ? 'The AI service could not be reached just now. This attempt was not counted — please try again in a minute.'
-                    : 'The AI could not produce a usable design from that idea. This attempt was not counted — try rewording it, or try again.'
+                    : ($ticked !== []
+                        ? 'We couldn\'t make a design that includes everything you ticked. Please try again, or untick something. This attempt was not counted.'
+                        : 'The AI could not produce a usable design from that idea. This attempt was not counted — try rewording it, or try again.')
             );
         }
 
@@ -423,8 +433,9 @@ final class AiTemplateBuilderService
      * Stage 1: up to OPTIONS Default designs. One model call; if some are unusable (invalid, or valid but missing a
      * ticked must-include) ONE retry asks only for the ones still missing and says exactly why.
      *
-     * A design is complete when it is valid AND holds every ticked item. After the retry, complete designs come first and
-     * valid-but-incomplete ones fill the places left (they carry `missing`, shown on the card) - Johan's decision 14.
+     * A design is complete when it is valid AND holds every ticked item. Decision 19: a design that still lacks a ticked
+     * item after the one retry is DROPPED, never shown (what it lacked stays in the validation log for diagnosis). With
+     * nothing ticked every valid design is complete, so decision 14 (show what you got, count it) is unchanged.
      *
      * @param  array<int, array<string, mixed>> $log
      * @return array{0: array<int, array<string, mixed>>, 1: ?Throwable}  [options, last transport error]
@@ -433,7 +444,6 @@ final class AiTemplateBuilderService
     {
         [$keys, $ribbon] = $this->mustInclude($generation);
         $complete = [];
-        $partial  = [];
         $errors   = [];
         $lastErr  = null;
 
@@ -501,14 +511,13 @@ final class AiTemplateBuilderService
                         $entry['repairs'][] = 'The model did not name a known style for this option.';
                         $log[count($log) - 1] = $entry;
                     }
-                    $candidate = ['name' => $result['name'], 'layout' => $result['layout'], 'style' => $styleKey, 'missing' => $lacks, 'variants' => [], 'variant_notes' => []];
                     if ($lacks === []) {
-                        $complete[] = $candidate;
+                        $complete[] = ['name' => $result['name'], 'layout' => $result['layout'], 'style' => $styleKey, 'variants' => [], 'variant_notes' => []];
                         Log::info('AiTemplateBuilder: option ' . $entry['outcome'], ['generation' => $generation->id] + $entry);
                     } else {
-                        $partial[] = $candidate;
+                        // Not kept: the retry (if time allows) is told exactly what to add; if it still lacks it, it is gone.
                         $errors[]  = 'Option ' . ($n + 1) . ' is missing what the user ticked: ' . implode(', ', $lacks) . '. Add every one of them.';
-                        Log::warning('AiTemplateBuilder: option lacks a ticked item', ['generation' => $generation->id] + $entry);
+                        Log::warning('AiTemplateBuilder: option lacks a ticked item - dropped', ['generation' => $generation->id] + $entry);
                     }
                 } else {
                     foreach ($result['errors'] as $err) {
@@ -519,9 +528,7 @@ final class AiTemplateBuilderService
             }
         }
 
-        // Complete designs first; the valid-but-incomplete ones (fewest items missing first) fill what is left.
-        usort($partial, fn ($a, $b) => count($a['missing']) <=> count($b['missing']));
-        $options = array_slice(array_merge($complete, $partial), 0, self::OPTIONS);
+        $options = array_slice($complete, 0, self::OPTIONS);
 
         if (count($options) < self::OPTIONS) {
             Log::warning('AiTemplateBuilder: finished short of ' . self::OPTIONS . ' options', [
@@ -537,8 +544,8 @@ final class AiTemplateBuilderService
      * calls made at the same time (AnthropicGateway::generateMany - spend guard and ledger per call). Each answer is
      * validated and repaired like a Default; what is not complete gets ONE targeted retry round.
      *
-     * A version that is valid but lacks a ticked item is kept and marked; a version that never became valid is dropped and
-     * that type then uses the Default (a note says so). An AI pause or a spent time budget ends the stage quietly: the
+     * Decision 19: a version that is invalid OR still lacks a ticked item after its retry is dropped and that type then
+     * uses the Default, which is complete (a note says so). An AI pause or a spent time budget ends the stage quietly: the
      * Default designs are always kept.
      *
      * @param  array<int, array<string, mixed>> $options  the Default designs from stage 1
@@ -569,7 +576,7 @@ final class AiTemplateBuilderService
                 $need = [];
                 foreach (array_keys($options) as $i) {
                     $have = $best[$type][$i] ?? null;
-                    if ($have === null || $have['missing'] !== []) {
+                    if ($have === null) {
                         $need[] = $i;
                     }
                 }
@@ -636,10 +643,9 @@ final class AiTemplateBuilderService
                     if ($lacks !== []) {
                         $feedback[$type][] = 'Design ' . ($forOption + 1) . ' is missing what the user ticked: ' . implode(', ', $lacks) . '. Add every one of them.';
                     }
-                    // Keep this answer unless a better one (more complete) is already held.
-                    $held = $best[$type][$forOption] ?? null;
-                    if ($held === null || count($lacks) < count($held['missing'])) {
-                        $best[$type][$forOption] = ['layout' => $res['layout'], 'missing' => $lacks];
+                    // Only a complete version is kept (decision 19); an incomplete one is asked for again in the retry round.
+                    if ($lacks === []) {
+                        $best[$type][$forOption] = ['layout' => $res['layout']];
                     }
                 }
                 // Options the answer did not cover at all.

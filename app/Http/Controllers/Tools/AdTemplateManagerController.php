@@ -196,8 +196,8 @@ class AdTemplateManagerController extends Controller
             }
             $options[] = ['index' => $i, 'name' => $opt['name'], 'layout' => $opt['layout'],
                 'style' => $styleKey, 'style_name' => AdTemplateStyles::get($styleKey)['name'] ?? null,
-                // §B.10 - what a design lacks of what was ticked, its per-property-type versions and the "uses the main design" notes.
-                'missing'       => array_values((array) ($opt['missing'] ?? [])),
+                // §B.10 - its per-property-type versions and the "uses the main design" notes. Every design shown holds
+                // everything that was ticked (decision 19), so there is nothing to mark as missing.
                 'variants'      => (object) $ordered,
                 'variant_notes' => (object) (array) ($opt['variant_notes'] ?? [])];
         }
