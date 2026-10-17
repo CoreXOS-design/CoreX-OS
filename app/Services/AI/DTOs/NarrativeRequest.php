@@ -88,6 +88,25 @@ final class NarrativeRequest
     ) {}
 
     /**
+     * A copy of this request with a different system prompt, every other field
+     * carried over. DTOs are immutable, so anything that needs to adjust the system
+     * prompt (e.g. the gateway's JSON-only instruction) must go through here and
+     * never rebuild the constructor by hand — a hand-built copy silently drops any
+     * field added later (it dropped `documents`, so a PDF never reached the AI).
+     * Reflects over the constructor, so a future field is carried automatically.
+     */
+    public function withSystemPrompt(string $systemPrompt): self
+    {
+        $args = [];
+        foreach ((new \ReflectionClass(self::class))->getConstructor()->getParameters() as $param) {
+            $name        = $param->getName();
+            $args[$name] = $name === 'systemPrompt' ? $systemPrompt : $this->{$name};
+        }
+
+        return new self(...$args);
+    }
+
+    /**
      * sha256 of the input data — the cache hit requires both cache_key AND
      * input_hash to match, so changing input data invalidates the cache
      * even if the caller forgot to bump the cache_key.

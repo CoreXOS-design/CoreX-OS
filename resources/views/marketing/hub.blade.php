@@ -488,6 +488,9 @@
                         <td class="px-4 py-3 text-xs" style="color:var(--text-muted);">{{ $post->published_at ? $post->published_at->format('d M Y') : $post->created_at->format('d M Y') }}</td>
                         <td class="px-4 py-3">
                             <span class="text-[10px] px-2 py-0.5 rounded-full font-semibold" style="background:{{ $sc }}22; color:{{ $sc }};">{{ ucfirst($post->status) }}</span>
+                            @if($post->status === 'failed' && $post->failure_reason)
+                                <div class="text-[11px] mt-1" style="color:var(--text-secondary); max-width:260px;">{{ $post->failure_reason }}</div>
+                            @endif
                         </td>
                         <td class="px-4 py-3 text-right text-xs" style="color:var(--text-primary);">{{ number_format($post->impressions) }}</td>
                         <td class="px-4 py-3 text-right text-xs" style="color:var(--text-primary);">{{ number_format($post->reach) }}</td>

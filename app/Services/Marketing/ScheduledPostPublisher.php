@@ -213,8 +213,12 @@ class ScheduledPostPublisher
         return $n;
     }
 
-    /** Meta's / Guzzle's wording to something an agent can act on. Never contains a token. */
-    private function explain(string $platform, string $raw): string
+    /**
+     * Meta's / Guzzle's wording to something an agent can act on. Never contains a token.
+     * Public: the direct (non-scheduled) publish in PropertyMarketingController stores the
+     * same plain, scrubbed reason on a failed post, so there is one scrubbing path.
+     */
+    public function explain(string $platform, string $raw): string
     {
         $label = ucfirst($platform);
         $clean = $this->scrub($raw);

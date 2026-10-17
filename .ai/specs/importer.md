@@ -528,3 +528,7 @@ agent list, `p24_import_rows` (store the chosen user / new username on the row �
 2. **Only "Link to an existing person" or "Skip"** — no "create as sub-user" on the import row;
    sub-users are created first under Admin → Users (or Assistants).
 3. **Yes** — the listing reassign picker lists every person in the agency, sub-users included.
+
+## Parse errors and PDF imports (AT-456 findings, 2026-10-17)
+- `DocumentImporterController::parse()` never returns an exception message or stack trace to the browser: the full detail is logged with a short reference id and the user sees "The document could not be read. Please try again or send this reference to support: <ref>". The AI-paused refusal is unchanged.
+- PDF imports now genuinely send the PDF to the AI (`AnthropicGateway::generateStructured()` used to drop the document). Each import therefore costs more than before: roughly R1 to R4 on the quality model depending on page count.

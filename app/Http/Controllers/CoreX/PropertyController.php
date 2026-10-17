@@ -620,7 +620,7 @@ class PropertyController extends Controller
             if ($p->compliance_snapshot_at !== null) {
                 $p->marketing_status = 'live';
                 $p->marketing_status_detail = 'Live since ' . $p->compliance_snapshot_at->format('j M Y');
-            } elseif (in_array($p->status, Property::OFF_MARKET_STATUSES)) {
+            } elseif (! $p->isOnMarket()) {
                 $p->marketing_status = 'n/a';
                 $p->marketing_status_detail = '';
             } else {

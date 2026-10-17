@@ -252,7 +252,12 @@ class Property extends Model
      */
     public function isOnMarket(): bool
     {
-        return ! in_array((string) $this->status, self::OFF_MARKET_STATUSES, true);
+        // Case- and whitespace-insensitive, the one place this is decided: the P24 importer
+        // writes display-cased values ("Sold", "Let Out") and a stray space must not make a
+        // sold listing look live. Every row-level caller goes through here, not in_array().
+        $normalised = strtolower(str_replace(' ', '_', trim((string) $this->status)));
+
+        return ! in_array($normalised, self::OFF_MARKET_STATUSES, true);
     }
 
     /**

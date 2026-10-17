@@ -83,6 +83,8 @@ class PropertyAdTemplateController extends Controller
 
     public function store(Request $request)
     {
+        $this->assertMayBuildTemplates();
+
         $data = $request->validate([
             'name'        => 'required|string|max:100',
             'layout_json' => 'required|array',
@@ -102,6 +104,7 @@ class PropertyAdTemplateController extends Controller
 
     public function update(Request $request, PropertyAdTemplate $template)
     {
+        $this->assertMayBuildTemplates();
         $this->authorizeTemplate($template);
 
         $data = $request->validate([
@@ -122,6 +125,17 @@ class PropertyAdTemplateController extends Controller
         $this->authorizeTemplate($template);
         $template->delete();
         return redirect()->back()->with('success', 'Template archived.');
+    }
+
+    /**
+     * Creating or editing a template needs BOTH access_properties and access_ad_manager
+     * (spec ad-manager.md §19, at456 spec §B.6) — the same gate as AdTemplateManagerController.
+     * The route middleware enforces it too; this is the server-side re-check.
+     */
+    private function assertMayBuildTemplates(): void
+    {
+        $user = auth()->user();
+        abort_unless($user && $user->hasPermission('access_properties') && $user->hasPermission('access_ad_manager'), 403);
     }
 
     /**

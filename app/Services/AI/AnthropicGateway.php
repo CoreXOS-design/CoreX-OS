@@ -183,26 +183,9 @@ final class AnthropicGateway
             . $schemaJson . "\n\n"
             . "No markdown code fences. No preamble. No commentary. JSON only.";
 
-        // Rebuild the request with the augmented system prompt — DTOs are
-        // immutable, so we clone via constructor.
-        $augmented = new NarrativeRequest(
-            narrativeType:    $request->narrativeType,
-            cacheKey:         $request->cacheKey,
-            modelAlias:       $request->modelAlias,
-            systemPrompt:     $augmentedSystem,
-            userPrompt:       $request->userPrompt,
-            inputData:        $request->inputData,
-            maxTokens:        $request->maxTokens,
-            temperature:      $request->temperature,
-            cacheTtlMinutes:  $request->cacheTtlMinutes,
-            agencyId:         $request->agencyId,
-            fallbackData:     $request->fallbackData,
-            forceRefresh:     $request->forceRefresh,
-            promptVersion:    $request->promptVersion,
-            source:           $request->source,
-            timeoutSeconds:   $request->timeoutSeconds,
-            system:           $request->system,
-        );
+        // DTOs are immutable — withSystemPrompt() copies EVERY field (documents,
+        // source, timeout, system flag, ...), so a new field can never be dropped here.
+        $augmented = $request->withSystemPrompt($augmentedSystem);
 
         $response = $this->generate($augmented);
 

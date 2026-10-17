@@ -2892,3 +2892,8 @@ No migration, no new permission (still `access_ad_manager` + `ad_manager.view`),
 - `tests/Feature/Tools/AdManagerGeneratedCounterTest.php` — counter stamped on
   generate (pre-built + brochure paths), increments across repeated calls, a
   scope-skipped property is never counted.
+
+### Ad template create/edit gate and direct-publish failures (AT-456 findings, 2026-10-17)
+- `corex.ad-templates.store` / `update` need BOTH `access_properties` and `access_ad_manager` (route middleware plus a controller re-check), the same gate as the Template Manager (§19).
+- A failed direct Facebook/Instagram publish from the property Marketing hub now stores a plain, token-scrubbed `failure_reason` on the post and the post history shows it under the Failed badge.
+- Ad picker status exclusion also trims whitespace (`LOWER(TRIM(status))`); `Property::isOnMarket()` is case- and whitespace-insensitive.

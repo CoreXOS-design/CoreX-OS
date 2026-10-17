@@ -299,3 +299,12 @@ Own colours/logo in B; own drafts and own count in C; own posts, scope and conne
 2. ~~Alert recipients~~ — **Closed 2026-10-14:** `andre@corexos.co.za`; add further addresses in Dev Settings → AI Spend Safety when wanted (decision 10).
 3. ~~Section-0 readings~~ — **Closed 2026-10-17:** all three confirmed (decisions 11–13); settings get their own Dev Settings section (A.4).
 4. ~~Final go to build Part A~~ — **Closed 2026-10-17:** "save spec and build". Part A built on QA2; awaiting Johan's test there.
+
+## Reported findings (post-build review, 2026-10-17) — fixed
+| # | Finding | Fix |
+|---|---------|-----|
+| 1 | `AnthropicGateway::generateStructured()` rebuilt the `NarrativeRequest` by hand and dropped `documents`, so the DocuPerfect PDF import never sent the PDF to the AI. | `NarrativeRequest::withSystemPrompt()` copies every constructor field (by reflection, so a future field is carried automatically); the gateway uses it. Test: `tests/Feature/AI/GenerateStructuredCarriesEveryFieldTest.php`. **Cost note:** a PDF import now really sends the PDF, so it costs more (about R1 to R4 per import on the quality model, scaling with page count). |
+| 2 | `Property::isOnMarket()` compared status case-sensitively; a "Sold" from the P24 importer counted as on-market. | Comparison is case- and whitespace-insensitive, in the model only; the duplicate row-level checks (`PropertyController` list marketing status, `PpraMandateRegisterService`, `FlagPropertyUnderOfferOnDealCreated`) now call `isOnMarket()`; the Ad Manager picker query also TRIMs. Test: `PropertyIsOnMarketCaseTest`. |
+| 3 | A failed direct (non-scheduled) social publish recorded no reason. | `PropertyMarketingController::publish()` stores the plain, token-scrubbed reason (`ScheduledPostPublisher::explain()`, now public) and returns it instead of the raw Meta text; the Marketing hub post history shows it under the Failed badge. Test: `AtFindingsDirectPublishReasonTest`. |
+| 4 | `PropertyAdTemplateController::store()/update()` only needed `access_properties`. | Both now also require `access_ad_manager` (route middleware + controller re-check), matching §B.6. Test: `AdTemplateSaveNeedsAdManagerTest`. |
+| 5 | The document importer parse failure returned the raw exception message and a stack trace to the browser. | Detail is logged server-side under a short reference; the browser gets "The document could not be read. Please try again or send this reference to support: <ref>" and no trace (AI-paused branch unchanged). Test: `DocumentImporterErrorHidesDetailTest`. |

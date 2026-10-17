@@ -334,7 +334,13 @@ class DocumentImporterController extends Controller
         } catch (\Throwable $e) {
             @unlink($fullPath);
 
+            // Full detail stays in the server log under a short reference; the browser gets a plain
+            // sentence and that reference only — never the raw exception text or a stack trace
+            // (file paths, SQL, class names are not for the user).
+            $ref = strtoupper(\Illuminate\Support\Str::random(8));
+
             \Log::error('[DocumentImporter] EXCEPTION in parse', [
+                'ref' => $ref,
                 'class' => get_class($e),
                 'message' => $e->getMessage(),
                 'file' => $e->getFile() . ':' . $e->getLine(),
@@ -342,8 +348,8 @@ class DocumentImporterController extends Controller
             ]);
 
             return response()->json([
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
+                'error' => 'The document could not be read. Please try again or send this reference to support: ' . $ref,
+                'reference' => $ref,
             ], 500);
         }
     }

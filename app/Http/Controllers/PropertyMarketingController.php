@@ -148,9 +148,12 @@ class PropertyMarketingController extends Controller
 
                 $results[$platform] = ['ok' => true, 'post_id' => $post->id, 'platform_post_id' => $platformPostId];
             } catch (\Throwable $e) {
-                $post->update(['status' => 'failed']);
-                $results[$platform] = ['ok' => false, 'error' => $e->getMessage()];
-                Log::error('PropertyMarketingController::publish failed for ' . $platform . ': ' . $e->getMessage());
+                // Plain, token-scrubbed reason (same path the scheduled publisher uses) — stored on the
+                // post so the history shows WHY it failed, and returned instead of the raw Meta text.
+                $reason = app(\App\Services\Marketing\ScheduledPostPublisher::class)->explain($platform, $e->getMessage());
+                $post->update(['status' => 'failed', 'failure_reason' => mb_substr($reason, 0, 1000)]);
+                $results[$platform] = ['ok' => false, 'error' => $reason];
+                Log::error('PropertyMarketingController::publish failed for ' . $platform . ': ' . $reason);
             }
         }
 
