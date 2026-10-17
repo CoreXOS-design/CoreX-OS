@@ -139,6 +139,20 @@ class AiTemplateUsageAdminTest extends TestCase
         $this->assertSame(20, (int) DB::table('agencies')->where('id', $agency->id)->value('ai_template_monthly_limit'));
     }
 
+    public function test_the_agency_page_with_its_limit_form_is_not_reachable_by_a_non_owner(): void
+    {
+        // Audit 2026-10-17: the page (and with it the "Generations per month" form) sits behind
+        // owner_only, so an agency admin never sees the form. Pinned so that stays true.
+        $agency = $this->agency('Mine Co');
+        $admin  = $this->userIn($agency, 'admin');
+
+        $this->actingAs($admin)->get(route('admin.ai-usage.agency', ['agency' => $agency->id]))->assertForbidden();
+
+        $owner = $this->owner();
+        $this->actingAs($owner)->get(route('admin.ai-usage.agency', ['agency' => $agency->id]))
+            ->assertOk()->assertSee('Generations per month');
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
 
     private function agency(string $name): Agency

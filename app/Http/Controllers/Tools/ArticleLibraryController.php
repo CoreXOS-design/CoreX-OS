@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AgentArticle;
 use App\Models\ArticleSource;
 use App\Models\LibraryArticle;
+use App\Support\Text\PlainText;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -95,8 +96,7 @@ class ArticleLibraryController extends Controller
 
         // Filter choices come from what an agency can actually see.
         $visible = LibraryArticle::query()->visibleToAgencies();
-        $tags    = (clone $visible)->whereNotNull('tags_json')->pluck('tags_json')
-            ->flatten()->filter(fn ($t) => is_string($t) && $t !== '')->unique()->sort()->values();
+        $tags    = LibraryArticle::visibleTags();
 
         return view('tools.ad-manager.articles', [
             'articles'     => $articles,
@@ -135,12 +135,15 @@ class ArticleLibraryController extends Controller
                 return $this->toPortal($user, 'You already have this article in your drafts — here it is. A second copy was not made.');
             }
 
+            // Plain text in, plain text out: articles stored before the cleaner was fixed may still carry
+            // a literal tag, and this copy is what the website API later returns.
+            $title = trim(PlainText::strip((string) $library->title));
             $user->articles()->create([
-                'title'              => Str::limit($library->title, 200, ''),
-                'slug'               => Str::slug($library->title) ?: null,
-                'excerpt'            => $library->excerpt,
+                'title'              => Str::limit($title, 200, ''),
+                'slug'               => Str::slug($title) ?: null,
+                'excerpt'            => $library->excerpt !== null ? PlainText::strip((string) $library->excerpt) : null,
                 // The credit travels with the copy: the original publisher and the link to it.
-                'body'               => $library->body . "\n\n" . $library->creditLine(),
+                'body'               => PlainText::strip((string) $library->body) . "\n\n" . PlainText::strip($library->creditLine()),
                 'link_url'           => mb_strlen($library->source_url) <= 255 ? $library->source_url : null,
                 'tags'               => $library->tagList() === [] ? null : Str::limit(implode(', ', $library->tagList()), 500, ''),
                 'is_published'       => false,

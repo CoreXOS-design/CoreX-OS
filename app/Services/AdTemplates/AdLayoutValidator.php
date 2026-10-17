@@ -47,8 +47,22 @@ final class AdLayoutValidator
     public const MAX_TEXT_LEN  = 80;
     public const MAX_NAME_LEN  = 60;
 
+    /** A watermark must be at most this opaque. */
+    public const WATERMARK_MAX_OPACITY = 0.15;
+
+    /** A pill / block / gradient stop only counts as "something behind the text" at or above this opacity. */
+    public const BACKDROP_MIN_ALPHA = 0.5;
+
     /** Tolerance (px) for an element a hair past the canvas edge. */
     private const EDGE_TOLERANCE = 2;
+
+    /** Plain colour names the model sometimes writes; swapped for these exact hex values (never passed through). */
+    private const NAMED_COLORS = [
+        'white' => '#ffffff', 'black' => '#000000', 'red' => '#ff0000', 'green' => '#008000', 'blue' => '#0000ff',
+        'yellow' => '#ffff00', 'orange' => '#ffa500', 'gray' => '#808080', 'grey' => '#808080', 'navy' => '#000080',
+        'gold' => '#ffd700', 'silver' => '#c0c0c0', 'teal' => '#008080', 'purple' => '#800080', 'maroon' => '#800000',
+        'transparent' => 'rgba(0,0,0,0)',
+    ];
 
     /** Fields that show a property photo or logo. */
     private const IMAGE_FIELDS = ['image_1', 'image_2', 'image_3', 'image_4', 'image_5', 'agent_avatar', 'agency_logo'];
@@ -148,6 +162,49 @@ final class AdLayoutValidator
      */
     public function validate(array $option, string $sizeKey): array
     {
+        $repairs = [];
+
+        return $this->run($option, $sizeKey, false, $repairs) + ['repairs' => []];
+    }
+
+    /**
+     * Like validate(), but first fixes what can be fixed WITHOUT weakening any rule, so a design
+     * that is nearly right is kept instead of thrown away. Repairs are deterministic and only ever
+     * move a value INTO the allowed range or swap it for a known-good literal:
+     *   - an element a little outside the canvas is moved/shrunk back inside;
+     *   - a font below the minimum is raised to it; numbers out of range are clamped;
+     *   - text longer than the limit is cut; a text element with no text, or of an unknown type, is dropped;
+     *   - a plain colour name or 8/4-digit hex becomes the equivalent hex/rgba; translucent canvas colours become opaque;
+     *   - a wrong-case or numeric enum value is normalised; an unusable one is removed (the default applies);
+     *   - text colour that fails real contrast is switched to white or black when that passes against
+     *     every backdrop; text straight on a photo gets a text shadow (the validator's own accepted remedy).
+     * NOT repaired, still rejected: a colour that is not plain hex/rgb()/rgba() after the above (injection
+     * guard), a missing property photo, too few elements, contrast that neither white nor black can meet.
+     *
+     * @param  array<string, mixed> $option
+     * @return array{ok: bool, name: string, layout: ?array<string, mixed>, errors: array<int, string>, repairs: array<int, string>}
+     */
+    public function validateAndRepair(array $option, string $sizeKey): array
+    {
+        $repairs = [];
+        $size    = self::SIZES[$sizeKey] ?? null;
+        if ($size !== null) {
+            $option = $this->repairRaw($option, $size['w'], $size['h'], $repairs);
+        }
+
+        $result = $this->run($option, $sizeKey, true, $repairs);
+        $result['repairs'] = array_values(array_unique($repairs));
+
+        return $result;
+    }
+
+    /**
+     * @param  array<string, mixed> $option
+     * @param  array<int, string>   $repairs
+     * @return array{ok: bool, name: string, layout: ?array<string, mixed>, errors: array<int, string>}
+     */
+    private function run(array $option, string $sizeKey, bool $repair, array &$repairs): array
+    {
         $errors = [];
         $size   = self::SIZES[$sizeKey] ?? null;
         if ($size === null) {
@@ -203,7 +260,7 @@ final class AdLayoutValidator
             $errors[] = 'A property ad needs at least one property photo element (image_1 … image_5).';
         }
 
-        $this->checkContrast($elements, $canvasStops, $errors);
+        $this->checkContrast($elements, $canvasStops, $errors, $repair, $repairs);
 
         if ($errors !== []) {
             return ['ok' => false, 'name' => $name, 'layout' => null, 'errors' => array_values(array_unique($errors))];
@@ -225,6 +282,222 @@ final class AdLayoutValidator
             ],
             'errors' => [],
         ];
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Repair (see validateAndRepair)
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * @param  array<string, mixed> $option
+     * @param  array<int, string>   $repairs
+     * @return array<string, mixed>
+     */
+    private function repairRaw(array $option, int $cw, int $ch, array &$repairs): array
+    {
+        // Canvas colours: tidy the syntax, and a see-through canvas becomes opaque.
+        foreach (['canvasBg', 'canvasBgFrom', 'canvasBgTo'] as $k) {
+            if (isset($option[$k]) && is_string($option[$k])) {
+                $fixed = $this->tidyColor($option[$k]);
+                $p     = $this->parseColor($fixed);
+                if ($p !== null && $p[3] < 1.0) {
+                    $fixed = sprintf('#%02x%02x%02x', $p[0], $p[1], $p[2]);
+                    $repairs[] = "{$k}: a see-through canvas colour was made opaque.";
+                }
+                $option[$k] = $fixed;
+            }
+        }
+        if (isset($option['canvasBgAngle']) && is_numeric($option['canvasBgAngle'])) {
+            $option['canvasBgAngle'] = max(0, min(360, (float) $option['canvasBgAngle']));
+        }
+
+        if (! isset($option['elements']) || ! is_array($option['elements']) || ! array_is_list($option['elements'])) {
+            return $option;
+        }
+
+        $kept = [];
+        foreach ($option['elements'] as $i => $raw) {
+            if (! is_array($raw)) {
+                $kept[] = $raw;
+                continue;
+            }
+            $field = $raw['field'] ?? null;
+            $tag   = 'Element ' . ($i + 1) . (is_string($field) ? " ({$field})" : '');
+
+            if (! is_string($field) || ! isset(self::FIELDS[$field])) {
+                $repairs[] = "{$tag}: an element type that does not exist was left out.";
+                continue;
+            }
+
+            // Text elements that carry their own words must have some, else there is nothing to draw.
+            if (in_array($field, ['custom_text', 'badge'], true)
+                && trim(strip_tags((string) ($raw['text'] ?? ''))) === '') {
+                $repairs[] = "{$tag}: an element with no text was left out.";
+                continue;
+            }
+            if (isset($raw['text']) && is_string($raw['text']) && in_array($field, ['custom_text', 'badge', 'watermark'], true)) {
+                $clean = trim(strip_tags($raw['text']));
+                if (mb_strlen($clean) > self::MAX_TEXT_LEN) {
+                    $raw['text'] = rtrim(mb_substr($clean, 0, self::MAX_TEXT_LEN - 1)) . '…';
+                    $repairs[]   = "{$tag}: text longer than " . self::MAX_TEXT_LEN . ' characters was shortened.';
+                }
+            }
+
+            // Geometry: numbers written as strings, then back inside the canvas.
+            $geoOk = true;
+            foreach (['x', 'y', 'w', 'h'] as $k) {
+                if (isset($raw[$k]) && is_numeric($raw[$k])) {
+                    $raw[$k] = (float) $raw[$k];
+                } else {
+                    $geoOk = false;
+                }
+            }
+            if ($geoOk) {
+                $t = self::EDGE_TOLERANCE;
+                $outside = $raw['x'] < -$t || $raw['y'] < -$t || $raw['x'] + $raw['w'] > $cw + $t || $raw['y'] + $raw['h'] > $ch + $t
+                    || $raw['w'] < 4 || $raw['h'] < 4;
+                if ($outside) {
+                    $w = max(4, min((int) round($raw['w']), $cw));
+                    $h = max(4, min((int) round($raw['h']), $ch));
+                    $raw['x'] = max(0, min((int) round($raw['x']), $cw - $w));
+                    $raw['y'] = max(0, min((int) round($raw['y']), $ch - $h));
+                    $raw['w'] = $w;
+                    $raw['h'] = $h;
+                    $repairs[] = "{$tag}: sat outside the {$cw}×{$ch} canvas, so it was moved back inside.";
+                }
+            }
+
+            // Numbers: clamp into range (a non-number is removed so the default applies).
+            foreach (self::NUMBERS as $k => [$min, $max]) {
+                if (! array_key_exists($k, $raw) || $raw[$k] === null) {
+                    continue;
+                }
+                if (! is_numeric($raw[$k])) {
+                    unset($raw[$k]);
+                    $repairs[] = "{$tag}: \"{$k}\" was not a number, so the default was used.";
+                    continue;
+                }
+                $v = (float) $raw[$k];
+                if ($v < $min || $v > $max) {
+                    $raw[$k]   = max($min, min($max, $v));
+                    $repairs[] = "{$tag}: \"{$k}\" {$v} was outside {$min} to {$max}, so it was clamped.";
+                }
+            }
+            if ($this->isTextField($field) && $field !== 'watermark' && isset($raw['fontSize']) && is_numeric($raw['fontSize']) && (float) $raw['fontSize'] < self::MIN_FONT_SIZE) {
+                $repairs[]       = "{$tag}: fontSize {$raw['fontSize']} was raised to the minimum of " . self::MIN_FONT_SIZE . '.';
+                $raw['fontSize'] = self::MIN_FONT_SIZE;
+            }
+            if ($field === 'watermark' && isset($raw['opacity']) && is_numeric($raw['opacity']) && (float) $raw['opacity'] > self::WATERMARK_MAX_OPACITY) {
+                $raw['opacity'] = 0.1;
+                $repairs[]      = "{$tag}: a watermark was too solid, so its opacity was set to 0.1.";
+            }
+
+            // Colours: only a known-good rewrite; anything else is left for the validator to reject.
+            foreach (self::COLOR_KEYS as $k) {
+                if (isset($raw[$k]) && is_string($raw[$k])) {
+                    $fixed = $this->tidyColor($raw[$k]);
+                    if ($fixed !== trim($raw[$k])) {
+                        $repairs[] = "{$tag}: colour \"{$raw[$k]}\" was written as {$fixed}.";
+                    }
+                    $raw[$k] = $fixed;
+                }
+            }
+
+            // Enums: numeric weights, wrong case; an unusable value is removed so the default applies.
+            foreach (self::ENUMS as $k => $allowed) {
+                if (! array_key_exists($k, $raw) || $raw[$k] === null) {
+                    continue;
+                }
+                $v = is_scalar($raw[$k]) ? trim((string) $raw[$k]) : '';
+                if (in_array($v, $allowed, true)) {
+                    $raw[$k] = $v;
+                    continue;
+                }
+                $match = null;
+                foreach ($allowed as $a) {
+                    if (strcasecmp($a, $v) === 0) {
+                        $match = $a;
+                        break;
+                    }
+                }
+                if ($match !== null) {
+                    $raw[$k]   = $match;
+                    $repairs[] = "{$tag}: \"{$k}\" {$v} was corrected to {$match}.";
+                } else {
+                    unset($raw[$k]);
+                    $repairs[] = "{$tag}: \"{$k}\" had a value that is not allowed, so the default was used.";
+                }
+            }
+
+            $kept[] = $raw;
+        }
+        $option['elements'] = $kept;
+
+        return $option;
+    }
+
+    /**
+     * Rewrite the colour spellings the model commonly uses into the strict forms we accept: plain
+     * names (from a fixed table), #rgba / #rrggbbaa, and rgb()/rgba() with spaces or percentages
+     * are NOT guessed at. A value this cannot rewrite is returned unchanged for the validator to refuse.
+     */
+    private function tidyColor(string $value): string
+    {
+        $v = trim($value);
+        if ($this->parseColor($v) !== null) {
+            return $v;
+        }
+        $lower = strtolower($v);
+        if (isset(self::NAMED_COLORS[$lower])) {
+            return self::NAMED_COLORS[$lower];
+        }
+        if (preg_match('/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i', $v, $m)) {
+            return sprintf('rgba(%d,%d,%d,%s)', hexdec($m[1]), hexdec($m[2]), hexdec($m[3]), $this->alpha(hexdec($m[4]) / 255));
+        }
+        if (preg_match('/^#([0-9a-f])([0-9a-f])([0-9a-f])([0-9a-f])$/i', $v, $m)) {
+            return sprintf('rgba(%d,%d,%d,%s)', hexdec($m[1] . $m[1]), hexdec($m[2] . $m[2]), hexdec($m[3] . $m[3]), $this->alpha(hexdec($m[4] . $m[4]) / 255));
+        }
+
+        return $v;
+    }
+
+    private function alpha(float $a): string
+    {
+        $a = round(max(0.0, min(1.0, $a)), 2);
+
+        return $a >= 1.0 ? '1' : ($a <= 0.0 ? '0' : rtrim(rtrim(number_format($a, 2), '0'), '.'));
+    }
+
+    /**
+     * The hard limits, as plain sentences for the model's instructions. Every number comes from
+     * this class's own constants, so the prompt can never promise a limit the validator does not
+     * enforce (or the other way round).
+     */
+    public function promptLimits(int $cw, int $ch): string
+    {
+        $t = self::EDGE_TOLERANCE;
+        $ranges = [];
+        foreach (self::NUMBERS as $k => [$min, $max]) {
+            $ranges[] = "{$k} {$min} to {$max}";
+        }
+        $enum = static fn (string $k): string => $k . ': ' . implode(' / ', self::ENUMS[$k]);
+
+        $min = self::MIN_FONT_SIZE;
+        $con = self::MIN_CONTRAST;
+        $bm  = self::BACKDROP_MIN_ALPHA;
+
+        return "HARD LIMITS - every option is checked by a program. One broken rule throws the whole option away, so check your own numbers before you answer:\n"
+            . "1. Geometry: every element must lie fully inside the canvas: x >= 0, y >= 0, x + w <= {$cw}, y + h <= {$ch} (at most {$t}px of slack). w and h are at least 4. Do the addition for each element.\n"
+            . '2. Count: between ' . self::MIN_ELEMENTS . ' and ' . self::MAX_ELEMENTS . " elements per option, and at least one property photo (image_1 to image_5).\n"
+            . "3. Font size: fontSize is at least {$min} on every text element (the watermark is exempt). Never write a smaller number.\n"
+            . "4. Contrast: text must reach {$con}:1 against what is directly behind it (its own pill, else the nearest block/shape/gradient under it, else the canvas). "
+            . "A pill (bgColor + bgOpacity), block or gradient stop only counts as 'behind the text' when its opacity is {$bm} or more; use 0.8 or more. "
+            . "A see-through background is checked over BOTH white and black, so light text on a pale or faint overlay fails. Text over a photo with nothing under it fails unless shadowOn is true.\n"
+            . '4b. Colours: only #rgb, #rrggbb, rgb(r,g,b) or rgba(r,g,b,a). No colour names, no hsl(), no 8-digit hex, no url(), var() or gradients written as colours. Canvas colours (canvasBg, canvasBgFrom, canvasBgTo) must be fully opaque.' . "\n"
+            . '5. Words: custom_text and badge need a non-empty "text" of at most ' . self::MAX_TEXT_LEN . ' characters, plain words, no markup. The option "name" is at most ' . self::MAX_NAME_LEN . " characters.\n"
+            . '6. Watermark: opacity at most ' . self::WATERMARK_MAX_OPACITY . ".\n"
+            . '7. Allowed numeric ranges: ' . implode('; ', $ranges) . ".\n"
+            . '8. Allowed words: ' . implode('; ', array_map($enum, array_keys(self::ENUMS))) . '. fontWeight is a string such as "700".' . "\n";
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -325,8 +598,8 @@ final class AdLayoutValidator
         if ($isText && $field !== 'watermark' && $el['fontSize'] < self::MIN_FONT_SIZE) {
             $local[] = "{$tag}: fontSize {$el['fontSize']} is below the minimum of " . self::MIN_FONT_SIZE . '.';
         }
-        if ($field === 'watermark' && $el['opacity'] > 0.15) {
-            $local[] = "{$tag}: a watermark must be faint (opacity at most 0.15).";
+        if ($field === 'watermark' && $el['opacity'] > self::WATERMARK_MAX_OPACITY) {
+            $local[] = "{$tag}: a watermark must be faint (opacity at most " . self::WATERMARK_MAX_OPACITY . ').';
         }
         array_push($errors, ...$local);
 
@@ -404,11 +677,12 @@ final class AdLayoutValidator
     // ─────────────────────────────────────────────────────────────────────
 
     /**
-     * @param array<int, array<string, mixed>> $elements
+     * @param array<int, array<string, mixed>> $elements  Updated in place when $repair fixes a text colour / shadow.
      * @param array<int, string>               $canvasStops
      * @param array<int, string>               $errors
+     * @param array<int, string>               $repairs
      */
-    private function checkContrast(array $elements, array $canvasStops, array &$errors): void
+    private function checkContrast(array &$elements, array $canvasStops, array &$errors, bool $repair, array &$repairs): void
     {
         foreach ($elements as $idx => $el) {
             if (! $this->isTextField($el['field']) || $el['field'] === 'watermark') {
@@ -424,42 +698,111 @@ final class AdLayoutValidator
             $bgStops = $this->backgroundBehind($elements, $idx, $canvasStops);
             if ($bgStops === null) {
                 if (! $el['shadowOn']) {
+                    if ($repair) {
+                        $elements[$idx]['shadowOn'] = true;
+                        $repairs[] = "{$tag}: sat straight on a photo, so a text shadow was switched on.";
+
+                        continue;
+                    }
                     $errors[] = "{$tag}: text sits straight on a photo with nothing behind it to keep it readable — put a gradient/colour block under it, give it a pill background (bgColor + bgOpacity 0.6+), or turn shadowOn on.";
                 }
                 continue;
             }
 
-            foreach ($bgStops as $bgHex) {
-                $bg = $this->parseColor($bgHex);
-                if ($bg === null) {
-                    continue;
+            $failure = $this->contrastFailure($fg, $bgStops);
+            if ($failure === null) {
+                continue;
+            }
+
+            if ($repair && $bgStops !== []) {
+                foreach (['#ffffff', '#000000'] as $candidate) {
+                    $alt = $this->parseColor($candidate);
+                    $alt[3] *= (float) $el['elOpacity'];
+                    if ($this->contrastFailure($alt, $bgStops) === null) {
+                        $repairs[] = "{$tag}: text colour {$el['color']} was too faint against what is behind it, so it was changed to {$candidate}.";
+                        $elements[$idx]['color'] = $candidate;
+                        continue 2;
+                    }
                 }
+            }
+
+            $errors[] = sprintf(
+                '%s: text colour %s on %s%s has contrast %.1f:1 — it must be at least %.1f:1.',
+                $tag, $el['color'], $failure['label'], $failure['where'], $failure['ratio'], self::MIN_CONTRAST
+            );
+        }
+    }
+
+    /**
+     * The first backdrop (over white / over black for see-through ones) the foreground cannot hold
+     * 3:1 against, or null when it holds against all of them.
+     *
+     * @param  array{0:int,1:int,2:int,3:float}                                                        $fg
+     * @param  array<int, array{rgba: array{0:int,1:int,2:int,3:float}, label: string}> $layers
+     * @return array{ratio: float, label: string, where: string}|null
+     */
+    private function contrastFailure(array $fg, array $layers): ?array
+    {
+        foreach ($layers as $layer) {
+            // A see-through backdrop sits on something we cannot see (a photo, another
+            // block), so it must hold up over BOTH white and black, not just its own RGB.
+            foreach ($this->backdropsToTest($layer['rgba']) as $where => $bg) {
                 $ratio = $this->contrast($fg, $bg);
                 if ($ratio < self::MIN_CONTRAST) {
-                    $errors[] = sprintf(
-                        '%s: text colour %s on %s has contrast %.1f:1 — it must be at least %.1f:1.',
-                        $tag, $el['color'], $bgHex, $ratio, self::MIN_CONTRAST
-                    );
-                    break;
+                    return ['ratio' => $ratio, 'label' => $layer['label'], 'where' => $where];
                 }
             }
         }
+
+        return null;
+    }
+
+    /**
+     * The opaque colours a backdrop must be readable against: itself when it is opaque, otherwise
+     * itself composited over white AND over black (the unknown thing underneath).
+     *
+     * @param  array{0:int,1:int,2:int,3:float} $rgba
+     * @return array<string, array{0:int,1:int,2:int,3:float}> keyed by a plain-words suffix for the error
+     */
+    private function backdropsToTest(array $rgba): array
+    {
+        $a = max(0.0, min(1.0, $rgba[3]));
+        if ($a >= 0.999) {
+            return ['' => [$rgba[0], $rgba[1], $rgba[2], 1.0]];
+        }
+
+        $over = static fn (int $under): array => [
+            (int) round($rgba[0] * $a + $under * (1 - $a)),
+            (int) round($rgba[1] * $a + $under * (1 - $a)),
+            (int) round($rgba[2] * $a + $under * (1 - $a)),
+            1.0,
+        ];
+
+        return [
+            ' (see-through, over white)' => $over(255),
+            ' (see-through, over black)' => $over(0),
+        ];
     }
 
     /**
      * What a text element is drawn on top of: its own pill, else the nearest covering
      * block/shape/gradient below it, else the canvas. null = a photo (unknowable).
      *
+     * Each backdrop keeps its real transparency (its colour's own alpha x the element's opacity
+     * settings); checkContrast then tests anything see-through over both white and black.
+     *
      * @param  array<int, array<string, mixed>> $elements
      * @param  array<int, string>               $canvasStops
-     * @return array<int, string>|null  Opaque background colours to test against.
+     * @return array<int, array{rgba: array{0:int,1:int,2:int,3:float}, label: string}>|null
      */
     private function backgroundBehind(array $elements, int $idx, array $canvasStops): ?array
     {
         $el = $elements[$idx];
 
-        if ((float) $el['bgOpacity'] >= 0.5) {
-            return [(string) $el['bgColor']];
+        if ((float) $el['bgOpacity'] >= self::BACKDROP_MIN_ALPHA) {
+            $pill = $this->layer((string) $el['bgColor'], (float) $el['bgOpacity'] * (float) $el['elOpacity']);
+
+            return $pill === null ? [] : [$pill];
         }
 
         $cx = $el['x'] + $el['w'] / 2;
@@ -484,15 +827,17 @@ final class AdLayoutValidator
             }
             $alpha = (float) $o['opacity'] * (float) $o['elOpacity'];
 
-            if (in_array($o['field'], ['color_block', 'shape'], true) && $alpha >= 0.5) {
-                return [(string) $o['bg']];
+            if (in_array($o['field'], ['color_block', 'shape'], true) && $alpha >= self::BACKDROP_MIN_ALPHA) {
+                $block = $this->layer((string) $o['bg'], $alpha);
+
+                return $block === null ? [] : [$block];
             }
             if ($o['field'] === 'gradient') {
                 $stops = [];
                 foreach (['gradFrom', 'gradTo'] as $k) {
-                    $p = $this->parseColor((string) $o[$k]);
-                    if ($p !== null && $p[3] * $alpha >= 0.5) {
-                        $stops[] = (string) $o[$k];
+                    $layer = $this->layer((string) $o[$k], $alpha);
+                    if ($layer !== null && $layer['rgba'][3] >= self::BACKDROP_MIN_ALPHA) {
+                        $stops[] = $layer;
                     }
                 }
                 if ($stops !== []) {
@@ -504,7 +849,32 @@ final class AdLayoutValidator
             }
         }
 
-        return $canvasStops;
+        $canvas = [];
+        foreach ($canvasStops as $stop) {
+            $layer = $this->layer($stop, 1.0);
+            if ($layer !== null) {
+                $canvas[] = $layer;
+            }
+        }
+
+        return $canvas;
+    }
+
+    /**
+     * A colour string plus extra opacity as a backdrop layer: effective alpha = the colour's own
+     * alpha x $extraAlpha. Null for an unreadable colour (already reported elsewhere).
+     *
+     * @return array{rgba: array{0:int,1:int,2:int,3:float}, label: string}|null
+     */
+    private function layer(string $colour, float $extraAlpha): ?array
+    {
+        $c = $this->parseColor($colour);
+        if ($c === null) {
+            return null;
+        }
+        $c[3] = max(0.0, min(1.0, $c[3] * $extraAlpha));
+
+        return ['rgba' => $c, 'label' => $colour];
     }
 
     /** WCAG contrast ratio of a (possibly translucent) foreground over an opaque background. */

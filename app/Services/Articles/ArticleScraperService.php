@@ -4,7 +4,10 @@ namespace App\Services\Articles;
 
 use App\Models\ArticlePool;
 use App\Models\ArticleSource;
+use App\Support\Net\SafeFeedUrl;
 use App\Support\SuburbMapper;
+use App\Support\Text\PlainText;
+use Psr\Http\Message\StreamInterface;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -12,6 +15,14 @@ class ArticleScraperService
 {
     /** Longest slice of a feed's full-text (content:encoded) kept for the Article Library's brief. */
     private const CONTENT_MAX_CHARS = 3000;
+
+    /** A feed bigger than this is refused (read stops at the cap), whatever the server claims. */
+    public const MAX_FEED_BYTES = 2 * 1024 * 1024;
+
+    /** Redirects followed by hand, each hop re-checked by SafeFeedUrl. */
+    public const MAX_REDIRECTS = 3;
+
+    private const FETCH_DEADLINE_SECS = 30;
 
     private const CONTENT_NS = 'http://purl.org/rss/1.0/modules/content/';
 
@@ -85,13 +96,7 @@ class ArticleScraperService
     public function fetchSource(ArticleSource $source): array
     {
         try {
-            $response = Http::timeout(15)->connectTimeout(10)->get($source->url);
-
-            if (!$response->successful()) {
-                throw new \RuntimeException("HTTP {$response->status()} fetching {$source->url}");
-            }
-
-            $items = $this->parseAndStore($source->name, $response->body());
+            $items = $this->parseAndStore($source->name, $this->fetchFeedBody($source->url));
         } catch (\Throwable $e) {
             $source->forceFill([
                 'last_run_at' => now(),
@@ -111,6 +116,96 @@ class ArticleScraperService
         usort($items, fn ($a, $b) => ($b['published_at']?->getTimestamp() ?? 0) <=> ($a['published_at']?->getTimestamp() ?? 0));
 
         return $items;
+    }
+
+    /**
+     * Fetch a feed's body safely: the address is checked (SafeFeedUrl — public hosts only, ports
+     * 80/443, every resolved IP public) before the request and again on each redirect hop; redirects
+     * are followed by hand, at most MAX_REDIRECTS; the connection is pinned to the IP that was
+     * checked (no second DNS lookup to swap); and reading stops at MAX_FEED_BYTES.
+     *
+     * @throws \RuntimeException with a plain-words reason.
+     */
+    private function fetchFeedBody(string $url): string
+    {
+        $guard   = app(SafeFeedUrl::class);
+        $current = $url;
+
+        for ($hop = 0; $hop <= self::MAX_REDIRECTS; $hop++) {
+            $check = $guard->inspect($current);
+            if (! $check['ok']) {
+                throw new \RuntimeException(($hop === 0 ? '' : 'A redirect led somewhere not allowed. ') . $check['error']);
+            }
+
+            $options = ['stream' => true];
+            if (! $check['literal']) {
+                // Connect to exactly the address that was just checked.
+                $options['curl'] = [CURLOPT_RESOLVE => ["{$check['host']}:{$check['port']}:{$check['ips'][0]}"]];
+            }
+
+            $response = Http::timeout(15)->connectTimeout(10)->withoutRedirecting()->withOptions($options)->get($current);
+
+            if (in_array($response->status(), [301, 302, 303, 307, 308], true)) {
+                $location = trim($response->header('Location'));
+                if ($location === '') {
+                    throw new \RuntimeException('The feed redirected without saying where.');
+                }
+                $current = $this->absoluteUrl($current, $location);
+
+                continue;
+            }
+
+            if (! $response->successful()) {
+                throw new \RuntimeException("The feed address answered with an error (HTTP {$response->status()}).");
+            }
+
+            return $this->readCapped($response->toPsrResponse()->getBody(), (int) $response->header('Content-Length'));
+        }
+
+        throw new \RuntimeException('The feed redirected too many times (more than ' . self::MAX_REDIRECTS . ').');
+    }
+
+    private function readCapped(StreamInterface $body, int $declaredLength): string
+    {
+        $tooBig = 'The feed is too large to read (over ' . (self::MAX_FEED_BYTES / 1024 / 1024) . ' MB).';
+        if ($declaredLength > self::MAX_FEED_BYTES) {
+            throw new \RuntimeException($tooBig);
+        }
+
+        $deadline = microtime(true) + self::FETCH_DEADLINE_SECS;
+        $out      = '';
+        while (! $body->eof()) {
+            $out .= $body->read(8192);
+            if (strlen($out) > self::MAX_FEED_BYTES) {
+                throw new \RuntimeException($tooBig);
+            }
+            if (microtime(true) > $deadline) {
+                throw new \RuntimeException('The feed took too long to download.');
+            }
+        }
+        // The stream is released when the response goes out of scope.
+
+        return $out;
+    }
+
+    /** Resolve a Location header (absolute, scheme-relative, root-relative or relative) against the URL it came from. */
+    private function absoluteUrl(string $base, string $location): string
+    {
+        if (preg_match('#^https?://#i', $location) === 1) {
+            return $location;
+        }
+        $p = parse_url($base) ?: [];
+        $origin = ($p['scheme'] ?? 'http') . '://' . ($p['host'] ?? '') . (isset($p['port']) ? ':' . $p['port'] : '');
+
+        if (str_starts_with($location, '//')) {
+            return ($p['scheme'] ?? 'http') . ':' . $location;
+        }
+        if (str_starts_with($location, '/')) {
+            return $origin . $location;
+        }
+        $dir = isset($p['path']) ? preg_replace('#/[^/]*$#', '/', $p['path']) : '/';
+
+        return $origin . $dir . $location;
     }
 
     /**
@@ -142,7 +237,7 @@ class ArticleScraperService
         $found = [];
 
         foreach ($items as $item) {
-            $title       = $this->extractText($item, 'title');
+            $title       = trim(preg_replace('/\s+/', ' ', PlainText::strip($this->extractText($item, 'title'))) ?? '');
             $link        = $this->extractLink($item);
             $description = $this->extractText($item, 'description');
             $pubDate     = $this->extractText($item, 'pubDate')
@@ -209,7 +304,7 @@ class ArticleScraperService
             return '';
         }
 
-        $text = html_entity_decode(strip_tags((string) $content->encoded), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = PlainText::strip((string) $content->encoded);
         $text = trim(preg_replace('/\s+/', ' ', $text) ?? $text);
 
         return mb_substr($text, 0, self::CONTENT_MAX_CHARS);
@@ -257,11 +352,8 @@ class ArticleScraperService
             return '';
         }
 
-        // Strip HTML
-        $clean = strip_tags($text);
-
-        // Decode entities
-        $clean = html_entity_decode($clean, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        // Decode entities and strip HTML until stable (an encoded tag must not survive as a literal one)
+        $clean = PlainText::strip($text);
 
         // Collapse whitespace
         $clean = preg_replace('/\s+/', ' ', $clean) ?? $clean;

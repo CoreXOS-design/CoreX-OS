@@ -17,7 +17,9 @@ use App\Services\AI\AiSpendGuard;
 use App\Services\AI\AnthropicGateway;
 use App\Services\AI\DTOs\NarrativeRequest;
 use Carbon\Carbon;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -59,6 +61,12 @@ final class AiTemplateBuilderService
     private const RETRY_BUDGET_SECS = 120;
     /** A pending row older than this is a crashed request, not a generation in flight. */
     private const PENDING_STALE_MIN = 10;
+    /** The allowance check + the pending row it reserves happen under this lock (seconds to wait / hold). */
+    private const ALLOWANCE_LOCK_WAIT_SECS = 3;
+    private const ALLOWANCE_LOCK_HOLD_SECS = 20;
+    /** Anthropic rejects images over 8000 px a side and recommends staying at or under ~1568 px. */
+    public const REFERENCE_HARD_MAX_PX = 8000;
+    public const REFERENCE_SEND_MAX_PX = 1568;
 
     public function __construct(
         private readonly AnthropicGateway $gateway,
@@ -131,21 +139,19 @@ final class AiTemplateBuilderService
         // 1. Paused agency → refused here, before any row, file or HTTP call.
         $this->spendGuard->assertAllowed($agencyId);
 
-        // 2. Monthly allowance.
-        $usage = $this->usage($agencyId);
-        if ($usage['remaining'] <= 0) {
-            throw new AiTemplateLimitReachedException($usage['limit'], $usage['resets_at']);
-        }
-
-        $generation = AiTemplateGeneration::create([
-            'agency_id'            => $agencyId,
-            'user_id'              => $user->id,
-            'idea'                 => $idea,
-            'ad_size'              => $sizeKey,
-            'property_type'        => $propertyType !== null && trim($propertyType) !== '' ? mb_substr(trim($propertyType), 0, 100) : null,
-            'reference_image_path' => $reference ? $this->storeReference($reference, $agencyId) : null,
-            'status'               => AiTemplateGeneration::STATUS_PENDING,
-        ]);
+        // 2. Monthly allowance — checked AND reserved (the pending row counts as used) under one
+        //    per-agency lock, so two parallel requests at "1 left" cannot both pass the check.
+        $generation = $this->reserveAllowance($agencyId, function () use ($user, $idea, $sizeKey, $propertyType, $reference, $agencyId) {
+            return AiTemplateGeneration::create([
+                'agency_id'            => $agencyId,
+                'user_id'              => $user->id,
+                'idea'                 => $idea,
+                'ad_size'              => $sizeKey,
+                'property_type'        => $propertyType !== null && trim($propertyType) !== '' ? mb_substr(trim($propertyType), 0, 100) : null,
+                'reference_image_path' => $reference ? $this->storeReference($reference, $agencyId) : null,
+                'status'               => AiTemplateGeneration::STATUS_PENDING,
+            ]);
+        });
 
         @set_time_limit(280);
 
@@ -168,6 +174,38 @@ final class AiTemplateBuilderService
         }
 
         return $generation->refresh();
+    }
+
+    /**
+     * Check the month's allowance and create the pending row that reserves one unit, atomically
+     * per agency. The lock is released before the (slow) model call — the pending row is what
+     * keeps the slot taken from then on.
+     *
+     * @param callable(): AiTemplateGeneration $create
+     *
+     * @throws AiTemplateLimitReachedException     The month's allowance is spent.
+     * @throws AiTemplateGenerationFailedException Another request for this agency held the lock too long.
+     */
+    private function reserveAllowance(int $agencyId, callable $create): AiTemplateGeneration
+    {
+        $lock = Cache::lock('ai-template-allowance:' . $agencyId, self::ALLOWANCE_LOCK_HOLD_SECS);
+
+        try {
+            $lock->block(self::ALLOWANCE_LOCK_WAIT_SECS);
+        } catch (LockTimeoutException) {
+            throw new AiTemplateGenerationFailedException('Another template request for your agency is just being set up. Please wait a moment and try again.');
+        }
+
+        try {
+            $usage = $this->usage($agencyId);
+            if ($usage['remaining'] <= 0) {
+                throw new AiTemplateLimitReachedException($usage['limit'], $usage['resets_at']);
+            }
+
+            return $create();
+        } finally {
+            $lock->release();
+        }
     }
 
     /**
@@ -257,6 +295,7 @@ final class AiTemplateBuilderService
         $errors  = [];
         $cost    = 0.0;
         $lastErr = null;
+        $log     = [];
 
         for ($attempt = 1; $attempt <= 2; $attempt++) {
             $missing = self::OPTIONS - count($valid);
@@ -285,6 +324,8 @@ final class AiTemplateBuilderService
             $items   = is_array($decoded) ? ($decoded['options'] ?? null) : null;
             if (! is_array($items) || ! array_is_list($items)) {
                 $errors = ['The answer was not a JSON object with an "options" list.'];
+                $log[]  = ['attempt' => $attempt, 'option' => null, 'name' => null, 'outcome' => 'rejected', 'repairs' => [], 'errors' => $errors];
+                Log::warning('AiTemplateBuilder: answer was not usable JSON', ['generation' => $generation->id, 'attempt' => $attempt]);
                 continue;
             }
 
@@ -293,18 +334,38 @@ final class AiTemplateBuilderService
                 if (count($valid) >= self::OPTIONS) {
                     break;
                 }
-                $result = $this->validator->validate(is_array($item) ? $item : [], $generation->ad_size);
+                // Repair what can be fixed without weakening a rule; reject the rest and say exactly which rule.
+                $result = $this->validator->validateAndRepair(is_array($item) ? $item : [], $generation->ad_size);
+                $entry  = [
+                    'attempt' => $attempt,
+                    'option'  => $n + 1,
+                    'name'    => $result['name'],
+                    'outcome' => $result['ok'] ? ($result['repairs'] === [] ? 'accepted' : 'repaired') : 'rejected',
+                    'repairs' => array_slice($result['repairs'], 0, 20),
+                    'errors'  => array_slice($result['errors'], 0, 20),
+                ];
+                $log[] = $entry;
+
                 if ($result['ok']) {
                     $valid[] = ['name' => $result['name'], 'layout' => $result['layout']];
+                    Log::info('AiTemplateBuilder: option ' . $entry['outcome'], ['generation' => $generation->id] + $entry);
                 } else {
                     foreach ($result['errors'] as $err) {
                         $errors[] = 'Option ' . ($n + 1) . ': ' . $err;
                     }
+                    Log::warning('AiTemplateBuilder: option rejected by the validator', ['generation' => $generation->id] + $entry);
                 }
             }
         }
 
-        $generation->cost_zar = round($cost, 4);
+        if (count($valid) < self::OPTIONS) {
+            Log::warning('AiTemplateBuilder: finished short of ' . self::OPTIONS . ' options', [
+                'generation' => $generation->id, 'valid' => count($valid), 'rejections' => array_values(array_filter($log, fn ($e) => $e['outcome'] === 'rejected')),
+            ]);
+        }
+
+        $generation->validation_log_json = array_slice($log, 0, 40);
+        $generation->cost_zar            = round($cost, 4);
 
         if ($valid === []) {
             $generation->save();
@@ -360,7 +421,7 @@ final class AiTemplateBuilderService
             agencyId:        $agencyId,
             fallbackData:    null,
             forceRefresh:    true,
-            promptVersion:   'at456b-v1',
+            promptVersion:   'at456b-v2',
             documents:       $documents,
             source:          AiUsageEvent::SOURCE_AD_TEMPLATE,
             timeoutSeconds:  self::CALL_TIMEOUT_SECS,
@@ -369,6 +430,7 @@ final class AiTemplateBuilderService
 
     private function systemPrompt(int $agencyId, int $w, int $h): string
     {
+        $limits    = $this->validator->promptLimits($w, $h);
         $catalogue = '';
         foreach (AdLayoutValidator::FIELDS as $type => $meta) {
             $catalogue .= "- {$type}: {$meta['help']}\n";
@@ -385,19 +447,19 @@ CANVAS: {$w} x {$h} pixels, origin top-left. Every element must sit completely i
 
 ELEMENTS: each is an object with "field" (one of the types below) and "x","y","w","h" in pixels. Use ONLY these types:
 {$catalogue}
-OPTIONAL PROPERTIES (use only what you need): zIndex (1-100, higher draws on top), rotation, fontFamily (Figtree, Inter, Poppins, Montserrat, Oswald, Bebas Neue, Playfair Display, Lora), fontSize, fontWeight ("400"-"900", a string), color, textAlign (left/center/right), verticalAlign (top/middle/bottom), textTransform (none/uppercase/capitalize), letterSpacing (em, -0.05 to 0.3), lineHeight, padding, bgColor + bgOpacity (a pill behind text, 0-1), bg (colour of shape/color_block), opacity (0-1, for shape/color_block/gradient/watermark), gradFrom/gradTo/gradAngle (gradient), shapeType (rectangle, rounded, circle, pill, triangle, diamond, pentagon, hexagon, star, chevron), borderRadius, objectFit (cover/contain, images), borderWidth (line thickness), shadowOn (true/false, text shadow), icon (bed, bath, garage, parking, ruler, house, pin, key, pool, tree, door, tag - only on beds/baths/garages/parking) with numberFormat "label" to print e.g. "3 Bedrooms".
-Colours are "#rrggbb" or "rgba(r,g,b,a)" only. "text" is required on custom_text and badge (max 80 characters, plain words, no markup).
+OPTIONAL PROPERTIES (use only what you need): zIndex (higher draws on top), rotation, fontFamily, fontSize, fontWeight, color, textAlign, verticalAlign, textTransform, letterSpacing (em), lineHeight, padding, bgColor + bgOpacity (a pill behind text), bg (colour of shape/color_block), opacity (for shape/color_block/gradient/watermark), gradFrom/gradTo/gradAngle (gradient), shapeType, borderRadius, objectFit (images), borderWidth (line thickness), shadowOn (true/false, text shadow), icon (only on beds/baths/garages/parking) with numberFormat "label" to print e.g. "3 Bedrooms". The allowed values and ranges are in HARD LIMITS below.
 
 DESIGN RULES
 1. Include at least one property photo (image_1 to image_5), usually big. Photos are cropped to their box, so give them sensible proportions.
 2. Real values are filled in later. Leave room: a price such as "R 12 500 000" needs about 14 characters of width, a title up to 40 characters, an address up to 50.
-3. Every text element needs fontSize of at least 16 (headline 28+, price 40+ looks best). Text must be easy to read on a phone.
-4. Contrast: put a gradient or colour block under any text that sits on a photo, or give the text a pill (bgColor + bgOpacity 0.6 or more) - text straight on a photo is rejected unless shadowOn is true. Text colour must contrast with what is behind it (at least 3:1).
+3. Headlines look best at 28+ and the price at 40+; text must be easy to read on a phone (minimum size is in HARD LIMITS).
+4. Put a gradient or colour block under any text that sits on a photo, or give the text a pill - text straight on a photo is rejected unless shadowOn is true. Contrast rules are in HARD LIMITS.
 5. Stacking: photos at the bottom, scrims above them, text and badges on top, using zIndex.
 6. Agent details (agent_name, agent_phone, agent_avatar) and the agency (agency_name, logo or agency_logo, website) belong on a good property ad - include the ones that fit the idea.
-7. Give each option a clearly DIFFERENT layout and mood so the user has a real choice. Keep each option under 25 elements.
+7. Give each option a clearly DIFFERENT layout and mood so the user has a real choice. Aim for 8 to 14 elements per option.
 8. Do not invent facts (no prices, addresses, phone numbers or awards in custom_text). Short generic labels like "JUST LISTED" or "OPEN HOUSE" are fine.
 
+{$limits}
 {$this->brandBlock($agencyId)}
 PROMPT;
     }
@@ -444,19 +506,83 @@ PROMPT;
             return null;
         }
 
+        $bytes = (string) Storage::disk(self::REFERENCE_DISK)->get($path);
+        // The media type is what the bytes ARE, never what the file was called: a JPEG named
+        // .png would otherwise be rejected by the AI service.
+        $type = $this->sniffType($bytes);
+        if ($type === null) {
+            return null;
+        }
+
         return [
             'type'       => 'image',
-            'media_type' => str_ends_with(strtolower($path), '.png') ? 'image/png' : 'image/jpeg',
-            'data'       => base64_encode((string) Storage::disk(self::REFERENCE_DISK)->get($path)),
+            'media_type' => $type,
+            'data'       => base64_encode($bytes),
         ];
     }
 
-    /** Store the upload on the PRIVATE disk under a random name; never the public disk. */
+    /** 'image/jpeg' / 'image/png' from the actual bytes, or null for anything else. */
+    private function sniffType(string $bytes): ?string
+    {
+        $info = @getimagesizefromstring($bytes);
+        $mime = is_array($info) ? ($info['mime'] ?? null) : null;
+
+        return in_array($mime, ['image/jpeg', 'image/png'], true) ? $mime : null;
+    }
+
+    /**
+     * Store the upload on the PRIVATE disk under a random name; never the public disk.
+     * Extension and media type come from the image itself. An image too large for the AI service
+     * is refused in plain words (over 8000 px a side) or scaled down (over 1568 px) before storing.
+     */
     private function storeReference(UploadedFile $file, int $agencyId): string
     {
-        $ext = strtolower((string) $file->getClientOriginalExtension()) === 'png' || $file->getMimeType() === 'image/png' ? 'png' : 'jpg';
+        $bytes = (string) @file_get_contents($file->getRealPath());
+        $info  = @getimagesizefromstring($bytes);
+        $mime  = is_array($info) ? ($info['mime'] ?? null) : null;
+        if (! is_array($info) || ! in_array($mime, ['image/jpeg', 'image/png'], true)) {
+            throw new AiTemplateGenerationFailedException('The reference image must be a JPG or PNG picture.');
+        }
 
-        return $file->storeAs(self::REFERENCE_DIR . '/' . $agencyId, Str::uuid()->toString() . '.' . $ext, self::REFERENCE_DISK);
+        [$w, $h] = [(int) $info[0], (int) $info[1]];
+        if (max($w, $h) > self::REFERENCE_HARD_MAX_PX) {
+            throw new AiTemplateGenerationFailedException(
+                'That reference image is too large in pixels (over ' . self::REFERENCE_HARD_MAX_PX . ' wide or tall). Please use a smaller version of the picture.'
+            );
+        }
+        if (max($w, $h) > self::REFERENCE_SEND_MAX_PX) {
+            $bytes = $this->downscale($bytes, $mime, $w, $h) ?? $bytes;
+        }
+
+        $path = self::REFERENCE_DIR . '/' . $agencyId . '/' . Str::uuid()->toString() . '.' . ($mime === 'image/png' ? 'png' : 'jpg');
+        Storage::disk(self::REFERENCE_DISK)->put($path, $bytes);
+
+        return $path;
+    }
+
+    /** Scale so the longer side is REFERENCE_SEND_MAX_PX; null if GD cannot do it (the original is kept). */
+    private function downscale(string $bytes, string $mime, int $w, int $h): ?string
+    {
+        if (! function_exists('imagecreatefromstring') || ! function_exists('imagescale')) {
+            return null;
+        }
+
+        $src = @imagecreatefromstring($bytes);
+        if ($src === false) {
+            return null;
+        }
+
+        $ratio  = self::REFERENCE_SEND_MAX_PX / max($w, $h);
+        $scaled = imagescale($src, max(1, (int) round($w * $ratio)), max(1, (int) round($h * $ratio)));
+        if ($scaled === false) {
+            return null;
+        }
+
+        ob_start();
+        $mime === 'image/png' ? imagepng($scaled) : imagejpeg($scaled, null, 88);
+        $out = (string) ob_get_clean();
+
+        return $out !== '' ? $out : null;
     }
 
     private function markFailed(AiTemplateGeneration $generation, string $reason): void

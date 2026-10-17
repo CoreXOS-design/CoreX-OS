@@ -344,10 +344,13 @@ function aiTemplatePanel(cfg) {
             } catch (e) {
                 const data = (e && e.data && typeof e.data === 'object') ? e.data : null;
                 if (data && data.usage) this.usage = data.usage;
-                if (data) {
+                if (e && e.status === 429 && !(data && data.usage)) {
+                    // The request throttle's own "Too Many Attempts." (no usage payload). The monthly-limit 429 carries usage + its own message and is shown below.
+                    this.error = 'You are going a little fast — wait a minute and try again.';
+                } else if (data) {
                     this.error = data.message
                         || (data.errors ? Object.values(data.errors).flat().join(' ') : '')
-                        || (e.status === 429 ? 'You are going a little fast — wait a minute and try again.' : 'Something went wrong. Nothing was counted — please try again.');
+                        || 'Something went wrong. Nothing was counted — please try again.';
                 } else if (e && e.status) {
                     this.error = e.status === 429 ? 'You are going a little fast — wait a minute and try again.' : 'Something went wrong. Nothing was counted — please try again.';
                 } else {

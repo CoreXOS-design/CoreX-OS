@@ -9,6 +9,7 @@ use App\Models\ArticleSource;
 use App\Models\DevSetting;
 use App\Models\LibraryArticle;
 use App\Services\Articles\ArticleLibraryService;
+use App\Support\Net\SafeFeedUrl;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -292,7 +293,15 @@ class ArticleLibraryController extends Controller
         return [
             'name' => ['required', 'string', 'max:120'],
             // unique across archived rows too (no deleted_at filter) — the same link twice would just double-fetch.
-            'url'  => ['required', 'string', 'max:500', 'url:http,https', Rule::unique('article_sources', 'url')->ignore($ignoreId)],
+            'url'  => ['required', 'string', 'max:500', 'url:http,https', Rule::unique('article_sources', 'url')->ignore($ignoreId),
+                // Same check the fetch makes (public hosts only, normal ports) — see SafeFeedUrl.
+                function (string $attribute, mixed $value, \Closure $fail) {
+                    $problem = app(SafeFeedUrl::class)->error((string) $value);
+                    if ($problem !== null) {
+                        $fail($problem);
+                    }
+                },
+            ],
         ];
     }
 

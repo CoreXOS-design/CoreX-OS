@@ -29,12 +29,13 @@ class AiTemplateGeneration extends Model
     protected $fillable = [
         'agency_id', 'user_id', 'idea', 'ad_size', 'property_type',
         'reference_image_path', 'reference_image_purged_at',
-        'status', 'failure_reason', 'cost_zar', 'options_json', 'saved_template_ids',
+        'status', 'failure_reason', 'cost_zar', 'options_json', 'validation_log_json', 'saved_template_ids',
     ];
 
     protected $casts = [
         'cost_zar'                  => 'decimal:4',
         'options_json'              => 'array',
+        'validation_log_json'       => 'array',
         'saved_template_ids'        => 'array',
         'reference_image_purged_at' => 'datetime',
     ];

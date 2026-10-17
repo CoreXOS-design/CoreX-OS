@@ -33,6 +33,15 @@ class ArticleSource extends Model
         'last_new_articles' => 'integer',
     ];
 
+    protected static function booted(): void
+    {
+        // Archiving/restoring a source shows/hides its articles to agencies — the tag filter list follows.
+        $forget = static fn () => LibraryArticle::forgetVisibleTags();
+        static::saved($forget);
+        static::deleted($forget);
+        static::restored($forget);
+    }
+
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');

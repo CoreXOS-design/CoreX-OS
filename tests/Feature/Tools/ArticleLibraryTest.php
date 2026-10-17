@@ -18,6 +18,7 @@ use App\Services\AI\AiSpendGuard;
 use App\Services\Articles\ArticleLibraryService;
 use App\Services\Articles\ArticleScraperService;
 use App\Services\PermissionService;
+use App\Support\Net\SafeFeedUrl;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -47,6 +48,8 @@ final class ArticleLibraryTest extends TestCase
         config()->set('services.anthropic.key', 'test-key');
         config()->set('services.anthropic.api_key', 'test-key');
         config()->set('services.anthropic.enabled', true);
+        // Feed hosts in these tests (feeds.test …) do not exist in DNS: every name resolves to one public address.
+        $this->app->instance(SafeFeedUrl::class, new SafeFeedUrl(fn () => ['93.184.216.34']));
         Cache::flush();
     }
 
@@ -257,7 +260,8 @@ final class ArticleLibraryTest extends TestCase
         $a = LibraryArticle::sole();
         $this->assertStringNotContainsString('<', $a->body);
         $this->assertStringNotContainsString('<', $a->title);
-        $this->assertStringNotContainsString('alert', $a->body);
+        $this->assertStringNotContainsString('onclick', $a->body);
+        $this->assertStringContainsString('Heading', $a->body);
     }
 
     public function test_a_source_that_fails_to_load_is_recorded_and_the_others_still_run(): void
@@ -435,7 +439,9 @@ final class ArticleLibraryTest extends TestCase
         $this->assertSame($expected, ArticleSource::orderBy('id')->pluck('url', 'name')->all());
         $this->assertSame(5, ArticleSource::where('is_active', true)->count());
 
-        Http::fake(['*' => Http::response($this->feed([['A story', 'https://news.test/p', 'Snippet about a house.']]), 200)]);
+        // A callback, so each feed gets a fresh body stream (a shared Response is read to its end by the first feed).
+        $body = $this->feed([['A story', 'https://news.test/p', 'Snippet about a house.']]);
+        Http::fake(['*' => fn () => Http::response($body, 200)]);
 
         $stats = (new ArticleScraperService())->scrapeAll();
 
@@ -969,7 +975,7 @@ final class ArticleLibraryTest extends TestCase
                 $para = rtrim(str_repeat('word ', intdiv($words, 2)));
                 $brief = $para . "\n\n" . $para;
                 if ($injectHtml) {
-                    $brief = '<script>alert(1)</script>' . $brief;
+                    $brief = '<p onclick="x()"><b>Heading</b></p>' . $brief; // a <script> brief is rejected outright (see ArticleLibraryAuditFixesTest)
                 }
 
                 return Http::response([

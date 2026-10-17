@@ -104,7 +104,7 @@ final class AiTemplateBuilderTest extends TestCase
     {
         [$agency, $user] = $this->agencyWithUser();
         $bad = $this->validOption('Bad');
-        $bad['elements'][3]['fontSize'] = 6; // below the minimum
+        $bad['elements'][3]['color'] = 'url(http://evil.test/x.png)'; // a safety rule (a font that is too small is now repaired, not dropped)
         $fake = $this->fakeAi([[$bad, $bad, $bad], [$bad, $bad, $bad]]);
         $this->actingAs($user);
 
@@ -120,7 +120,7 @@ final class AiTemplateBuilderTest extends TestCase
         $row = AiTemplateGeneration::sole();
         $this->assertSame(AiTemplateGeneration::STATUS_FAILED, $row->status);
         // The retry told the model exactly what was wrong.
-        $this->assertStringContainsString('below the minimum', json_encode($fake->requestBody(1)));
+        $this->assertStringContainsString('not a valid colour', json_encode($fake->requestBody(1)));
     }
 
     public function test_a_bad_first_answer_followed_by_a_good_retry_succeeds_and_counts_once(): void

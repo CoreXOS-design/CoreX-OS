@@ -7,6 +7,7 @@ namespace App\Services\Articles;
 use App\Exceptions\AI\AiPausedException;
 use App\Exceptions\AI\InvalidNarrativeRequestException;
 use App\Exceptions\AI\NarrativeGenerationException;
+use App\Exceptions\Articles\BriefRejectedException;
 use App\Models\AI\AiUsageEvent;
 use App\Models\ArticleSource;
 use App\Models\DevSetting;
@@ -14,6 +15,7 @@ use App\Models\LibraryArticle;
 use App\Services\AI\AiSpendGuard;
 use App\Services\AI\AnthropicGateway;
 use App\Services\AI\DTOs\NarrativeRequest;
+use App\Support\Text\PlainText;
 use Carbon\Carbon;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Cache;
@@ -246,7 +248,17 @@ final class ArticleLibraryService
                 $article = $this->writeBrief($item);
             } catch (AiPausedException $e) {
                 return $this->paused($result, $sources, $e, $createdBySource);
+            } catch (BriefRejectedException $e) {
+                // The item itself produced an unusable brief (length, empty, unsafe) — paid for once,
+                // remembered like an irrelevant item so it is not paid for again every run.
+                $result['failed']++;
+                $result['errors'][] = Str::limit($item['title'], 60) . ': ' . $e->getMessage();
+                Log::warning('ArticleLibraryService: brief rejected', ['url' => $item['url'], 'error' => $e->getMessage()]);
+                $this->remember($item['hash']);
+
+                continue;
             } catch (Throwable $e) {
+                // Transient (API / network / unreadable answer): NOT remembered — the next run tries again.
                 $result['failed']++;
                 $result['errors'][] = Str::limit($item['title'], 60) . ': ' . $this->errorText($e);
                 Log::warning('ArticleLibraryService: brief failed', ['url' => $item['url'], 'error' => $e->getMessage()]);
@@ -426,15 +438,21 @@ final class ArticleLibraryService
             return null;
         }
 
-        $brief = $this->plainText((string) ($json['brief'] ?? ''), true);
+        $rawBrief = (string) ($json['brief'] ?? '');
+        if (preg_match('/<\s*(script|iframe|object|embed)\b/i', html_entity_decode($rawBrief, ENT_QUOTES | ENT_HTML5, 'UTF-8')) === 1) {
+            throw new BriefRejectedException('the brief contained web-page code, so it was thrown away');
+        }
+        $brief = $this->plainText($rawBrief, true);
         $words = str_word_count($brief);
         if ($words < self::BRIEF_MIN_WORDS || $words > self::BRIEF_MAX_WORDS) {
-            throw new \RuntimeException("the brief came back {$words} words long (expected about 150-250)");
+            throw new BriefRejectedException($words === 0
+                ? 'the brief came back empty'
+                : "the brief came back {$words} words long (expected about 150-250)");
         }
 
         $title = Str::limit($this->plainText((string) ($json['title'] ?? '')), 255, '');
         if ($title === '') {
-            $title = Str::limit($item['title'], 255, '');
+            $title = Str::limit($this->plainText((string) $item['title']), 255, '');
         }
 
         try {
@@ -551,9 +569,8 @@ final class ArticleLibraryService
     /** Plain text only: tags stripped, entities decoded, whitespace tidied (paragraph breaks kept when asked). */
     private function plainText(string $text, bool $keepParagraphs = false): string
     {
-        // Script/style blocks go with their contents — strip_tags alone would leave the code as text.
-        $text = preg_replace('#<(script|style)\b[^>]*>.*?</\1\s*>#is', '', $text) ?? $text;
-        $text = html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        // Decode, then strip, until stable — an encoded tag (&lt;script&gt;) must not survive as a literal one.
+        $text = PlainText::strip($text);
         // No markdown emphasis or heading marks leaking into an article.
         $text = preg_replace('/^[#>\s]*#{1,6}\s+/m', '', $text) ?? $text;
         $text = str_replace(['**', '__'], '', $text);
@@ -580,7 +597,7 @@ final class ArticleLibraryService
             if (! is_string($tag)) {
                 continue;
             }
-            $t = mb_strtolower(trim(ltrim(trim(strip_tags($tag)), '#')));
+            $t = mb_strtolower(trim(ltrim(trim(PlainText::strip($tag)), '#')));
             if (mb_strlen($t) >= 2 && mb_strlen($t) <= 30) {
                 $out[$t] = $t;
             }
