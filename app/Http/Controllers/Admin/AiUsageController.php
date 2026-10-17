@@ -304,6 +304,7 @@ class AiUsageController extends Controller
         'status'      => 'status',
         'template_gens'   => 'template_used',
         'templates_saved' => 'templates_saved',
+        'library_used'    => 'library_used',
     ];
 
     private const STATUSES = [
@@ -344,10 +345,18 @@ class AiUsageController extends Controller
             ->selectRaw('agency_id, COUNT(*) AS n')
             ->pluck('n', 'agency_id');
 
+        // AT-456 Part C — library articles each agency's people have used ("Use this" copies, deleted
+        // copies included: it measures what the library gave them, not what is still in their drafts).
+        $libraryUsed = DB::table('agent_articles')
+            ->whereNotNull('library_article_id')
+            ->groupBy('agency_id')
+            ->selectRaw('agency_id, COUNT(*) AS n')
+            ->pluck('n', 'agency_id');
+
         $rows = Agency::query()
             ->when($search !== '', fn ($q) => $q->where('name', 'like', '%' . $search . '%'))
             ->get()
-            ->map(function (Agency $a) use ($monthSpend, $templateUsed, $templateSaved) {
+            ->map(function (Agency $a) use ($monthSpend, $templateUsed, $templateSaved, $libraryUsed) {
                 $snap = $this->spendGuard->snapshot($a);
 
                 return [
@@ -360,6 +369,7 @@ class AiUsageController extends Controller
                     'template_used'  => (int) ($templateUsed[$a->id] ?? 0),
                     'template_limit' => $a->ai_template_monthly_limit === null ? AiTemplateBuilderService::DEFAULT_LIMIT : (int) $a->ai_template_monthly_limit,
                     'templates_saved' => (int) ($templateSaved[$a->id] ?? 0),
+                    'library_used'  => (int) ($libraryUsed[$a->id] ?? 0),
                     'status'        => $snap['status'],
                     'paused_at'     => $a->ai_paused_at,
                     'paused_reason' => $a->ai_paused_reason,

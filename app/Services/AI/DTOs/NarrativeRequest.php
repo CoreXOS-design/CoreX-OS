@@ -60,6 +60,12 @@ final class NarrativeRequest
      * @param int|null $timeoutSeconds  Per-request HTTP timeout override. Null = the
      *                                  config default (30s) — fine for a short brief, too
      *                                  short for a multi-layout generation.
+     * @param bool    $system           AT-456 Part C — platform (system-bucket) call. The spend is
+     *                                  ALWAYS guarded and recorded as agency NULL, never resolved
+     *                                  from the signed-in user. Without it a null $agencyId means
+     *                                  "use the signed-in user's agency", which would charge an
+     *                                  owner pressing Run now to their own agency. Default false
+     *                                  leaves every existing caller unchanged.
      */
     public function __construct(
         public readonly string $narrativeType,
@@ -78,6 +84,7 @@ final class NarrativeRequest
         public readonly array $documents = [],
         public readonly string $source = \App\Models\AI\AiUsageEvent::SOURCE_MIC_NARRATIVE,
         public readonly ?int $timeoutSeconds = null,
+        public readonly bool $system = false,
     ) {}
 
     /**

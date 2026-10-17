@@ -114,7 +114,7 @@ final class AnthropicGateway
         // → no spend. Cache hits above still serve: they cost nothing. With a
         // fallback the surface degrades to its templated text; without one the
         // caller gets the plain "AI is paused" message.
-        $bucket = $this->spendGuard->resolveAgencyId($request->agencyId);
+        $bucket = $this->spendGuard->resolveAgencyId($request->agencyId, $request->system);
         if ($this->spendGuard->isPaused($bucket)) {
             if ($request->fallbackData === null || !isset($request->fallbackData['text'])) {
                 throw new AiPausedException($bucket);
@@ -201,6 +201,7 @@ final class AnthropicGateway
             promptVersion:    $request->promptVersion,
             source:           $request->source,
             timeoutSeconds:   $request->timeoutSeconds,
+            system:           $request->system,
         );
 
         $response = $this->generate($augmented);
@@ -374,6 +375,7 @@ final class AnthropicGateway
             outputTokens: $outputTokens,
             agencyId:     $request->agencyId,
             surfaceRef:   $request->cacheKey,
+            system:       $request->system,
         );
 
         return new NarrativeResponse(
@@ -477,6 +479,7 @@ final class AnthropicGateway
             agencyId:     $request->agencyId,
             surfaceRef:   $request->cacheKey,
             fallback:     true,
+            system:       $request->system,
         );
 
         return new NarrativeResponse(

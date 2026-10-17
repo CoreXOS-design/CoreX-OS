@@ -54,6 +54,8 @@ final class AiUsageEvent extends Model
     public const SOURCE_ELLIE_CHAT            = 'ellie_chat';
     /** AT-456 Part B — the AI Template Builder in Template Manager. */
     public const SOURCE_AD_TEMPLATE           = 'ad_template';
+    /** AT-456 Part C — the Article Library pipeline (always the system bucket, agency NULL). */
+    public const SOURCE_ARTICLE_LIBRARY       = 'article_library';
 
     protected $fillable = [
         'agency_id',

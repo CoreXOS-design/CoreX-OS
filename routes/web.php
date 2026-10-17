@@ -1582,6 +1582,11 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/tools/ad-manager/templates/ai/generate', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'generateWithAi'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager', 'throttle:8,1'])->name('tools.ad-manager.templates.ai.generate');
     Route::post('/tools/ad-manager/templates/ai/{generation}/save', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'saveAiOption'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.templates.ai.save')->whereNumber('generation');
 
+    // AT-456 Part C — Article Library (third Ad Manager tab). Library rows are global and read-only; "Use this"
+    // makes the user's own unpublished AgentArticle (agency-scoped). Spec: at456-ai-tools-scheduler-and-spend-safety.md §C.5.
+    Route::get('/tools/ad-manager/articles', [\App\Http\Controllers\Tools\ArticleLibraryController::class, 'index'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.articles');
+    Route::post('/tools/ad-manager/articles/{article}/use', [\App\Http\Controllers\Tools\ArticleLibraryController::class, 'use'])->middleware(['permission:access_ad_manager', 'permission:edit_own_profile', 'agency.required', 'feature:ad-manager', 'throttle:30,1'])->name('tools.ad-manager.articles.use')->whereNumber('article');
+
     // Tools History (backend)
     Route::get('/tools/history', [ToolsController::class, 'historyIndex'])->middleware('permission:access_calculators')->name('tools.history.index');
     Route::post('/tools/history', [ToolsController::class, 'historyStore'])->middleware('permission:access_calculators')->name('tools.history.store');
@@ -5107,6 +5112,26 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // demo-agency members see.
         Route::get('/demo-sidebar', [\App\Http\Controllers\Admin\DevSettingsController::class, 'demoSidebar'])->name('demo-sidebar');
         Route::put('/demo-sidebar', [\App\Http\Controllers\Admin\DevSettingsController::class, 'updateDemoSidebar'])->name('demo-sidebar.update');
+    });
+
+    // AT-456 Part C — Article Library (system-dev section, Dev Settings → Article Library). owner_only and
+    // DELIBERATELY no permission key: a grantable key could hand an agency admin a screen that spends
+    // platform AI money and edits what every agency sees. Every action ALSO aborts unless isOwnerRole().
+    // Spec: .ai/specs/at456-ai-tools-scheduler-and-spend-safety.md §C.4.
+    Route::middleware('owner_only')->prefix('admin/article-library')->name('admin.article-library.')->group(function () {
+        $c = \App\Http\Controllers\Admin\ArticleLibraryController::class;
+        Route::get('/',                                [$c, 'index'])->name('index');
+        Route::post('/sources',                        [$c, 'store'])->name('sources.store');
+        Route::put('/sources/{source}',                [$c, 'update'])->whereNumber('source')->name('sources.update');
+        Route::delete('/sources/{source}',             [$c, 'archive'])->whereNumber('source')->name('sources.archive');
+        Route::post('/sources/{source}/restore',       [$c, 'restore'])->whereNumber('source')->name('sources.restore');
+        Route::post('/run',                            [$c, 'run'])->middleware('throttle:6,1')->name('run');
+        Route::post('/sources/{source}/run',           [$c, 'run'])->whereNumber('source')->middleware('throttle:6,1')->name('sources.run');
+        Route::get('/articles',                        [$c, 'articles'])->name('articles');
+        Route::post('/articles/{article}/hide',        [$c, 'hide'])->whereNumber('article')->name('articles.hide');
+        Route::post('/articles/{article}/unhide',      [$c, 'unhide'])->whereNumber('article')->name('articles.unhide');
+        Route::get('/settings',                        [$c, 'settings'])->name('settings');
+        Route::put('/settings',                        [$c, 'updateSettings'])->name('settings.update');
     });
 
     // AT-URGENT-2026-09-09 — the outbound-mail kill switch's capture log.

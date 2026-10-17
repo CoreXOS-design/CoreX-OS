@@ -99,12 +99,15 @@ final class AiSpendGuard
      * this before spending (enforced by AiSpendGuardCoverageTest).
      *
      * @param int|null $agencyId Explicit agency; null → auth user's agency → system bucket.
+     * @param bool     $system   AT-456 Part C — check the platform/system bucket (agency NULL) no
+     *                           matter who is signed in. Pass it for work no agency owns, so an
+     *                           owner pressing a button is never checked against their own agency.
      *
      * @throws AiPausedException
      */
-    public function assertAllowed(?int $agencyId = null): void
+    public function assertAllowed(?int $agencyId = null, bool $system = false): void
     {
-        $bucket = $this->resolveAgencyId($agencyId);
+        $bucket = $this->resolveAgencyId($agencyId, $system);
 
         if ($this->isPaused($bucket)) {
             throw new AiPausedException($bucket);
@@ -272,9 +275,14 @@ final class AiSpendGuard
 
     /**
      * Same resolution as AiUsageRecorder::record(): explicit → auth → null (system).
+     * $system = true short-circuits to the system bucket (null) — same as the recorder's flag.
      */
-    public function resolveAgencyId(?int $agencyId): ?int
+    public function resolveAgencyId(?int $agencyId, bool $system = false): ?int
     {
+        if ($system) {
+            return null;
+        }
+
         if ($agencyId !== null) {
             return $agencyId;
         }

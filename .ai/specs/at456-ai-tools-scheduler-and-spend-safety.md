@@ -1,6 +1,6 @@
 # AT-456 — AI Template Builder, Article Library, Post Scheduler & AI Spend Safety
 
-> Status: **Part A BUILT on QA2 2026-10-17 (Johan: "save spec and build") — awaiting Johan's test on QA2.** **Part B BUILT 2026-10-17 (QA2) — awaiting Johan's test.** Parts C, D: not started; build one at a time.
+> Status: **Part A BUILT on QA2 2026-10-17 (Johan: "save spec and build") — awaiting Johan's test on QA2.** **Part B BUILT 2026-10-17 (QA2) — awaiting Johan's test.** **Part C BUILT 2026-10-17 (QA2) — awaiting Johan's test.** Part D: not started; build one at a time.
 > Drafted 2026-10-14 on QA2 from the AT-456 investigation conversation.
 > Every business decision below is Johan's, quoted or plainly paraphrased from that conversation.
 > Pillars: **Property** (read), **Agent** (read/write own drafts + posts), **Agency** (scope + AI safety).
@@ -90,7 +90,7 @@ Per-agency table, one row per agency:
 | Status | Active · Alerted · **Paused** |
 | Template generations | `used / limit` this month — **built with Part B** (sortable) |
 | AI templates saved | count of `property_ad_templates.ai_generated` per agency, archived ones included — **built with Part B** (sortable) |
-| Library articles used | count of `agent_articles.library_article_id` — **added with Part C** |
+| Library articles used | count of `agent_articles.library_article_id` per agency (copies the agency's people later deleted still count) — **built with Part C** (sortable) |
 | Actions | **Turn AI back on** (only when Paused), View detail |
 
 - **Search:** agency name. **Sort:** every column; default = 24h spend, highest first. **Filters:** status (All · Active · Alerted · Paused), month. **Pagination:** 25. **Empty states:** "No agencies yet." (every agency is listed, usage or not, so a usage-based message would never be true); "No agencies match these filters." + Clear filters.
@@ -193,12 +193,25 @@ A platform-owner section maintains a list of **source links** (RSS feeds). A sch
 - Phase 2 (after D ships): **Make a social post** → drafts a post into Scheduled Posts.
 
 ### C.6 Acceptance
-- [ ] Adding a feed link and pressing Run now produces new ready articles with a credit + working source link.
-- [ ] Archived sources are skipped; the 5 seeded feeds behave as before for presentations.
-- [ ] No library article is ever published without an agent clicking Use this, then publishing themselves.
-- [ ] Two agencies can each Use the same article; each gets their own draft; neither sees the other's.
-- [ ] A hidden article disappears from every agency's tab.
-- [ ] Spend counts toward the system AI guard (A.2).
+Automated proof: `tests/Feature/Tools/ArticleLibraryTest.php`.
+- [x] Adding a feed link and pressing Run now produces new ready articles with a credit + working source link.
+- [x] Archived sources are skipped (so are paused ones); the 5 seeded feeds behave as before for presentations.
+- [x] No library article is ever published without an agent clicking Use this, then publishing themselves (the copy is created unpublished; nothing in the library code can publish).
+- [x] Two agencies can each Use the same article; each gets their own draft; neither sees the other's.
+- [x] A hidden article disappears from every agency's tab (and "Use this" on it by id is a 404).
+- [x] Spend counts toward the system AI guard (A.2) — and is charged to the platform bucket (agency NULL) even when a signed-in user with an agency presses Run now.
+- [ ] Johan tests on QA2.
+
+### C.7 As built (2026-10-17) — decisions beyond the text above
+- **System AI bucket (the correctness point).** Previously a `null` agency meant "the signed-in user's agency" in BOTH `AiUsageRecorder::record()` and `AiSpendGuard::assertAllowed()/resolveAgencyId()`, so an owner pressing Run now in a browser would have been charged to (and checked against) their own agency. Added an explicit system mode: `AiUsageRecorder::record(..., system: true)`, `AiSpendGuard::assertAllowed($agencyId, system: true)` / `resolveAgencyId($agencyId, system: true)`, and `NarrativeRequest::$system` which `AnthropicGateway` honours for the pause check and for both ledger writes. Every library call is `system: true`, so it is guarded by, and recorded to, agency NULL whether it runs from the scheduler or a web request (the ledger row still carries the pressing user's id). The default is `false` everywhere else — no existing caller changed. New `AiUsageEvent::SOURCE_ARTICLE_LIBRARY`.
+- **Paused platform AI** refuses the run before any feed or AI call, with the plain sentence plus a pointer to turn it back on (AI Usage → Platform AI). A cut-out part-way stops the run and keeps what was already written.
+- **Run now is synchronous** (QA2 has no queue worker): the controller calls `ArticleLibraryService::run()` inside the request with a 200-second budget (nginx allows 300s+); when the budget is spent it stops cleanly and says "press Run now again to carry on" (already-written items are skipped by URL hash, so nothing is repeated or re-billed). A cache lock stops two runs overlapping. Run now exists for all sources and per source; a paused source's per-row Run now is refused with a sentence, an archived one is a 404.
+- **Schedule:** `article-library:run` is registered daily at 02:30 in `routes/console.php` and decides itself whether it is due from the setting (off · nightly · every 3 days; every-3-days counts 71h from the last run of any kind, so a manual Run now pushes the next scheduled run out). `--force` runs regardless. Settings are `DevSetting`s `article_library_schedule`, `article_library_max_per_run` (1–50, default 10) and `article_library_last_run_at`.
+- **Pipeline detail:** `ArticleScraperService::fetchSource()` (new) returns each feed's items and records the fetch outcome on the source; `scrapeAll()` (presentations, `articles:scrape`) now reads `article_sources` and so also skips archived/paused sources — that is the owner's decision when they archive/pause. Newest first, at most 60 new items go to the ONE relevance call (fast model); items judged irrelevant are remembered for 30 days in the cache so they are not re-judged (and re-billed) each run; kept items are capped at max-per-run and each gets one quality-model call. Only `http(s)` links are ever stored. A brief outside 90–320 words is thrown away and reported (asked for 150–250; thin sources may honestly be shorter) — the model may also answer "skip". Output is stripped of HTML/markdown; tags are cleaned (max 5). Feed text is treated as untrusted data in the prompts.
+- **Data:** one migration `2026_11_08_100000_at456_c_article_library.php` — `article_sources` (+ the five seeded feeds, idempotent, so a `git pull` deploy carries them), `library_articles` (global by design, documented in the model — same deviation as `ai_usage_events`), `agent_articles.library_article_id` (FK, null on delete). Extra column beyond the spec: `article_sources.last_new_articles` (how many new articles the last run produced).
+- **Owner screens** (`/admin/article-library`, `owner_only` + `isOwnerRole()` on every action, no permission key): Sources (search name/link, sort, Active/Archived/All, last-read date range, pagination 15, Add/Edit/Archive/Restore, Run now, last-read time + result + error, an "Fetch this source" pause tick), Articles (search, status, source, date range, sort incl. times used and AI cost, Hide/Unhide, Read), Settings. Navigation: link item "Article Library" in the Dev Settings hub rail (group Content), and the Dev Settings sidebar entry stays lit on `admin.article-library.*`.
+- **Agency tab:** `tools.ad-manager.articles` (third pill). Sort is one dropdown (Newest first · Oldest first · Title A–Z/Z–A · Source A–Z/Z–A). "Use this" needs `edit_own_profile` as well (the permission that manages own articles) so nobody gets a draft they cannot open; it copies title, summary, brief + the credit line ("Source: <name> — read the original: <link>") into an unpublished `AgentArticle`, sets the connecting link to the original, and sends the user to My Portal → Profile → Articles. If the user already has a (non-deleted) copy they are taken to it instead; a user who deleted their copy may use it again.
+- **Not in scope / not built:** "Make a social post" (Phase 2, needs Part D); fetching full third-party pages (v1 rule); a separate audit trail for article-library settings changes.
 
 ---
 
@@ -254,7 +267,7 @@ Own colours/logo in B; own drafts and own count in C; own posts, scope and conne
 ## Files (indicative)
 **A (as built):** `Services/AI/AiSpendGuard.php`, `Exceptions/AI/AiPausedException.php`, `Mail/AiSpendAlertMail.php` + `emails/ai-spend-alert.blade.php`, `Models/AI/AiSpendGuardEvent.php`, Dev Settings section (`DevSettingsController`, `admin/dev-settings/index.blade.php`), edits to `AiUsageRecorder`, `AnthropicGateway`, `MarketingCopyService`, `WarmThisWeekTilesJob`, all direct callers, `Agency.php`, `AiUsageController`, `admin/ai-usage/*.blade.php`, routes, 2 migrations, tests.
 **B (as built):** `Services/AdTemplates/AiTemplateBuilderService.php`, `Services/AdTemplates/AdLayoutValidator.php`, `Models/AiTemplateGeneration.php`, `Exceptions/AI/AiTemplate*Exception.php`, `Console/Commands/PurgeAiTemplateReferenceImages.php` (+ `routes/console.php`), `Tools/AdTemplateManagerController` (+ `generateWithAi`, `saveAiOption`), `Admin/AiUsageController` (+ `updateTemplateLimit`), `tools/ad-manager/templates.blade.php`, `admin/ai-usage/{index,agency}.blade.php`, `NarrativeRequest` + `AnthropicGateway` (source/timeout), migration `2026_11_07_100000_at456_b_ai_template_builder.php`, 2 test files.
-**C:** `Services/Articles/ArticleLibraryService.php`, `ArticleScraperService` (read from table), `Admin/ArticleLibraryController`, `Tools/ArticleLibraryController`, views, `_switcher.blade.php`, 2–3 migrations, command + schedule entry, tests.
+**C (as built):** `Services/Articles/ArticleLibraryService.php`, `ArticleScraperService` (reads `article_sources`, `fetchSource()`), `Models/{ArticleSource,LibraryArticle}.php`, `Admin/ArticleLibraryController`, `Tools/ArticleLibraryController`, `Console/Commands/RunArticleLibrary.php` (+ `routes/console.php`), views `admin/article-library/*` + `tools/ad-manager/articles.blade.php`, `_switcher.blade.php`, Dev Settings rail + sidebar highlight, system-bucket flag in `AiUsageRecorder` / `AiSpendGuard` / `AnthropicGateway` / `NarrativeRequest`, `AiUsageController` + `admin/ai-usage/index.blade.php` (Library articles used), migration `2026_11_08_100000_at456_c_article_library.php`, `tests/Feature/Tools/ArticleLibraryTest.php`.
 **D:** `Console/Commands/PublishDueMarketingPosts.php`, `Jobs/PublishMarketingPostJob.php`, `Tools/ScheduledPostsController`, views, `_switcher.blade.php`, permission keys, migration, event, tests.
 
 ## Open items for Johan

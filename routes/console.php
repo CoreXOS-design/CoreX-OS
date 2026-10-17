@@ -613,3 +613,8 @@ Schedule::command('platform-esign:remind-agreements')->hourly()->onOneServer()->
 // AT-456 Part B — AI Template Builder reference images are private and live 7 days. Daily at 03:15;
 // also runnable by hand: php artisan ai-templates:purge-reference-images
 Schedule::command('ai-templates:purge-reference-images')->dailyAt('03:15')->onOneServer()->withoutOverlapping();
+
+// AT-456 Part C — Article Library. Runs every night at 02:30 but only does work when the owner's
+// schedule setting (/admin/article-library/settings: off · nightly · every 3 days) says it is due.
+// Spend goes to the platform AI bucket (agency NULL). Also runnable by hand: php artisan article-library:run --force
+Schedule::command('article-library:run')->dailyAt('02:30')->onOneServer()->withoutOverlapping();

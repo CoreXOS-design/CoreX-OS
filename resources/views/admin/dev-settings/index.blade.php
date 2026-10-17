@@ -77,6 +77,12 @@
                 ],
             ],
             [
+                'label' => 'Content',
+                'items' => [
+                    ['key'=>'article-library', 'label'=>'Article Library', 'type'=>'link', 'href'=>route('admin.article-library.index'), 'keywords'=>'article library news rss feed sources links briefs ai summaries ad manager agents schedule nightly'],
+                ],
+            ],
+            [
                 'label' => 'Alerts',
                 'items' => [
                     ['key'=>'queue_worker_emails', 'label'=>'Queue worker emails', 'type'=>'section', 'keywords'=>'supervisor worker down fatal stopped queue health alert email server health notification'],

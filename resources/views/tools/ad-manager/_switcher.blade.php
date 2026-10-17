@@ -10,6 +10,7 @@
     $pills = [
         ['route' => 'tools.ad-manager',           'label' => 'Ad Manager',       'match' => 'tools.ad-manager'],
         ['route' => 'tools.ad-manager.templates', 'label' => 'Template Manager', 'match' => 'tools.ad-manager.templates*'],
+        ['route' => 'tools.ad-manager.articles',  'label' => 'Article Library',  'match' => 'tools.ad-manager.articles*'],
     ];
 @endphp
 <div class="rounded-md p-1.5 flex flex-wrap items-center justify-center gap-1 overflow-x-auto {{ $inHeader ? 'self-start md:self-auto' : '' }}"

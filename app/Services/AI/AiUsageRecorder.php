@@ -43,6 +43,9 @@ final class AiUsageRecorder
      * @param string|null $surfaceRef   Correlation handle (cache_key, analysis id, …).
      * @param bool        $cacheHit     True when served from cache (cost forced to 0).
      * @param bool        $fallback     True when degraded to fallback text (cost forced to 0).
+     * @param bool        $system       AT-456 Part C — charge the platform/system bucket (agency NULL)
+     *                                  regardless of $agencyId and of who is signed in. For work no
+     *                                  agency owns (Article Library). Default false = unchanged.
      */
     public function record(
         string $source,
@@ -54,6 +57,7 @@ final class AiUsageRecorder
         ?string $surfaceRef = null,
         bool $cacheHit = false,
         bool $fallback = false,
+        bool $system = false,
     ): void {
         try {
             // No API spend on a cache hit or a fallback — log the event (tokens
@@ -62,7 +66,7 @@ final class AiUsageRecorder
                 ? 0.0
                 : $this->calculator->zar($model, $inputTokens, $outputTokens);
 
-            $agencyId ??= $this->resolveAgencyId();
+            $agencyId = $system ? null : ($agencyId ?? $this->resolveAgencyId());
 
             AiUsageEvent::create([
                 'agency_id'     => $agencyId,

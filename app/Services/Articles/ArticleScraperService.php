@@ -3,22 +3,17 @@
 namespace App\Services\Articles;
 
 use App\Models\ArticlePool;
+use App\Models\ArticleSource;
 use App\Support\SuburbMapper;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class ArticleScraperService
 {
-    /**
-     * RSS feeds to scrape. Key = source label, value = feed URL.
-     */
-    private const FEEDS = [
-        'BusinessTech Property'   => 'https://businesstech.co.za/news/category/property/feed/',
-        'Daily Investor Property' => 'https://dailyinvestor.com/category/south-africa/property/feed/',
-        'IOL Property'            => 'https://www.iol.co.za/news/south-africa/rss',
-        'Property24 Advice'       => 'https://www.property24.com/articles/rss',
-        'MyBroadband Property'    => 'https://mybroadband.co.za/news/category/property/feed/',
-    ];
+    /** Longest slice of a feed's full-text (content:encoded) kept for the Article Library's brief. */
+    private const CONTENT_MAX_CHARS = 3000;
+
+    private const CONTENT_NS = 'http://purl.org/rss/1.0/modules/content/';
 
     private const SUBURBS = [
         'Uvongo', 'Manaba Beach', 'Margate', 'Ramsgate', 'Shelly Beach',
@@ -43,7 +38,10 @@ class ArticleScraperService
     ];
 
     /**
-     * Scrape all configured RSS feeds and return summary stats.
+     * Scrape every fetchable article source (the `article_sources` table — AT-456 Part C; the five
+     * feeds that used to be hard-coded here are seeded into it) and return summary stats.
+     *
+     * Archived and paused sources are skipped.
      *
      * @return array{feeds_attempted: int, feeds_succeeded: int, articles_upserted: int, errors: array}
      */
@@ -56,15 +54,14 @@ class ArticleScraperService
             'errors'            => [],
         ];
 
-        foreach (self::FEEDS as $source => $feedUrl) {
+        foreach (ArticleSource::query()->fetchable()->orderBy('id')->get() as $source) {
             $stats['feeds_attempted']++;
 
             try {
-                $count = $this->scrapeFeed($source, $feedUrl);
+                $stats['articles_upserted'] += count($this->fetchSource($source));
                 $stats['feeds_succeeded']++;
-                $stats['articles_upserted'] += $count;
             } catch (\Throwable $e) {
-                $msg = "[{$source}] {$e->getMessage()}";
+                $msg = "[{$source->name}] {$e->getMessage()}";
                 $stats['errors'][] = $msg;
                 Log::warning("ArticleScraperService: {$msg}");
             }
@@ -74,25 +71,54 @@ class ArticleScraperService
     }
 
     /**
-     * Scrape a single RSS feed and upsert articles into article_pool.
+     * Fetch one source, upsert its items into article_pool (the staging store the presentations
+     * also read) and record the fetch outcome on the source row.
+     *
+     * Returns the items found, newest first, each with the extra fields the Article Library needs
+     * and article_pool does not keep: a longer plain-text `content` where the feed supplies full
+     * text. Nothing is fetched beyond the feed itself — never the article's own page.
+     *
+     * @return list<array{hash: string, title: string, url: string, snippet: string, content: string, published_at: ?\DateTimeImmutable, source: string}>
+     *
+     * @throws \Throwable the fetch/parse error, after it has been recorded on the source.
      */
-    private function scrapeFeed(string $source, string $feedUrl): int
+    public function fetchSource(ArticleSource $source): array
     {
-        $response = Http::timeout(15)->connectTimeout(10)->get($feedUrl);
+        try {
+            $response = Http::timeout(15)->connectTimeout(10)->get($source->url);
 
-        if (!$response->successful()) {
-            throw new \RuntimeException("HTTP {$response->status()} fetching {$feedUrl}");
+            if (!$response->successful()) {
+                throw new \RuntimeException("HTTP {$response->status()} fetching {$source->url}");
+            }
+
+            $items = $this->parseAndStore($source->name, $response->body());
+        } catch (\Throwable $e) {
+            $source->forceFill([
+                'last_run_at' => now(),
+                'last_status' => ArticleSource::STATUS_FAILED,
+                'last_error'  => mb_substr($e->getMessage(), 0, 1000),
+            ])->save();
+
+            throw $e;
         }
 
-        $xml = $response->body();
+        $source->forceFill([
+            'last_run_at' => now(),
+            'last_status' => ArticleSource::STATUS_OK,
+            'last_error'  => null,
+        ])->save();
 
-        return $this->parseAndStore($source, $xml);
+        usort($items, fn ($a, $b) => ($b['published_at']?->getTimestamp() ?? 0) <=> ($a['published_at']?->getTimestamp() ?? 0));
+
+        return $items;
     }
 
     /**
      * Parse RSS XML and upsert items into article_pool.
+     *
+     * @return list<array{hash: string, title: string, url: string, snippet: string, content: string, published_at: ?\DateTimeImmutable, source: string}>
      */
-    private function parseAndStore(string $source, string $xml): int
+    private function parseAndStore(string $source, string $xml): array
     {
         libxml_use_internal_errors(true);
         $feed = simplexml_load_string($xml);
@@ -113,7 +139,7 @@ class ArticleScraperService
             $items = $feed->entry;
         }
 
-        $upserted = 0;
+        $found = [];
 
         foreach ($items as $item) {
             $title       = $this->extractText($item, 'title');
@@ -158,10 +184,35 @@ class ArticleScraperService
                 ]
             );
 
-            $upserted++;
+            $found[] = [
+                'hash'         => $urlHash,
+                'title'        => mb_substr($title, 0, 255),
+                'url'          => $link,
+                'snippet'      => $snippet,
+                'content'      => $this->extractFullText($item),
+                'published_at' => $publishedAt,
+                'source'       => $source,
+            ];
         }
 
-        return $upserted;
+        return $found;
+    }
+
+    /**
+     * Full text from `<content:encoded>` where the feed supplies it (plain text, capped). Empty
+     * when it does not — the library then writes from the title + snippet only.
+     */
+    private function extractFullText(\SimpleXMLElement $item): string
+    {
+        $content = $item->children(self::CONTENT_NS);
+        if (!isset($content->encoded)) {
+            return '';
+        }
+
+        $text = html_entity_decode(strip_tags((string) $content->encoded), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = trim(preg_replace('/\s+/', ' ', $text) ?? $text);
+
+        return mb_substr($text, 0, self::CONTENT_MAX_CHARS);
     }
 
     /**
