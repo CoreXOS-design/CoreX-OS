@@ -480,3 +480,44 @@ untouched (AT-417).
 3. **Guard extended.** `deals:parity-check` also compares, for EVERY deal with saved lines (linked or not), what the settlement screen
    shows against the saved lines, in cents — FAIL on any difference.
 
+
+---
+
+## My Deals — search, filters, sort, pagination (Johan 2026-10-17)
+
+Johan, 2026-10-17: "Yes add it" (to: "My Deals has no search or filters at all — adding them would be a new feature, want it?").
+Screen: `/agent/deals` (`agent.deals.index`, `Agent\DealRegisterController@index`, view `agent/deals/index.blade.php`).
+Closes the BUILD_STANDARD §1b floor (search / sort / filter / pagination / real empty state) for this screen.
+
+**Scoping (unchanged, enforced in the query).** My Deals = the signed-in agent's OWN deals only: a deal appears when the
+signed-in user is allocated on it (the `deal_user` pivot, listing or selling side) — exactly the rule that applied before this
+change, evaluated on top of the same model scopes (agency, branch isolation, soft delete). The user is always
+`auth()->user()`: no request parameter can widen it. There is deliberately NO "agent" or "branch" filter on this screen (those
+belong to the Deal Register); a forged `agent=` / `user_id=` / `branch=` param is ignored. Direct-URL access to a deal's log is
+unchanged (`userCanAccessDeal`).
+
+**Vocabulary.** Reuses the Deal Register's (`/deals-dr2`) filter vocabulary and wording — nothing new invented:
+status = All statuses / Pending / Granted / Registered / Declined (stored `accepted_status` P / G / R / D, long forms also
+matched); commission = All commission / Not Paid / Paid / Loss (`commission_status`).
+
+**Search** (one box, `search`): deal number, file number, property address, seller name, buyer name (the Deal Register's fields).
+
+**Filters:** status; commission; deal date range (`date_from` / `date_to`, inclusive, on `deal_date` — the Deal date now shown
+under the Deal number so the range matches what the agent sees). Active filters light up (`list-header-filter` + `is-active`);
+"Clear" appears when any filter is set.
+
+**Sort** (`sort` + `direction`, allow-listed): Deal number (`deal_no`), Deal date (`deal_date`), Property (`property_address`),
+Selling price (`property_value`). **Default = Deal number, newest first (descending)** — what the list showed before. Ties
+broken by `id` desc so paging is stable.
+
+**Pagination:** 20 per page (same as the Deal Register), query string preserved.
+
+**Totals.** The header count ("N deals") is the count of ALL the agent's own deals (unfiltered, as before); when filters are
+set it reads "X of N deals". The table shows no money totals, so none change. The "Our Total" column is per row, as before.
+
+**Empty states.** Agent has no deals at all: "No deals allocated to you yet" (unchanged). Deals exist but none match:
+"No deals match these filters" + a Clear filters link.
+
+**Out of scope:** no new columns of data beyond Deal date, no export, no bulk actions, no change to the Actions links.
+
+**Tests:** `tests/Feature/Agent/MyDealsFiltersTest.php`.
