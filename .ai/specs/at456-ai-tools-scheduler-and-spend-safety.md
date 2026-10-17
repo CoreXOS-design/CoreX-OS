@@ -29,6 +29,9 @@ A comes first because B and C both spend money and A is the only thing standing 
 | 11 | The R30 alert is measured over the **same rolling 24 hours** as the R50 cut-out. (Confirmed 2026-10-17.) | Johan |
 | 12 | The R30 / R50 / 24h figures and the alert address are **editable platform settings with those defaults**, not hard-coded — and they live in a **new section in Dev Settings** (see A.4). (Confirmed 2026-10-17.) | Johan |
 | 13 | The cut-out applies to **every** AI call (Ellie chat — including mid-conversation — photo analysis, voice, ad copy, briefs, DocuPerfect, presentations, and the new features). Today only 3 of them were ever checked against the old budget. (Confirmed 2026-10-17.) | Johan |
+| 14 | When the AI ends with fewer than 3 usable template designs (after repairs + the one retry), **show what it got and count the attempt**. Zero designs = friendly failure, not counted. (2026-10-17.) | Johan |
+| 15 | The Article Library fetch **runs from live**. The 5 news sites refuse this QA/Staging box's address (HTTP 403/404 whatever the client says), so QA can only show "could not be read"; no code change. (2026-10-17.) | Johan |
+| 16 | **Expand the template builder** (§B.9): more icons, more fonts, decorative shapes & frames, photo collages & effects, more property facts, show-day / auction dates, QR code to the listing, key features as pills, a style library, and learning from the agency's own saved templates. Everything new is available to agents in the Ad Builder too (one render kernel). (2026-10-17.) | Johan |
 
 ---
 
@@ -169,6 +172,80 @@ Automated proof: `tests/Feature/Tools/AiTemplateBuilderTest.php` (39 cases incl.
 ---
 
 ---
+
+### B.9 Template builder expansion (decision 16, Johan 2026-10-17) — SPEC, build in two steps
+
+Everything below is added to the **one render kernel** (`public/js/corex-ad-render.js`), so it is available
+to agents in the manual Ad Builder, in Template Manager previews, in generated ads and in the images the
+Post Scheduler publishes — and then to the AI. Nothing here is HFC-specific; every default is neutral.
+
+**Build order (two lanes, one after the other):**
+- **B.9-1 — Building blocks** (kernel + Ad Builder UI + listing data): items 1–8 below.
+- **B.9-2 — AI side** (validator, prompt, repairs, style library, learning from saved templates): items 9–11,
+  plus teaching the AI every block from B.9-1.
+
+**Rule for every new block:** it must render identically in (a) the Ad Builder canvas, (b) Template Manager
+previews, (c) the Ad Manager generated-ad export that the Post Scheduler uploads. If the export path cannot
+render an effect faithfully, that effect does not ship (state it in the as-built notes). A field with no value
+on the listing hides itself (existing kernel behaviour), never prints "null", "0" or a placeholder on a real ad.
+
+#### Design building blocks
+1. **More icons (+~25).** Same visual family and licence class as today's 12 (permissive open-source line icons,
+   no brand marks — no WhatsApp/Facebook logos). Set: sea view, mountain view, pet friendly, solar, security,
+   CCTV, alarm, braai, fireplace, air-con, garden, flatlet, Wi-Fi/fibre, golf estate, school nearby, shopping,
+   beach, estate/gated, borehole/water, backup power, lift, gym, study, kitchen, laundry, balcony, calendar,
+   clock, phone, email, chat, star, heart, check, sparkle. Icon keys are lower_snake_case.
+2. **More fonts (+12, Google Fonts, Open Font Licence).** Cormorant Garamond, DM Serif Display, Libre Baskerville
+   (luxury serifs); Great Vibes, Dancing Script (script — headlines only, never body/prices); Barlow Condensed,
+   Anton (condensed headlines); Nunito, Quicksand (rounded friendly); Raleway, Work Sans, Space Grotesk (modern).
+   Loaded the same way as today's fonts (`_ad-fonts.blade.php`) and only when used, so page weight does not grow
+   for templates that don't use them.
+3. **Decorative shapes & frames.** New shape kinds: wave, curve (top/bottom), arc, blob (3 variants);
+   line styles: solid / dashed / dotted; **corner ribbon/sash** element with its own text (e.g. JUST LISTED),
+   corner tl/tr/bl/br; **photo masks** for any photo element: none / rounded / circle / arch / blob;
+   photo frame border (existing frame props extended to masks).
+4. **Photo collages & effects.** A **collage** element that lays out 2–5 listing photos in a preset:
+   2 side-by-side, 2 stacked, 3 with hero left, 3 with hero top, 4 grid, 5 with hero; gap and corner radius.
+   **Photo effects** on any photo: none, black & white, duotone (two colours), warm, cool, brighter;
+   **soft blur** behind text (only if the export renders it — rule above).
+
+#### Listing information
+5. **More property facts:** erf size (`erf` + unit), levy per month, rates & taxes per month, price per m²
+   (sale price ÷ floor size, sales only), pet friendly (shows "Pet friendly", hidden when not), available from
+   (rentals — date, or "Available now"), rent per month (rental amount + its price type).
+6. **Show day / auction:** next upcoming show day / open house for the listing (date + time range) from CoreX's
+   own calendar if it stores one for the property (find the source; if none exists, say so and ship only auction);
+   auction date and venue from `Property::currentAuctionLot()`.
+7. **QR code to the listing:** encodes the listing's public page (`Property::public_url` — the agency's own site
+   where configured, else CoreX's public page, per the 14 Oct rule); dark/light colours; minimum 120 px so it scans.
+   Must render in the export (a vendored permissive JS library or a server-generated image — builder's call,
+   no CDN dependency for the export).
+8. **Key features as pills:** up to 4 of the listing's OWN features as separate pills (row or column, gap,
+   badge styling); the agent can choose which features (kernel already has `selectedFeatures`), default = the first N.
+
+#### AI side (B.9-2)
+9. **Teach the AI every block above:** validator rules, generated prompt limits and safe repairs for each new
+   element/property (same pattern as §B audit item 9 — limits generated from the validator's constants).
+   Colour, injection and contrast guards stay as strict as today (duotone colours and ribbon text included).
+10. **Style library:** 8 built-in, neutral looks — Luxury, Modern minimal, Bold sale, Coastal, Family home,
+    Rental, Commercial, Classic. Each defines font pairs (from the font list), how the agency's own brand colours
+    are used, photo share and text placement rules, and suitable ad sizes. Stored in code/config (not an agency
+    setting → not in the Setup Wizard). The "Create with AI" panel gets **Style: Let the AI choose / <8 styles>**;
+    "Let the AI choose" lets it pick a different style for each of the 3 designs.
+11. **Learn from saved templates:** a tick box **"Match our existing templates"** (default on when the agency has
+    at least one saved, non-archived template). Up to 3 of the agency's OWN templates are given to the AI as
+    examples — preferring ones people made or edited over untouched AI ones, then most recently edited.
+    Never another agency's (query-layer scoping). Cost note: adds roughly R0.30–0.60 per generation.
+
+**Acceptance (B.9):**
+- [ ] Each new block can be added and edited in the Ad Builder, shows in Template Manager previews, and appears in
+      an exported ad image exactly as on the canvas.
+- [ ] A listing missing a fact (e.g. no levy, no show day) shows no empty or "R 0" element.
+- [ ] The QR code scans with a phone and opens the listing's public page.
+- [ ] A second agency sees its own data, colours and templates only; no HFC wording anywhere.
+- [ ] The AI uses the new blocks (at least sometimes) and every design still passes the validator; picking a style
+      changes the result; "Match our existing templates" uses only the agency's own templates.
+- [ ] Existing templates render exactly as before (no visual regression on saved templates).
 
 ## C. Article Library (system-dev section → Ad Manager tab)
 
