@@ -83,11 +83,11 @@
                         <tr class="{{ $item->severity === 'error' ? 'bg-red-50/40 dark:bg-red-900/10' : '' }} hover:bg-[color:var(--surface-2)]">
                             <td class="px-4 py-3">
                                 @if($item->severity === 'error')
-                                    <span class="inline-flex items-center rounded-full bg-red-100 dark:bg-red-900/30 px-2 py-0.5 text-xs font-semibold text-red-700 dark:text-red-400">fail</span>
+                                    <span class="ds-badge ds-badge-danger">fail</span>
                                 @elseif($item->severity === 'warn')
-                                    <span class="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-400">warn</span>
+                                    <span class="ds-badge ds-badge-warning">warn</span>
                                 @else
-                                    <span class="inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">match</span>
+                                    <span class="ds-badge ds-badge-success">match</span>
                                 @endif
                             </td>
                             <td class="px-4 py-3">

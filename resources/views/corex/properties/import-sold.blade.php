@@ -95,7 +95,7 @@
                                 <td class="px-3 py-2" style="color:var(--text-primary);">
                                     {{ $r['title'] }}
                                     @if (!empty($r['already_exists']))
-                                        <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded" style="background:var(--surface-2);color:var(--text-muted);border:1px solid var(--border);">update</span>
+                                        <span class="ds-badge ds-badge-pill ds-badge-default ml-1">update</span>
                                     @endif
                                 </td>
                                 <td class="px-3 py-2" style="color:var(--text-muted);">{{ $r['suburb'] }}</td>

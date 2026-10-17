@@ -81,9 +81,7 @@
                 @php $chip = $update->typeChip(); @endphp
                 <tr style="border-top:1px solid var(--border); color:var(--text-primary);">
                     <td class="px-4 py-3">
-                        <span class="inline-flex items-center px-2 py-1 rounded-md text-[0.6875rem] font-bold uppercase tracking-wide whitespace-nowrap"
-                              style="background:color-mix(in srgb, var({{ $chip['token'] }}, {{ $chip['fallback'] }}) 15%, transparent);
-                                     color:var({{ $chip['token'] }}, {{ $chip['fallback'] }});">
+                        <span class="ds-badge ds-badge-pill" style="--ds-badge-c: var({{ $chip['token'] }}, {{ $chip['fallback'] }});">
                             {{ $chip['label'] }}
                         </span>
                     </td>

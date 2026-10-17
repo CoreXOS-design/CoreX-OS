@@ -46,8 +46,7 @@
                         @foreach($rows as $r)
                             <tr>
                                 <td class="px-4 py-3">
-                                    <span class="px-2 py-0.5 rounded-md text-xs font-semibold font-mono whitespace-nowrap"
-                                          style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color: var(--brand-icon, #0ea5e9);">
+                                    <span class="ds-badge ds-badge-pill ds-badge-info font-mono">
                                         {{ $r['methods'] }}
                                     </span>
                                 </td>

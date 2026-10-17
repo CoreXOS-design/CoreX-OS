@@ -73,8 +73,7 @@
         <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
         <a href="{{ route('corex.breaches.index') }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Reset</a>
         <div class="flex-1"></div>
-        <span class="text-xs font-semibold px-2.5 py-1 rounded-md whitespace-nowrap"
-              style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent);">
+        <span class="ds-badge ds-badge-pill ds-badge-info">
             {{ number_format($breaches->total()) }} {{ \Illuminate\Support\Str::plural('breach notice', $breaches->total()) }}
         </span>
     </form>

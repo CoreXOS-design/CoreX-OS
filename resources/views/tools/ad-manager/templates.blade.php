@@ -146,15 +146,13 @@
                             <td class="px-4 py-3 font-semibold">
                                 {{ $t->name }}
                                 @if($t->ai_generated)
-                                    <span class="ml-1 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded inline-flex items-center gap-1"
-                                          style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 14%, transparent); color:var(--brand-icon,#0ea5e9);"
-                                          title="Designed by the AI Template Builder{{ $t->ai_idea ? ' from the idea: ' . \Illuminate\Support\Str::limit($t->ai_idea, 160) : '' }}">AI</span>
+                                    <span class="ds-badge ds-badge-pill ds-badge-info ml-1" title="Designed by the AI Template Builder{{ $t->ai_idea ? ' from the idea: ' . \Illuminate\Support\Str::limit($t->ai_idea, 160) : '' }}">AI</span>
                                     @if($t->human_edited_at)
-                                        <span class="ml-0.5 text-[10px] font-semibold uppercase" style="color:var(--text-muted);" title="A person has edited this since the AI made it ({{ $t->human_edited_at->format('j M Y H:i') }})">edited</span>
+                                        <span class="ds-badge ds-badge-pill ds-badge-default ml-0.5" title="A person has edited this since the AI made it ({{ $t->human_edited_at->format('j M Y H:i') }})">edited</span>
                                     @endif
                                 @endif
                                 @if($t->trashed())
-                                    <span class="ml-1 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:var(--surface-2); color:var(--text-muted);">Archived</span>
+                                    <span class="ds-badge ds-badge-pill ds-badge-default ml-1">Archived</span>
                                 @endif
                             </td>
                             <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $t->user?->name ?? 'Unknown' }}</td>

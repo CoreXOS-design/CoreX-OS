@@ -65,13 +65,13 @@
                         class="flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 -mb-px"
                         :style="tab === 'review' ? 'color: var(--text-primary); border-color: var(--brand-icon, #0ea5e9);' : 'color: var(--text-muted); border-color: transparent;'">
                     To review
-                    <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full" style="background: var(--brand-icon, #0ea5e9); color: #fff;">{{ $items->total() }}</span>
+                    <span class="ds-badge ds-badge-pill ds-badge-info">{{ $items->total() }}</span>
                 </button>
                 <button type="button" @click="tab = 'filed'"
                         class="flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 -mb-px"
                         :style="tab === 'filed' ? 'color: var(--text-primary); border-color: var(--brand-icon, #0ea5e9);' : 'color: var(--text-muted); border-color: transparent;'">
                     Recently filed
-                    <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);">{{ $recent->count() }}</span>
+                    <span class="ds-badge ds-badge-pill ds-badge-default">{{ $recent->count() }}</span>
                 </button>
             </div>
 
@@ -216,7 +216,7 @@
                 <div x-show="tab === 'filed' && sel.filed === {{ (int) $s->id }}" x-cloak class="flex-1 min-h-0 flex flex-col">
                     <div class="flex-shrink-0 flex flex-col gap-1.5 px-5 py-4" style="border-bottom: 1px solid var(--border);">
                         <div class="flex items-center gap-2.5 flex-wrap">
-                            <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full" style="background:color-mix(in srgb, var(--ds-green, #059669) 12%, transparent); color:var(--ds-green, #059669);">Filed to {{ $dl }}</span>
+                            <span class="ds-badge ds-badge-pill ds-badge-success">Filed to {{ $dl }}</span>
                             <span class="text-[11px]" style="color: var(--text-muted);">{{ $s->resolved_at ? 'Filed '.$s->resolved_at->diffForHumans() : '' }}@if($c?->occurred_at) · received {{ $c->occurred_at->format('D j M Y, H:i') }}@endif</span>
                         </div>
                         <div class="text-[15px] font-semibold leading-snug" style="color: var(--text-primary);">{{ $c?->subject ?: '(no subject)' }}</div>

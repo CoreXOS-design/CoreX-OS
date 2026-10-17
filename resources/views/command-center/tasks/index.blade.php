@@ -199,9 +199,7 @@
                             <span class="w-2 h-2 rounded-full" style="background: var({{ $colVar }});"></span>
                             <span class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-primary);">{{ $statusLabel }}</span>
                         </div>
-                        <span class="inline-flex items-center justify-center rounded-full text-[0.6875rem] font-semibold px-2 py-0.5"
-                              style="background: var(--surface-2); color: var(--text-secondary); min-width: 1.5rem;"
-                              data-col-count>{{ number_format($colTasks->count()) }}</span>
+                        <span class="ds-badge ds-badge-pill ds-badge-default" data-col-count>{{ number_format($colTasks->count()) }}</span>
                     </button>
 
                     {{-- Column body — fills the column and scrolls inside itself --}}
@@ -248,9 +246,7 @@
                                 </svg>
                                 <span class="w-2 h-2 rounded-full" style="background: var({{ $bucket['var'] }});"></span>
                                 <span class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-primary);">{{ $bucket['label'] }}</span>
-                                <span class="inline-flex items-center justify-center rounded-full text-[0.6875rem] font-semibold px-2 py-0.5"
-                                      data-group-count
-                                      style="background: color-mix(in srgb, var({{ $bucket['var'] }}) 18%, transparent); color: var({{ $bucket['var'] }}); min-width: 1.5rem;">{{ number_format($bucket['tasks']->count()) }}</span>
+                                <span class="ds-badge ds-badge-pill" style="--ds-badge-c: var({{ $bucket['var'] }});" data-group-count>{{ number_format($bucket['tasks']->count()) }}</span>
                             </div>
                         </button>
 
@@ -287,8 +283,7 @@
                                                 <td class="px-4 py-3" style="color: var(--text-primary);">
                                                     <div class="flex items-center gap-2 flex-wrap">
                                                         @if($tag && isset($pillarStyle[$tag]))
-                                                            <span class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[0.6875rem] font-bold uppercase tracking-wider flex-shrink-0"
-                                                                  style="background: color-mix(in srgb, var({{ $pillarStyle[$tag]['var'] }}) 15%, transparent); color: var({{ $pillarStyle[$tag]['var'] }}); white-space: nowrap;">
+                                                            <span class="ds-badge ds-badge-pill flex-shrink-0" style="--ds-badge-c: var({{ $pillarStyle[$tag]['var'] }});">
                                                                 {{ $pillarStyle[$tag]['label'] }}
                                                             </span>
                                                         @endif

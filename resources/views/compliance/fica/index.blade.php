@@ -125,8 +125,7 @@
                     ? 'color: var(--brand-icon, #0ea5e9); border-bottom: 2px solid var(--brand-icon, #0ea5e9); font-weight:600;'
                     : 'color: var(--text-secondary); border-bottom: 2px solid transparent;' }}">
                 {{ $t['label'] }}
-                <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full"
-                      style="background: var(--surface-2); color: var(--text-secondary);">{{ number_format($t['count']) }}</span>
+                <span class="ds-badge ds-badge-pill ds-badge-default ml-1">{{ number_format($t['count']) }}</span>
             </a>
         @endforeach
     </div>

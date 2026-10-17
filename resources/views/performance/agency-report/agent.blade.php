@@ -81,7 +81,7 @@
         @if(!empty($buyer['stage_summary']))
             <div class="flex flex-wrap gap-2">
                 @foreach($buyer['stage_summary'] as $state => $count)
-                    <span class="text-[11px] px-2 py-1 rounded" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    <span class="ds-badge ds-badge-pill ds-badge-default">
                         {{ ucfirst(str_replace('_', ' ', $state)) }}: <strong>{{ $count }}</strong>
                     </span>
                 @endforeach
@@ -127,7 +127,7 @@
                 @if(!empty($buyer['lost_reasons']))
                     <div class="flex flex-wrap gap-2 mb-2">
                         @foreach($buyer['lost_reasons'] as $reason => $agg)
-                            <span class="text-[11px] px-2 py-1 rounded" style="background:#fef2f2; border:1px solid #fecaca; color:#991b1b;">
+                            <span class="ds-badge ds-badge-pill ds-badge-danger">
                                 {{ $reason }}: <strong>{{ $agg['count'] }}</strong>@if($agg['value'] > 0) · R {{ number_format($agg['value']) }}@endif
                             </span>
                         @endforeach

@@ -1081,9 +1081,9 @@
             <div class="text-[1.125rem] font-bold leading-none tabular-nums mb-1.5" style="color:var(--text-primary);">{{ $property->formattedDisplayPrice() }}</div>
             <div class="text-sm font-semibold leading-snug line-clamp-1" style="color:var(--text-primary);">{{ $property->buildDisplayAddress() ?? ($property->title ?: '—') }}</div>
             @if($property->isImportedStock())
-            <span class="mt-2 text-[10px] font-semibold px-1.5 py-0.5 rounded inline-block w-fit whitespace-nowrap" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);" title="Imported from Property24">Imported</span>
+            <span class="ds-badge ds-badge-pill ds-badge-default mt-2 w-fit" title="Imported from Property24">Imported</span>
             @endif
-            <div class="text-xs mt-2 px-2 py-1 rounded-md inline-block w-fit font-medium" style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);">
+            <div class="ds-badge ds-badge-pill ds-badge-warning mt-2 w-fit">
                 Agent: {{ $property->agent?->name ?? 'Unassigned' }}
             </div>
             <div class="text-[10px] italic mt-2" style="color:var(--text-muted);">Already listed — not in your listings</div>
@@ -1144,7 +1144,7 @@
                     <span class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium" title="Imported from Property24">Imported</span>
                     @endif
                     @if($property->needsPortalAgentAttention())
-                    <span class="text-[11px] px-2 py-1 rounded-md font-semibold" style="background:color-mix(in srgb, var(--ds-amber) 14%, var(--surface)); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);" title="A portal send stopped on an agent problem — open the listing to sort it out">Portal agent</span>
+                    <span class="ds-badge ds-badge-pill ds-badge-warning" title="A portal send stopped on an agent problem — open the listing to sort it out">Portal agent</span>
                     @endif
                 </div>
 
@@ -1363,9 +1363,9 @@
                                 <span class="text-sm font-semibold" style="color:var(--text-primary);">{{ $property->buildDisplayAddress() ?? ($property->title ?: '—') }}</span>
                                 <span class="text-xs font-semibold tabular-nums" style="color:var(--text-secondary);">{{ $property->formattedDisplayPrice() }}</span>
                                 @if($property->isImportedStock())
-                                <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);" title="Imported from Property24">Imported</span>
+                                <span class="ds-badge ds-badge-pill ds-badge-default" title="Imported from Property24">Imported</span>
                                 @endif
-                                <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);">
+                                <span class="ds-badge ds-badge-pill ds-badge-warning">
                                     Agent: {{ $property->agent?->name ?? 'Unassigned' }}
                                 </span>
                             </div>
@@ -1396,10 +1396,10 @@
                             {{ Str::limit($property->title, 35) }}
                         </a>
                         @if($property->isImportedStock())
-                        <span class="ml-1.5 align-middle text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);" title="Imported from Property24">Imported</span>
+                        <span class="ds-badge ds-badge-pill ds-badge-default ml-1.5 align-middle" title="Imported from Property24">Imported</span>
                         @endif
                         @if($property->needsPortalAgentAttention())
-                        <span class="ml-1.5 align-middle text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap" style="background:color-mix(in srgb, var(--ds-amber) 14%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);" title="A portal send stopped on an agent problem — open the listing to sort it out">Portal agent</span>
+                        <span class="ds-badge ds-badge-pill ds-badge-warning ml-1.5 align-middle" title="A portal send stopped on an agent problem — open the listing to sort it out">Portal agent</span>
                         @endif
                         @if($property->p24_ref)
                         <div class="text-[10px] font-mono mt-0.5" style="color:{{ $rowIsOffMarket ? 'var(--text-muted)' : 'var(--brand-icon, #0ea5e9)' }};" title="Property24 listing number">P24: {{ $property->p24_ref }}</div>
@@ -1442,15 +1442,15 @@
                             };
                         @endphp
                         @if($ms !== 'n/a')
-                            <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style="{{ $msStyle }}" title="{{ $property->marketing_status_detail ?? '' }}">{{ ucfirst($ms) }}</span>
+                            <span class="ds-badge" style="{{ $msStyle }};" title="{{ $property->marketing_status_detail ?? '' }}">{{ ucfirst($ms) }}</span>
                         @else
                             <span class="text-[10px]" style="color:var(--text-muted);">—</span>
                         @endif
                     </td>
                     <td class="px-4 py-2.5 text-left">
                         <div class="inline-flex flex-row gap-1.5 items-center">
-                            <span class="text-xs px-2.5 py-1 rounded-full font-semibold whitespace-nowrap" style="{{ $rowBrandPillStyle }}">{{ $rowListingLabel }}</span>
-                            <span class="text-xs px-2.5 py-1 rounded-full font-semibold whitespace-nowrap" style="{{ $rowStatusPillStyle }}">{{ $rowStatusLabel }}</span>
+                            <span class="ds-badge ds-badge-pill" style="{{ $rowBrandPillStyle }};">{{ $rowListingLabel }}</span>
+                            <span class="ds-badge" style="{{ $rowStatusPillStyle }};">{{ $rowStatusLabel }}</span>
                             {{-- Layer 3 — approval tag, beside the status pill and never inside
                                  it (spec §2: the status column is untouched by this feature). --}}
                             @if($syndicationApprovalOn ?? false)
@@ -1468,7 +1468,7 @@
                                     ][$rowAppr] ?? '';
                                 @endphp
                                 @if($rowApprText)
-                                <span class="text-xs px-2.5 py-1 rounded-full font-semibold whitespace-nowrap" style="{{ $rowApprStyle }}" title="Syndication approval">{{ $rowApprText }}</span>
+                                <span class="ds-badge" style="{{ $rowApprStyle }};" title="Syndication approval">{{ $rowApprText }}</span>
                                 @endif
                             @endif
                         </div>

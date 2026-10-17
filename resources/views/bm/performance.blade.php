@@ -582,9 +582,7 @@
                                             {{ $row['name'] }}
                                         </a>
                                         @if(!empty($row['is_archived']))
-                                            <span class="ml-1 inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold align-middle"
-                                                  style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);"
-                                                  title="This team member has been archived. Their commission from this period still counts toward the branch total.">Archived</span>
+                                            <span class="ds-badge ds-badge-pill ds-badge-default ml-1 align-middle" title="This team member has been archived. Their commission from this period still counts toward the branch total.">Archived</span>
                                         @endif
                                     </div>
                                     <div class="text-xs mt-0.5" style="color: var(--text-muted);">

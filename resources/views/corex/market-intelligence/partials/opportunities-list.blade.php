@@ -59,9 +59,7 @@
                                 @endif
                             </span>
                             @if($isPromoted)
-                                <span style="font-size: 0.625rem; font-weight: 600; padding: 2px 6px; white-space: nowrap;
-                                             background: color-mix(in srgb, var(--ds-amber, #f59e0b) 18%, transparent);
-                                             color: var(--ds-amber, #f59e0b); border-radius: 6px;">
+                                <span class="ds-badge ds-badge-pill ds-badge-warning">
                                     IN STOCK
                                 </span>
                             @endif
@@ -73,9 +71,7 @@
                                         default            => 'var(--text-muted)',
                                     };
                                 @endphp
-                                <span style="font-size: 0.625rem; font-weight: 600; padding: 2px 6px; white-space: nowrap;
-                                             background: color-mix(in srgb, {{ $confColor }} 14%, transparent);
-                                             color: {{ $confColor }}; border-radius: 6px;">
+                                <span class="ds-badge ds-badge-pill" style="--ds-badge-c: {{ $confColor }};">
                                     {{ strtoupper($primary->confidence) }}
                                 </span>
                             @endif

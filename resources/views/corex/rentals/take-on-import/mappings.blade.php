@@ -37,8 +37,7 @@
                 {{ $showArchived ? 'Back to active mappings' : 'View archived mappings' }}
             </a>
         <div class="flex-1"></div>
-        <span class="text-xs font-semibold px-2.5 py-1 rounded-md whitespace-nowrap"
-              style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent);">
+        <span class="ds-badge ds-badge-pill ds-badge-info">
             {{ number_format($mappings->total()) }} {{ \Illuminate\Support\Str::plural('mapping', $mappings->total()) }}
         </span>
         </form>

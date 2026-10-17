@@ -55,7 +55,7 @@
                     <div class="flex items-start justify-between gap-2">
                         <h4 class="text-sm font-semibold" style="color:var(--text-primary);">{{ $config->name }}</h4>
                         @if($config->required)
-                            <span class="text-[0.6875rem] font-semibold px-1.5 py-0.5 rounded-md flex-shrink-0 whitespace-nowrap" style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); color:var(--brand-icon,#0ea5e9);">Required</span>
+                            <span class="ds-badge ds-badge-pill ds-badge-info flex-shrink-0">Required</span>
                         @endif
                     </div>
                     @if($config->description)
@@ -80,7 +80,7 @@
                         </a>
                         <div class="text-xs space-y-1" style="color:var(--text-secondary);">
                             <div style="color:var(--text-muted);">Updated {{ $prov->created_at->format('d M Y') }}</div>
-                            <span class="inline-block px-1.5 py-0.5 rounded-md font-semibold whitespace-nowrap" style="background:{{ $doc->scope === 'branch' ? 'color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent)' : 'var(--surface-2)' }}; color:{{ $doc->scope === 'branch' ? 'var(--brand-icon,#0ea5e9)' : 'var(--text-muted,#9ca3af)' }};">
+                            <span class="ds-badge ds-badge-pill {{ $doc->scope === 'branch' ? 'ds-badge-info' : 'ds-badge-default' }}">
                                 {{ $doc->scope === 'branch' ? ($branchName ?? 'Branch') : 'Company' }}
                             </span>
                         </div>

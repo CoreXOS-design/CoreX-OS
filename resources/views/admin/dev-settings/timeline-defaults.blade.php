@@ -41,7 +41,7 @@
                 @forelse($milestones as $m)
                     <tbody x-data="{ edit: false }" style="border-top: 1px solid var(--border);">
                         <tr class="corex-tl-row">
-                            <td class="px-5 py-4 whitespace-nowrap align-top" style="width: 7rem;"><span class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">Day +{{ $m->offset_days }}</span></td>
+                            <td class="px-5 py-4 whitespace-nowrap align-top" style="width: 7rem;"><span class="ds-badge ds-badge-pill ds-badge-info tabular-nums">Day +{{ $m->offset_days }}</span></td>
                             <td class="px-5 py-4 align-top">
                                 <div class="font-semibold" style="color: var(--text-primary);">{{ $m->title }}</div>
                                 @if($m->body)<div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $m->body }}</div>@endif

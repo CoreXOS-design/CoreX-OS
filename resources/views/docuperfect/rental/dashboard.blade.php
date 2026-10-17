@@ -222,7 +222,7 @@
                             <div class="font-semibold text-[color:var(--text-primary)]">
                                 {{ $doc->name }}
                                 @if($doc->document_type)
-                                    <span class="inline-block ml-2 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[color:var(--surface-2)] text-[color:var(--text-secondary)]">{{ ucwords(str_replace('_', ' ', $doc->document_type)) }}</span>
+                                    <span class="ds-badge ds-badge-pill ds-badge-default ml-2">{{ ucwords(str_replace('_', ' ', $doc->document_type)) }}</span>
                                 @endif
                             </div>
                             <div class="flex flex-wrap items-center gap-2 mt-2">

@@ -78,7 +78,7 @@
                                     {{ $listing->p24_listing_number }}
                                 @endif
                                 @if($listing->is_mandated)
-                                    <span class="ml-1 text-xs px-1 py-0.5 rounded bg-amber-100 text-amber-700">Mandated</span>
+                                    <span class="ds-badge ds-badge-pill ds-badge-warning ml-1">Mandated</span>
                                 @endif
                             </td>
                             <td class="px-4 py-3">{{ $listing->property_type ?? '—' }}</td>

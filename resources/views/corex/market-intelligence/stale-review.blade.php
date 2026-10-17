@@ -93,8 +93,7 @@
                     </td>
                     <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $it['agent_name'] }}</td>
                     <td class="px-4 py-3">
-                        <span class="text-xs px-2 py-0.5 rounded-full font-bold"
-                              style="background:color-mix(in srgb, {{ $it['is_stale'] ? 'var(--ds-crimson,#c41e3a)' : 'var(--ds-amber,#f59e0b)' }} 15%, transparent); color:{{ $it['is_stale'] ? 'var(--ds-crimson,#c41e3a)' : 'var(--ds-amber,#f59e0b)' }};">
+                        <span class="ds-badge ds-badge-pill" style="--ds-badge-c: {{ $it['is_stale'] ? 'var(--ds-crimson,#c41e3a)' : 'var(--ds-amber,#f59e0b)' }};">
                             {{ $it['days'] }} day{{ $it['days'] === 1 ? '' : 's' }}{{ $it['is_stale'] ? ' · STALE' : ' · warned' }}
                         </span>
                     </td>

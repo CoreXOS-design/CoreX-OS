@@ -45,8 +45,7 @@
                             <td class="px-4 py-3 font-medium" style="color:var(--text-primary);">{{ $s->agency?->name ?? '—' }}</td>
                             <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $s->admin?->email ?? '—' }}</td>
                             <td class="px-4 py-3">
-                                <span class="inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold"
-                                      style="background: color-mix(in srgb, {{ $tone }} 14%, transparent); color: {{ $tone }};">
+                                <span class="ds-badge" style="--ds-badge-c: {{ $tone }};">
                                     {{ $status }}
                                 </span>
                             </td>

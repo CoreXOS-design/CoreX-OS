@@ -26,9 +26,7 @@
             <div class="text-sm font-bold" style="color:var(--brand-icon,#0ea5e9);" x-text="p.price"></div>
             {{-- Active but not published on the website / P24 / PP yet (§20.2). Informational only. --}}
             <template x-if="p.is_live === false">
-                <span class="text-[11px] font-semibold rounded px-1.5 py-0.5 whitespace-nowrap"
-                      style="background:color-mix(in srgb, var(--ds-amber,#f59e0b) 16%, transparent); color:var(--text-primary);"
-                      title="This listing is active but not published on the website, Property24 or Private Property yet.">Not published yet</span>
+                <span class="ds-badge ds-badge-pill ds-badge-warning" title="This listing is active but not published on the website, Property24 or Private Property yet.">Not published yet</span>
             </template>
         </div>
     </div>

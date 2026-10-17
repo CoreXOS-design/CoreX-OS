@@ -11,8 +11,7 @@
             </a>
             <h1 class="text-xl font-bold" style="color:var(--text-primary);">Overdue &amp; Unresolved</h1>
             @if($total > 0)
-            <span class="text-xs px-2 py-0.5 rounded-md font-semibold tabular-nums"
-                  style="background: color-mix(in srgb, var(--ds-crimson) 14%, transparent); color: var(--ds-crimson);">{{ $total }}</span>
+            <span class="ds-badge ds-badge-pill ds-badge-danger tabular-nums">{{ $total }}</span>
             @endif
         </div>
     </div>
@@ -33,8 +32,7 @@
             <div class="rounded-md px-4 py-3 flex items-start gap-3" style="background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--ds-crimson);">
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2 flex-wrap">
-                        <span class="text-[0.625rem] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded"
-                              style="background:var(--surface-2);color:var(--text-muted);">Task</span>
+                        <span class="ds-badge ds-badge-pill ds-badge-default">Task</span>
                         <span class="text-sm font-medium" style="color:var(--text-primary);">{{ $task->title }}</span>
                     </div>
                     <div class="text-xs mt-1" style="color:var(--text-secondary);">
@@ -65,8 +63,7 @@
             <div class="rounded-md px-4 py-3 flex items-start gap-3" style="background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--ds-crimson);">
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2 flex-wrap">
-                        <span class="text-[0.625rem] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded"
-                              style="background:var(--surface-2);color:var(--text-muted);">Event</span>
+                        <span class="ds-badge ds-badge-pill ds-badge-default">Event</span>
                         <span class="text-sm font-medium" style="color:var(--text-primary);">{{ $event->title }}</span>
                     </div>
                     <div class="text-xs mt-1" style="color:var(--text-secondary);">

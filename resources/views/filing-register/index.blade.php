@@ -137,8 +137,7 @@
                                 style="color: var(--text-primary); border-bottom: 1px solid var(--border);">
                             <span class="flex items-center gap-2">
                                 <span class="font-medium" x-text="r.address || r.label"></span>
-                                <span class="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded whitespace-nowrap"
-                                      :style="rOnMarket(r) ? 'color:#065f46;background:#ecfdf5;' : 'color:#b91c1c;background:#fef2f2;'"
+                                <span class="ds-badge" :style="rOnMarket(r) ? '--ds-badge-c:#065f46' : '--ds-badge-c:#b91c1c'"
                                       x-text="rStatus(r)"></span>
                             </span>
                             <span class="block text-xs" style="color: var(--text-muted);" x-show="rSub(r)" x-text="rSub(r)"></span>
@@ -424,8 +423,7 @@
                                                     style="color: var(--text-primary); border-bottom: 1px solid var(--border);">
                                                 <span class="flex items-center gap-2">
                                                     <span class="font-medium" x-text="r.address || r.label"></span>
-                                                    <span class="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded whitespace-nowrap"
-                                                          :style="rOnMarket(r) ? 'color:#065f46;background:#ecfdf5;' : 'color:#b91c1c;background:#fef2f2;'"
+                                                    <span class="ds-badge" :style="rOnMarket(r) ? '--ds-badge-c:#065f46' : '--ds-badge-c:#b91c1c'"
                                                           x-text="rStatus(r)"></span>
                                                 </span>
                                                 <span class="block" style="color: var(--text-muted);" x-show="rSub(r)" x-text="rSub(r)"></span>

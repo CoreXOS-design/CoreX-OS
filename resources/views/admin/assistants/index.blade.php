@@ -66,8 +66,7 @@
                     <td class="px-4 py-3">
                         <div class="font-semibold" style="color:var(--text-primary);">
                             {{ $assistant?->name }}
-                            <span class="ml-1.5 px-1.5 py-0.5 rounded text-xs font-medium align-middle"
-                                  style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-muted);">{{ $assistant?->assistantTitle() ?? 'Assistant' }}</span>
+                            <span class="ds-badge ds-badge-pill ds-badge-default ml-1.5 align-middle">{{ $assistant?->assistantTitle() ?? 'Assistant' }}</span>
                         </div>
                         <div class="text-xs" style="color:var(--text-muted);">{{ $assistant?->email }}</div>
                     </td>
@@ -75,20 +74,13 @@
                     <td class="px-4 py-3">{{ $assignment->branch?->display_name ?? '—' }}</td>
                     <td class="px-4 py-3">
                         @if($assignment->trashed() || $assignment->status === \App\Models\AssistantAssignment::STATUS_REVOKED)
-                            <span class="px-2 py-0.5 rounded-md text-xs font-semibold"
-                                  style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-muted);"
-                                  title="Access revoked. The record is archived and can be restored.">Revoked</span>
+                            <span class="ds-badge ds-badge-muted" title="Access revoked. The record is archived and can be restored.">Revoked</span>
                         @elseif($assignment->status === \App\Models\AssistantAssignment::STATUS_SUSPENDED)
-                            <span class="px-2 py-0.5 rounded-md text-xs font-semibold"
-                                  style="background:var(--surface-2); border:1px solid color-mix(in srgb, var(--ds-amber, #d97706) 30%, transparent); color:var(--ds-amber, #d97706);"
-                                  title="Their agent's account is inactive, so the assistant currently has no access. Reactivating the agent restores it.">Frozen</span>
+                            <span class="ds-badge ds-badge-warning" title="Their agent's account is inactive, so the assistant currently has no access. Reactivating the agent restores it.">Frozen</span>
                         @elseif($pending)
-                            <span class="px-2 py-0.5 rounded-md text-xs font-semibold"
-                                  style="background:var(--surface-2); border:1px solid color-mix(in srgb, var(--ds-amber, #d97706) 30%, transparent); color:var(--ds-amber, #d97706);"
-                                  title="They have been emailed a link to set their password but have not used it yet.">Invite pending</span>
+                            <span class="ds-badge ds-badge-warning" title="They have been emailed a link to set their password but have not used it yet.">Invite pending</span>
                         @else
-                            <span class="px-2 py-0.5 rounded-md text-xs font-semibold"
-                                  style="background:var(--surface-2); border:1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent); color:var(--ds-green, #059669);">Active</span>
+                            <span class="ds-badge ds-badge-success">Active</span>
                         @endif
                     </td>
                     <td class="px-4 py-3 text-right">

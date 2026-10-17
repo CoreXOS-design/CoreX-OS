@@ -834,15 +834,12 @@
                                 who is looking or whose contact it is.
                             --}}
                             @if($isRestricted || $isOtherAgent)
-                            <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap"
-                                  style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);"
-                                  title="{{ $isRestricted ? 'Found elsewhere in the agency — not in your own contacts' : 'This contact belongs to a different agent' }}">
+                            <span class="ds-badge ds-badge-pill ds-badge-warning" title="{{ $isRestricted ? 'Found elsewhere in the agency — not in your own contacts' : 'This contact belongs to a different agent' }}">
                                 Agent: {{ $contact->agent->name ?? $contact->createdBy->name ?? 'Unassigned' }}
                             </span>
                             @endif
                             @foreach($typeBadges as $badgeName)
-                            <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap"
-                                  style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent);">
+                            <span class="ds-badge ds-badge-pill ds-badge-info">
                                 {{ $badgeName }}
                             </span>
                             @endforeach

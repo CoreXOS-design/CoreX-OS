@@ -166,8 +166,7 @@
                                     {{ \Illuminate\Support\Str::limit($entry->description, 40) }}
                                 </td>
                                 <td class="px-4 py-3 text-center whitespace-nowrap">
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold whitespace-nowrap"
-                                          style="background: color-mix(in srgb, {{ $typeBadge['tint'] }} 12%, transparent); color: {{ $typeBadge['tint'] }};">
+                                    <span class="ds-badge ds-badge-pill" style="--ds-badge-c: {{ $typeBadge['tint'] }};">
                                         {{ $typeBadge['label'] }}
                                     </span>
                                 </td>
