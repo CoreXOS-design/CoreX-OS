@@ -765,8 +765,20 @@ class PropertyController extends Controller
         $showOtherAgencyStock = ! $isRentalEntry && ! ($isAuctionEntry ?? false) && ! $importedStock
             && \App\Services\Properties\OtherAgencyStockVisibility::canSee($user);
 
+        // Price slider ends: the lowest and highest price across the viewer's live stock.
+        // Role scope only (not the other filters), so the ends do not move when a price is picked.
+        // Off-market rows are left out: a withdrawn or expired listing with a placeholder price
+        // would otherwise set the top of the slider.
+        $priceBounds = tap(Property::query(), fn ($q) => $this->applyRoleScope($q, $user, $dataScope, $canPickAgent, $viewScope))
+            ->ownStock()
+            ->where(fn ($q) => $q->whereNull('status')->orWhereNotIn('status', Property::OFF_MARKET_STATUSES))
+            ->where('price', '>', 0)
+            ->selectRaw('MIN(price) as lo, MAX(price) as hi')
+            ->first();
+        $priceRange = ['min' => (int) ($priceBounds->lo ?? 0), 'max' => (int) ($priceBounds->hi ?? 0)];
+
         return view('corex.properties.index', compact(
-            'showOtherAgencyStock',
+            'showOtherAgencyStock', 'priceRange',
             'properties', 'stats', 'scope', 'status', 'search',
             'filterAgentIds', 'agentList', 'selectedAgents', 'canPickAgent',
             'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode',
