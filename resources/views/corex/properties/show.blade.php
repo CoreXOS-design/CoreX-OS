@@ -156,10 +156,11 @@
     {{-- List-look polish (Johan 2026-10-17): hover lift / accent edge / animated tab underline / field hover — restyle only. --}}
     @include('corex.properties.partials._property-polish-styles')
 <div class="w-full h-full flex flex-col space-y-4 corex-props-v2"
-     x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: {{ $synOpenOnLoad ? 'true' : 'false' }}, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false, notSellingModalOpen: false, driveTypePref: null }"
+     x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', tabPending: null, synOpen: {{ $synOpenOnLoad ? 'true' : 'false' }}, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false, notSellingModalOpen: false, driveTypePref: null }"
      @corex:contact-required.window="contactRequiredModalOpen = true"
      @corex:contact-added.window="contactRequiredModalOpen = false; activeTab = 'info';"
      @corex:switch-tab.window="activeTab = $event.detail"
+     x-init="$watch('activeTab', (k) => { tabPending = null; window.ppTabEnter && window.ppTabEnter($el, k); })"
      x-effect="localStorage.setItem('hfc.propSidebar.collapsed', sbCollapsed ? '1' : '0')">
 
     {{-- Identity strip (2026-09-13 restyle, option 2) — Back, the property's identity
@@ -1872,7 +1873,7 @@
 
 
         {{-- ── INFO TAB ───────────────────────────────────────────────────── --}}
-        <div x-show="activeTab === 'info'" {{ $isNew ? '' : 'x-cloak' }} class="px-4 pb-4">
+        <div x-show="activeTab === 'info'" {{ $isNew ? '' : 'x-cloak' }} class="prop-info-panel px-4 pb-4">
             {{-- AT-60 — duplicate-address guard. A property already matches this
                  contact's address: offer link-to-existing (kept OUTSIDE the create
                  form — no nested forms). The agent can ignore it and keep creating. --}}
@@ -1939,31 +1940,8 @@
                 </form>
             @endif
 
-            {{-- AT-432 — the "Send to Auction" entry point (.ai/specs/auctions.md
-                 §9 steps 1-2). Deliberately NOT added to the intake wizard
-                 (wizard.blade.php) — the wizard has no path to also create/attach
-                 the auction in the same step, and setting sale_method='auction'
-                 with no lot behind it is an inconsistent state. This link instead
-                 carries the property into AuctionController::create(), which
-                 attaches it as Lot 1 the moment the auction itself is created —
-                 sale_method only ever flips together with a real lot existing. --}}
-            @if(!$isNew)
-            @feature('auctions')
-            @permission('auctions.create')
-                @if($property->isAuction() && ($currentLot = $property->currentAuctionLot()))
-                <div class="mb-4">
-                    <a href="{{ route('corex.auctions.lots.show', $currentLot) }}" class="corex-btn-outline text-xs no-underline inline-flex items-center gap-1">
-                        On Auction — Lot {{ $currentLot->lot_number }} ({{ $currentLot->auction->reference }})
-                    </a>
-                </div>
-                @elseif(!$property->isAuction())
-                <div class="mb-4">
-                    <a href="{{ route('corex.auctions.create', ['property_id' => $property->id]) }}" class="corex-btn-outline text-xs no-underline inline-flex items-center gap-1">Send to Auction</a>
-                </div>
-                @endif
-            @endpermission
-            @endfeature
-            @endif
+            {{-- AT-432 — the "Send to Auction" / "On Auction" entry point moved to the page header
+                 (partials/_property-shell-header.blade.php, Johan 2026-10-17). --}}
 
             <form id="prop-update-form" method="POST" enctype="multipart/form-data"
                   action="@if($isNew){{ route('corex.properties.store') }}@else{{ route('corex.properties.update', $property) }}@endif"
@@ -13187,6 +13165,12 @@ function propertyMapWidget(cfg) {
 
             // Render the map only after the user expands the panel.
             this.$watch('open', (val) => { if (val) this.$nextTick(() => this._renderMap()); });
+
+            // The Info tab fades/slides in when the agent comes back to it; re-measure the map once it has
+            // settled so Leaflet never keeps a stale size from while the tab was hidden.
+            window.addEventListener('corex:prop-tab-shown', (e) => {
+                if (e.detail === 'info' && this._map) setTimeout(() => this._map.invalidateSize(), 260);
+            });
 
             // On initial load: if no saved coords, kick the backend to
             // resolve from whatever address parts we have. The backend will
