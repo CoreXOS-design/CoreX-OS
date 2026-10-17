@@ -3,12 +3,13 @@
 @section('title', 'Agent Journey — ' . ($journey['agent']['name'] ?? ''))
 
 @section('corex-content')
-<div class="p-6 space-y-6">
-    <div class="flex items-center justify-between flex-wrap gap-3">
+<div class="w-full space-y-5">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
             <a href="{{ route('performance.agency-report', ['period' => $preset]) }}"
                class="text-[11px] no-underline" style="color:var(--text-muted);">&larr; Back to report</a>
-            <h1 class="text-xl font-bold" style="color:var(--text-primary);">{{ $journey['agent']['name'] }}</h1>
+            <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">{{ $journey['agent']['name'] }}</h1>
             <p class="text-xs" style="color:var(--text-muted);">
                 {{ $journey['agent']['branch_label'] }} · {{ $journey['period']['label'] }}
                 <span class="ml-1">(vs {{ $journey['previous_period']['label'] }})</span>
@@ -28,6 +29,7 @@
                 'formAction' => route('performance.agency-report.agent', $journey['agent']['user_id']),
             ])
         </div>
+      </div>
     </div>
 
     @if(session('period_error'))
@@ -91,13 +93,13 @@
             <table class="w-full text-xs">
                 <thead>
                     <tr style="background:var(--surface-2);">
-                        <th class="text-left px-3 py-2" style="color:var(--text-muted);">Buyer</th>
-                        <th class="text-left px-3 py-2" style="color:var(--text-muted);">Stage</th>
-                        <th class="text-right px-3 py-2" style="color:var(--text-muted);">Days in stage</th>
-                        <th class="text-right px-3 py-2" style="color:var(--text-muted);">Days in pipeline</th>
-                        <th class="text-right px-3 py-2" style="color:var(--text-muted);">Appts (period)</th>
-                        <th class="text-right px-3 py-2" style="color:var(--text-muted);">Comms (period)</th>
-                        <th class="text-left px-3 py-2" style="color:var(--text-muted);">Last worked</th>
+                        <th class="text-left px-3 py-3 font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Buyer</th>
+                        <th class="text-left px-3 py-3 font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Stage</th>
+                        <th class="text-right px-3 py-3 font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Days in stage</th>
+                        <th class="text-right px-3 py-3 font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Days in pipeline</th>
+                        <th class="text-right px-3 py-3 font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Appts (period)</th>
+                        <th class="text-right px-3 py-3 font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Comms (period)</th>
+                        <th class="text-left px-3 py-3 font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Last worked</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -135,12 +137,12 @@
                     <table class="w-full text-xs">
                         <thead>
                             <tr style="background:var(--surface-2);">
-                                <th class="text-left px-3 py-2" style="color:var(--text-muted);">Buyer</th>
-                                <th class="text-left px-3 py-2" style="color:var(--text-muted);">Reason</th>
-                                <th class="text-left px-3 py-2" style="color:var(--text-muted);">Stage at loss</th>
-                                <th class="text-right px-3 py-2" style="color:var(--text-muted);">Days in pipeline</th>
-                                <th class="text-right px-3 py-2" style="color:var(--text-muted);">Pre-approval value</th>
-                                <th class="text-left px-3 py-2" style="color:var(--text-muted);">Recorded</th>
+                                <th class="text-left px-3 py-3 font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Buyer</th>
+                                <th class="text-left px-3 py-3 font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Reason</th>
+                                <th class="text-left px-3 py-3 font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Stage at loss</th>
+                                <th class="text-right px-3 py-3 font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Days in pipeline</th>
+                                <th class="text-right px-3 py-3 font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Pre-approval value</th>
+                                <th class="text-left px-3 py-3 font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Recorded</th>
                             </tr>
                         </thead>
                         <tbody>

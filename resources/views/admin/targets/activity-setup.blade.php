@@ -1,23 +1,23 @@
 @extends('layouts.corex')
 
-@section('content')
-<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+@section('corex-content')
+<div class="w-full space-y-5">
 
-    <div style="background:var(--brand-default);" class="rounded-2xl px-6 py-4">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h2 class="text-xl font-bold text-white leading-tight">Activity Setup</h2>
-                <div class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Activity Setup</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Choose which activity fields appear on the Daily Capture table, and in what order.
                     @if($branchId)
                         Editing branch override.
                     @else
                         Editing global defaults.
                     @endif
-                </div>
+                </p>
             </div>
 
-            <a href="{{ route('admin.targets') }}" class="corex-btn-outline text-sm">&larr; Back to Targets</a>
+            <a href="{{ route('admin.targets') }}" class="corex-btn-outline text-xs">&larr; Back to Targets</a>
         </div>
     </div>
 
