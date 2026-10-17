@@ -618,3 +618,10 @@ Schedule::command('ai-templates:purge-reference-images')->dailyAt('03:15')->onOn
 // schedule setting (/admin/article-library/settings: off · nightly · every 3 days) says it is due.
 // Spend goes to the platform AI bucket (agency NULL). Also runnable by hand: php artisan article-library:run --force
 Schedule::command('article-library:run')->dailyAt('02:30')->onOneServer()->withoutOverlapping();
+
+// AT-456 Part D — Post Scheduler. Every minute: publish scheduled Facebook / Instagram posts that are due.
+// Each post is claimed with an atomic UPDATE first (overlapping runs publish once) and published inline,
+// no queue worker needed. Also runnable by hand: php artisan marketing:publish-due
+Schedule::command('marketing:publish-due')->everyMinute()->onOneServer()->withoutOverlapping();
+// Scheduled-post pictures: kept until published + 30 days; unused uploads removed after 2 days.
+Schedule::command('marketing:purge-scheduled-images')->dailyAt('03:20')->onOneServer()->withoutOverlapping();

@@ -1,6 +1,6 @@
 # AT-456 — AI Template Builder, Article Library, Post Scheduler & AI Spend Safety
 
-> Status: **Part A BUILT on QA2 2026-10-17 (Johan: "save spec and build") — awaiting Johan's test on QA2.** **Part B BUILT 2026-10-17 (QA2) — awaiting Johan's test.** **Part C BUILT 2026-10-17 (QA2) — awaiting Johan's test.** Part D: not started; build one at a time.
+> Status: **Part A BUILT on QA2 2026-10-17 (Johan: "save spec and build") — awaiting Johan's test on QA2.** **Part B BUILT 2026-10-17 (QA2) — awaiting Johan's test.** **Part C BUILT 2026-10-17 (QA2) — awaiting Johan's test.** **Part D BUILT 2026-10-17 (QA2) — awaiting Johan's test.** All four parts built.
 > Drafted 2026-10-14 on QA2 from the AT-456 investigation conversation.
 > Every business decision below is Johan's, quoted or plainly paraphrased from that conversation.
 > Pillars: **Property** (read), **Agent** (read/write own drafts + posts), **Agency** (scope + AI safety).
@@ -237,18 +237,36 @@ Pick an ad (image + copy) and platform(s), choose a date/time; CoreX publishes i
 - **Scoping at the query layer:** `PermissionService::getDataScope($user,'properties')` → own / branch / all, plus `BelongsToAgency`; direct-URL access by id to another agency's or out-of-scope post is 404/403.
 - Permission: new key `ad_manager.schedule_posts` in `config/corex-permissions.php`, Role Manager entry, route middleware, controller check.
 
+### D.7 As built (2026-10-17) — decisions beyond the text above
+- **Data:** migration `2026_11_09_100000_at456_d_post_scheduler.php` — `status` was a MySQL ENUM, extended to `draft, published, failed, scheduled, publishing, cancelled` (a pure superset: no existing row changes). `scheduled_for` is a plain `DATETIME` holding UTC (not `TIMESTAMP`, which MySQL shifts by session zone), read/written through `App\Casts\UtcDateTime` because Eloquent's stock `datetime` cast would read the UTC string as Johannesburg time; indexed alone and with `status`. `failure_reason` text. Second migration `2026_11_09_100100_at456_d_grant_schedule_posts_permission.php` grants the new key to existing `agent / branch_manager / admin / office_admin` roles that already hold `access_ad_manager` (idempotent).
+- **Where posts come from.** Scheduling happens from the Ad Manager results step: "Schedule this post" on an ad, or "Schedule N ads" for the batch. The browser renders each ad to a picture (JPEG, never wider than Instagram's 1440px), uploads it (`tools.ad-manager.scheduled.image`), then ONE request (`...scheduled.store`) schedules all of them — all or nothing. The Scheduled Posts screen's "Schedule a post" button takes you to the Ad Manager (a post needs an ad's picture + text); it has no create form of its own. Brochure PDFs and ads with no description cannot be scheduled.
+- **One row per platform.** An ad on Facebook + Instagram becomes two rows with the same slot. Bulk modes: `daily` ("one a day at HH:MM" — the first ad on the chosen date, the next the following day, same local time) and `at` (all at one date/time). Both end-points are checked: the first must be >= 5 minutes ahead and the last <= 60 days.
+- **Who may schedule what:** the user's PROPERTIES data scope (`Property::visibleTo`) plus on-market + marketing-readiness (same rules as posting straight away); the post publishes from the scheduling user's OWN connected Page. A platform not connected for the user is refused with a plain sentence pointing to My Portal, Tools, Social Media. The screen shows who is not connected.
+- **Screen scoping** (`PropertyMarketingPost::visibleTo`): all = whole agency; branch = posts on the branch's listings + the user's own; own = posts on the user's book (an assistant's = their agent's) + the user's own. Edit / Cancel / Reschedule on an id outside that scope is a 404 (as is another agency's). The list shows only rows that carry a scheduled time, so posts made by the old direct publish are not mixed in.
+- **Atomic everything.** `claim()` is `UPDATE ... WHERE id=? AND status='scheduled' AND scheduled_for<=now`; Edit and Cancel use the same compare-and-set on `status='scheduled'`, so cancel can never lose to a publish and an overlapping run can never publish twice. A post stuck `publishing` for 30 minutes (process died) is marked failed with "may or may not have gone out — check your page" and is NEVER re-published (double-post risk).
+- **Publishing runs inline** in `marketing:publish-due` (no queue worker, no `PublishMarketingPostJob` class — the spec's indicative file list is superseded by this). Registered every minute (`withoutOverlapping`, `onOneServer`); runnable by hand. Pre-flight at publish time: listing still on the market and marketing-ready, the connected account exists and belongs to the post's agency, token refreshed through `MetaOAuthService` and not expired, picture still on disk. Meta's own error text is reduced to a reconnect instruction when it looks like a token/permission problem; tokens are scrubbed from every stored message.
+- **Failure** = status `failed` + `failure_reason` + `MarketingPostScheduleFailed` (added to the events catalogue) -> `NotifyAgentOfFailedScheduledPost` -> in-app bell notification (`ScheduledPostFailedNotification`, direct, no queue). Success flips to `published` and the existing observer fires `MarketingPostPublished`.
+- **Reschedule is for cancelled posts only** (as specced); a failed post is made fresh from the Ad Manager rather than resent, because Meta may already hold it. Reschedule re-checks the connection, the listing and the picture.
+- **Pictures:** `marketing-scheduled/{agency}/{user}/{uuid}.jpg` on the public disk. `marketing:purge-scheduled-images` (daily 03:20) removes pictures of published posts 30 days after publishing, of failed/cancelled posts 30 days after they were last touched, and uploads that never became a post after 2 days; pictures of posts still waiting are never touched.
+- **Times** typed and shown in the app timezone (Africa/Johannesburg) — no per-agency timezone column was added.
+- **Permission:** `ad_manager.schedule_posts` ("Schedule social posts", module ad_manager, Role Manager via the config). Defaults: agent, branch manager, office admin (admin gets everything); not viewer. Route middleware + controller check + the fourth pill and the Schedule buttons are hidden without it.
+- **Not built / out of scope:** a "publish now" button; automatic retry; a standalone create form; Phase 2 "Make a social post" from an article.
+- **QA2:** no scheduler cron and no queue worker (left that way by Johan) — run `php artisan marketing:publish-due` by hand to publish what is due. Meta App Review is still pending, so only app Testers can connect an account to test with.
+
 ### D.5 Blockers / prerequisites
 - **Meta App Review + Business Verification** must pass before any agency other than app Testers can connect. Build and test on Johan's/Andre's own accounts until then.
 - QA2 has no scheduler cron and no queue worker running; test on QA1/Staging or start them on QA2.
 - Setup Wizard: no new agency-level setting is introduced by D.
 
 ### D.6 Acceptance
-- [ ] A post scheduled 10 minutes ahead publishes within a minute of its time and shows `published` with the platform id.
-- [ ] Two scheduler runs overlapping on the same post publish it once.
-- [ ] Expired connection → `failed` with a readable reason and a notification; nothing silently lost.
-- [ ] Cancel before time prevents publication; Reschedule works.
-- [ ] A branch manager sees only their branch; an agent only their own; a forged id → 404/403.
-- [ ] Images still resolvable at publish time.
+Automated proof: `tests/Feature/Tools/ScheduledPostsTest.php` (Meta faked at the Guzzle layer).
+- [x] A post scheduled 10 minutes ahead publishes within a minute of its time and shows `published` with the platform id.
+- [x] Two scheduler runs overlapping on the same post publish it once.
+- [x] Expired connection → `failed` with a readable reason and a notification; nothing silently lost.
+- [x] Cancel before time prevents publication; Reschedule works.
+- [x] A branch manager sees only their branch; an agent only their own; a forged id → 404/403.
+- [x] Images still resolvable at publish time.
+- [ ] Johan tests on QA2 (needs a connected Facebook/Instagram test account; run `php artisan marketing:publish-due` by hand there).
 
 ---
 
@@ -268,7 +286,7 @@ Own colours/logo in B; own drafts and own count in C; own posts, scope and conne
 **A (as built):** `Services/AI/AiSpendGuard.php`, `Exceptions/AI/AiPausedException.php`, `Mail/AiSpendAlertMail.php` + `emails/ai-spend-alert.blade.php`, `Models/AI/AiSpendGuardEvent.php`, Dev Settings section (`DevSettingsController`, `admin/dev-settings/index.blade.php`), edits to `AiUsageRecorder`, `AnthropicGateway`, `MarketingCopyService`, `WarmThisWeekTilesJob`, all direct callers, `Agency.php`, `AiUsageController`, `admin/ai-usage/*.blade.php`, routes, 2 migrations, tests.
 **B (as built):** `Services/AdTemplates/AiTemplateBuilderService.php`, `Services/AdTemplates/AdLayoutValidator.php`, `Models/AiTemplateGeneration.php`, `Exceptions/AI/AiTemplate*Exception.php`, `Console/Commands/PurgeAiTemplateReferenceImages.php` (+ `routes/console.php`), `Tools/AdTemplateManagerController` (+ `generateWithAi`, `saveAiOption`), `Admin/AiUsageController` (+ `updateTemplateLimit`), `tools/ad-manager/templates.blade.php`, `admin/ai-usage/{index,agency}.blade.php`, `NarrativeRequest` + `AnthropicGateway` (source/timeout), migration `2026_11_07_100000_at456_b_ai_template_builder.php`, 2 test files.
 **C (as built):** `Services/Articles/ArticleLibraryService.php`, `ArticleScraperService` (reads `article_sources`, `fetchSource()`), `Models/{ArticleSource,LibraryArticle}.php`, `Admin/ArticleLibraryController`, `Tools/ArticleLibraryController`, `Console/Commands/RunArticleLibrary.php` (+ `routes/console.php`), views `admin/article-library/*` + `tools/ad-manager/articles.blade.php`, `_switcher.blade.php`, Dev Settings rail + sidebar highlight, system-bucket flag in `AiUsageRecorder` / `AiSpendGuard` / `AnthropicGateway` / `NarrativeRequest`, `AiUsageController` + `admin/ai-usage/index.blade.php` (Library articles used), migration `2026_11_08_100000_at456_c_article_library.php`, `tests/Feature/Tools/ArticleLibraryTest.php`.
-**D:** `Console/Commands/PublishDueMarketingPosts.php`, `Jobs/PublishMarketingPostJob.php`, `Tools/ScheduledPostsController`, views, `_switcher.blade.php`, permission keys, migration, event, tests.
+**D (as built):** `Console/Commands/{PublishDueMarketingPosts,PurgeScheduledPostImages}.php` (+ `routes/console.php`), `Services/Marketing/{ScheduledPostService,ScheduledPostPublisher,ScheduledPostImages,ScheduleException}.php`, `Casts/UtcDateTime.php`, `Events/Marketing/MarketingPostScheduleFailed.php`, `Listeners/Marketing/NotifyAgentOfFailedScheduledPost.php`, `Notifications/ScheduledPostFailedNotification.php`, `Http/Controllers/Tools/ScheduledPostsController.php`, `AdManagerController` (+ `scheduleConfig`), `PropertyMarketingPost` (+ `visibleTo`), views `tools/ad-manager/scheduled.blade.php` + `tools/ad-manager.blade.php` (Schedule action/modal) + `_switcher.blade.php`, `config/corex-permissions.php`, `AppServiceProvider` (listener), routes, 2 migrations, `tests/Feature/Tools/ScheduledPostsTest.php`.
 
 ## Open items for Johan
 1. ~~Article brief length~~ — **Closed 2026-10-14:** short briefs accepted (decision 9).

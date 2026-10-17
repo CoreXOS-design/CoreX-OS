@@ -214,7 +214,37 @@ class AdManagerController extends Controller
             'customTemplates' => $customTemplates,
             'platforms'       => $this->platforms(),
             'agency'          => $agency,
+            // AT-456 Part D — the "Schedule" action on the results step (null = user lacks ad_manager.schedule_posts).
+            'schedule'        => $this->scheduleConfig($user),
         ]);
+    }
+
+    /**
+     * AT-456 Part D — what the results step needs to offer "Schedule": null when the user may not schedule
+     * (the button is then not drawn at all), else the routes, the user's connected platforms and the rules.
+     */
+    private function scheduleConfig(User $user): ?array
+    {
+        if (! $user->hasPermission('ad_manager.schedule_posts')) {
+            return null;
+        }
+
+        $svc = app(\App\Services\Marketing\ScheduledPostService::class);
+        $tz  = $svc->timezone();
+
+        return [
+            'imageUrl'    => route('tools.ad-manager.scheduled.image'),
+            'storeUrl'    => route('tools.ad-manager.scheduled.store'),
+            'listUrl'     => route('tools.ad-manager.scheduled'),
+            'portalUrl'   => route('agent.portal', ['pane' => 'social']) . '#tools',
+            'platforms'   => \App\Services\Marketing\ScheduledPostService::PLATFORMS,
+            'connected'   => $svc->connections($user),
+            'connectHint' => $svc->connectHint(),
+            'tzLabel'     => \Carbon\Carbon::now($tz)->format('T') . ' (' . $tz . ')',
+            'minLead'     => \App\Services\Marketing\ScheduledPostService::MIN_LEAD_MINUTES,
+            'maxDays'     => \App\Services\Marketing\ScheduledPostService::MAX_LEAD_DAYS,
+            'today'       => \Carbon\Carbon::now($tz)->format('Y-m-d'),
+        ];
     }
 
     /**

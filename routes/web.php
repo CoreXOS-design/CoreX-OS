@@ -1587,6 +1587,16 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/tools/ad-manager/articles', [\App\Http\Controllers\Tools\ArticleLibraryController::class, 'index'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.articles');
     Route::post('/tools/ad-manager/articles/{article}/use', [\App\Http\Controllers\Tools\ArticleLibraryController::class, 'use'])->middleware(['permission:access_ad_manager', 'permission:edit_own_profile', 'agency.required', 'feature:ad-manager', 'throttle:30,1'])->name('tools.ad-manager.articles.use')->whereNumber('article');
 
+    // Scheduled Posts — AT-456 Part D, spec .ai/specs/at456-ai-tools-scheduler-and-spend-safety.md §D. Fourth Ad Manager pill.
+    // Posts are made from the Ad Manager's generated ads (image upload + store); this list edits / cancels / reschedules.
+    // Cancel is a status change, never a delete. Scope (own / branch / agency) is enforced in the controller's queries.
+    Route::get('/tools/ad-manager/scheduled', [\App\Http\Controllers\Tools\ScheduledPostsController::class, 'index'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.scheduled');
+    Route::post('/tools/ad-manager/scheduled/image', [\App\Http\Controllers\Tools\ScheduledPostsController::class, 'uploadImage'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager', 'throttle:60,1'])->name('tools.ad-manager.scheduled.image');
+    Route::post('/tools/ad-manager/scheduled', [\App\Http\Controllers\Tools\ScheduledPostsController::class, 'store'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager', 'throttle:20,1'])->name('tools.ad-manager.scheduled.store');
+    Route::post('/tools/ad-manager/scheduled/{post}/update', [\App\Http\Controllers\Tools\ScheduledPostsController::class, 'update'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.scheduled.update')->whereNumber('post');
+    Route::post('/tools/ad-manager/scheduled/{post}/cancel', [\App\Http\Controllers\Tools\ScheduledPostsController::class, 'cancel'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.scheduled.cancel')->whereNumber('post');
+    Route::post('/tools/ad-manager/scheduled/{post}/reschedule', [\App\Http\Controllers\Tools\ScheduledPostsController::class, 'reschedule'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.scheduled.reschedule')->whereNumber('post');
+
     // Tools History (backend)
     Route::get('/tools/history', [ToolsController::class, 'historyIndex'])->middleware('permission:access_calculators')->name('tools.history.index');
     Route::post('/tools/history', [ToolsController::class, 'historyStore'])->middleware('permission:access_calculators')->name('tools.history.store');

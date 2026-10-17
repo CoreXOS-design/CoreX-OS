@@ -673,6 +673,9 @@ return [
         // Data-scope view key — drives the None / Own / Branch / All selector in
         // Role Manager (whose properties the user may build ads for).
         ['key' => 'ad_manager.view',             'label' => 'View',                        'section' => 'calculators',      'type' => 'action',  'module' => 'ad_manager',       'sort_order' => 2],
+        // AT-456 Part D — schedule Facebook / Instagram posts from generated ads, and see the Scheduled
+        // Posts screen. Not a scope key: how many posts a user sees follows their Properties data scope.
+        ['key' => 'ad_manager.schedule_posts',   'label' => 'Schedule social posts',       'section' => 'calculators',      'type' => 'action',  'module' => 'ad_manager',       'sort_order' => 3],
 
         // ── Flow Map ──
         ['key' => 'access_flow_map',             'label' => 'Access Flow Map',             'section' => 'flow-map',         'type' => 'access',  'module' => 'flow_map',         'sort_order' => 1],
@@ -1258,7 +1261,7 @@ return [
                 'commercial_evals.view', 'commercial_evals.create', 'commercial_evals.edit',
                 'access_sales_documents',
                 'sales_docs.view', 'sales_docs.create', 'sales_docs.edit',
-                'access_calculators', 'access_ad_manager', 'ad_manager.view', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai', 'access_flow_map',
+                'access_calculators', 'access_ad_manager', 'ad_manager.view', 'ad_manager.schedule_posts', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai', 'access_flow_map',
                 'access_pdf_splitter', 'access_pdf_suite', 'access_image_converter',
                 'access_deposit_calculator', 'access_deposit_calc_history',
                 'access_prospecting', 'access_evaluation',
@@ -1434,7 +1437,7 @@ return [
                 'commercial_evals.view', 'commercial_evals.create',
                 'access_sales_documents',
                 'sales_docs.view', 'sales_docs.create',
-                'access_calculators', 'access_ad_manager', 'ad_manager.view', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai', 'access_flow_map',
+                'access_calculators', 'access_ad_manager', 'ad_manager.view', 'ad_manager.schedule_posts', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai', 'access_flow_map',
                 'access_pdf_splitter', 'access_pdf_suite', 'access_image_converter',
                 'access_prospecting', 'access_evaluation',
                 'access_properties', 'access_imported_stock', 'create_properties',
@@ -1698,7 +1701,7 @@ return [
                 'access_presentations', 'access_properties', 'access_prospecting', 'access_rmcp',
                 'access_sales_documents', 'access_settings', 'access_shared_drive',
                 'access_soft_deletes', 'access_supervision', 'access_training', 'access_tv_messages',
-                'access_viewing_packs', 'access_worksheet_market', 'ad_manager.view', 'adjust_leave_balances',
+                'access_viewing_packs', 'access_worksheet_market', 'ad_manager.view', 'ad_manager.schedule_posts', 'adjust_leave_balances',
                 'agency.authorize_external_access', 'agency.manage_access_authorization', 'agency.p24.configure', 'agency.p24.sync',
                 'agency_api.manage', 'agency_api.view', 'apply_for_leave', 'approve_leave',
                 'approve_policy', 'approve_rmcp', 'assign_training', 'assign_user_branch',

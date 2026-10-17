@@ -289,6 +289,13 @@ class AppServiceProvider extends ServiceProvider
         CommandTask::observe(CommandTaskObserver::class);
         CommandTask::observe(\App\Observers\CommandTaskPortalLeadObserver::class);
 
+        // AT-456 Part D — a scheduled social post that could not go out tells its agent (bell).
+        // Explicit registration: listener auto-discovery is OFF (AT-261), see register().
+        Event::listen(
+            \App\Events\Marketing\MarketingPostScheduleFailed::class,
+            \App\Listeners\Marketing\NotifyAgentOfFailedScheduledPost::class,
+        );
+
         // Portal Leads: log every new portal lead (extension point for future
         // Slack/push integrations). See .ai/specs/portal-leads.md.
         Event::listen(

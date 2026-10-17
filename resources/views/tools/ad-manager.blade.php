@@ -280,6 +280,11 @@
                     <template x-for="a in resultAgents" :key="a"><option :value="a" x-text="a"></option></template>
                 </select>
                 @endif
+                @if(! empty($schedule))
+                <button type="button" @click="openSchedule(null)" x-show="schedulableRows.length && !generating" class="corex-btn-primary text-xs" data-tour="tools-ad-manager-schedule-all">
+                    Schedule <span x-text="schedulableRows.length"></span> ad<span x-text="schedulableRows.length===1?'':'s'"></span>
+                </button>
+                @endif
                 <button type="button" @click="reset()" class="corex-btn-outline text-xs">Start over</button>
             </div>
         </div>
@@ -318,6 +323,12 @@
                                 Download PNG
                             </button>
                         </template>
+                        @if(! empty($schedule))
+                        <button type="button" x-show="canScheduleRow(r)" @click="openSchedule(r)" class="corex-btn-outline text-sm w-full mt-2 justify-center">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            Schedule this post
+                        </button>
+                        @endif
                     </div>
                     {{-- Info / description --}}
                     <div class="flex-1 min-w-0">
@@ -344,7 +355,82 @@
         </div>{{-- /main column --}}
     </div>{{-- /rail + main --}}
 
+
+@if(! empty($schedule))
+{{-- AT-456 Part D — Schedule modal (results step). Renders each chosen ad to a picture, uploads it, then schedules. --}}
+<div x-show="sched.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,.55);" @keydown.escape.window="closeSchedule()" @click.self="closeSchedule()">
+    <div class="w-full max-w-xl rounded-md p-5 space-y-4 max-h-[90vh] overflow-y-auto" style="background:var(--surface); border:1px solid var(--border);">
+        <template x-if="!sched.done">
+            <div class="space-y-4">
+                <div>
+                    <h2 class="text-base font-semibold" style="color:var(--text-primary);">Schedule <span x-text="sched.rows.length"></span> post<span x-text="sched.rows.length===1?'':'s'"></span></h2>
+                    <p class="text-xs mt-1" style="color:var(--text-muted);">CoreX publishes each post at the time you choose, using the picture and description shown. Times are {{ $schedule['tzLabel'] }}.</p>
+                </div>
+                <ul class="text-sm space-y-1 max-h-28 overflow-y-auto" style="color:var(--text-secondary);">
+                    <template x-for="r in sched.rows" :key="r.id"><li>• <span x-text="r.title"></span></li></template>
+                </ul>
+
+                <div>
+                    <div class="text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Post to</div>
+                    <div class="flex flex-wrap gap-4">
+                        @foreach($schedule['platforms'] as $key => $label)
+                            <label class="inline-flex items-center gap-2 text-sm" style="color:var(--text-primary);">
+                                <input type="checkbox" x-model="sched.platforms.{{ $key }}" @disabled(empty($schedule['connected'][$key]))>
+                                {{ $label }}
+                                @if(empty($schedule['connected'][$key]))<span class="text-xs" style="color:var(--ds-amber,#b45309);">not connected</span>@endif
+                            </label>
+                        @endforeach
+                    </div>
+                    @if(collect($schedule['connected'])->contains(false))
+                        <p class="text-xs mt-2" style="color:var(--text-secondary);">
+                            A platform that says “not connected” cannot be used until you connect it. {{ $schedule['connectHint'] }}
+                            <a href="{{ $schedule['portalUrl'] }}" class="underline">Connect now</a>
+                        </p>
+                    @endif
+                </div>
+
+                <div x-show="sched.rows.length > 1" class="space-y-1 text-sm" style="color:var(--text-primary);">
+                    <label class="flex items-center gap-2"><input type="radio" value="daily" x-model="sched.mode"> One a day — the first on the date below, then one each following day at the same time</label>
+                    <label class="flex items-center gap-2"><input type="radio" value="at" x-model="sched.mode"> All at the same date and time</label>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <label class="block">
+                        <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);" x-text="sched.mode==='daily' && sched.rows.length>1 ? 'First post on' : 'Date'"></span>
+                        <input type="date" x-model="sched.date" :min="'{{ $schedule['today'] }}'" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    </label>
+                    <label class="block">
+                        <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Time</span>
+                        <input type="time" x-model="sched.time" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    </label>
+                </div>
+                <p class="text-xs" style="color:var(--text-muted);">At least {{ $schedule['minLead'] }} minutes from now and no more than {{ $schedule['maxDays'] }} days ahead. You can edit or cancel a post any time before it goes out, under Scheduled Posts.</p>
+
+                <div x-show="sched.error" class="rounded-md px-3 py-2 text-sm" style="background:color-mix(in srgb, var(--ds-crimson,#c41e3a) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson,#c41e3a) 30%, transparent); color:var(--text-primary);" x-text="sched.error"></div>
+
+                <div class="flex items-center justify-end gap-2">
+                    <span class="text-xs mr-auto" style="color:var(--text-muted);" x-text="sched.progress"></span>
+                    <button type="button" class="corex-btn-outline text-sm" @click="closeSchedule()" :disabled="sched.busy">Close</button>
+                    <button type="button" class="corex-btn-primary text-sm" @click="submitSchedule()" :disabled="sched.busy">
+                        <span x-show="!sched.busy">Schedule</span><span x-show="sched.busy">Working…</span>
+                    </button>
+                </div>
+            </div>
+        </template>
+        <template x-if="sched.done">
+            <div class="space-y-4 text-center py-4">
+                <h2 class="text-base font-semibold" style="color:var(--text-primary);"><span x-text="sched.done"></span> post<span x-text="sched.done===1?'':'s'"></span> scheduled</h2>
+                <p class="text-sm" style="color:var(--text-secondary);">CoreX will publish them at the times you chose. You can see, edit or cancel them under Scheduled Posts.</p>
+                <div class="flex justify-center gap-2">
+                    <button type="button" class="corex-btn-outline text-sm" @click="closeSchedule()">Back to my ads</button>
+                    <a href="{{ $schedule['listUrl'] }}" class="corex-btn-primary text-sm">Open Scheduled Posts</a>
+                </div>
+            </div>
+        </template>
+    </div>
 </div>
+@endif
+</div>{{-- /adManager root --}}
 
 <script>
 const ADM_PROPERTIES   = @json($properties);
@@ -355,6 +441,7 @@ const ADM_PLATFORMS    = @json($platforms);
 const ADM_GENERATE_URL = @json(route('tools.ad-manager.generate'));
 const ADM_PREVIEW_URL  = @json(route('tools.ad-manager.previews'));
 const ADM_CSRF         = '{{ csrf_token() }}';
+const ADM_SCHEDULE     = @json($schedule ?? null);
 
 function adManager() {
     return {
@@ -379,6 +466,9 @@ function adManager() {
         previewCanvas: { w: 1200, h: 628 },
         resultAgentFilter: '',
         search: '',
+
+        // AT-456 Part D — scheduling from the results step.
+        sched: { open: false, rows: [], platforms: { facebook: false, instagram: false }, mode: 'at', date: '', time: '09:00', busy: false, error: null, progress: '', done: null },
 
         init() {
             window.addEventListener('resize', () => this.fitCanvases());
@@ -549,6 +639,87 @@ function adManager() {
                 restoreImages();
                 el.style.transform = saved;
                 this.fitCanvases();
+            }
+        },
+
+        // ── Schedule (AT-456 Part D) ────────────────────────────────────────────
+        // A brochure is a PDF and a row without a description has nothing to post.
+        canScheduleRow(r) { return !!ADM_SCHEDULE && !r.brochure && !!(r.description && r.description.trim()); },
+        get schedulableRows() { return ADM_SCHEDULE ? this.filteredResults.filter(r => this.canScheduleRow(r)) : []; },
+
+        openSchedule(r) {
+            if (!ADM_SCHEDULE) return;
+            const rows = r ? [r] : this.schedulableRows;
+            if (!rows.length) return;
+            const s = this.sched;
+            s.rows = rows; s.error = null; s.progress = ''; s.done = null; s.busy = false;
+            s.mode = rows.length > 1 ? 'daily' : 'at';
+            s.platforms = { facebook: !!ADM_SCHEDULE.connected.facebook, instagram: false };
+            if (!ADM_SCHEDULE.connected.facebook) s.platforms.instagram = !!ADM_SCHEDULE.connected.instagram;
+            if (!s.date) { const d = new Date(ADM_SCHEDULE.today + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1); s.date = d.toISOString().slice(0, 10); }
+            s.open = true;
+        },
+        closeSchedule() { if (!this.sched.busy) this.sched.open = false; },
+
+        // Same capture as downloadRow(), but returns a JPEG data URL (small enough to upload) instead of saving it.
+        async captureJpeg(r) {
+            const el = document.getElementById('adm-canvas-' + r.id);
+            if (!el) throw new Error('The ad is not on screen.');
+            const saved = el.style.transform;
+            el.style.transform = 'none';
+            try { await CoreXAd.backgroundRemovalsSettled(); } catch (_) {}
+            await new Promise(res => setTimeout(res, 60));
+            let restoreImages = () => {};
+            try {
+                try { restoreImages = await CoreXAd.prepareImagesForCapture(el); } catch (_) {}
+                const scale = Math.min(2, 1440 / r.cw);   // Instagram takes at most 1440px wide
+                const c = await html2canvas(el, { width: r.cw, height: r.ch, scale: scale, useCORS: true, backgroundColor: '#071325', logging: false });
+                return c.toDataURL('image/jpeg', 0.92);
+            } finally {
+                restoreImages();
+                el.style.transform = saved;
+                this.fitCanvases();
+            }
+        },
+
+        async submitSchedule() {
+            const s = this.sched;
+            const platforms = Object.keys(s.platforms).filter(k => s.platforms[k]);
+            s.error = null;
+            if (!platforms.length) { s.error = 'Tick at least one platform to post to.'; return; }
+            if (!s.date || !s.time) { s.error = 'Choose a date and a time.'; return; }
+            s.busy = true;
+            try {
+                const items = [];
+                for (let i = 0; i < s.rows.length; i++) {
+                    const r = s.rows[i];
+                    s.progress = 'Preparing picture ' + (i + 1) + ' of ' + s.rows.length + '…';
+                    const image = await this.captureJpeg(r);
+                    const up = await fetch(ADM_SCHEDULE.imageUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': ADM_CSRF, 'Accept': 'application/json' },
+                        body: JSON.stringify({ image }),
+                    });
+                    const upData = await up.json().catch(() => ({}));
+                    if (!up.ok || !upData.ok) throw new Error(upData.error || upData.message || 'A picture could not be saved. Please try again.');
+                    items.push({ property_id: r.id, copy: r.description, image_path: upData.path });
+                }
+                s.progress = 'Scheduling…';
+                const res = await fetch(ADM_SCHEDULE.storeUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': ADM_CSRF, 'Accept': 'application/json' },
+                    body: JSON.stringify({ items, platforms, mode: s.mode, date: s.date, time: s.time }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data.ok) {
+                    const first = data.errors ? Object.values(data.errors)[0][0] : null;
+                    throw new Error(data.error || first || data.message || 'Could not schedule. Please try again.');
+                }
+                s.done = data.scheduled;
+            } catch (e) {
+                s.error = e.message || 'Could not schedule. Please try again.';
+            } finally {
+                s.busy = false; s.progress = '';
             }
         },
 
