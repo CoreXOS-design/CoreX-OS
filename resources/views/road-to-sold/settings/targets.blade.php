@@ -64,17 +64,17 @@
     </div>
 
     {{-- Filters --}}
-    <form method="GET" action="{{ route($rb . 'targets.index') }}" class="rounded-md p-4 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end"
+    <form method="GET" action="{{ route($rb . 'targets.index') }}" class="props-filter-panel rounded-md p-4 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end"
           style="background:var(--surface); border:1px solid var(--border);">
         <div class="sm:col-span-2">
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="q">Search</label>
-            <input id="q" name="q" value="{{ $q }}" type="search" placeholder="Agent name or email"
-                   class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <input class="list-header-filter {{ (!empty($q)) ? 'is-active' : '' }} w-full" id="q" name="q" value="{{ $q }}" type="search" placeholder="Agent name or email"
+                  >
         </div>
         @if($branches->count() > 1)
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="branch_id">Branch</label>
-                <select id="branch_id" name="branch_id" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                <select class="list-header-filter {{ (!empty($filters['branchId'])) ? 'is-active' : '' }} w-full" id="branch_id" name="branch_id">
                     <option value="">All branches</option>
                     @foreach($branches as $bid => $bname)<option value="{{ $bid }}" @selected($filters['branchId'] == $bid)>{{ $bname }}</option>@endforeach
                 </select>
@@ -82,7 +82,7 @@
         @endif
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="mode">Numbers</label>
-            <select id="mode" name="mode" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <select class="list-header-filter {{ ($mode !== 'all') ? 'is-active' : '' }} w-full" id="mode" name="mode">
                 <option value="all" @selected($mode === 'all')>All agents</option>
                 <option value="custom" @selected($mode === 'custom')>Own numbers only</option>
                 <option value="default" @selected($mode === 'default')>On the agency default</option>
@@ -90,14 +90,14 @@
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="status">Show</label>
-            <select id="status" name="status" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <select class="list-header-filter {{ ($status !== 'active') ? 'is-active' : '' }} w-full" id="status" name="status">
                 <option value="active" @selected($status === 'active')>Current numbers</option>
                 <option value="cleared" @selected($status === 'cleared')>Cleared numbers</option>
             </select>
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="sort">Sort by</label>
-            <select id="sort" name="sort" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <select class="list-header-filter {{ (false) ? 'is-active' : '' }} w-full" id="sort" name="sort">
                 <option value="name" @selected($sortNow === 'name')>Agent name (A-Z)</option>
                 <option value="branch" @selected($sortNow === 'branch')>Branch</option>
                 <option value="total" @selected($sortNow === 'total')>Biggest week first</option>
@@ -113,7 +113,7 @@
     <div class="rounded-md overflow-x-auto" style="background:var(--surface); border:1px solid var(--border);">
         <table class="w-full text-sm" style="color:var(--text-primary);">
             <thead>
-                <tr class="text-left text-xs" style="border-bottom:1px solid var(--border); color:var(--text-muted);">
+                <tr class="text-left text-xs uppercase tracking-wide" style="background:var(--surface-2); border-bottom:1px solid var(--border); color:var(--text-muted);">
                     <th class="px-4 py-2">Agent</th>
                     @foreach($weekdays as $label)<th class="px-2 py-2 text-center">{{ $label }}</th>@endforeach
                     <th class="px-3 py-2 text-center">Week</th>

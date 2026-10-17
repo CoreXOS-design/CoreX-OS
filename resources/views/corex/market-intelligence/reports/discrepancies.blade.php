@@ -5,9 +5,7 @@
 <div style="max-width: 1200px; margin: 0 auto; padding: 0 20px;">
     @include('corex.market-intelligence.partials.tabs')
 
-    {{-- Page header — flat neutral bar (AT-336). Back link sits in the right
-         action cluster rather than stacked above the title. --}}
-    <div style="margin-bottom: 16px; padding: 0 0 14px 0; border-bottom: 1px solid var(--border);">
+    <div class="rounded-md px-6 py-5 corex-page-banner" style="margin-bottom: 16px;">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">
@@ -42,20 +40,12 @@
                 </thead>
                 <tbody>
                     @foreach($discrepancies as $d)
-                        @php
-                            $severityColor = match ($d->severity) {
-                                'high'   => '#dc2626',
-                                'medium' => '#d97706',
-                                'low'    => 'var(--text-muted)',
-                                default  => 'var(--text-muted)',
-                            };
-                        @endphp
                         <tr style="border-top: 1px solid var(--border);">
                             <td style="padding: 8px 12px; color: var(--text-primary); font-family: ui-monospace, monospace; font-size: 0.75rem;">{{ $d->dataPoint?->metric_key ?? '—' }}</td>
                             <td style="padding: 8px 12px; color: var(--text-secondary);">{{ $d->parsed_value }}</td>
                             <td style="padding: 8px 12px; color: var(--text-secondary);">{{ $d->audit_value }}</td>
                             <td style="padding: 8px 12px; color: var(--text-secondary); font-size: 0.75rem;">{{ str_replace('_', ' ', $d->discrepancy_type) }}</td>
-                            <td style="padding: 8px 12px; color: {{ $severityColor }}; font-weight: 600;">{{ ucfirst($d->severity) }}</td>
+                            <td style="padding: 8px 12px;"><span class="ds-badge {{ $d->severity === 'high' ? 'ds-badge-danger' : ($d->severity === 'medium' ? 'ds-badge-warning' : 'ds-badge-muted') }}">{{ ucfirst($d->severity) }}</span></td>
                             <td style="padding: 8px 12px; color: var(--text-secondary);">{{ $d->resolved ? 'Yes' : 'No' }}</td>
                         </tr>
                     @endforeach

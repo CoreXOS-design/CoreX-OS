@@ -27,16 +27,16 @@
         </div>
     @endif
 
-    <form method="GET" class="flex flex-wrap items-end gap-3 rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
+    <form method="GET" class="props-filter-panel flex flex-wrap items-end gap-3 rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Search</label>
-            <input type="text" name="search" value="{{ $filters['search'] ?? '' }}" placeholder="Agent or principal name"
-                   class="text-sm rounded-md px-3 py-1.5" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+            <input class="list-header-filter {{ (($filters['search'] ?? '') !== '') ? 'is-active' : '' }}" type="text" name="search" value="{{ $filters['search'] ?? '' }}" placeholder="Agent or principal name"
+                  >
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Status</label>
-            <select name="status" class="text-sm rounded-md px-3 py-1.5" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                <option value="">All</option>
+            <select class="list-header-filter {{ (($filters['status'] ?? '') !== '') ? 'is-active' : '' }}" name="status">
+                <option value="">All statuses</option>
                 @foreach($statuses as $s)
                 <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ \App\Models\Compliance\PpraEmploymentLetter::statusLabel($s) }}</option>
                 @endforeach
@@ -44,8 +44,8 @@
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Branch</label>
-            <select name="branch_id" class="text-sm rounded-md px-3 py-1.5" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                <option value="">All</option>
+            <select class="list-header-filter {{ (($filters['branch_id'] ?? '') !== '') ? 'is-active' : '' }}" name="branch_id">
+                <option value="">All branches</option>
                 @foreach($branches as $b)
                 <option value="{{ $b->id }}" @selected((string) ($filters['branch_id'] ?? '') === (string) $b->id)>{{ $b->name }}</option>
                 @endforeach
@@ -53,8 +53,8 @@
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Year</label>
-            <select name="year" class="text-sm rounded-md px-3 py-1.5" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                <option value="">All</option>
+            <select class="list-header-filter {{ (($filters['year'] ?? '') !== '') ? 'is-active' : '' }}" name="year">
+                <option value="">All years</option>
                 @foreach($years as $y)
                 <option value="{{ $y }}" @selected((string) ($filters['year'] ?? '') === (string) $y)>{{ $y }}</option>
                 @endforeach
@@ -62,15 +62,15 @@
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">From</label>
-            <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="text-sm rounded-md px-3 py-1.5" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+            <input class="list-header-filter {{ (($filters['date_from'] ?? '') !== '') ? 'is-active' : '' }}" type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}">
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">To</label>
-            <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="text-sm rounded-md px-3 py-1.5" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+            <input class="list-header-filter {{ (($filters['date_to'] ?? '') !== '') ? 'is-active' : '' }}" type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}">
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Sort</label>
-            <select name="sort" class="text-sm rounded-md px-3 py-1.5" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+            <select class="list-header-filter {{ (($filters['sort'] ?? 'created_desc') !== 'created_desc') ? 'is-active' : '' }}" name="sort">
                 <option value="created_desc" @selected(($filters['sort'] ?? 'created_desc') === 'created_desc')>Newest first</option>
                 <option value="created_asc" @selected(($filters['sort'] ?? '') === 'created_asc')>Oldest first</option>
                 <option value="agent_name" @selected(($filters['sort'] ?? '') === 'agent_name')>Agent name</option>
@@ -81,7 +81,7 @@
             <input type="checkbox" name="archived" value="1" @checked($showArchived)>
             Show archived
         </label>
-        <button type="submit" class="corex-btn-primary text-xs">Filter</button>
+        <button type="submit" class="corex-btn-primary text-xs" style="height:2.25rem;">Filter</button>
     </form>
 
     <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
@@ -104,13 +104,13 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr style="background:var(--surface-2); border-bottom:1px solid var(--border);">
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted);">Agent</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted);">Branch</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted);">Principal</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted);">Status</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted);">Created</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted);">Signed copy</th>
-                        <th class="text-right px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted);">Actions</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Agent</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Branch</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Principal</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Status</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Created</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Signed copy</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -120,9 +120,8 @@
                         <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $letter->branch?->name ?? '—' }}</td>
                         <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $letter->principal?->name ?? '—' }}</td>
                         <td class="px-4 py-3">
-                            <span class="text-xs font-semibold px-2 py-0.5 rounded-full" style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent); color:var(--brand-icon,#0ea5e9);">
-                                {{ \App\Models\Compliance\PpraEmploymentLetter::statusLabel($letter->status) }}
-                            </span>
+                            @php $__st = $letter->status; $__tone = $__st === 'signed' || $__st === 'signed_copy_filed' ? 'ds-badge-success' : ($__st === 'draft' ? 'ds-badge-muted' : 'ds-badge-warning'); @endphp
+                            <span class="ds-badge {{ $__tone }}">{{ \App\Models\Compliance\PpraEmploymentLetter::statusLabel($letter->status) }}</span>
                         </td>
                         <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $letter->created_at->format('d M Y') }}</td>
                         <td class="px-4 py-3">

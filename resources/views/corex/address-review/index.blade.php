@@ -10,17 +10,17 @@
         return '<a href="' . e(request()->fullUrlWithQuery(['sort' => $key, 'dir' => $dir, 'page' => null])) . '" class="no-underline" style="color:var(--text-muted);">' . e($label) . $arrow . '</a>';
     };
     $statusLabel = ['review' => 'Needs a look', 'unparseable' => 'Nothing readable', 'dismissed' => 'Dismissed', 'manual' => 'Fixed by an admin'];
-    $statusTone = ['review' => 'var(--ds-amber, #f59e0b)', 'unparseable' => 'var(--ds-crimson, #c41e3a)', 'dismissed' => 'var(--text-muted)', 'manual' => 'var(--ds-green, #059669)'];
+    $statusTone = ['review' => 'ds-badge-warning', 'unparseable' => 'ds-badge-danger', 'dismissed' => 'ds-badge-muted', 'manual' => 'ds-badge-success'];
 @endphp
-<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+<div class="w-full space-y-5">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">Address Review</h1>
-                <p class="text-sm text-white/60">Addresses CoreX could not read with confidence — fix them so they match the right property. Nothing here is ever deleted.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Address Review</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Addresses CoreX could not read with confidence — fix them so they match the right property. Nothing here is ever deleted.</p>
             </div>
             @if($canSettings)
-                <a href="{{ route('settings.prospecting.address-matching.edit') }}" class="inline-flex items-center gap-1 text-xs font-semibold no-underline rounded-md px-3 py-2" style="background:rgba(255,255,255,0.12); color:#fff;">Address matching settings →</a>
+                <a href="{{ route('settings.prospecting.address-matching.edit') }}" class="corex-btn-outline text-xs">Address matching settings →</a>
             @endif
         </div>
     </div>
@@ -32,15 +32,15 @@
         <div class="rounded-md px-3 py-2 text-sm" style="background:#fef2f2; color:#991b1b;">{{ session('error') }}</div>
     @endif
 
-    <form method="GET" action="{{ route('corex.address-review.index') }}" class="rounded-md p-4 grid gap-3 md:grid-cols-6" style="background:var(--surface); border:1px solid var(--border);">
+    <form method="GET" action="{{ route('corex.address-review.index') }}" class="props-filter-panel rounded-md p-4 grid gap-3 md:grid-cols-6" style="background:var(--surface); border:1px solid var(--border);">
         <div class="md:col-span-2">
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Search</label>
-            <input type="text" name="q" value="{{ $f['q'] }}" placeholder="Street, number, suburb, complex, erf, record number"
-                   class="w-full px-3 py-2 text-sm rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+            <input class="list-header-filter {{ (!empty($f['q'])) ? 'is-active' : '' }} w-full" type="text" name="q" value="{{ $f['q'] }}" placeholder="Street, number, suburb, complex, erf, record number"
+                  >
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Show</label>
-            <select name="status" class="w-full px-2 py-2 text-sm rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+            <select class="list-header-filter {{ (($f['status'] ?? 'open') !== 'open') ? 'is-active' : '' }} w-full" name="status">
                 @foreach(['open' => 'Needs attention', 'review' => 'Needs a look', 'unparseable' => 'Nothing readable', 'manual' => 'Fixed by an admin', 'dismissed' => 'Dismissed', 'all' => 'Everything'] as $k => $label)
                     <option value="{{ $k }}" @selected($f['status'] === $k)>{{ $label }}</option>
                 @endforeach
@@ -48,8 +48,8 @@
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Reason</label>
-            <select name="reason" class="w-full px-2 py-2 text-sm rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                <option value="">Any reason</option>
+            <select class="list-header-filter {{ (!empty($f['reason'])) ? 'is-active' : '' }} w-full" name="reason">
+                <option value="">All reasons</option>
                 @foreach($reasons as $k => $label)
                     <option value="{{ $k }}" @selected($f['reason'] === $k)>{{ $label }}</option>
                 @endforeach
@@ -57,8 +57,8 @@
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Record type</label>
-            <select name="kind" class="w-full px-2 py-2 text-sm rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                <option value="">Properties and captures</option>
+            <select class="list-header-filter {{ (!empty($f['kind'])) ? 'is-active' : '' }} w-full" name="kind">
+                <option value="">All record types</option>
                 <option value="property" @selected($f['kind'] === 'property')>Properties</option>
                 <option value="tracked" @selected($f['kind'] === 'tracked')>Captured / tracked</option>
             </select>
@@ -66,11 +66,11 @@
         <div class="md:col-span-3 flex items-end gap-2">
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Updated from</label>
-                <input type="date" name="from" value="{{ $f['from'] }}" class="px-2 py-2 text-sm rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                <input class="list-header-filter {{ (!empty($f['from'])) ? 'is-active' : '' }}" type="date" name="from" value="{{ $f['from'] }}">
             </div>
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">to</label>
-                <input type="date" name="to" value="{{ $f['to'] }}" class="px-2 py-2 text-sm rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                <input class="list-header-filter {{ (!empty($f['to'])) ? 'is-active' : '' }}" type="date" name="to" value="{{ $f['to'] }}">
             </div>
         </div>
         <div class="md:col-span-3 flex items-end justify-end gap-2">
@@ -82,7 +82,7 @@
     <div class="rounded-md overflow-x-auto" style="background:var(--surface); border:1px solid var(--border);">
         <table class="min-w-full text-sm">
             <thead>
-                <tr class="text-left text-xs" style="color:var(--text-muted);">
+                <tr class="text-left text-xs uppercase tracking-wide" style="background:var(--surface-2); color:var(--text-muted); border-bottom:1px solid var(--border);">
                     <th class="px-4 py-3 font-semibold">{!! $sortLink('kind', 'Record') !!}</th>
                     <th class="px-4 py-3 font-semibold">{!! $sortLink('address', 'Address as held') !!}</th>
                     <th class="px-4 py-3 font-semibold">{!! $sortLink('suburb', 'Suburb') !!}</th>
@@ -103,7 +103,7 @@
                         <td class="px-4 py-3 align-top whitespace-nowrap" style="color:var(--text-secondary);">{{ $r->kind === 'property' ? 'Property' : 'Captured' }} #{{ $r->id }}</td>
                         <td class="px-4 py-3 align-top" style="color:var(--text-primary);">{{ \Illuminate\Support\Str::limit($line, 80) }}</td>
                         <td class="px-4 py-3 align-top" style="color:var(--text-secondary);">{{ $r->suburb ?: '—' }}</td>
-                        <td class="px-4 py-3 align-top whitespace-nowrap"><span class="text-xs font-semibold" style="color:{{ $statusTone[$r->status] ?? 'var(--text-muted)' }};">{{ $statusLabel[$r->status] ?? $r->status }}</span></td>
+                        <td class="px-4 py-3 align-top whitespace-nowrap"><span class="ds-badge {{ $statusTone[$r->status] ?? 'ds-badge-muted' }}">{{ $statusLabel[$r->status] ?? $r->status }}</span></td>
                         <td class="px-4 py-3 align-top text-xs" style="color:var(--text-muted); max-width:22rem;">{{ $r->note ?: '—' }}</td>
                         <td class="px-4 py-3 align-top whitespace-nowrap text-xs" style="color:var(--text-muted);">{{ $r->updated_at ? \Illuminate\Support\Carbon::parse($r->updated_at)->format('j M Y') : '—' }}</td>
                         <td class="px-4 py-3 align-top whitespace-nowrap">

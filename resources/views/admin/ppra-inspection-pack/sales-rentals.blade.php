@@ -29,20 +29,20 @@
         </p>
     </div>
 
-    <form method="GET" class="flex flex-wrap items-end gap-3 rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
+    <form method="GET" class="props-filter-panel flex flex-wrap items-end gap-3 rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Search (address)</label>
-            <input type="text" name="search" value="{{ request('search') }}" class="text-sm rounded-md px-3 py-1.5" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+            <input class="list-header-filter {{ (request('search') !== null && request('search') !== '') ? 'is-active' : '' }}" type="text" name="search" value="{{ request('search') }}">
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Custom from</label>
-            <input type="date" name="date_from" value="{{ request('date_from') }}" class="text-sm rounded-md px-3 py-1.5" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+            <input class="list-header-filter {{ (request('date_from') !== null && request('date_from') !== '') ? 'is-active' : '' }}" type="date" name="date_from" value="{{ request('date_from') }}">
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Custom to</label>
-            <input type="date" name="date_to" value="{{ request('date_to') }}" class="text-sm rounded-md px-3 py-1.5" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+            <input class="list-header-filter {{ (request('date_to') !== null && request('date_to') !== '') ? 'is-active' : '' }}" type="date" name="date_to" value="{{ request('date_to') }}">
         </div>
-        <button type="submit" class="corex-btn-primary text-xs">Filter</button>
+        <button type="submit" class="corex-btn-primary text-xs" style="height:2.25rem;">Filter</button>
         @if($isCustomRange)
             <a href="{{ route('admin.ppra-inspection-pack.sales-rentals') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">Clear custom range (back to FY default)</a>
         @endif
@@ -61,9 +61,9 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr style="border-bottom:1px solid var(--border);">
-                        <th class="text-left px-4 py-2 text-xs font-semibold" style="color:var(--text-muted);">Address</th>
-                        <th class="text-left px-4 py-2 text-xs font-semibold" style="color:var(--text-muted);">Suburb</th>
-                        <th class="text-left px-4 py-2 text-xs font-semibold" style="color:var(--text-muted);">Listed Date</th>
+                        <th class="text-left px-4 py-2 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Address</th>
+                        <th class="text-left px-4 py-2 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Suburb</th>
+                        <th class="text-left px-4 py-2 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Listed Date</th>
                     </tr>
                 </thead>
                 <tbody>

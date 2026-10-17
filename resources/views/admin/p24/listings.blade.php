@@ -1,55 +1,56 @@
-<x-app-layout>
-    <x-slot name="header">
-        <div style="background:#0b2a4a;margin:-1.5rem -1.5rem 1.5rem;padding:1.5rem 2rem;">
-            <h2 class="text-xl font-bold text-white">P24 Listing Browser</h2>
-            <p class="text-sm text-blue-200 mt-1">
-                <a href="{{ route('admin.p24.index') }}" class="hover:underline">Dashboard</a> / Listings
+@extends('layouts.corex')
+
+@section('corex-content')
+<div class="w-full space-y-5">
+
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div>
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">P24 Listing Browser</h1>
+            <p class="text-xs" style="color: var(--text-muted);">
+                <a href="{{ route('admin.p24.index') }}" class="hover:underline">Dashboard</a> / Listings &middot; browse the Property24 listings CoreX has seen.
             </p>
         </div>
-    </x-slot>
+    </div>
 
-    <div class="max-w-7xl mx-auto px-4 py-6 space-y-6">
-
-        {{-- Filters --}}
-        <div class="ds-status-card">
-            <h3 class="ds-section-header">Filters</h3>
-            <form method="GET" action="{{ route('admin.p24.listings') }}" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mt-4">
-                <div>
-                    <label class="ds-label">Suburb</label>
-                    <select name="suburb" class="w-full rounded text-sm px-3 py-2 focus:ring-cyan-500" style="border:1px solid var(--border)">
-                        <option value="">All</option>
-                        @foreach($suburbs as $sub)
-                            <option value="{{ $sub }}" {{ request('suburb') === $sub ? 'selected' : '' }}>{{ $sub }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div>
-                    <label class="ds-label">Property Type</label>
-                    <select name="type" class="w-full rounded text-sm px-3 py-2 focus:ring-cyan-500" style="border:1px solid var(--border)">
-                        <option value="">All</option>
-                        @foreach($types as $type)
-                            <option value="{{ $type }}" {{ request('type') === $type ? 'selected' : '' }}>{{ $type }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div>
-                    <label class="ds-label">Min Price</label>
-                    <input type="number" name="min_price" value="{{ request('min_price') }}" placeholder="e.g. 500000" class="w-full rounded text-sm px-3 py-2 focus:ring-cyan-500" style="border:1px solid var(--border)">
-                </div>
-                <div>
-                    <label class="ds-label">Max Price</label>
-                    <input type="number" name="max_price" value="{{ request('max_price') }}" placeholder="e.g. 3000000" class="w-full rounded text-sm px-3 py-2 focus:ring-cyan-500" style="border:1px solid var(--border)">
-                </div>
-                <div class="flex items-end">
-                    <button type="submit" class="corex-btn-primary w-full">Filter</button>
-                </div>
-            </form>
-        </div>
+    {{-- Filters --}}
+    <div class="props-filter-panel rounded-md px-5 py-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <form method="GET" action="{{ route('admin.p24.listings') }}" class="flex flex-wrap items-end gap-3">
+            <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium" style="color: var(--text-secondary);">Suburb</label>
+                <select name="suburb" class="list-header-filter {{ request('suburb') ? 'is-active' : '' }}">
+                    <option value="">All suburbs</option>
+                    @foreach($suburbs as $sub)
+                        <option value="{{ $sub }}" {{ request('suburb') === $sub ? 'selected' : '' }}>{{ $sub }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium" style="color: var(--text-secondary);">Property Type</label>
+                <select name="type" class="list-header-filter {{ request('type') ? 'is-active' : '' }}">
+                    <option value="">All types</option>
+                    @foreach($types as $type)
+                        <option value="{{ $type }}" {{ request('type') === $type ? 'selected' : '' }}>{{ $type }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium" style="color: var(--text-secondary);">Min Price</label>
+                <input type="number" name="min_price" value="{{ request('min_price') }}" placeholder="e.g. 500000" class="list-header-filter {{ request('min_price') !== null && request('min_price') !== '' ? 'is-active' : '' }}">
+            </div>
+            <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium" style="color: var(--text-secondary);">Max Price</label>
+                <input type="number" name="max_price" value="{{ request('max_price') }}" placeholder="e.g. 3000000" class="list-header-filter {{ request('max_price') !== null && request('max_price') !== '' ? 'is-active' : '' }}">
+            </div>
+            <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+        </form>
+    </div>
 
         {{-- Results --}}
-        <div class="ds-status-card">
-            <h3 class="ds-section-header">Results ({{ $listings->total() }})</h3>
-            <div class="overflow-x-auto mt-4">
+        <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
+                <h3 class="ds-section-header">Results ({{ $listings->total() }})</h3>
+            </div>
+            <div class="overflow-x-auto">
                 <table class="min-w-full text-sm ds-table">
                     <thead style="background:var(--surface-2); color:var(--text-muted)">
                         <tr>
@@ -97,15 +98,7 @@
                                 @endif
                             </td>
                             <td class="px-4 py-3">
-                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs border
-                                    @if($listing->listing_status === 'active')
-                                        border-emerald-200 bg-emerald-50 text-emerald-800
-                                    @elseif($listing->listing_status === 'sold')
-                                        border-blue-200 bg-blue-50 text-blue-800
-                                    @else
-                                        border-gray-200 bg-gray-50 text-gray-600
-                                    @endif
-                                ">{{ ucfirst($listing->listing_status) }}</span>
+                                <span class="ds-badge {{ $listing->listing_status === 'active' ? 'ds-badge-success' : ($listing->listing_status === 'sold' ? 'ds-badge-info' : 'ds-badge-muted') }}">{{ ucfirst($listing->listing_status) }}</span>
                             </td>
                         </tr>
                         @empty
@@ -116,7 +109,7 @@
                     </tbody>
                 </table>
             </div>
-            <div class="mt-4">{{ $listings->appends(request()->query())->links() }}</div>
+            <div class="px-5 py-4" style="border-top:1px solid var(--border);">{{ $listings->appends(request()->query())->links() }}</div>
         </div>
     </div>
-</x-app-layout>
+@endsection

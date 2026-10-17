@@ -79,13 +79,13 @@
                 <table class="w-full text-sm">
                     <thead>
                         <tr style="background:var(--surface-2);color:var(--text-muted);">
-                            <th class="text-left px-3 py-2 font-semibold">#</th>
-                            <th class="text-left px-3 py-2 font-semibold">Listing</th>
-                            <th class="text-left px-3 py-2 font-semibold">Suburb</th>
-                            <th class="text-right px-3 py-2 font-semibold">Price</th>
-                            <th class="text-left px-3 py-2 font-semibold">From file</th>
-                            <th class="text-left px-3 py-2 font-semibold">Assigned agent</th>
-                            <th class="text-center px-3 py-2 font-semibold">Photo</th>
+                            <th class="text-left px-3 py-2 font-semibold text-xs uppercase tracking-wide">#</th>
+                            <th class="text-left px-3 py-2 font-semibold text-xs uppercase tracking-wide">Listing</th>
+                            <th class="text-left px-3 py-2 font-semibold text-xs uppercase tracking-wide">Suburb</th>
+                            <th class="text-right px-3 py-2 font-semibold text-xs uppercase tracking-wide">Price</th>
+                            <th class="text-left px-3 py-2 font-semibold text-xs uppercase tracking-wide">From file</th>
+                            <th class="text-left px-3 py-2 font-semibold text-xs uppercase tracking-wide">Assigned agent</th>
+                            <th class="text-center px-3 py-2 font-semibold text-xs uppercase tracking-wide">Photo</th>
                         </tr>
                     </thead>
                     <tbody>

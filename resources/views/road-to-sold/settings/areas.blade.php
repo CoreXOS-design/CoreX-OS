@@ -73,18 +73,18 @@
         </div>
     @else
     {{-- Filters --}}
-    <form method="GET" action="{{ route($rb . 'areas.index') }}" class="rounded-md p-4 grid grid-cols-1 sm:grid-cols-6 gap-3 items-end"
+    <form method="GET" action="{{ route($rb . 'areas.index') }}" class="props-filter-panel rounded-md p-4 grid grid-cols-1 sm:grid-cols-6 gap-3 items-end"
           style="background:var(--surface); border:1px solid var(--border);">
         <input type="hidden" name="view" value="{{ $mode }}">
         <div class="sm:col-span-2">
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="q">Search</label>
-            <input id="q" name="q" value="{{ $q }}" type="search"
+            <input class="list-header-filter {{ (!empty($q)) ? 'is-active' : '' }} w-full" id="q" name="q" value="{{ $q }}" type="search"
                    placeholder="{{ $mode === 'agents' ? 'Agent name, email, suburb or town' : 'Suburb, town or agent' }}"
-                   class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                  >
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="town_id">Town</label>
-            <select id="town_id" name="town_id" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <select class="list-header-filter {{ (!empty($filters['townId'])) ? 'is-active' : '' }} w-full" id="town_id" name="town_id">
                 <option value="">All towns</option>
                 @foreach($towns as $t)
                     <option value="{{ $t->id }}" @selected(($filters['townId'] ?? 0) == $t->id)>{{ $t->name }}</option>
@@ -95,7 +95,7 @@
             @if($branches->count() > 1)
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="branch_id">Branch</label>
-                    <select id="branch_id" name="branch_id" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    <select class="list-header-filter {{ (!empty($filters['branchId'])) ? 'is-active' : '' }} w-full" id="branch_id" name="branch_id">
                         <option value="">All branches</option>
                         @foreach($branches as $bid => $bname)
                             <option value="{{ $bid }}" @selected(($filters['branchId'] ?? 0) == $bid)>{{ $bname }}</option>
@@ -105,7 +105,7 @@
             @endif
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="status">Show</label>
-                <select id="status" name="status" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                <select class="list-header-filter {{ ($status !== 'active') ? 'is-active' : '' }} w-full" id="status" name="status">
                     <option value="active" @selected($status === 'active')>Current suburbs</option>
                     <option value="removed" @selected($status === 'removed')>Removed suburbs</option>
                 </select>
@@ -114,14 +114,14 @@
         @if($mode === 'suburbs')
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="status">Show</label>
-                <select id="status" name="status" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                <select class="list-header-filter {{ ($status !== 'active') ? 'is-active' : '' }} w-full" id="status" name="status">
                     <option value="active" @selected($status === 'active')>Working suburbs</option>
                     @if($canHide || $hiddenCount > 0)<option value="hidden" @selected($status === 'hidden')>Hidden ({{ $hiddenCount }})</option>@endif
                 </select>
             </div>
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="source">Where from</label>
-                <select id="source" name="source" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                <select class="list-header-filter {{ (($filters['source'] ?? 'all') !== 'all') ? 'is-active' : '' }} w-full" id="source" name="source">
                     <option value="all" @selected(($filters['source'] ?? 'all') === 'all')>Stock and Market Intelligence</option>
                     <option value="stock" @selected(($filters['source'] ?? 'all') === 'stock')>We hold stock</option>
                     <option value="mic" @selected(($filters['source'] ?? 'all') === 'mic')>Market Intelligence only</option>
@@ -130,7 +130,7 @@
         @endif
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="sort">Sort by</label>
-            <select id="sort" name="sort" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <select class="list-header-filter {{ (false) ? 'is-active' : '' }} w-full" id="sort" name="sort">
                 @if($mode === 'agents')
                     <option value="name" @selected($sortNow === 'name')>Agent name (A-Z)</option>
                     <option value="branch" @selected($sortNow === 'branch')>Branch</option>
@@ -258,7 +258,7 @@
         @if($status === 'hidden')
             <div class="rounded-md overflow-x-auto" style="background:var(--surface); border:1px solid var(--border);">
                 <table class="w-full text-sm" style="color:var(--text-primary);">
-                    <thead><tr style="border-bottom:1px solid var(--border); color:var(--text-muted);" class="text-left text-xs">
+                    <thead><tr style="background:var(--surface-2); border-bottom:1px solid var(--border); color:var(--text-muted);" class="text-left text-xs uppercase tracking-wide">
                         <th class="px-4 py-2">Hidden from Road to Sold</th><th class="px-4 py-2">Town</th><th class="px-4 py-2">Hidden</th><th class="px-4 py-2"></th>
                     </tr></thead>
                     <tbody>
@@ -289,7 +289,7 @@
         <div class="rounded-md overflow-x-auto" style="background:var(--surface); border:1px solid var(--border);">
             <table class="w-full text-sm" style="color:var(--text-primary);">
                 <thead>
-                    <tr style="border-bottom:1px solid var(--border); color:var(--text-muted);" class="text-left text-xs">
+                    <tr style="background:var(--surface-2); border-bottom:1px solid var(--border); color:var(--text-muted);" class="text-left text-xs uppercase tracking-wide">
                         <th class="px-4 py-2">Suburb</th><th class="px-4 py-2">Town</th>
                         <th class="px-4 py-2 text-right" title="Properties of this agency's own in this suburb">Our stock</th>
                         <th class="px-4 py-2 text-right" title="Market Intelligence adverts captured from Property24 and Private Property">MIC adverts</th>
