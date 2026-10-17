@@ -13,12 +13,14 @@ class PropertyAdTemplate extends Model
 
 
     protected $fillable = [
-        'agency_id','user_id', 'name', 'layout_json', 'is_global', 'ai_generated', 'ai_idea'];
+        'agency_id','user_id', 'name', 'layout_json', 'is_global', 'ai_generated', 'ai_idea', 'human_edited_at'];
 
     protected $casts = [
         'layout_json' => 'array',
         'is_global'   => 'boolean',
         'ai_generated' => 'boolean',
+        // AT-456 §B.9 leftovers — set when a PERSON saves it in the Ad Builder; never by the AI save, archive or restore.
+        'human_edited_at' => 'datetime',
     ];
 
     public function user(): BelongsTo

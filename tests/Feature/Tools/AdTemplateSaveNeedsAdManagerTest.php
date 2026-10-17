@@ -77,6 +77,29 @@ final class AdTemplateSaveNeedsAdManagerTest extends TestCase
             ->assertOk()->assertJsonPath('name', 'Edited');
     }
 
+    public function test_a_person_saving_in_the_ad_builder_stamps_human_edited_at_on_create_and_on_update(): void
+    {
+        [$agency, $branch] = $this->agency();
+        $this->grants($agency, ['tpl_both' => ['access_properties', 'access_ad_manager']]);
+        $user = User::factory()->create(['agency_id' => $agency, 'branch_id' => $branch, 'role' => 'tpl_both']);
+
+        // Create (store): a person made it.
+        $res = $this->actingAs($user)->postJson(route('corex.ad-templates.store'), ['name' => 'New one', 'layout_json' => self::LAYOUT])->assertOk();
+        $this->assertNotNull(DB::table('property_ad_templates')->where('id', $res->json('id'))->value('human_edited_at'));
+
+        // Update (save in the Ad Builder) of an AI-made template that nobody has touched yet.
+        $ai = (int) DB::table('property_ad_templates')->insertGetId([
+            'agency_id' => $agency, 'user_id' => $user->id, 'name' => 'AI made', 'layout_json' => json_encode(self::LAYOUT),
+            'is_global' => 0, 'ai_generated' => 1, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $this->assertNull(DB::table('property_ad_templates')->where('id', $ai)->value('human_edited_at'));
+        $this->putJson(route('corex.ad-templates.update', $ai), ['name' => 'AI made, tweaked', 'layout_json' => self::LAYOUT])->assertOk();
+
+        $row = DB::table('property_ad_templates')->where('id', $ai)->first();
+        $this->assertNotNull($row->human_edited_at);
+        $this->assertSame(1, (int) $row->ai_generated, 'the AI badge stays; human_edited_at is what says a person worked on it');
+    }
+
     /** @return array{0:int,1:int} */
     private function agency(): array
     {

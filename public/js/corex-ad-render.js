@@ -326,6 +326,7 @@
         { type: 'badge',       group: 'decorative', label: 'Badge / Pill', iconBg: '#00b4d8' },
         { type: 'line',        group: 'decorative', label: 'Divider Line', iconBg: '#334155' },
         { type: 'shape',       group: 'decorative', label: 'Shape',        iconBg: '#334155' },
+        { type: 'color_block', group: 'decorative', label: 'Colour Block', iconBg: '#334155' },
         { type: 'gradient',    group: 'decorative', label: 'Gradient',     iconBg: '#334155' },
         { type: 'ribbon',      group: 'decorative', label: 'Corner Ribbon', iconBg: '#e63946' }
     ];
@@ -1630,7 +1631,60 @@
     function prepareImagesForCapture(root) {
         if (!root) return Promise.resolve(function () {});
         // §B.9-1 — a lazy font a template uses must have loaded before the capture draws text in it.
-        return fontsReady().then(function () { return _prepareImages(root); });
+        return fontsReady().then(function () { return _prepareImages(root); }).then(function (restoreImages) {
+            var restoreFrames = bakePolygonFrameBorders(root);
+            return function () { restoreFrames(); restoreImages(); };
+        });
+    }
+
+    /**
+     * AT-456 §B.9 leftovers — a frame border (`frameBorderWidth`) on a polygon-masked Agent Image. On the canvas the frame's
+     * `clip-path` cuts its own CSS border to the polygon; html2canvas ignores clip-path and drew the whole rectangle.
+     * For the export only: the frame's own border colour is made transparent (so layout does not move) and the very same
+     * ring — the border band of the box, clipped to the same polygon — is drawn as one inline SVG sibling right after the
+     * frame (same box, rotation, opacity and stacking), which html2canvas renders faithfully. The canvas is never touched;
+     * the returned function puts everything back.
+     */
+    function bakePolygonFrameBorders(root) {
+        var undo = [];
+        var frames = Array.prototype.slice.call(root.querySelectorAll('*')).filter(function (n) {
+            return n.style && n.style.clipPath && n.style.clipPath.indexOf('polygon(') === 0 && n.parentNode;
+        });
+        frames.forEach(function (frame, idx) {
+            try {
+                var cs = window.getComputedStyle(frame);
+                var bw = parseFloat(cs.borderTopWidth) || 0;
+                var W = frame.offsetWidth, H = frame.offsetHeight;
+                var pts = clipToPoints(frame.style.clipPath);
+                if (!(bw > 0) || !W || !H || !pts) return;
+                var color = cs.borderTopColor;
+                var scaled = pts.split(' ').map(function (p) {
+                    var xy = p.split(',');
+                    return (parseFloat(xy[0]) * W / 100).toFixed(2) + ',' + (parseFloat(xy[1]) * H / 100).toFixed(2);
+                }).join(' ');
+                var cid = 'cxfb' + idx + '_' + Math.random().toString(36).slice(2, 8);
+                var ring = 'M0 0H' + W + 'V' + H + 'H0Z M' + bw + ' ' + bw + 'V' + (H - bw) + 'H' + (W - bw) + 'V' + bw + 'Z';
+                var holder = document.createElement('div');
+                holder.setAttribute('data-corex-frame-ring', '1');
+                holder.style.cssText = 'position:absolute;pointer-events:none;'
+                    + 'left:' + frame.style.left + ';top:' + frame.style.top + ';'
+                    + 'width:' + W + 'px;height:' + H + 'px;'
+                    + 'z-index:' + (frame.style.zIndex || 1) + ';'
+                    + (frame.style.transform ? 'transform:' + frame.style.transform + ';' : '')
+                    + (frame.style.opacity ? 'opacity:' + frame.style.opacity + ';' : '');
+                holder.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H
+                    + '" style="display:block;"><defs><clipPath id="' + cid + '"><polygon points="' + scaled + '"/></clipPath></defs>'
+                    + '<path d="' + ring + '" fill="' + esc(color) + '" fill-rule="evenodd" clip-path="url(#' + cid + ')"/></svg>';
+                var prevColor = frame.style.borderColor;
+                frame.style.borderColor = 'transparent';
+                frame.parentNode.insertBefore(holder, frame.nextSibling);
+                undo.push(function () {
+                    frame.style.borderColor = prevColor;
+                    if (holder.parentNode) holder.parentNode.removeChild(holder);
+                });
+            } catch (e) { /* leave this frame exactly as the browser draws it */ }
+        });
+        return function () { undo.forEach(function (fn) { fn(); }); };
     }
 
     /**

@@ -76,6 +76,8 @@ final class AdLayoutValidator
 
     /** Tolerance (px) for an element a hair past the canvas edge. */
     private const EDGE_TOLERANCE = 2;
+    /** The margin used in the prompt's worked example of an inset line (a prompt illustration only; the validator never enforces it). */
+    private const EXAMPLE_INSET = 40;
 
     /** Plain colour names the model sometimes writes; swapped for these exact hex values (never passed through). */
     private const NAMED_COLORS = [
@@ -881,6 +883,8 @@ final class AdLayoutValidator
     public function promptLimits(int $cw, int $ch): string
     {
         $t = self::EDGE_TOLERANCE;
+        $inset  = self::EXAMPLE_INSET;
+        $insetW = $cw - 2 * $inset;
         $ranges = [];
         foreach (self::NUMBERS as $k => [$min, $max]) {
             $ranges[] = "{$k} {$min} to {$max}";
@@ -897,7 +901,11 @@ final class AdLayoutValidator
         $script   = implode(' / ', self::SCRIPT_FONTS);
 
         return "HARD LIMITS - every option is checked by a program. One broken rule throws the whole option away, so check your own numbers before you answer:\n"
-            . "1. Geometry: every element must lie fully inside the canvas: x >= 0, y >= 0, x + w <= {$cw}, y + h <= {$ch} (at most {$t}px of slack). w and h are at least 4. Do the addition for each element.\n"
+            . "1. Geometry: EVERY element - divider lines, shapes, gradients, ribbons, pills and the QR code included, not only photos and text - must lie fully inside the canvas: x >= 0, y >= 0, x + w <= {$cw}, y + h <= {$ch}. "
+            . "{$t}px of slack is tolerated; never rely on it. w and h are at least 4. "
+            . "A line or block across the whole width is x=0 with w={$cw}; across the whole height is y=0 with h={$ch}; inset by a margin of {$inset}px it is x={$inset} with w={$insetW} (the width MINUS the margin on BOTH sides). "
+            . "The usual mistake is a divider line given the full width ({$cw}) but an x greater than 0, which runs past the right edge (x + w is then more than {$cw}).\n"
+            . "1b. CHECK BEFORE YOU ANSWER: for every element in every option, add x + w and y + h; the first must be at most {$cw} and the second at most {$ch}, and x and y must not be negative. Fix any element that fails before you write the answer.\n"
             . '2. Count: between ' . self::MIN_ELEMENTS . ' and ' . self::MAX_ELEMENTS . " elements per option, and at least one property photo (image_1 to image_5).\n"
             . "3. Font size: fontSize is at least {$min} on every text element (the watermark is exempt). Never write a smaller number.\n"
             . "4. Contrast: text must reach {$con}:1 against what is directly behind it (its own pill, else the nearest block/shape/gradient under it, else the canvas). "

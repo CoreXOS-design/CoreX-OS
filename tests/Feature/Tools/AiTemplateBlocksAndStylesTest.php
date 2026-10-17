@@ -54,8 +54,9 @@ final class AiTemplateBlocksAndStylesTest extends TestCase
         $excluded = ['custom_image', 'custom_video', 'agent_2_name', 'agent_2_email', 'agent_2_phone', 'agent_2_designation', 'agent_2_avatar'];
         $missing  = array_values(array_diff($kernel, $excluded, array_keys(AdLayoutValidator::FIELDS)));
         $this->assertSame([], $missing, 'The Ad Builder can place these but the AI has never been told about them.');
-        // color_block is not on the builder's palette but the kernel still draws it (FIELD_DEFAULTS / contentHtml), so the AI may use it.
-        $this->assertSame([], array_values(array_diff(array_keys(AdLayoutValidator::FIELDS), $kernel, ['color_block'])), 'The validator allows types the builder does not have.');
+        // color_block is on the builder's palette since the §B.9 leftovers, so the two lists are now identical (no exception).
+        $this->assertSame([], array_values(array_diff(array_keys(AdLayoutValidator::FIELDS), $kernel)), 'The validator allows types the builder does not have.');
+        $this->assertContains('color_block', $kernel, 'An AI-made template can use a colour block, so agents must be able to add and edit one.');
     }
 
     public function test_the_new_enum_lists_match_the_kernel(): void
@@ -584,7 +585,7 @@ final class AiTemplateBlocksAndStylesTest extends TestCase
         $untouchedAi1 = $this->makeTemplate($a, $user, 'Untouched AI 1', true, $old->copy()->addDays(25), $old->copy()->addDays(25));
         $untouchedAi2 = $this->makeTemplate($a, $user, 'Untouched AI 2', true, $old->copy()->addDays(29), $old->copy()->addDays(29));
         $handOld      = $this->makeTemplate($a, $user, 'Hand made old', false, $old, $old->copy()->addDays(1));
-        $editedAi     = $this->makeTemplate($a, $user, 'AI then edited', true, $old->copy()->addDays(10), $old->copy()->addDays(12));
+        $editedAi     = $this->makeTemplate($a, $user, 'AI then edited', true, $old->copy()->addDays(10), $old->copy()->addDays(12), null, null, $old->copy()->addDays(12));
         $handNew      = $this->makeTemplate($a, $user, 'Hand made new', false, $old->copy()->addDays(15), $old->copy()->addDays(20));
         $this->makeTemplate($a, $user, 'Archived hand', false, $old, now(), now());      // archived: never
         $this->makeTemplate($a, $user, 'Empty hand', false, $old, now(), null, ['canvasW' => 1200, 'canvasH' => 628, 'elements' => []]);   // nothing to learn from
@@ -600,6 +601,86 @@ final class AiTemplateBlocksAndStylesTest extends TestCase
         // Untouched AI templates only fill what people left free (a young agency can still learn from what it kept).
         DB::table('property_ad_templates')->whereIn('id', [$handNew, $editedAi])->delete();
         $this->assertSame([$handOld, $untouchedAi2, $untouchedAi1], $this->builder()->exampleTemplates($a)->pluck('id')->all());
+    }
+
+    public function test_only_human_edited_at_tells_an_edited_ai_template_from_an_untouched_one_not_updated_at(): void
+    {
+        [$a, $user] = $this->agencyWithUser();
+        $old = now()->subDays(30);
+
+        // Same shape of history for both: updated long after created. Only one was actually saved by a person.
+        $moved  = $this->makeTemplate($a, $user, 'AI, updated_at moved (archive/restore, a rename elsewhere ...)', true, $old, $old->copy()->addDays(20));
+        $edited = $this->makeTemplate($a, $user, 'AI, a person saved it', true, $old->copy()->addDays(1), $old->copy()->addDays(2), null, null, $old->copy()->addDays(2));
+        $hand   = $this->makeTemplate($a, $user, 'Hand made', false, $old->copy()->addDays(3), $old->copy()->addDays(3));
+
+        $this->assertSame([$hand, $edited, $moved], $this->builder()->exampleTemplates($a)->pluck('id')->all(), 'person-made first, then person-edited, the AI template with only a later updated_at last');
+
+        // Fill-up rule is unchanged: with a cap of 3 the untouched one is the one that waits outside.
+        $this->makeTemplate($a, $user, 'Another hand made', false, $old->copy()->addDays(4), $old->copy()->addDays(4));
+        $ids = $this->builder()->exampleTemplates($a)->pluck('id')->all();
+        $this->assertCount(3, $ids);
+        $this->assertNotContains($moved, $ids);
+    }
+
+    public function test_the_ai_save_does_not_stamp_human_edited_at_and_archive_restore_do_not_either(): void
+    {
+        [$a, $user] = $this->agencyWithUser();
+        $this->fakeAi($this->recorded('response-with-new-blocks.json'));
+        $this->actingAs($user);
+
+        $gen = $this->builder()->generate($user, 'x', 'facebook', null, null, 'auto', false)->fresh();
+        $tpl = $this->builder()->saveOption($gen, 0, $user);
+        $this->assertTrue((bool) $tpl->ai_generated);
+        $this->assertNull(DB::table('property_ad_templates')->where('id', $tpl->id)->value('human_edited_at'), 'the AI save must not count as a person editing');
+
+        // Archive then restore (Template Manager) move updated_at / deleted_at but are not an edit.
+        app(AdTemplateManagerController::class)->archive(\App\Models\PropertyAdTemplate::findOrFail($tpl->id));
+        app(AdTemplateManagerController::class)->restore(\App\Models\PropertyAdTemplate::withTrashed()->findOrFail($tpl->id));
+        $this->assertNull(DB::table('property_ad_templates')->where('id', $tpl->id)->value('human_edited_at'));
+
+        // ... and so the picker still treats it as untouched (a person-made one beats it).
+        $hand = $this->makeTemplate($a, $user, 'Hand made', false);
+        $this->assertSame([$hand, $tpl->id], $this->builder()->exampleTemplates($a)->pluck('id')->all());
+    }
+
+    public function test_the_template_manager_shows_a_small_edited_mark_only_beside_the_ai_badge_of_a_person_edited_template(): void
+    {
+        [$a, $user] = $this->agencyWithUser();
+        $this->makeTemplate($a, $user, 'Untouched AI one', true);
+        $this->makeTemplate($a, $user, 'Tweaked AI one', true, null, null, null, null, now());
+        $this->actingAs($user);
+
+        $html = $this->renderIndex($user);
+        $this->assertSame(1, substr_count($html, 'A person has edited this since the AI made it'));
+    }
+
+    public function test_the_ai_prompt_states_the_per_size_bounds_for_every_element_and_asks_for_a_check(): void
+    {
+        $validator = new AdLayoutValidator();
+        foreach (AdLayoutValidator::SIZES as $key => $size) {
+            $w = $size['w'];
+            $h = $size['h'];
+            $limits = $validator->promptLimits($w, $h);
+
+            $this->assertStringContainsString("x >= 0, y >= 0, x + w <= {$w}, y + h <= {$h}", $limits, "bounds for {$key}");
+            $this->assertStringContainsString('divider lines, shapes, gradients, ribbons, pills and the QR code included', $limits);
+            $this->assertStringContainsString("x=0 with w={$w}", $limits, "full-width line for {$key}");
+            $this->assertStringContainsString('x=40 with w=' . ($w - 80), $limits, "inset line for {$key}: the width minus the margin on both sides");
+            $this->assertStringContainsString("y=0 with h={$h}", $limits);
+            $this->assertStringContainsString('CHECK BEFORE YOU ANSWER', $limits);
+            $this->assertStringContainsString("at most {$w}", $limits);
+            $this->assertStringContainsString("at most {$h}", $limits);
+        }
+
+        // It reaches the model: the system prompt of a real generation carries the numbers of THAT ad size.
+        [, $user] = $this->agencyWithUser();
+        $this->fakeAi($this->recorded('response-with-new-blocks.json'));
+        $this->actingAs($user);
+        $this->builder()->generate($user, 'x', 'instagram', null, null, 'auto', false);
+        $system = json_encode(Http::recorded()[0][0]->data()['system'], JSON_UNESCAPED_SLASHES);
+        $this->assertStringContainsString('x + w <= 1080, y + h <= 1080', $system);
+        $this->assertStringContainsString('x=40 with w=1000', $system);
+        $this->assertStringNotContainsString('x + w <= 1200', $system);
     }
 
     public function test_the_examples_are_compact_and_leak_no_ids_labels_or_media_and_the_prompt_stays_bounded(): void
@@ -822,12 +903,12 @@ final class AiTemplateBlocksAndStylesTest extends TestCase
     }
 
     /** @param array<string, mixed>|null $layout */
-    private function makeTemplate(int $agencyId, User $user, string $name, bool $ai, $createdAt = null, $updatedAt = null, $deletedAt = null, ?array $layout = null): int
+    private function makeTemplate(int $agencyId, User $user, string $name, bool $ai, $createdAt = null, $updatedAt = null, $deletedAt = null, ?array $layout = null, $humanEditedAt = null): int
     {
         return (int) DB::table('property_ad_templates')->insertGetId([
             'agency_id' => $agencyId, 'user_id' => $user->id, 'name' => $name,
             'layout_json' => json_encode($layout ?? $this->realisticLayout()),
-            'is_global' => 0, 'ai_generated' => $ai,
+            'is_global' => 0, 'ai_generated' => $ai, 'human_edited_at' => $humanEditedAt,
             'created_at' => $createdAt ?? now(), 'updated_at' => $updatedAt ?? ($createdAt ?? now()), 'deleted_at' => $deletedAt,
         ]);
     }

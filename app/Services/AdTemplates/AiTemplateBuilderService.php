@@ -63,9 +63,7 @@ final class AiTemplateBuilderService
     /** … each cut to this many elements and to roughly this many characters of compact JSON, so the prompt stays bounded. */
     public const EXAMPLE_MAX_ELEMENTS   = 24;
     public const EXAMPLE_MAX_CHARS      = 3500;
-    /** An AI template whose updated_at is later than created_at by more than this was changed by a person afterwards. */
-    public const EDITED_AFTER_SECONDS   = 5;
-    private const PROMPT_VERSION        = 'at456b9-v1';
+    private const PROMPT_VERSION        = 'at456b9-v2';
     private const CALL_TIMEOUT_SECS = 100;
     private const RETRY_BUDGET_SECS = 120;
     /** A pending row older than this is a crashed request, not a generation in flight. */
@@ -539,10 +537,10 @@ PROMPT;
      *
      * Order: templates people made or changed first, then untouched AI ones; most recently edited first within each.
      *   - made by a person  = ai_generated is false (a template built by hand in the Ad Builder);
-     *   - changed by a person = an AI template whose updated_at is more than EDITED_AFTER_SECONDS after its created_at (the AI
-     *     save writes the row once; the Ad Builder's own save moves updated_at). The `ai_generated` flag is never cleared by an
-     *     edit, so this is how an edit is told. (Archiving then restoring also moves updated_at, so a restored untouched AI
-     *     template can count as changed - harmless: the agency chose to keep it.)
+     *   - changed by a person = an AI template whose `human_edited_at` is set. That column is stamped by the Ad Builder's own
+     *     save (create / update) and by nothing else - not the AI save, not archive, not restore. (The `ai_generated` flag is
+     *     never cleared by an edit.) For templates that existed before the column, the migration applied the old rule once -
+     *     an AI template whose updated_at was more than 5 seconds after its created_at - so there is no date cut-off here.
      * Untouched AI templates only fill the places left over, so a brand-new agency can still learn from what it saved.
      *
      * @return Collection<int, PropertyAdTemplate>
@@ -557,8 +555,7 @@ PROMPT;
             ->limit(60)               // plenty to pick 3 from; bounds the work for an agency with hundreds
             ->get();
 
-        $byPerson = fn (PropertyAdTemplate $t): bool => ! $t->ai_generated
-            || ($t->updated_at !== null && $t->created_at !== null && abs($t->updated_at->getTimestamp() - $t->created_at->getTimestamp()) > self::EDITED_AFTER_SECONDS);
+        $byPerson = fn (PropertyAdTemplate $t): bool => ! $t->ai_generated || $t->human_edited_at !== null;
 
         return $rows->sortBy(fn (PropertyAdTemplate $t) => $byPerson($t) ? 0 : 1)->values()   // stable: recency order kept inside each group
             ->filter(fn (PropertyAdTemplate $t) => $this->validator->compactExample((array) $t->layout_json, self::EXAMPLE_MAX_ELEMENTS) !== null)

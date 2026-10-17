@@ -1241,7 +1241,7 @@
                         </div>
                     </template>
 
-                    {{-- Colour block (legacy — kept so existing templates still edit) --}}
+                    {{-- Colour block — a plain solid rectangle (also used by AI-made templates) --}}
                     <template x-if="sel.field === 'color_block'">
                         <div>
                             <div class="pp-row">
@@ -1253,8 +1253,8 @@
                                 <input type="range" min="0" max="1" step="0.05" :value="sel.opacity ?? 1" @input="mutate('opacity', +$event.target.value)">
                             </div>
                             <div class="pp-row">
-                                <label>Border Radius (px)</label>
-                                <input type="number" :value="sel.borderRadius" @input="mutate('borderRadius', +$event.target.value)" min="0">
+                                <label>Corner radius (px)</label>
+                                <input type="number" min="0" :value="sel.borderRadius || 0" @input="mutate('borderRadius', Math.max(0, +$event.target.value))">
                             </div>
                         </div>
                     </template>

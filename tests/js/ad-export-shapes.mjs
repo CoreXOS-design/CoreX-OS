@@ -119,6 +119,62 @@ section('Export bake: prepareImagesForCapture draws the polygon into the pixels'
     ok('a non-polygon clip-path is ignored', !calls.some((c) => c[0] === 'clip'));
 }
 
+section('Frame border on a polygon-masked Agent Image: the export draws the ring clipped to the polygon (§B.9 leftovers)');
+{
+    // The canvas cuts the frame's CSS border to the polygon (clip-path); html2canvas ignores clip-path and drew the whole
+    // rectangle. The export step now hides the CSS border and draws the same ring as an inline SVG, clipped to the same polygon.
+    const inserted = [];
+    const parentNode = {
+        insertBefore: (n, ref) => { inserted.push(n); n.parentNode = parentNode; },
+        removeChild: (n) => { const i = inserted.indexOf(n); if (i >= 0) inserted.splice(i, 1); n.parentNode = null; },
+    };
+    const doc = { createElement: (tag) => ({ tag, style: {}, attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, getContext: () => ({}) }) };
+    const win = { getComputedStyle: (n) => ({ borderTopWidth: n.__bw + 'px', borderTopColor: 'rgb(255, 59, 48)' }) };
+    const sandbox = { window: win, document: doc, Promise, setTimeout, Math };
+    vm.createContext(sandbox); vm.runInContext(code, sandbox);
+    const K3 = sandbox.window.CoreXAd;
+
+    const mkFrame = (clip, bw, extra = {}) => ({
+        __bw: bw, parentNode, offsetWidth: 130, offsetHeight: 130,
+        style: Object.assign({ clipPath: clip, left: '170px', top: '500px', zIndex: '26', transform: 'rotate(20deg)', opacity: '0.6', borderColor: 'rgb(255, 59, 48)' }, extra),
+    });
+    const run = async (frames) => {
+        const rootEl = { querySelectorAll: () => frames };
+        return K3.prepareImagesForCapture(rootEl);
+    };
+
+    const hexFrame = mkFrame(K.SHAPE_CLIPS.hexagon, 8);
+    const restore = await run([hexFrame]);
+    ok('one ring is drawn for a bordered polygon frame', inserted.length === 1);
+    const ring = inserted[0] || { style: {}, innerHTML: '' };
+    ok('the frame\'s own rectangular border is hidden for the capture', hexFrame.style.borderColor === 'transparent');
+    ok('the ring sits where the frame sits: same position, stacking, rotation, opacity',
+        /left:170px;top:500px;width:130px;height:130px;z-index:26;transform:rotate\(20deg\);opacity:0.6;/.test(ring.style.cssText), ring.style.cssText);
+    ok('it is an inline SVG with the border band (box minus box inset by the border width)',
+        ring.innerHTML.startsWith('<svg') && ring.innerHTML.includes('fill-rule="evenodd"') && ring.innerHTML.includes('M0 0H130V130H0Z M8 8V122H122V8Z'), ring.innerHTML);
+    ok('and it is clipped to the very same hexagon (25%,0 -> 32.50,0.00 ; 100%,50% -> 130.00,65.00)',
+        ring.innerHTML.includes('<clipPath') && ring.innerHTML.includes('32.50,0.00') && ring.innerHTML.includes('130.00,65.00') && ring.innerHTML.includes('clip-path="url(#'), ring.innerHTML);
+    ok('in the border colour the frame had', ring.innerHTML.includes('fill="rgb(255, 59, 48)"'));
+    restore();
+    ok('afterwards the border colour is put back and the ring removed', hexFrame.style.borderColor === 'rgb(255, 59, 48)' && inserted.length === 0);
+
+    // All six polygons get a ring; no border / a non-polygon clip / a hidden (zero-size) frame get none.
+    for (const t of TYPES) {
+        inserted.length = 0;
+        const r = await run([mkFrame(K.SHAPE_CLIPS[t], 5)]);
+        ok(t + ': a bordered frame gets a ring', inserted.length === 1);
+        r();
+    }
+    inserted.length = 0;
+    let r2 = await run([mkFrame(K.SHAPE_CLIPS.hexagon, 0), mkFrame('circle(50%)', 8), Object.assign(mkFrame(K.SHAPE_CLIPS.star, 8), { offsetWidth: 0 })]);
+    ok('no border, a non-polygon clip, or a hidden frame: nothing is added', inserted.length === 0);
+    r2();
+    // Non-polygon masks (circle / rounded / pill / arch / blob) have no clip-path at all, so they are never touched.
+    const maskFrames = ['circle', 'rounded', 'pill', 'rectangle'].map((t) => K.frameStyle(el({ field: 'agent_avatar', shapeType: t, frameBorderWidth: 6 })))
+        .concat(['rounded', 'circle', 'arch', 'blob'].map((m) => K.frameStyle(el({ field: 'image_1', photoMask: m, frameBorderWidth: 6 }))));
+    ok('no other mask uses clip-path, so their CSS border is exported as drawn (border-radius follows the curve)', maskFrames.every((f) => !/clip-path/.test(f) && /border:6px solid/.test(f)));
+}
+
 section('Nothing else in the kernel still depends on clip-path for a shape that is exported');
 {
     const kernelShapes = TYPES.map((t) => K.contentHtml(el({ field: 'shape', shapeType: t }), {}, {})).join('');
