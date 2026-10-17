@@ -1,30 +1,56 @@
 @extends('layouts.corex')
 
-@section('content')
-<div class="max-w-6xl mx-auto" data-tour="dp-documents-root">
+@section('corex-content')
+<div class="w-full" data-tour="dp-documents-root">
 
-    <x-list-header
-        :title="!empty($packInstance) ? 'Document Pack' : 'My Documents'"
-        :form-action="route('docuperfect.documents.index', !empty($packInstance) ? ['pack_instance' => $packInstance] : [])"
-        :paginator="$documents"
-        search-placeholder="Search documents..."
-    >
-        <x-slot:filters>
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ !empty($packInstance) ? 'Document Pack' : 'My Documents' }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    {{ !empty($packInstance) ? 'The documents in this pack.' : 'Documents you have created from templates.' }}
+                    Showing {{ number_format((int) $documents->firstItem()) }} to {{ number_format((int) $documents->lastItem()) }} of {{ number_format($documents->total()) }} results.
+                </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                @if(!empty($packInstance))
+                <a href="{{ route('docuperfect.documents.index') }}" class="corex-btn-outline text-xs" data-tour="dp-documents-show-all">Show All</a>
+                @else
+                <a href="{{ route('docuperfect.dashboard') }}" class="corex-btn-primary text-xs">+ Create New</a>
+                @endif
+            </div>
+        </div>
+    </div>
+
+    {{-- Filter bar --}}
+    @php $dpFiltersSet = collect(request()->except(['sort', 'direction', 'page', 'pack_instance']))->filter(fn ($v) => $v !== null && $v !== '')->isNotEmpty(); @endphp
+    <div class="rounded-md px-4 py-3 mt-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <form method="GET" action="{{ route('docuperfect.documents.index', !empty($packInstance) ? ['pack_instance' => $packInstance] : []) }}" class="flex flex-wrap items-center gap-3">
+            @if(request('sort'))
+            <input type="hidden" name="sort" value="{{ request('sort') }}">
+            <input type="hidden" name="direction" value="{{ request('direction', 'asc') }}">
+            @endif
+            <div class="relative flex-1 min-w-[180px] max-w-sm">
+                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color: var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+                </svg>
+                <input type="text" name="search" value="{{ request('search', '') }}" placeholder="Search documents..."
+                       class="list-header-filter w-full {{ request('search', '') !== '' ? 'is-active' : '' }}" style="padding-left: 2.25rem;">
+            </div>
             @if(empty($packInstance))
-            <select name="filter" onchange="this.form.submit()" class="list-header-filter" data-tour="dp-documents-filter">
+            <select name="filter" onchange="this.form.submit()" class="list-header-filter {{ ($filter ?? 'active') !== 'active' ? 'is-active' : '' }}" data-tour="dp-documents-filter">
                 <option value="active" {{ ($filter ?? 'active') === 'active' ? 'selected' : '' }}>Active</option>
                 <option value="archived" {{ ($filter ?? 'active') === 'archived' ? 'selected' : '' }}>Archived</option>
             </select>
             @endif
-        </x-slot:filters>
-        <x-slot:actions>
-            @if(!empty($packInstance))
-            <a href="{{ route('docuperfect.documents.index') }}" class="corex-btn-outline text-sm" data-tour="dp-documents-show-all">Show All</a>
-            @else
-            <a href="{{ route('docuperfect.dashboard') }}" class="corex-btn-primary text-sm">+ Create New</a>
+            <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
+            @if($dpFiltersSet)
+            <a href="{{ route('docuperfect.documents.index', !empty($packInstance) ? ['pack_instance' => $packInstance] : []) }}" class="text-xs underline" style="color: var(--text-muted);">Clear</a>
             @endif
-        </x-slot:actions>
-    </x-list-header>
+        </form>
+    </div>
 
     @if(session('status'))
         <div class="rounded-2xl border border-emerald-200 bg-emerald-50 text-emerald-900 px-4 py-3 text-sm mt-4">
@@ -124,7 +150,7 @@
                                     ]);
                                 @endphp
                                 @if($isInActiveWorkflow)
-                                    <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Active — cannot archive</span>
+                                    <span class="ds-badge ds-badge-success" style="text-transform:none;">Active — cannot archive</span>
                                 @else
                                     <form method="POST" action="{{ route('docuperfect.documents.archive', $doc->id) }}" class="inline" onsubmit="return confirm('Archive this document? It will be moved to the Archived tab.');">
                                         @csrf

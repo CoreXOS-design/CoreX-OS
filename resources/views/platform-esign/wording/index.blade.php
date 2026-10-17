@@ -25,19 +25,19 @@
     <div class="grid xl:grid-cols-3 gap-5">
         <div class="xl:col-span-2 space-y-5 min-w-0">
             <form method="GET" class="rounded-md p-3 flex flex-wrap gap-2 items-center" style="background: var(--surface); border: 1px solid var(--border);">
-                <input type="text" name="q" value="{{ $f['q'] }}" placeholder="Search version or change note…" class="ds-field flex-1" style="min-width: 12rem;">
-                <select name="status" class="list-header-filter" onchange="this.form.submit()">
+                <input type="text" name="q" value="{{ $f['q'] }}" placeholder="Search version or change note…" class="list-header-filter flex-1 {{ $f['q'] !== '' ? 'is-active' : '' }}" style="min-width: 12rem;">
+                <select name="status" class="list-header-filter {{ $f['status'] !== 'all' ? 'is-active' : '' }}" onchange="this.form.submit()">
                     @foreach(['all' => 'All versions', 'published' => 'Published', 'draft' => 'Draft in progress', 'discarded' => 'Discarded drafts'] as $k => $l)<option value="{{ $k }}" @selected($f['status'] === $k)>{{ $l }}</option>@endforeach
                 </select>
-                <label class="flex items-center gap-1 text-xs" style="color: var(--text-muted);">Dated from <input type="date" name="from" value="{{ $f['from'] }}" class="ds-field"></label>
-                <label class="flex items-center gap-1 text-xs" style="color: var(--text-muted);">to <input type="date" name="to" value="{{ $f['to'] }}" class="ds-field"></label>
-                <button class="corex-btn-primary">Search</button>
-                @if($f['q'] !== '' || $f['status'] !== 'all' || $f['from'] || $f['to'])<a href="{{ route('platform-esign.wording.index') }}" class="corex-btn-outline">Clear</a>@endif
+                <label class="flex items-center gap-1 text-xs" style="color: var(--text-muted);">Dated from <input type="date" name="from" value="{{ $f['from'] }}" class="list-header-filter {{ filled($f['from']) ? 'is-active' : '' }}"></label>
+                <label class="flex items-center gap-1 text-xs" style="color: var(--text-muted);">to <input type="date" name="to" value="{{ $f['to'] }}" class="list-header-filter {{ filled($f['to']) ? 'is-active' : '' }}"></label>
+                <button class="corex-btn-primary text-sm" style="height:2.25rem;">Search</button>
+                @if($f['q'] !== '' || $f['status'] !== 'all' || $f['from'] || $f['to'])<a href="{{ route('platform-esign.wording.index') }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>@endif
             </form>
 
             <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="overflow-x-auto">
-                    <table class="min-w-full text-sm">
+                    <table class="min-w-full text-sm ds-table">
                         <thead><tr style="background: var(--surface-2);">
                             <th class="{{ $th }}" style="color: var(--text-muted);">{!! $sortLink('version', 'Version') !!}</th>
                             <th class="{{ $th }}" style="color: var(--text-muted);">{!! $sortLink('date', 'Dated') !!}</th>
