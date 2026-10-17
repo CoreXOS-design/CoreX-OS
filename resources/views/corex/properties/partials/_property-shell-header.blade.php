@@ -67,8 +67,17 @@
                 @endif
             </div>
             <div class="flex items-center gap-1.5 flex-wrap mt-0.5">
-                <span class="text-[11px] px-2 py-0.5 rounded-full font-semibold" style="{{ $brandPillStyle }}" data-listing-chip>{{ $listingTypeLabel }}</span>
-                <span class="text-[11px] px-2 py-0.5 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $statusLabel }}</span>
+                {{-- List-look (Johan 2026-10-17): the shared dot + word status instead of filled brand pills. Same words. --}}
+                @php
+                    $hdrStatusVariant = match (strtolower((string) ($property->status ?? ''))) {
+                        'active' => 'ds-badge-success',
+                        'sold', 'prospecting' => 'ds-badge-info',
+                        'sold_by_3rd_party', 'withdrawn' => 'ds-badge-warning',
+                        default => 'ds-badge-default',
+                    };
+                @endphp
+                <span class="ds-badge ds-badge-info" data-listing-chip>{{ $listingTypeLabel }}</span>
+                <span class="ds-badge {{ $hdrStatusVariant }}">{{ $statusLabel }}</span>
                 @if(!empty($property->status_label))
                     <span class="ds-badge ds-badge-warning" title="Special label on the listing's status — e.g. price reduced, or an offer received but the property is still for sale.">{{ $property->status_label }}</span>
                 @endif

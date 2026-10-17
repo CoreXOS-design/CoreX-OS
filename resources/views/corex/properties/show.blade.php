@@ -153,6 +153,8 @@
         .cv-untagged-thumb-selected { opacity: 1; border-color: #3FC9E6; }
         .cv-untagged-thumb-img { width: 56px; height: 42px; }
     </style>
+    {{-- List-look polish (Johan 2026-10-17): hover lift / accent edge / animated tab underline / field hover — restyle only. --}}
+    @include('corex.properties.partials._property-polish-styles')
 <div class="w-full h-full flex flex-col space-y-4 corex-props-v2"
      x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: {{ $synOpenOnLoad ? 'true' : 'false' }}, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false, notSellingModalOpen: false, driveTypePref: null }"
      @corex:contact-required.window="contactRequiredModalOpen = true"
@@ -1011,7 +1013,7 @@
                 $readinessBarClass = $readinessPct >= 80 ? 'ds-bar-green' : 'ds-bar-amber';
                 $readinessMissing = array_keys(array_filter($readinessChecks, fn($v) => !$v));
             @endphp
-            <div class="rounded-md p-3" style="background:var(--surface); border:1px solid var(--border);" x-data="{ readinessOpen: false }">
+            <div class="prop-readiness-card rounded-md p-3" style="background:var(--surface); border:1px solid var(--border);" x-data="{ readinessOpen: false }">
                 <button type="button" @click="readinessOpen = !readinessOpen"
                         class="w-full flex items-center justify-between"
                         style="background:transparent; border:0; cursor:pointer; padding:0;">
@@ -1277,8 +1279,8 @@
                             $statusLabel2 = $property->status ? $property->statusBadge() : 'Draft';
                             $brandPillStyle2 = 'background:var(--brand-default); color:#fff; border:none;';
                         @endphp
-                        <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}" data-listing-chip>{{ $listingTypeLabel2 }}</span>
-                        <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}">{{ $statusLabel2 }}</span>
+                        <span class="ds-badge ds-badge-info" data-listing-chip>{{ $listingTypeLabel2 }}</span>
+                        <span class="ds-badge {{ $statusBadgeVariants[$property->status] ?? 'ds-badge-default' }}">{{ $statusLabel2 }}</span>
                         @if(!empty($property->status_label))
                             <span class="ds-badge ds-badge-warning" title="Special label on the listing's status — e.g. price reduced, or an offer received but the property is still for sale.">{{ $property->status_label }}</span>
                         @endif
@@ -1621,7 +1623,7 @@
                         <div class="rounded-md flex-1 flex flex-col justify-center" style="background:var(--surface-2); border:1px solid var(--border);">
                             @foreach($activityTimeline as $i => $event)
                                 <div x-show="activityExpanded || {{ $i }} === 0" x-cloak
-                                     class="flex items-start gap-3 px-4 py-2.5" style="{{ $i > 0 ? 'border-top:1px solid var(--border);' : '' }}">
+                                     class="prop-row-hover flex items-start gap-3 px-4 py-2.5" style="{{ $i > 0 ? 'border-top:1px solid var(--border);' : '' }}">
                                     <div class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style="background:{{ $event['color'] }};"></div>
                                     <div class="flex-1 min-w-0">
                                         <div class="text-xs font-medium" style="color:var(--text-primary);">{{ $event['label'] }}</div>
@@ -1694,7 +1696,7 @@
                                     if ($comm->from_display) { $metaParts[] = 'by ' . $comm->from_display; }
                                     $metaLine = implode(' · ', $metaParts);
                                 @endphp
-                                <div class="flex items-start gap-3 px-4 py-2.5" style="{{ $i > 0 ? 'border-top:1px solid var(--border);' : '' }}">
+                                <div class="prop-row-hover flex items-start gap-3 px-4 py-2.5" style="{{ $i > 0 ? 'border-top:1px solid var(--border);' : '' }}">
                                     <div class="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5" style="background:var(--surface); color:var(--brand-icon, #0ea5e9);">
                                         {{-- envelope / paperclip --}}
                                         @if($isSecureLink)
@@ -1732,7 +1734,7 @@
                         <h3 class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Property Location</h3>
                         @if($property->latitude && $property->longitude)
                             <a href="{{ route('corex.map.index') }}?focus={{ $property->latitude }},{{ $property->longitude }}&zoom=17"
-                               class="text-xs font-medium" style="color: var(--brand-button); text-decoration: none;">
+                               class="prop-text-link text-xs font-medium" style="color: var(--brand-button); text-decoration: none;">
                                 Open full map →
                             </a>
                         @endif
@@ -1824,7 +1826,7 @@
                 <div class="lg:col-start-3 flex flex-col">
                     <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">{{ $ownerLabel }}</h3>
                     @if($owner)
-                        <a href="{{ route('corex.contacts.show', $owner) }}" class="block rounded-md p-4 flex-1" style="background:var(--surface-2); border:1px solid var(--border);">
+                        <a href="{{ route('corex.contacts.show', $owner) }}" class="prop-card-link block rounded-md p-4 flex-1" style="background:var(--surface-2); border:1px solid var(--border);">
                             <div class="text-sm font-semibold truncate" style="color:var(--text-primary);">{{ $ownerName }}</div>
                             @if($owner->phone)
                                 <div class="text-xs mt-0.5" style="color:var(--text-muted);">{{ $owner->phone }}</div>
@@ -1834,7 +1836,7 @@
                             @endif
                         </a>
                     @else
-                        <button type="button" @click="activeTab='contacts'" class="w-full flex-1 rounded-md p-4 text-left text-xs" style="background:var(--surface-2); border:1px dashed var(--border); color:var(--text-muted);">
+                        <button type="button" @click="activeTab='contacts'" class="prop-card-link w-full flex-1 rounded-md p-4 text-left text-xs" style="background:var(--surface-2); border:1px dashed var(--border); color:var(--text-muted);">
                             No owner linked yet — click to add a seller / landlord
                         </button>
                     @endif
@@ -10006,7 +10008,7 @@
                     $isPurchaser = in_array((int) $c->id, $purchaserIds, true);
                 @endphp
                 <div x-data="{ editing: false, role: @js($c->pivot->role ?: $defaultLinkRole), confirmingUnlink: false }"
-                     class="px-4 py-3 rounded-md mb-2"
+                     class="prop-row-hover px-4 py-3 rounded-md mb-2"
                      style="background:var(--surface-2); border:1px solid {{ $isPurchaser ? 'var(--ds-green, #059669)' : 'var(--border)' }};"
                      data-contact-row="{{ $c->id }}" @if($isPurchaser) data-purchaser="1" @endif>
                     <div class="flex items-center gap-3">
@@ -10324,7 +10326,7 @@
             {{-- Notes list --}}
             <div class="space-y-3">
                 @forelse($property->notes as $note)
-                <div class="rounded-md p-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                <div class="prop-row-hover rounded-md p-4" style="background:var(--surface-2); border:1px solid var(--border);">
                     <div class="flex items-start justify-between gap-3">
                         <div class="flex-1">
                             <div class="text-sm whitespace-pre-line" style="color:var(--text-primary);">{{ $note->content }}</div>
@@ -10375,7 +10377,7 @@
                     </div>
                 </div>
                 @forelse($fullAuditLog as $entry)
-                    <div class="flex items-start gap-3 px-4 py-2.5 rounded" style="background:var(--surface-2); border:1px solid var(--border);" x-data="{ showDetail: false }">
+                    <div class="prop-row-hover flex items-start gap-3 px-4 py-2.5 rounded" style="background:var(--surface-2); border:1px solid var(--border);" x-data="{ showDetail: false }">
                         <div class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style="background:{{ $catColors[$entry->event_category] ?? '#94a3b8' }};"></div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-start justify-between gap-2">
