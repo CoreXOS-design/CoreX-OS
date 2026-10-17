@@ -28,9 +28,12 @@
 @endphp
 <div class="w-full space-y-4" x-data>
 
-    {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+    {{-- Header — the flat bar the Properties page uses (AT-336): no card fill, no rounded
+         corners, no brand block; the negative margins break it out of <main>'s padding so
+         the rule spans the full width and sits flush at the top. --}}
+    <div class="-mx-4 lg:-mx-6 -mt-4 lg:-mt-6">
+        <div class="px-6 py-3.5" style="border-bottom: 1px solid var(--border);">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
                     <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Demo Access</h1>
                     <p class="text-xs" style="color: var(--text-muted);">
@@ -54,6 +57,7 @@
                     </a>
                 </div>
             </div>
+        </div>
     </div>
 
     {{-- No T&C published = the clickwrap has nothing to show and EVERY prospect is
