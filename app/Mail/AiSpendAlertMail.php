@@ -21,6 +21,7 @@ class AiSpendAlertMail extends Mailable
 
     /**
      * @param array<string, float> $topSources source => spend in the window, highest first (max 3)
+     * @param bool $isSystem true for the platform bucket (AI no agency owns, e.g. the Article Library)
      */
     public function __construct(
         public string $kind,
@@ -30,6 +31,7 @@ class AiSpendAlertMail extends Mailable
         public int $windowHours,
         public array $topSources,
         public string $usageUrl,
+        public bool $isSystem = false,
     ) {}
 
     public function envelope(): Envelope
@@ -64,6 +66,7 @@ class AiSpendAlertMail extends Mailable
                 'windowHours'  => $this->windowHours,
                 'topSources'   => $this->topSources,
                 'usageUrl'     => $this->usageUrl,
+                'isSystem'     => $this->isSystem,
             ],
         );
     }

@@ -153,7 +153,7 @@ class AdManagerController extends Controller
 
         $query = Property::with('agent:id,name')
             ->whereRaw(
-                'LOWER(TRIM(COALESCE(properties.status, \'\'))) NOT IN ('
+                'COALESCE(' . Property::normalisedStatusSql('properties.status') . ', \'\') NOT IN ('
                 . implode(',', array_fill(0, count($adDeadStatuses), '?')) . ')',
                 $adDeadStatuses
             )

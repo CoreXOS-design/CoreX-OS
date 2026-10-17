@@ -55,7 +55,7 @@ class PpraMandateRegisterService
         $listings = $advertisedOnly
             ? $this->activeAdvertisedListings($agency)
             : Property::where('agency_id', $agency->id)
-                ->whereNotIn('status', Property::OFF_MARKET_STATUSES)
+                ->onMarket()
                 ->ownStock() // AT-453 — not our mandate
                 ->with('agent')
                 ->orderBy('address')

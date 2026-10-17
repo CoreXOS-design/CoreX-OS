@@ -27,6 +27,9 @@ use Illuminate\Support\Facades\Log;
  */
 class ImporterAiService
 {
+    /** HTTP timeout for the PDF-to-Sonnet request (the gateway default of 30s is too short for a document). */
+    public const PDF_TIMEOUT_SECONDS = 120;
+
     /**
      * Detect fields via Claude, falling back to the regex extractor.
      * Returns parsed JSON array, or empty array when the model call fails.
@@ -428,6 +431,8 @@ PROMPT;
             ]],
             // File the spend under DocuPerfect, not the gateway's MIC default.
             source:          \App\Models\AI\AiUsageEvent::SOURCE_DOCUPERFECT_VISION,
+            // A real PDF at 6000 output tokens routinely outruns the gateway's 30s default.
+            timeoutSeconds:  self::PDF_TIMEOUT_SECONDS,
         );
 
         try {

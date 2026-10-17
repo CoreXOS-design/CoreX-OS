@@ -60,8 +60,9 @@ class MobileEllieVoiceController extends Controller
         try {
             $intent = $this->intent->extract($transcript);
         } catch (AiPausedException $e) {
-            // AI Spend Safety (AT-456 §A.2) — same error shape as a transcribe failure.
-            return response()->json(['error' => $e->getMessage()], 503);
+            // AI Spend Safety (AT-456 §A.2) — same error shape AND status as a transcribe
+            // failure. Not 5xx: a client that retries server errors would re-send the audio.
+            return response()->json(['error' => $e->getMessage()], 422);
         }
 
         // Diagnostic trace — pins down which stage (STT vs LLM) produced a

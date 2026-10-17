@@ -5,8 +5,14 @@
 **{{ $agencyName }}** spent **R {{ number_format($spendZar, 2) }}** on AI in the last {{ $windowHours }} hours,
 reaching the cut-out level of **R {{ number_format($thresholdZar, 2) }}**.
 
+@if($isSystem)
+All platform AI that no agency owns is now switched off. That includes the Article Library
+and any other platform-level AI job. Every agency's own AI features (listings, documents, Ellie
+and the rest) keep working, because they are counted separately.
+@else
 Every AI feature for {{ $agencyName }} is now switched off. Their users see:
 "AI is paused for your agency — please contact CoreX support." Other agencies are not affected.
+@endif
 
 AI stays off until someone turns it back on from the AI usage page.
 @else
@@ -15,7 +21,7 @@ AI stays off until someone turns it back on from the AI usage page.
 **{{ $agencyName }}** has spent **R {{ number_format($spendZar, 2) }}** on AI in the last {{ $windowHours }} hours,
 past the alert level of **R {{ number_format($thresholdZar, 2) }}**.
 
-Nothing has been switched off yet. This is the only alert you will get for this agency in the next {{ $windowHours }} hours.
+Nothing has been switched off yet. This is the only alert you will get for {{ $isSystem ? 'platform AI' : 'this agency' }} in the next {{ $windowHours }} hours.
 @endif
 
 @if(!empty($topSources))

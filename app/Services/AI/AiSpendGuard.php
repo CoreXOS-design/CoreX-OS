@@ -7,6 +7,7 @@ namespace App\Services\AI;
 use App\Exceptions\AI\AiPausedException;
 use App\Mail\AiSpendAlertMail;
 use App\Models\AI\AiSpendGuardEvent;
+use App\Models\AI\AINarrativeCache;
 use App\Models\Agency;
 use App\Models\DevSetting;
 use App\Models\User;
@@ -69,6 +70,9 @@ final class AiSpendGuard
     public const STATUS_ACTIVE  = 'active';
     public const STATUS_ALERTED = 'alerted';
     public const STATUS_PAUSED  = 'paused';
+
+    /** After a failed alert email, don't try again for this long (a dead SMTP must not slow every AI call). */
+    private const ALERT_MAIL_RETRY_MINUTES = 15;
 
     private const LOCK_SECONDS      = 10;
     private const LOCK_WAIT_SECONDS = 5;
@@ -187,6 +191,9 @@ final class AiSpendGuard
             ]);
         }
 
+        $this->clearFallbackNarratives($agencyId);
+        Cache::forget($this->alertRetryKey($agencyId)); // re-armed: the next alert must not wait out a back-off
+
         AiSpendGuardEvent::create([
             'agency_id'   => $agencyId,
             'type'        => AiSpendGuardEvent::TYPE_RESUME,
@@ -194,6 +201,30 @@ final class AiSpendGuard
             'user_id'     => $by->id,
             'occurred_at' => $now,
         ]);
+    }
+
+    /**
+     * After a resume, drop the bucket's cached "(fallback)" narratives (soft delete) so the
+     * next request calls the AI instead of re-serving the templated text the pause produced.
+     * Good cached narratives are untouched. Best-effort: the resume itself must never fail on it.
+     */
+    private function clearFallbackNarratives(?int $agencyId): void
+    {
+        try {
+            AINarrativeCache::query()
+                ->when(
+                    $agencyId === null,
+                    fn ($q) => $q->whereNull('agency_id'),
+                    fn ($q) => $q->where('agency_id', $agencyId),
+                )
+                ->where('model', 'like', '%(fallback)')
+                ->delete();
+        } catch (Throwable $e) {
+            Log::warning('AiSpendGuard: could not clear fallback narratives after resume', [
+                'agency_id' => $agencyId,
+                'error'     => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -329,6 +360,26 @@ final class AiSpendGuard
             return; // at most one alert per bucket per window
         }
 
+        // A failed send must not use up the once-per-window alert: after a failure, back off
+        // (cache, not DB, so a dead mail server costs one attempt per interval rather than one
+        // per AI call) and try again once the interval has passed.
+        $retryKey = $this->alertRetryKey($agencyId);
+        if (Cache::has($retryKey)) {
+            return;
+        }
+
+        Log::warning('AI SPEND ALERT', [
+            'agency_id' => $agencyId,
+            'spend_zar' => round($spend, 2),
+            'alert_zar' => $settings['alert_zar'],
+        ]);
+
+        if (! $this->sendMail(AiSpendAlertMail::KIND_ALERT, $agencyId, $spend, $settings['alert_zar'], $settings)) {
+            Cache::put($retryKey, 1, now()->addMinutes(self::ALERT_MAIL_RETRY_MINUTES));
+
+            return; // not marked sent — the next evaluation after the back-off tries again
+        }
+
         $this->writeAlertSentAt($agencyId, $now);
 
         AiSpendGuardEvent::create([
@@ -338,14 +389,6 @@ final class AiSpendGuard
             'threshold_zar' => $settings['alert_zar'],
             'occurred_at'   => $now,
         ]);
-
-        Log::warning('AI SPEND ALERT', [
-            'agency_id' => $agencyId,
-            'spend_zar' => round($spend, 2),
-            'alert_zar' => $settings['alert_zar'],
-        ]);
-
-        $this->sendMail(AiSpendAlertMail::KIND_ALERT, $agencyId, $spend, $settings['alert_zar'], $settings);
     }
 
     private function pause(?int $agencyId, float $spend, array $settings, Carbon $now): void
@@ -391,13 +434,14 @@ final class AiSpendGuard
     }
 
     /**
-     * Best-effort email. The log line above is the guarantee; a mail failure
-     * must never undo or mask the pause.
+     * Best-effort email. The log line is the guarantee; a mail failure must never
+     * undo or mask the pause. Returns whether the mail went out (no recipients
+     * configured counts as done — there is nothing a retry could achieve).
      */
-    private function sendMail(string $kind, ?int $agencyId, float $spend, float $threshold, array $settings): void
+    private function sendMail(string $kind, ?int $agencyId, float $spend, float $threshold, array $settings): bool
     {
         if ($settings['recipients'] === []) {
-            return;
+            return true;
         }
 
         try {
@@ -432,12 +476,22 @@ final class AiSpendGuard
                 windowHours: $settings['window_hours'],
                 topSources:  $topSources,
                 usageUrl:    $usageUrl,
+                isSystem:    $agencyId === null,
             ));
+
+            return true;
         } catch (Throwable $e) {
             Log::error('AiSpendGuard: failed to send ' . $kind . ' email: ' . $e->getMessage(), [
                 'agency_id' => $agencyId,
             ]);
+
+            return false;
         }
+    }
+
+    private function alertRetryKey(?int $agencyId): string
+    {
+        return 'ai-spend-guard:alert-mail-retry:' . ($agencyId ?? 'system');
     }
 
     private function resumedAt(?int $agencyId): ?Carbon

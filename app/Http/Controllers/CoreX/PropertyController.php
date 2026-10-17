@@ -326,7 +326,7 @@ class PropertyController extends Controller
             // On-market = live stock (for_sale incl. sub-labels, under_offer, …),
             // i.e. NOT terminal/draft. Single source of truth on the model.
             // AT-453 — Other Agency Stock is on-market for Core Matches but is not OUR stock.
-            $query->whereNotIn('status', Property::OFF_MARKET_STATUSES)->ownStock();
+            $query->onMarket()->ownStock();
         } elseif ($status === 'rented_out') {
             // AT-401 — the Rentals-lens equivalent of the sale side's "Sold"
             // tab/filter. Not a single literal status value: real data on the
@@ -380,7 +380,7 @@ class PropertyController extends Controller
         // Marketing status filter
         $marketingFilter = $request->query('filter', '');
         if ($marketingFilter === 'marketing_pending') {
-            $query->whereNull('compliance_snapshot_at')->whereNotIn('status', Property::OFF_MARKET_STATUSES);
+            $query->whereNull('compliance_snapshot_at')->onMarket();
         }
 
         // Portal Agent Mismatch Guard — "Portal agent": listings whose send to
@@ -398,7 +398,7 @@ class PropertyController extends Controller
         if ($marketingFilter === 'approval_pending' && $syndicationApprovalOn) {
             $query->whereNotNull('compliance_snapshot_at')
                 ->whereNull('syndication_approved_at')
-                ->whereNotIn('status', Property::OFF_MARKET_STATUSES)
+                ->onMarket()
                 ->whereExists(function ($sub) {
                     $sub->select(DB::raw(1))
                         ->from('property_syndication_approvals as psa')
@@ -420,12 +420,15 @@ class PropertyController extends Controller
         // set (single source of truth on the model). Values are code constants,
         // never user input, so direct interpolation is safe.
         $offMarketIn = "'" . implode("','", Property::OFF_MARKET_STATUSES) . "'";
+        // Same normalisation as Property::scopeOnMarket() / isOnMarket(), so this tile agrees with
+        // the "On market" filter and the row-level check for "Let Out" / " SOLD " style values.
+        $normStatus = Property::normalisedStatusSql();
         // AT-453 — one definition of "our own stock" (Property::scopeOwnStock): Total and On Market
         // never count Other Agency Stock; it gets its own tile (other_agency).
         $oasSlug = Property::STATUS_OTHER_AGENCY_STOCK;
         $agg = (clone $query)->selectRaw(
             "SUM(CASE WHEN COALESCE(status, '') <> '$oasSlug' THEN 1 ELSE 0 END) as total,"
-            . " SUM(CASE WHEN status NOT IN ($offMarketIn) AND status <> '$oasSlug' THEN 1 ELSE 0 END) as active,"
+            . " SUM(CASE WHEN $normStatus NOT IN ($offMarketIn) AND status <> '$oasSlug' THEN 1 ELSE 0 END) as active,"
             . " SUM(CASE WHEN status = '$oasSlug' THEN 1 ELSE 0 END) as other_agency,"
             . " SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft,"
             . " SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold,"
@@ -480,7 +483,7 @@ class PropertyController extends Controller
             ? tap(Property::query(), fn ($q) => $this->applyRoleScope($q, $user, $dataScope, $canPickAgent, $viewScope))
                 ->whereNotNull('compliance_snapshot_at')
                 ->whereNull('syndication_approved_at')
-                ->whereNotIn('status', Property::OFF_MARKET_STATUSES)
+                ->onMarket()
                 ->whereExists(function ($sub) {
                     $sub->select(DB::raw(1))
                         ->from('property_syndication_approvals as psa')

@@ -62,7 +62,7 @@ class FilingPropertyLinker
             ->searchAddress($address)
             ->with(['agent', 'branch'])
             ->orderByRaw(
-                'CASE WHEN status NOT IN (' .
+                'CASE WHEN ' . Property::normalisedStatusSql() . ' NOT IN (' .
                 collect(Property::OFF_MARKET_STATUSES)->map(fn ($s) => "'$s'")->implode(',') .
                 ') THEN 0 ELSE 1 END'
             )

@@ -121,7 +121,10 @@ final class AnthropicGateway
             }
             // The reason becomes the response's errorMessage, which surfaces like
             // the AI summary panel show verbatim — so it is the plain sentence.
-            return $this->emitFallback($request, $inputHash, AiPausedException::MESSAGE);
+            // persist: false — a pause is not an API failure. Writing the fallback to the
+            // cache would (a) overwrite a GOOD cached narrative when forceRefresh is set and
+            // (b) leave a "(fallback)" row that keeps being served after the owner resumes.
+            return $this->emitFallback($request, $inputHash, AiPausedException::MESSAGE, persist: false);
         }
 
         // ── 4. Compose payload + call ──────────────────────────────────────
@@ -145,7 +148,7 @@ final class AnthropicGateway
             . '/v1/messages';
 
         try {
-            $response = $this->callApi($endpoint, $apiKey, $payload, $request->timeoutSeconds);
+            $response = $this->callApi($endpoint, $apiKey, $payload, $request->timeoutSeconds, !empty($request->documents));
         } catch (Throwable $e) {
             return $this->handleApiFailure($request, $inputHash, $e);
         }
@@ -273,8 +276,13 @@ final class AnthropicGateway
         return $content;
     }
 
-    private function callApi(string $endpoint, string $apiKey, array $payload, ?int $timeoutSeconds = null): Response
-    {
+    private function callApi(
+        string $endpoint,
+        string $apiKey,
+        array $payload,
+        ?int $timeoutSeconds = null,
+        bool $hasDocuments = false,
+    ): Response {
         $timeout    = $timeoutSeconds ?? (int) config('services.anthropic.timeout', 30);
         $maxRetries = (int) config('services.anthropic.max_retries', 3);
 
@@ -286,14 +294,29 @@ final class AnthropicGateway
             ->timeout($timeout)
             // Retry only on connection errors and 5xx. 4xx (invalid request,
             // auth, etc.) is a fail-fast — retrying won't help and burns budget.
-            ->retry($maxRetries, 250, function ($exception) {
-                if ($exception instanceof ConnectionException) return true;
+            ->retry($maxRetries, 250, function ($exception) use ($hasDocuments) {
+                if ($exception instanceof ConnectionException) {
+                    // A request that carries a document (PDF / images) is a long, expensive call.
+                    // When it TIMES OUT the upstream may well have processed — and billed — it
+                    // already, so re-sending would multiply the cost for a result we would
+                    // likely time out on again. Fast connect failures (nothing was sent) are
+                    // still safe to retry. Every other request keeps retrying all connection errors.
+                    return ! ($hasDocuments && $this->isTimeout($exception));
+                }
                 if (method_exists($exception, 'response') && $exception->response) {
                     return $exception->response->serverError();
                 }
                 return false;
             }, throw: false)
             ->post($endpoint, $payload);
+    }
+
+    private function isTimeout(ConnectionException $e): bool
+    {
+        $m = strtolower($e->getMessage());
+
+        return str_contains($m, 'curl error 28')
+            || str_contains($m, 'timed out') || str_contains($m, 'timeout');
     }
 
     private function handleApiSuccess(
@@ -407,8 +430,12 @@ final class AnthropicGateway
      * disabled, the key is missing, or the API call failed. Caches with a
      * SHORT TTL (5 min) so the next request retries soon.
      */
-    private function emitFallback(NarrativeRequest $request, string $inputHash, string $reason): NarrativeResponse
-    {
+    private function emitFallback(
+        NarrativeRequest $request,
+        string $inputHash,
+        string $reason,
+        bool $persist = true,
+    ): NarrativeResponse {
         $model = config("services.anthropic.models.{$request->modelAlias}", 'unknown');
         $now   = Carbon::now();
 
@@ -426,23 +453,27 @@ final class AnthropicGateway
             : null;
 
         // Persist short-TTL cache row so concurrent renders don't all degrade.
-        AINarrativeCache::updateOrCreate(
-            ['cache_key' => $request->cacheKey],
-            [
-                'agency_id'      => $request->agencyId,
-                'narrative_type' => $request->narrativeType,
-                'input_hash'     => $inputHash,
-                'prompt_version' => $request->promptVersion,
-                'model'          => $model . ' (fallback)',
-                'input_tokens'   => 0,
-                'output_tokens'  => 0,
-                'cost_zar'       => 0,
-                'output_text'    => $fallbackText,
-                'output_json'    => $fallbackJson,
-                'generated_at'   => $now,
-                'expires_at'     => $now->copy()->addMinutes(self::FALLBACK_CACHE_TTL_MINUTES),
-            ]
-        );
+        // (Skipped while AI is paused — see generate(); the pause check is per request
+        // and costs one cheap lookup, so there is nothing to protect with a cache row.)
+        if ($persist) {
+            AINarrativeCache::updateOrCreate(
+                ['cache_key' => $request->cacheKey],
+                [
+                    'agency_id'      => $request->agencyId,
+                    'narrative_type' => $request->narrativeType,
+                    'input_hash'     => $inputHash,
+                    'prompt_version' => $request->promptVersion,
+                    'model'          => $model . ' (fallback)',
+                    'input_tokens'   => 0,
+                    'output_tokens'  => 0,
+                    'cost_zar'       => 0,
+                    'output_text'    => $fallbackText,
+                    'output_json'    => $fallbackJson,
+                    'generated_at'   => $now,
+                    'expires_at'     => $now->copy()->addMinutes(self::FALLBACK_CACHE_TTL_MINUTES),
+                ]
+            );
+        }
 
         event(new AINarrativeFailedFallback(
             agencyIdValue: $request->agencyId,
