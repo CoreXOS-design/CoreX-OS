@@ -19,6 +19,11 @@ namespace App\Services\AdTemplates;
  *     rgb()/rgba()/hex is a CSS/HTML injection vector and is refused outright;
  *   - literal copy (custom text / badge) is length-limited and stripped of markup.
  *
+ * AT-456 §B.9-2: it also knows every B.9-1 block (collage, corner ribbon, QR code, feature pills, the listing facts, photo
+ * masks / effects, duotone, line styles, decorative shapes, icons on any text, the 20 fonts) and has a deterministic safe
+ * repair for each (QR raised to 120 px, a collage preset snapped to the nearest real one, a ribbon's words cut or shrunk to
+ * fit, a script font moved off a price, ...). Colour, injection and contrast guards are as strict as ever.
+ *
  * What it returns is a COMPLETE layout_json — the same element shape the Ad Builder's own
  * makeElement() produces — so a saved AI template opens and edits like any other template.
  * The model is only asked for the properties that matter; the inert ones are filled here.
@@ -47,6 +52,22 @@ final class AdLayoutValidator
     public const MAX_TEXT_LEN  = 80;
     public const MAX_NAME_LEN  = 60;
 
+    /** A QR code must be at least this many pixels on each side or phones cannot scan it (spec §B.9 item 7). */
+    public const MIN_QR_SIZE = 120;
+
+    /** QR dark-on-light contrast needed to scan reliably (WCAG-style ratio between the two colours' luminance). */
+    public const MIN_QR_CONTRAST = 4.0;
+
+    /** A corner ribbon's words are a label, not a sentence. */
+    public const MAX_RIBBON_TEXT = 24;
+
+    /** A corner ribbon is clipped to its own box, so a box smaller than this shows almost none of the band. */
+    public const MIN_RIBBON_SIZE = 80;
+
+    /** Script faces (Great Vibes, Dancing Script) are unreadable small and on long text: size and length floor/cap. */
+    public const MIN_SCRIPT_FONT_SIZE = 28;
+    public const MAX_SCRIPT_TEXT      = 30;
+
     /** A watermark must be at most this opaque. */
     public const WATERMARK_MAX_OPACITY = 0.15;
 
@@ -67,8 +88,24 @@ final class AdLayoutValidator
     /** Fields that show a property photo or logo. */
     private const IMAGE_FIELDS = ['image_1', 'image_2', 'image_3', 'image_4', 'image_5', 'agent_avatar', 'agency_logo'];
 
-    /** Fields that draw a block of colour and carry no text. */
-    private const BLOCK_FIELDS = ['color_block', 'shape', 'gradient', 'line'];
+    /** Fields that draw a block of colour and carry no text. (QR and the photo collage draw pictures, no words.) */
+    private const BLOCK_FIELDS = ['color_block', 'shape', 'gradient', 'line', 'qr', 'collage'];
+
+    /** Elements that show the listing's own photos (a collage is 2-5 of them): "a property photo is on the ad". */
+    private const PHOTO_FIELDS = ['image_1', 'image_2', 'image_3', 'image_4', 'image_5', 'collage'];
+
+    /** Elements that sit on their OWN colour (bgColor + bgOpacity), which must therefore be solid enough to count. */
+    private const OWN_BACKGROUND_FIELDS = ['ribbon', 'feature_pills'];
+
+    /** The two script faces. Short headline-type words only. */
+    private const SCRIPT_FONTS = ['Great Vibes', 'Dancing Script'];
+
+    /** The only elements a script face may be put on (headline-type, short words; never a price, phone number or body text). */
+    private const SCRIPT_OK_FIELDS = ['title', 'custom_text', 'badge', 'agency_name'];
+
+    /** The listing facts (text elements whose value is hidden on a real ad when the listing has none). */
+    public const FACT_FIELDS = ['erf_size', 'levy', 'rates_taxes', 'price_per_m2', 'pet_friendly', 'available_from', 'rent_per_month',
+        'show_day', 'auction_date', 'auction_venue'];
 
     /**
      * Every element type the AI may use, with a one-line description (also fed to the prompt,
@@ -113,6 +150,21 @@ final class AdLayoutValidator
         'shape'             => ['label' => 'Shape',                 'help' => 'filled shape; colour in "bg", kind in "shapeType"'],
         'gradient'          => ['label' => 'Gradient',              'help' => 'fade; "gradFrom" → "gradTo" at "gradAngle" (use as a scrim over photos)'],
         'color_block'       => ['label' => 'Color Block',           'help' => 'solid rectangle; colour in "bg"'],
+        // AT-456 §B.9-2 — the building blocks added in §B.9-1.
+        'collage'           => ['label' => 'Photo Collage',         'help' => '2-5 of the listing\'s photos in a preset layout ("collagePreset", "collageGap", "collageFirst", corner radius in "borderRadius"); counts as a property photo'],
+        'ribbon'            => ['label' => 'Corner Ribbon',         'help' => 'diagonal sash across one corner of its box ("ribbonCorner" tl/tr/bl/br), band colour "bgColor"+"bgOpacity", words in "text" (short, like JUST LISTED); box at least 80x80'],
+        'qr'                => ['label' => 'QR Code to Listing',    'help' => 'scannable code that opens the listing\'s web page; "qrDark" on "qrLight"; at least 120x120; the data is filled in per listing'],
+        'feature_pills'     => ['label' => 'Feature Pills',         'help' => '1-4 of the listing\'s own features as separate rounded pills ("pillCount", "pillDirection" row/column, "pillGap"); pill colour "bgColor"+"bgOpacity", text "color"; you cannot choose which features'],
+        'erf_size'          => ['label' => 'Erf Size',              'help' => 'plot size, e.g. "Erf: 800 m²" (hidden when the listing has none)'],
+        'levy'              => ['label' => 'Levy per Month',        'help' => 'sectional-title levy, e.g. "Levy: R 1 250 pm" (hidden when the listing has none)'],
+        'rates_taxes'       => ['label' => 'Rates & Taxes per Month', 'help' => 'rates and taxes (hidden when the listing has none)'],
+        'price_per_m2'      => ['label' => 'Price per m²',          'help' => 'asking price per square metre, sales only (hidden when it cannot be worked out)'],
+        'pet_friendly'      => ['label' => 'Pet Friendly',          'help' => '"Pet friendly" (hidden unless the listing allows pets)'],
+        'available_from'    => ['label' => 'Available From',        'help' => 'rentals: "Available now" or "Available from 1 Nov 2026" (hidden on sales)'],
+        'rent_per_month'    => ['label' => 'Rent per Month',        'help' => 'rentals: the rent with its period, e.g. "R 12 500 per month" (hidden on sales)'],
+        'show_day'          => ['label' => 'Show Day',              'help' => 'next show day / open house with times (hidden when none is booked)'],
+        'auction_date'      => ['label' => 'Auction Date',          'help' => 'auction date and time (hidden when the listing is not going to auction)'],
+        'auction_venue'     => ['label' => 'Auction Venue',         'help' => 'auction venue (hidden when the listing is not going to auction)'],
     ];
 
     /** Mirrors SHAPES + DECOR_SHAPES in the render kernel (a drift test compares them). */
@@ -128,23 +180,14 @@ final class AdLayoutValidator
         'sea_view', 'mountain_view', 'pet_friendly', 'solar', 'security', 'cctv', 'alarm', 'braai', 'fireplace', 'air_con', 'garden', 'flatlet', 'wifi', 'golf_estate', 'school', 'shopping', 'beach', 'estate_gated', 'borehole', 'backup_power', 'lift', 'gym', 'study', 'kitchen', 'laundry', 'balcony', 'calendar', 'clock', 'phone', 'email', 'chat', 'star', 'heart', 'check', 'sparkle'];
 
     // AT-456 §B.9-1 — values of the new per-element properties (mirrors of the kernel's PHOTO_MASKS / PHOTO_EFFECTS /
-    // LINE_STYLES). They are ACCEPTED here so a saved template that uses a new block is never rejected, but they are
-    // deliberately NOT yet in the AI's instructions (see PROMPT_*): teaching the AI the new blocks is the next step (§B.9-2).
-    private const PHOTO_MASKS   = ['none', 'rounded', 'circle', 'arch', 'blob'];
-    private const PHOTO_EFFECTS = ['none', 'bw', 'duotone', 'warm', 'cool', 'brighter'];
-    private const LINE_STYLES   = ['solid', 'dashed', 'dotted'];
-
-    /**
-     * What the AI is TOLD today — the kernel's original fonts / icons / shapes. promptLimits() lists these instead of
-     * the full allowed lists, so the new fonts, icons and decorative shapes exist for agents in the Ad Builder without
-     * the AI starting to use them before §B.9-2 teaches it how (e.g. script fonts are for short headlines only).
-     * §B.9-2: delete these three constants and the two PROMPT_* uses in promptLimits() to hand the AI the full lists.
-     */
-    private const PROMPT_FONTS  = ['Figtree', 'Inter', 'Poppins', 'Montserrat', 'Oswald', 'Bebas Neue', 'Playfair Display', 'Lora'];
-    private const PROMPT_ICONS  = ['bed', 'bath', 'garage', 'parking', 'ruler', 'house', 'pin', 'key', 'pool', 'tree', 'door', 'tag'];
-    private const PROMPT_SHAPES = ['rectangle', 'rounded', 'circle', 'pill', 'triangle', 'diamond', 'pentagon', 'hexagon', 'star', 'chevron'];
-    /** New enum properties the prompt does not mention yet. */
-    private const PROMPT_HIDDEN_ENUMS = ['photoMask', 'photoEffect', 'lineStyle'];
+    // LINE_STYLES / COLLAGE_PRESETS / RIBBON_CORNERS; drift tests compare them). AT-456 §B.9-2: the AI is now told every one of
+    // them — promptLimits() is generated from ENUMS below, there is no separate "what the prompt mentions" list.
+    private const PHOTO_MASKS     = ['none', 'rounded', 'circle', 'arch', 'blob'];
+    private const PHOTO_EFFECTS   = ['none', 'bw', 'duotone', 'warm', 'cool', 'brighter'];
+    private const LINE_STYLES     = ['solid', 'dashed', 'dotted'];
+    private const COLLAGE_PRESETS = ['2_side', '2_stack', '3_hero_left', '3_hero_top', '4_grid', '5_hero'];
+    private const RIBBON_CORNERS  = ['tl', 'tr', 'bl', 'br'];
+    private const PILL_DIRECTIONS = ['row', 'column'];
 
     /** Design-time sample copy the builder shows in an empty slot (mirrors the kernel's `preview`). */
     private const PREVIEWS = [
@@ -152,6 +195,9 @@ final class AdLayoutValidator
         'garages_or_parking' => '2', 'size_m2' => '450 m²', 'size_or_land' => '450 M²', 'reference' => 'REF 12345',
         'address' => '12 Marine Drive', 'status_badge' => 'FOR SALE', 'agent_phone' => '082 000 0000',
         'website' => 'WWW.AGENCY.CO.ZA',
+        'erf_size' => '800 m²', 'levy' => 'R 1 250 pm', 'rates_taxes' => 'R 900 pm', 'price_per_m2' => 'R 7 656 per m²',
+        'pet_friendly' => 'Pet friendly', 'available_from' => 'Available from 1 Nov 2026', 'rent_per_month' => 'R 12 500 per month',
+        'show_day' => 'Sat 25 Oct · 10:00–13:00', 'auction_date' => '12 Nov 2026 · 11:00', 'auction_venue' => 'Sample Venue, Sample Town',
     ];
 
     /**
@@ -163,9 +209,11 @@ final class AdLayoutValidator
         'borderRadius' => [0, 1000, 0], 'gradAngle' => [0, 360, 0], 'borderWidth' => [0, 60, 0], 'frameBorderWidth' => [0, 40, 0],
         'shadowX' => [-100, 100, 0], 'shadowY' => [-100, 100, 0], 'shadowBlur' => [0, 100, 0], 'shadowOpacity' => [0, 1, 2],
         'iconSize' => [8, 200, 0],
+        // AT-456 §B.9-1 — collage, pills.
+        'collageGap' => [0, 60, 0], 'collageFirst' => [1, 5, 0], 'pillCount' => [1, 4, 0], 'pillGap' => [0, 60, 0],
     ];
 
-    private const COLOR_KEYS = ['color', 'bgColor', 'bg', 'gradFrom', 'gradTo', 'frameBorderColor', 'shadowColor', 'duoColor1', 'duoColor2'];
+    private const COLOR_KEYS = ['color', 'bgColor', 'bg', 'gradFrom', 'gradTo', 'frameBorderColor', 'shadowColor', 'duoColor1', 'duoColor2', 'qrDark', 'qrLight'];
 
     private const ENUMS = [
         'fontFamily'    => self::FONTS,
@@ -180,7 +228,34 @@ final class AdLayoutValidator
         'photoMask'     => self::PHOTO_MASKS,
         'photoEffect'   => self::PHOTO_EFFECTS,
         'lineStyle'     => self::LINE_STYLES,
+        'collagePreset' => self::COLLAGE_PRESETS,
+        'ribbonCorner'  => self::RIBBON_CORNERS,
+        'pillDirection' => self::PILL_DIRECTIONS,
     ];
+
+    /** Every font the AI may use (also the style library's font check). */
+    public static function fontNames(): array
+    {
+        return self::FONTS;
+    }
+
+    /** Allowed words for an enum property (e.g. 'photoMask'), or null when it is not one. */
+    public static function enumValues(string $key): ?array
+    {
+        return self::ENUMS[$key] ?? null;
+    }
+
+    /** [min, max] for a numeric property (e.g. 'frameBorderWidth'), or null when it is not one. */
+    public static function numberRange(string $key): ?array
+    {
+        return isset(self::NUMBERS[$key]) ? [self::NUMBERS[$key][0], self::NUMBERS[$key][1]] : null;
+    }
+
+    /** The script faces — short headline-type words only. */
+    public static function scriptFontNames(): array
+    {
+        return self::SCRIPT_FONTS;
+    }
 
     /**
      * Validate one option (a name + a canvas + elements) as the model wrote it.
@@ -284,8 +359,8 @@ final class AdLayoutValidator
             }
         }
 
-        if (! collect($elements)->contains(fn ($e) => preg_match('/^image_[1-5]$/', $e['field']) === 1)) {
-            $errors[] = 'A property ad needs at least one property photo element (image_1 … image_5).';
+        if (! collect($elements)->contains(fn ($e) => in_array($e['field'], self::PHOTO_FIELDS, true))) {
+            $errors[] = 'A property ad needs at least one property photo element (image_1 … image_5, or a collage).';
         }
 
         $this->checkContrast($elements, $canvasStops, $errors, $repair, $repairs);
@@ -358,7 +433,7 @@ final class AdLayoutValidator
             }
 
             // Text elements that carry their own words must have some, else there is nothing to draw.
-            if (in_array($field, ['custom_text', 'badge'], true)
+            if (in_array($field, ['custom_text', 'badge', 'ribbon'], true)
                 && trim(strip_tags((string) ($raw['text'] ?? ''))) === '') {
                 $repairs[] = "{$tag}: an element with no text was left out.";
                 continue;
@@ -368,6 +443,13 @@ final class AdLayoutValidator
                 if (mb_strlen($clean) > self::MAX_TEXT_LEN) {
                     $raw['text'] = rtrim(mb_substr($clean, 0, self::MAX_TEXT_LEN - 1)) . '…';
                     $repairs[]   = "{$tag}: text longer than " . self::MAX_TEXT_LEN . ' characters was shortened.';
+                }
+            }
+            if (isset($raw['text']) && is_string($raw['text']) && $field === 'ribbon') {
+                $clean = trim(strip_tags($raw['text']));
+                if (mb_strlen($clean) > self::MAX_RIBBON_TEXT) {
+                    $raw['text'] = $this->cutAtWord($clean, self::MAX_RIBBON_TEXT);
+                    $repairs[]   = "{$tag}: ribbon words longer than " . self::MAX_RIBBON_TEXT . ' characters were cut.';
                 }
             }
 
@@ -451,17 +533,312 @@ final class AdLayoutValidator
                 if ($match !== null) {
                     $raw[$k]   = $match;
                     $repairs[] = "{$tag}: \"{$k}\" {$v} was corrected to {$match}.";
+                } elseif ($k === 'collagePreset' && $v !== '') {
+                    $near      = $this->nearestCollagePreset($v);
+                    $raw[$k]   = $near;
+                    $repairs[] = "{$tag}: collage layout \"{$v}\" is not one of ours, so the nearest one, {$near}, was used.";
                 } else {
                     unset($raw[$k]);
                     $repairs[] = "{$tag}: \"{$k}\" had a value that is not allowed, so the default was used.";
                 }
             }
 
+            $raw = $this->repairByType($raw, $field, $tag, $cw, $ch, $repairs);
+
             $kept[] = $raw;
         }
         $option['elements'] = $kept;
 
         return $option;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // AT-456 §B.9-2 — rules and safe repairs for the B.9-1 blocks
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Per-type repairs, run after the generic ones. Each is deterministic and only moves a value INTO what the strict
+     * rules (blockProblems) accept; whatever it cannot fix is left for the validator to reject.
+     *
+     * @param  array<string, mixed> $raw
+     * @param  array<int, string>   $repairs
+     * @return array<string, mixed>
+     */
+    private function repairByType(array $raw, string $field, string $tag, int $cw, int $ch, array &$repairs): array
+    {
+        $d       = $this->baseElement(1, $field);
+        $num     = static fn (string $k) => isset($raw[$k]) && is_numeric($raw[$k]) ? (float) $raw[$k] : (float) $d[$k];
+        $resized = false;
+
+        // A ribbon / pill row sits on its OWN colour, so that colour has to be solid enough to count as the backdrop.
+        if (in_array($field, self::OWN_BACKGROUND_FIELDS, true) && $num('bgOpacity') < self::BACKDROP_MIN_ALPHA) {
+            $raw['bgOpacity'] = 0.9;
+            $repairs[]        = "{$tag}: its own background was too faint to read on, so bgOpacity was set to 0.9.";
+        }
+
+        if ($field === 'ribbon') {
+            foreach (['w', 'h'] as $k) {
+                if (isset($raw[$k]) && $raw[$k] < self::MIN_RIBBON_SIZE) {
+                    $raw[$k]  = self::MIN_RIBBON_SIZE;
+                    $resized  = true;
+                    $repairs[] = "{$tag}: a ribbon box smaller than " . self::MIN_RIBBON_SIZE . ' pixels was enlarged.';
+                }
+            }
+            $text = trim(strip_tags((string) ($raw['text'] ?? '')));
+            if ($text !== '' && isset($raw['w'], $raw['h'])) {
+                $fs    = (int) round($num('fontSize'));
+                $upper = ($raw['textTransform'] ?? $d['textTransform']) !== 'none' && ($raw['textTransform'] ?? 'uppercase') !== 'capitalize';
+                $fit   = fn (int $size, string $t) => $this->ribbonTextFits((float) $raw['w'], (float) $raw['h'], $size, $num('padding'), $num('letterSpacing'), $upper, $t);
+                if (! $fit($fs, $text)) {
+                    $size = $fs;
+                    while ($size > self::MIN_FONT_SIZE && ! $fit($size, $text)) {
+                        $size--;
+                    }
+                    if ($size !== $fs) {
+                        $raw['fontSize'] = $size;
+                        $repairs[]       = "{$tag}: the ribbon words did not fit the band, so fontSize was lowered to {$size}.";
+                    }
+                    $cut = $text;
+                    while (! $fit($size, $cut) && mb_strlen($cut) > 3) {
+                        $cut = mb_substr($cut, 0, -1);
+                    }
+                    if ($cut !== $text) {
+                        $raw['text'] = rtrim($cut);
+                        $repairs[]   = "{$tag}: the ribbon words still did not fit the band, so they were cut.";
+                    }
+                }
+            }
+        }
+
+        if ($field === 'qr') {
+            foreach (['w', 'h'] as $k) {
+                if (isset($raw[$k]) && $raw[$k] < self::MIN_QR_SIZE) {
+                    $raw[$k]   = self::MIN_QR_SIZE;
+                    $resized   = true;
+                    $repairs[] = "{$tag}: a QR code smaller than " . self::MIN_QR_SIZE . ' pixels cannot be scanned, so it was enlarged.';
+                }
+            }
+            foreach (['qrDark', 'qrLight'] as $k) {
+                $p = isset($raw[$k]) && is_string($raw[$k]) ? $this->parseColor($raw[$k]) : null;
+                if ($p !== null && $p[3] < 1.0) {
+                    $raw[$k]   = sprintf('#%02x%02x%02x', $p[0], $p[1], $p[2]);
+                    $repairs[] = "{$tag}: a see-through QR colour was made solid.";
+                }
+            }
+            $dark  = (string) ($raw['qrDark'] ?? $d['qrDark']);
+            $light = (string) ($raw['qrLight'] ?? $d['qrLight']);
+            if ($this->parseColor($dark) !== null && $this->parseColor($light) !== null && $this->qrColourProblem($dark, $light) !== null) {
+                $raw['qrDark']  = '#000000';
+                $raw['qrLight'] = '#ffffff';
+                $repairs[]      = "{$tag}: the QR colours would not scan reliably, so black on white was used.";
+            }
+        }
+
+        if ($field === 'feature_pills' && isset($raw['h'])) {
+            $min = $this->pillsMinHeight($num('fontSize'), $num('padding'), (string) ($raw['pillDirection'] ?? $d['pillDirection']), (int) $num('pillCount'), (int) $num('pillGap'));
+            if ($raw['h'] < $min) {
+                $raw['h']  = $min;
+                $resized   = true;
+                $repairs[] = "{$tag}: the pills did not fit their box, so it was made taller ({$min} pixels).";
+            }
+        }
+
+        // A script face is for short headline-type words only.
+        if (isset($raw['fontFamily']) && in_array($raw['fontFamily'], self::SCRIPT_FONTS, true) && $this->isTextField($field)) {
+            $why = null;
+            if (! in_array($field, self::SCRIPT_OK_FIELDS, true)) {
+                $why = 'a script font is for a short headline, not for this element';
+            } elseif (in_array($field, ['custom_text', 'badge'], true) && mb_strlen(trim(strip_tags((string) ($raw['text'] ?? '')))) > self::MAX_SCRIPT_TEXT) {
+                $why = 'a script font is only readable on a few words';
+            }
+            if ($why !== null) {
+                unset($raw['fontFamily']);
+                $repairs[] = "{$tag}: {$why}, so the standard font was used.";
+            } elseif ($num('fontSize') < self::MIN_SCRIPT_FONT_SIZE) {
+                $raw['fontSize'] = self::MIN_SCRIPT_FONT_SIZE;
+                $repairs[]       = "{$tag}: a script font is unreadable small, so fontSize was raised to " . self::MIN_SCRIPT_FONT_SIZE . '.';
+            }
+        }
+
+        if ($resized && isset($raw['x'], $raw['y'], $raw['w'], $raw['h'])) {
+            $w         = max(4, min((int) round($raw['w']), $cw));
+            $h         = max(4, min((int) round($raw['h']), $ch));
+            $raw['x']  = max(0, min((int) round($raw['x']), $cw - $w));
+            $raw['y']  = max(0, min((int) round($raw['y']), $ch - $h));
+            $raw['w']  = $w;
+            $raw['h']  = $h;
+        }
+
+        return $raw;
+    }
+
+    /**
+     * The rules for the §B.9-1 blocks (strict mode; repairByType brings values into these). Returns plain-words problems.
+     *
+     * @param  array<string, mixed> $el  the built element
+     * @return array<int, string>
+     */
+    private function blockProblems(array $el, string $tag): array
+    {
+        $out   = [];
+        $field = $el['field'];
+
+        if (in_array($field, self::OWN_BACKGROUND_FIELDS, true) && (float) $el['bgOpacity'] < self::BACKDROP_MIN_ALPHA) {
+            $out[] = "{$tag}: its own background must be solid enough to read on (bgOpacity at least " . self::BACKDROP_MIN_ALPHA . ').';
+        }
+
+        if ($field === 'ribbon') {
+            if ($el['w'] < self::MIN_RIBBON_SIZE || $el['h'] < self::MIN_RIBBON_SIZE) {
+                $out[] = "{$tag}: a ribbon box must be at least " . self::MIN_RIBBON_SIZE . '×' . self::MIN_RIBBON_SIZE . ' pixels.';
+            }
+            $upper = ! in_array($el['textTransform'], ['none', 'capitalize'], true);
+            if ($el['text'] !== '' && ! $this->ribbonTextFits((float) $el['w'], (float) $el['h'], (float) $el['fontSize'], (float) $el['padding'], (float) $el['letterSpacing'], $upper, (string) $el['text'])) {
+                $out[] = "{$tag}: the ribbon words do not fit the band — use fewer words, a smaller fontSize or a bigger box.";
+            }
+        }
+
+        if ($field === 'qr') {
+            if ($el['w'] < self::MIN_QR_SIZE || $el['h'] < self::MIN_QR_SIZE) {
+                $out[] = "{$tag}: a QR code must be at least " . self::MIN_QR_SIZE . '×' . self::MIN_QR_SIZE . ' pixels or phones cannot scan it.';
+            }
+            $problem = $this->qrColourProblem((string) $el['qrDark'], (string) $el['qrLight']);
+            if ($problem !== null) {
+                $out[] = "{$tag}: {$problem}";
+            }
+        }
+
+        if ($field === 'feature_pills') {
+            $min = $this->pillsMinHeight((float) $el['fontSize'], (float) $el['padding'], (string) $el['pillDirection'], (int) $el['pillCount'], (int) $el['pillGap']);
+            if ($el['h'] < $min) {
+                $out[] = "{$tag}: the pills need a box at least {$min} pixels tall for pillCount {$el['pillCount']}, pillDirection {$el['pillDirection']}.";
+            }
+        }
+
+        if (in_array($el['fontFamily'], self::SCRIPT_FONTS, true) && $this->isTextField($field) && $field !== 'watermark') {
+            if (! in_array($field, self::SCRIPT_OK_FIELDS, true)) {
+                $out[] = "{$tag}: the script font {$el['fontFamily']} is for short headlines only (" . implode(', ', self::SCRIPT_OK_FIELDS) . '), not for this element.';
+            } else {
+                if (in_array($field, ['custom_text', 'badge'], true) && mb_strlen((string) $el['text']) > self::MAX_SCRIPT_TEXT) {
+                    $out[] = "{$tag}: a script font is only readable on at most " . self::MAX_SCRIPT_TEXT . ' characters.';
+                }
+                if ($el['fontSize'] < self::MIN_SCRIPT_FONT_SIZE) {
+                    $out[] = "{$tag}: a script font needs fontSize of at least " . self::MIN_SCRIPT_FONT_SIZE . '.';
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Why these two QR colours would not scan reliably, or null when they will. Rule (stated in the prompt too): both must be
+     * solid colours, the "dark" one must be darker than the "light" one, and the two must differ by a contrast ratio of at
+     * least MIN_QR_CONTRAST. (Phone scanners read the code as dark modules on a light ground.)
+     */
+    private function qrColourProblem(string $dark, string $light): ?string
+    {
+        $d = $this->parseColor($dark);
+        $l = $this->parseColor($light);
+        if ($d === null || $l === null) {
+            return null; // already reported as a colour error
+        }
+        if ($d[3] < 1.0 || $l[3] < 1.0) {
+            return 'qrDark and qrLight must be solid colours (no transparency).';
+        }
+        $ld = $this->luminance([$d[0], $d[1], $d[2]]);
+        $ll = $this->luminance([$l[0], $l[1], $l[2]]);
+        if ($ld >= $ll) {
+            return 'qrDark must be darker than qrLight (a phone reads dark squares on a light ground).';
+        }
+        $ratio = ($ll + 0.05) / ($ld + 0.05);
+        if ($ratio < self::MIN_QR_CONTRAST) {
+            return sprintf('qrDark on qrLight has contrast %.1f:1 — it must be at least %.1f:1 or phones will not scan it.', $ratio, self::MIN_QR_CONTRAST);
+        }
+
+        return null;
+    }
+
+    /**
+     * Do the ribbon's words fit the visible part of its band? The band runs corner to corner across 75% of the box; the
+     * width of the words is ESTIMATED from the character count (the kernel draws the real thing), so this is a guard
+     * against a clearly-too-long label, not a typesetting engine.
+     */
+    private function ribbonTextFits(float $w, float $h, float $fs, float $pad, float $letterSpacing, bool $upper, string $text): bool
+    {
+        $usable = min($w, $h) * 0.75 * M_SQRT2 - ($fs * 1.5 + 2 * $pad);
+        $est    = mb_strlen($text) * $fs * (($upper ? 0.68 : 0.58) + $letterSpacing);
+
+        return $est <= $usable;
+    }
+
+    /** The least height a feature-pill box needs for its pills (a row wraps, so one row is the floor; a column stacks them). */
+    private function pillsMinHeight(float $fs, float $pad, string $direction, int $count, int $gap): int
+    {
+        $one = (int) round($fs * 1.2) + 2 * (int) round($pad * 0.6);
+
+        return $direction === 'column' ? $count * $one + max(0, $count - 1) * $gap : $one;
+    }
+
+    /** Cut to at most $max characters at a word boundary when there is one (no ellipsis: a ribbon is a label). */
+    private function cutAtWord(string $text, int $max): string
+    {
+        $cut = mb_substr($text, 0, $max);
+        if (mb_strlen($text) > $max && ($sp = mb_strrpos($cut, ' ')) !== false && $sp >= (int) ($max / 2)) {
+            $cut = mb_substr($cut, 0, $sp);
+        }
+
+        return rtrim($cut);
+    }
+
+    /**
+     * The closest real collage layout to whatever the model wrote ("3_hero_right", "grid of 4", "two stacked"): first by the
+     * number of photos it names, then by the layout words. Never throws; with no clue at all it is the builder's default.
+     */
+    private function nearestCollagePreset(string $value): string
+    {
+        $v = strtolower(trim($value));
+        $n = null;
+        if (preg_match('/\d/', $v, $m) === 1) {
+            $n = (int) $m[0];
+        } else {
+            foreach (['two' => 2, 'three' => 3, 'four' => 4, 'five' => 5] as $word => $digit) {
+                if (str_contains($v, $word)) {
+                    $n = $digit;
+                    break;
+                }
+            }
+        }
+        $n = $n === null ? null : max(2, min(5, $n));
+
+        $synonyms = ['side' => ['side', 'beside', 'horizontal', 'row', 'duo'], 'stack' => ['stack', 'stacked', 'vertical', 'column'],
+            'top' => ['top', 'above', 'upper'], 'left' => ['left', 'right'], 'grid' => ['grid', 'tile', 'tiles', 'quad'], 'hero' => ['hero', 'main', 'big', 'large', 'feature']];
+        $tokens = preg_split('/[^a-z]+/', $v, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        $best      = null;
+        $bestScore = -1;
+        foreach (self::COLLAGE_PRESETS as $preset) {
+            if ($n !== null && (int) $preset[0] !== $n) {
+                continue;
+            }
+            $score = 0;
+            foreach (explode('_', $preset) as $word) {
+                if (ctype_digit($word)) {
+                    continue;
+                }
+                foreach ($synonyms[$word] ?? [$word] as $syn) {
+                    if (in_array($syn, $tokens, true)) {
+                        $score++;
+                        break;
+                    }
+                }
+            }
+            if ($score > $bestScore) {
+                $best      = $preset;
+                $bestScore = $score;
+            }
+        }
+
+        return ($n === null && $bestScore <= 0) ? '3_hero_left' : ($best ?? '3_hero_left');
     }
 
     /**
@@ -508,14 +885,16 @@ final class AdLayoutValidator
         foreach (self::NUMBERS as $k => [$min, $max]) {
             $ranges[] = "{$k} {$min} to {$max}";
         }
-        // What the AI is told: the original fonts / icons / shapes only, and none of the §B.9-1 properties (see PROMPT_*).
-        $told = ['fontFamily' => self::PROMPT_FONTS, 'icon' => self::PROMPT_ICONS, 'shapeType' => self::PROMPT_SHAPES];
-        $enum = static fn (string $k): string => $k . ': ' . implode(' / ', $told[$k] ?? self::ENUMS[$k]);
-        $taughtEnums = array_values(array_diff(array_keys(self::ENUMS), self::PROMPT_HIDDEN_ENUMS));
+        // AT-456 §B.9-2: the AI is told every allowed word, straight from ENUMS (no separate, hand-kept "prompt" lists).
+        $enum = static fn (string $k): string => $k . ': ' . implode(' / ', self::ENUMS[$k]);
+        $taughtEnums = array_keys(self::ENUMS);
 
         $min = self::MIN_FONT_SIZE;
         $con = self::MIN_CONTRAST;
         $bm  = self::BACKDROP_MIN_ALPHA;
+        $own = implode(' and ', self::OWN_BACKGROUND_FIELDS);
+        $okScript = implode(', ', self::SCRIPT_OK_FIELDS);
+        $script   = implode(' / ', self::SCRIPT_FONTS);
 
         return "HARD LIMITS - every option is checked by a program. One broken rule throws the whole option away, so check your own numbers before you answer:\n"
             . "1. Geometry: every element must lie fully inside the canvas: x >= 0, y >= 0, x + w <= {$cw}, y + h <= {$ch} (at most {$t}px of slack). w and h are at least 4. Do the addition for each element.\n"
@@ -528,7 +907,116 @@ final class AdLayoutValidator
             . '5. Words: custom_text and badge need a non-empty "text" of at most ' . self::MAX_TEXT_LEN . ' characters, plain words, no markup. The option "name" is at most ' . self::MAX_NAME_LEN . " characters.\n"
             . '6. Watermark: opacity at most ' . self::WATERMARK_MAX_OPACITY . ".\n"
             . '7. Allowed numeric ranges: ' . implode('; ', $ranges) . ".\n"
-            . '8. Allowed words: ' . implode('; ', array_map($enum, $taughtEnums)) . '. fontWeight is a string such as "700".' . "\n";
+            . '8. Allowed words: ' . implode('; ', array_map($enum, $taughtEnums)) . '. fontWeight is a string such as "700".' . "\n"
+            . "9. {$own} sit on their OWN colour (bgColor + bgOpacity): bgOpacity must be {$bm} or more (use 0.9 or 1) and their text colour must pass rule 4 against that colour.\n"
+            . '10. ribbon: "text" is required and at most ' . self::MAX_RIBBON_TEXT . ' characters (e.g. JUST LISTED, SOLD, NEW PRICE); w and h at least ' . self::MIN_RIBBON_SIZE
+            . '; the words must fit along the band, which is about 0.75 x the shorter box side x 1.41 long minus the band thickness (fontSize x 1.5 + 2 x padding) - about 0.75 x fontSize pixels per capital letter. A 200 x 200 ribbon at fontSize 18 holds about 12 capitals.' . "\n"
+            . '11. qr: w and h at least ' . self::MIN_QR_SIZE . ' (a smaller code cannot be scanned). qrDark and qrLight must be solid colours, qrDark darker than qrLight, with a contrast of at least '
+            . self::MIN_QR_CONTRAST . ':1 (black #000000 on white #ffffff is always safe). Keep other elements off the QR.' . "\n"
+            . "12. Script fonts ({$script}) are for a few headline words only: allowed on {$okScript}; at most " . self::MAX_SCRIPT_TEXT . ' characters; fontSize at least ' . self::MIN_SCRIPT_FONT_SIZE
+            . ". Never on a price, phone number, address, listing fact or any body text.\n"
+            . '13. feature_pills: the box must be tall enough: one pill is about fontSize x 1.2 + padding x 1.2 pixels high; a column needs pillCount of those plus the pillGap between them. You cannot choose which features show - the listing supplies its own.' . "\n"
+            . '14. Photo effects, masks and collages apply to photos only (image_1 to image_5, collage); a collage counts as a property photo. duoColor1 / duoColor2 (only used when photoEffect is duotone) follow the colour rule in 4b.' . "\n";
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Compact examples (AT-456 §B.9-2 item 11: "Match our existing templates")
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * A saved layout reduced to what the model needs to see as an example of the agency's look, in the same sparse shape it is
+     * asked to answer in: ids, labels, builder-only keys, media (custom image / video / agent 2, and every uploaded file's
+     * address) and every property that simply equals the starting value are left out. Colours that would not pass this class's
+     * own colour check, and enum values it would refuse, are left out too (the model must never be shown something it would be
+     * rejected for copying). Text is stripped of markup and cut to the same limits as an answer.
+     *
+     * @param  array<string, mixed> $layout  a saved layout_json (the default design; variants are ignored)
+     * @param  int                  $maxElements  at most this many elements are kept (the largest, then by stacking order)
+     * @return array<string, mixed>|null  null when it has no usable element
+     */
+    public function compactExample(array $layout, int $maxElements = 24): ?array
+    {
+        $elements = [];
+        foreach ((array) ($layout['elements'] ?? []) as $i => $el) {
+            if (! is_array($el)) {
+                continue;
+            }
+            $c = $this->compactElement($el);
+            if ($c !== null) {
+                $elements[] = ['area' => ($c['w'] * $c['h']), 'z' => $c['zIndex'], 'i' => $i, 'el' => $c];
+            }
+        }
+        if ($elements === []) {
+            return null;
+        }
+        if (count($elements) > $maxElements) {
+            usort($elements, fn ($a, $b) => [$b['area'], $a['i']] <=> [$a['area'], $b['i']]);
+            $elements = array_slice($elements, 0, $maxElements);
+        }
+        usort($elements, fn ($a, $b) => [$a['z'], $a['i']] <=> [$b['z'], $b['i']]);
+
+        $out = [];
+        foreach (['canvasBg', 'canvasBgFrom', 'canvasBgTo'] as $k) {
+            if (isset($layout[$k]) && is_string($layout[$k]) && $this->parseColor($layout[$k]) !== null) {
+                $out[$k] = trim($layout[$k]);
+            }
+        }
+        $out['canvasBgMode'] = ($layout['canvasBgMode'] ?? 'solid') === 'gradient' ? 'gradient' : 'solid';
+        if ($out['canvasBgMode'] === 'gradient' && isset($layout['canvasBgAngle']) && is_numeric($layout['canvasBgAngle'])) {
+            $out['canvasBgAngle'] = (int) round((float) $layout['canvasBgAngle']);
+        }
+        $out['elements'] = array_map(fn ($e) => $e['el'], $elements);
+
+        return $out;
+    }
+
+    /** @return array<string, mixed>|null */
+    private function compactElement(array $el): ?array
+    {
+        $field = $el['field'] ?? null;
+        if (! is_string($field) || ! isset(self::FIELDS[$field]) || ($el['hidden'] ?? false)) {
+            return null;     // custom image / video / agent 2 / unknown: never shown to the model
+        }
+        if (! isset($el['x'], $el['y'], $el['w'], $el['h']) || ! is_numeric($el['x']) || ! is_numeric($el['y']) || ! is_numeric($el['w']) || ! is_numeric($el['h'])) {
+            return null;
+        }
+
+        $base = $this->baseElement(1, $field);
+        $out  = ['field' => $field, 'x' => (int) round((float) $el['x']), 'y' => (int) round((float) $el['y']),
+            'w' => (int) round((float) $el['w']), 'h' => (int) round((float) $el['h']),
+            'zIndex' => is_numeric($el['zIndex'] ?? null) ? (int) round((float) $el['zIndex']) : 1];
+
+        $same = static fn ($a, $b): bool => (string) (is_bool($a) ? (int) $a : $a) === (string) (is_bool($b) ? (int) $b : $b);
+
+        foreach (self::NUMBERS as $k => [$min, $max, $dec]) {
+            if (isset($el[$k]) && is_numeric($el[$k]) && ! $same(round((float) $el[$k], $dec), $base[$k]) && (float) $el[$k] >= $min && (float) $el[$k] <= $max) {
+                $out[$k] = round((float) $el[$k], $dec) == (int) round((float) $el[$k], $dec) ? (int) round((float) $el[$k], $dec) : round((float) $el[$k], $dec);
+            }
+        }
+        foreach (self::COLOR_KEYS as $k) {
+            if (isset($el[$k]) && is_string($el[$k]) && $this->parseColor($el[$k]) !== null && ! $same(trim($el[$k]), $base[$k])) {
+                $out[$k] = trim($el[$k]);
+            }
+        }
+        foreach (self::ENUMS as $k => $allowed) {
+            if (isset($el[$k]) && is_scalar($el[$k]) && in_array((string) $el[$k], $allowed, true) && ! $same($el[$k], $base[$k])) {
+                $out[$k] = (string) $el[$k];
+            }
+        }
+        foreach (['shadowOn', 'showLabel'] as $k) {
+            if (isset($el[$k]) && is_bool($el[$k]) && $el[$k] !== $base[$k]) {
+                $out[$k] = $el[$k];
+            }
+        }
+        if (in_array($field, ['custom_text', 'badge', 'watermark', 'ribbon'], true)) {
+            $text = trim((string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', strip_tags((string) ($el['text'] ?? ''))));
+            $max  = $field === 'ribbon' ? self::MAX_RIBBON_TEXT : self::MAX_TEXT_LEN;
+            if ($text !== '') {
+                $out['text'] = mb_substr($text, 0, $max);
+            }
+        }
+
+        return $out;
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -610,17 +1098,21 @@ final class AdLayoutValidator
         if (array_key_exists('shadowOn', $raw)) {
             $el['shadowOn'] = filter_var($raw['shadowOn'], FILTER_VALIDATE_BOOLEAN);
         }
+        if (array_key_exists('showLabel', $raw)) {
+            $el['showLabel'] = filter_var($raw['showLabel'], FILTER_VALIDATE_BOOLEAN);
+        }
 
         // Literal copy — only the element types that carry it.
-        if (in_array($field, ['custom_text', 'badge', 'watermark'], true)) {
+        if (in_array($field, ['custom_text', 'badge', 'watermark', 'ribbon'], true)) {
             $text = trim(strip_tags((string) ($raw['text'] ?? '')));
             $text = trim((string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $text));
             if ($field !== 'watermark' && $text === '') {
                 $local[] = "{$tag}: \"text\" is required.";
             }
-            if (mb_strlen($text) > self::MAX_TEXT_LEN) {
-                $local[] = "{$tag}: \"text\" is longer than " . self::MAX_TEXT_LEN . ' characters.';
-                $text    = mb_substr($text, 0, self::MAX_TEXT_LEN);
+            $max = $field === 'ribbon' ? self::MAX_RIBBON_TEXT : self::MAX_TEXT_LEN;
+            if (mb_strlen($text) > $max) {
+                $local[] = "{$tag}: \"text\" is longer than {$max} characters.";
+                $text    = mb_substr($text, 0, $max);
             }
             $el['text'] = $text;
         }
@@ -631,6 +1123,9 @@ final class AdLayoutValidator
         }
         if ($field === 'watermark' && $el['opacity'] > self::WATERMARK_MAX_OPACITY) {
             $local[] = "{$tag}: a watermark must be faint (opacity at most " . self::WATERMARK_MAX_OPACITY . ').';
+        }
+        if (count($geo) === 4) {
+            array_push($local, ...$this->blockProblems($el, $tag));
         }
         array_push($errors, ...$local);
 
@@ -698,6 +1193,15 @@ final class AdLayoutValidator
         if ($field === 'logo') {
             $el['fontSize'] = 28;
             $el['padding']  = 0;
+        }
+        if ($field === 'ribbon') {
+            // The builder's own starting values for a Corner Ribbon.
+            $el = array_merge($el, ['w' => 200, 'h' => 200, 'fontSize' => 18, 'fontWeight' => '800', 'textAlign' => 'center', 'textTransform' => 'uppercase',
+                'letterSpacing' => 0.08, 'padding' => 6, 'bgColor' => '#e63946', 'bgOpacity' => 1]);
+        }
+        if ($field === 'feature_pills') {
+            // Same as the builder's, except the font starts at the minimum the validator allows (the builder's 15 is below it).
+            $el = array_merge($el, ['fontSize' => 16, 'fontWeight' => '700', 'padding' => 8, 'bgColor' => '#00b4d8', 'bgOpacity' => 1, 'borderRadius' => 999]);
         }
         if ($field === 'watermark') {
             $el['fontSize'] = 60;
@@ -881,6 +1385,9 @@ final class AdLayoutValidator
             }
             if (in_array($o['field'], self::IMAGE_FIELDS, true) && $o['field'] !== 'agency_logo' && $o['field'] !== 'agent_avatar') {
                 return null; // a property photo
+            }
+            if (in_array($o['field'], ['collage', 'qr'], true)) {
+                return null; // a collage is photos; a QR is dark modules on a light square - neither is a readable ground for words
             }
         }
 

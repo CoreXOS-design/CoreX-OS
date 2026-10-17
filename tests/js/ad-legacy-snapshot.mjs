@@ -9,6 +9,16 @@
 // Run:    node tests/js/ad-legacy-snapshot.mjs                    (exit 0 = identical)
 // Re-record (only ever with the PRE-change kernel):
 //         node tests/js/ad-legacy-snapshot.mjs --write <path-to-old-kernel.js>
+//
+// AT-456 §B.9-2 — ONE deliberate change to old output, and only this one. html2canvas (the export) ignores
+// `clip-path`, so the six polygon shapes (triangle, diamond, pentagon, hexagon, star, chevron) came out as plain
+// rectangles in the exported ad. A Shape element is now an inline SVG <polygon>, and an Agent Image with no photo
+// inside a polygon mask is the same polygon. Those renderings (and only those) are recorded under
+// `exportSafe` in the fixture, and this check refuses them unless
+//   - the element is a Shape / Agent Image whose shapeType is one of those six, and
+//   - the polygon's points are EXACTLY the old clip-path's points (same geometry, so the canvas looks the same).
+// Everything else must still be identical to the pre-B.9-1 kernel, character for character.
+//         node tests/js/ad-legacy-snapshot.mjs --record-export-safe     (writes `exportSafe` from the current kernel)
 
 import fs from 'fs';
 import path from 'path';
@@ -109,10 +119,47 @@ if (mode === '--write') {
 const K = loadKernel(path.join(root, 'public/js/corex-ad-render.js'));
 const fx = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
 const now = build(K, fx.elements);
+
+const POLY_TYPES = ['triangle', 'diamond', 'pentagon', 'hexagon', 'star', 'chevron'];
+const elementOf = (key) => fx.elements.find((e) => key.startsWith(`${e.field}#${e.id}|`));
+/** "polygon(50% 0,100% 100%,0 100%)" -> "50,0 100,100 0,100" */
+const clipPoints = (str) => {
+    const m = /polygon\(([^)]*)\)/.exec(str);
+    return m ? m[1].split(',').map((p) => p.trim().split(/\s+/).map(parseFloat).join(',')).join(' ') : null;
+};
+const svgPoints = (str) => { const m = /<polygon points="([^"]*)"/.exec(str); return m ? m[1] : null; };
+
+if (mode === '--record-export-safe') {
+    const exportSafe = {};
+    now.forEach((r, i) => {
+        const e = fx.expected[i];
+        if (['frame', 'content', 'text'].some((k) => r[k] !== e[k])) exportSafe[r.key] = { frame: r.frame, content: r.content, text: r.text };
+    });
+    fs.writeFileSync(fixturePath, JSON.stringify({ props: fx.props, elements: fx.elements, expected: fx.expected, exportSafe }, null, 1));
+    console.log('recorded ' + Object.keys(exportSafe).length + ' export-safe renderings');
+    process.exit(0);
+}
+
+const exportSafe = fx.exportSafe || {};
 let bad = 0;
 if (now.length !== fx.expected.length) { console.log('FAIL  rendering count changed'); bad++; }
 now.forEach((r, i) => {
     const e = fx.expected[i];
+    const safe = exportSafe[r.key];
+    if (safe) {
+        // The one allowed change: a polygon drawn as SVG instead of clip-path, with the very same points.
+        const el = elementOf(r.key);
+        const old = e.frame + e.content;
+        const legit = el && ['shape', 'agent_avatar'].includes(el.field) && POLY_TYPES.includes(el.shapeType)
+            && clipPoints(old) !== null && clipPoints(old) === svgPoints(r.content)
+            && !/clip-path/.test(r.content)
+            && r.frame === e.frame && r.text === e.text;           // the canvas frame (incl. an avatar's clip-path) is untouched
+        if (!legit) { bad++; console.log(`FAIL  ${r.key}: not an allowed export-safe change\n   was: ${String(old).slice(0, 300)}\n   now: ${String(r.content).slice(0, 300)}`); }
+        for (const k of ['frame', 'content', 'text']) {
+            if (r[k] !== safe[k]) { bad++; console.log(`FAIL  ${r.key} (${k}) differs from the recorded export-safe rendering`); }
+        }
+        return;
+    }
     for (const k of ['frame', 'content', 'text']) {
         if (r[k] !== e[k]) {
             bad++;
@@ -120,5 +167,10 @@ now.forEach((r, i) => {
         }
     }
 });
-console.log(bad ? `FAILED: ${bad} difference(s) across ${now.length} renderings` : `ALL ${now.length} legacy renderings identical to the pre-B.9-1 kernel`);
+const nSafe = Object.keys(exportSafe).length;
+// The polygon shapes must actually be covered (a fixture without them would pass this check for the wrong reason).
+const coveredTypes = new Set(Object.keys(exportSafe).map((k) => (elementOf(k) || {}).shapeType));
+for (const t of POLY_TYPES) if (!coveredTypes.has(t)) { bad++; console.log(`FAIL  no export-safe rendering covers the ${t} shape`); }
+console.log(bad ? `FAILED: ${bad} difference(s) across ${now.length} renderings`
+    : `ALL ${now.length} legacy renderings identical to the pre-B.9-1 kernel (${nSafe} polygon-shape renderings changed on purpose: same points, drawn as SVG so the export matches)`);
 process.exit(bad ? 1 : 0);

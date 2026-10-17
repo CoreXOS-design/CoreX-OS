@@ -15,6 +15,7 @@ use Tests\TestCase;
  *   - tests/js/ad-legacy-snapshot.mjs     "existing saved templates render exactly as before": 564 frozen renderings of
  *                                         old-shape elements, recorded from the kernel as it was BEFORE B.9-1
  *   - tests/js/ad-render-kernel.mjs       the pre-existing kernel contract
+ *   - tests/js/ad-export-shapes.mjs       AT-456 §B.9-2: the six polygon shapes export like they look (html2canvas ignores clip-path)
  * and keeps the AI validator's allowlists in step with the kernel's lists (drift guards).
  */
 final class AdBuildingBlocksKernelTest extends TestCase
@@ -26,6 +27,7 @@ final class AdBuildingBlocksKernelTest extends TestCase
             'new blocks'         => ['tests/js/ad-building-blocks.mjs'],
             'legacy snapshot'    => ['tests/js/ad-legacy-snapshot.mjs'],
             'kernel contract'    => ['tests/js/ad-render-kernel.mjs'],
+            'export-safe shapes' => ['tests/js/ad-export-shapes.mjs'],
         ];
     }
 
@@ -138,19 +140,20 @@ final class AdBuildingBlocksKernelTest extends TestCase
         $this->assertStringContainsString('photoMask', implode(' | ', $r['errors']));
     }
 
-    public function test_the_ai_prompt_is_unchanged_the_new_blocks_are_not_taught_yet(): void
+    /** AT-456 §B.9-2: the AI is now taught every block (this replaces the B.9-1 test that pinned the OLD prompt). */
+    public function test_the_ai_prompt_now_teaches_every_new_block(): void
     {
         $limits = (new AdLayoutValidator())->promptLimits(1200, 628);
 
-        $this->assertStringContainsString('fontFamily: Figtree / Inter / Poppins / Montserrat / Oswald / Bebas Neue / Playfair Display / Lora;', $limits);
-        $this->assertStringNotContainsString('Great Vibes', $limits);
-        $this->assertStringNotContainsString('sea_view', $limits);
-        $this->assertStringNotContainsString('blob_1', $limits);
-        foreach (['photoMask', 'photoEffect', 'lineStyle', 'collage', 'qr', 'ribbon', 'feature_pills'] as $notYet) {
-            $this->assertStringNotContainsString($notYet, $limits);
+        $this->assertStringContainsString('Great Vibes', $limits);
+        $this->assertStringContainsString('sea_view', $limits);
+        $this->assertStringContainsString('blob_1', $limits);
+        foreach (['photoMask', 'photoEffect', 'lineStyle', 'collagePreset', 'ribbonCorner', 'pillDirection', 'ribbon', 'qr', 'feature_pills'] as $taught) {
+            $this->assertStringContainsString($taught, $limits);
         }
-        $this->assertArrayNotHasKey('collage', AdLayoutValidator::FIELDS);
-        $this->assertArrayNotHasKey('qr', AdLayoutValidator::FIELDS);
+        foreach (['collage', 'qr', 'ribbon', 'feature_pills', 'levy', 'show_day', 'auction_venue'] as $type) {
+            $this->assertArrayHasKey($type, AdLayoutValidator::FIELDS);
+        }
     }
 
     // ── helpers ───────────────────────────────────────────────────────────

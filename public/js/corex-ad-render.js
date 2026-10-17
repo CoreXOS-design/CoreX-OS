@@ -44,6 +44,22 @@
         chevron:  'polygon(0 0,75% 0,100% 50%,75% 100%,0 100%,25% 50%)'
     };
 
+    /**
+     * AT-456 §B.9-2 — the same six polygons as SHAPE_CLIPS, as SVG `points` ("50,0 100,100 0,100") on a 0-100 grid.
+     * html2canvas (the export) IGNORES clip-path, so a Shape element is drawn as an inline SVG polygon instead —
+     * identical on the canvas and in the exported picture. Generated from SHAPE_CLIPS so there is one definition.
+     */
+    function clipToPoints(clip) {
+        var m = /^polygon\((.*)\)$/.exec(String(clip || ''));
+        if (!m) return '';
+        return m[1].split(',').map(function (pair) {
+            var xy = pair.trim().split(/\s+/);
+            return parseFloat(xy[0]) + ',' + parseFloat(xy[1]);
+        }).join(' ');
+    }
+    var SHAPE_POINTS = {};
+    Object.keys(SHAPE_CLIPS).forEach(function (k) { SHAPE_POINTS[k] = clipToPoints(SHAPE_CLIPS[k]); });
+
     var SHAPES = [
         { type: 'rectangle', label: 'Rectangle' },
         { type: 'rounded',   label: 'Rounded'   },
@@ -1168,6 +1184,20 @@
 
     /* ── §B.9-1 decorative shapes + line styles ───────────────────────────── */
 
+    /** triangle / diamond / pentagon / hexagon / star / chevron: a filled SVG polygon stretched to the box. */
+    function clipShapeHtml(el) {
+        return '<svg viewBox="0 0 100 100" preserveAspectRatio="none" width="100%" height="100%" style="display:block;">'
+             + '<polygon points="' + SHAPE_POINTS[el.shapeType] + '" fill="' + safeColor(el.bg, '#00b4d8') + '" fill-opacity="' + def(el.opacity, 1) + '"/></svg>';
+    }
+
+    /** A missing agent photo on a REAL ad inside a polygon mask: the tinted box, drawn as the polygon (clip-path would not export). */
+    function emptyClipPhotoHtml(el) {
+        var gid = 'cxe' + String(el.id).replace(/[^a-zA-Z0-9]/g, '');
+        return '<svg viewBox="0 0 100 100" preserveAspectRatio="none" width="100%" height="100%" style="display:block;">'
+             + '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b2a4a"/><stop offset="1" stop-color="#143d6e"/></linearGradient></defs>'
+             + '<polygon points="' + SHAPE_POINTS[el.shapeType] + '" fill="url(#' + gid + ')"/></svg>';
+    }
+
     function decorShapeHtml(el) {
         return '<svg viewBox="0 0 100 100" preserveAspectRatio="none" width="100%" height="100%" style="display:block;">'
              + '<path d="' + DECOR_SHAPES[el.shapeType] + '" fill="' + safeColor(el.bg, '#00b4d8') + '" fill-opacity="' + def(el.opacity, 1) + '"/></svg>';
@@ -1603,6 +1633,22 @@
         return fontsReady().then(function () { return _prepareImages(root); });
     }
 
+    /**
+     * §B.9-2 — an Agent Image inside a polygon mask (triangle … chevron) is masked with `clip-path` on its frame, which
+     * html2canvas ignores (the export came out as a plain rectangle). Returns that frame's polygon as fractions of the
+     * frame box ([[x, y], …], 0-1) so the export can bake it into the pixels; null when there is no polygon clip.
+     */
+    function framePolygon(img, root) {
+        for (var n = img.parentElement; n && n !== root; n = n.parentElement) {
+            var cp = n.style && n.style.clipPath;
+            if (!cp || cp.indexOf('polygon(') !== 0) continue;
+            var pts = clipToPoints(cp);
+            if (!pts) return null;
+            return { frame: n, points: pts.split(' ').map(function (p) { var xy = p.split(','); return [parseFloat(xy[0]) / 100, parseFloat(xy[1]) / 100]; }) };
+        }
+        return null;
+    }
+
     function _prepareImages(root) {
         var imgs = Array.prototype.slice.call(root.querySelectorAll('img'));
         var restores = [];
@@ -1610,13 +1656,14 @@
 
         imgs.forEach(function (img) {
             var fitVal = (img.style.objectFit || '').toLowerCase();
+            var poly = framePolygon(img, root);
             // §B.9-1 — a photo with an effect carries its colour matrix in data-fxm. html2canvas ignores CSS
             // filters, so the effect is baked into the same pre-cropped canvas the export already draws,
             // using the very numbers the live SVG filter uses.
             var fxm = img.getAttribute ? img.getAttribute('data-fxm') : null;
             var matrix = fxm ? fxm.split(' ').map(Number) : null;
             if (matrix && matrix.length !== 20) matrix = null;
-            if (fitVal !== 'cover' && fitVal !== 'contain' && !matrix) return;
+            if (fitVal !== 'cover' && fitVal !== 'contain' && !matrix && !poly) return;
 
             var box = img.getBoundingClientRect();
             var w = Math.round(box.width), h = Math.round(box.height);
@@ -1629,6 +1676,17 @@
                 var canvas = document.createElement('canvas');
                 canvas.width = w; canvas.height = h;
                 var ctx = canvas.getContext('2d');
+                if (poly) {
+                    // The frame's clip-path polygon, in this image's own pixels (the image fills its frame).
+                    var fb = poly.frame.getBoundingClientRect();
+                    ctx.beginPath();
+                    poly.points.forEach(function (pt, i) {
+                        var px = pt[0] * fb.width - (box.left - fb.left), py = pt[1] * fb.height - (box.top - fb.top);
+                        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+                    });
+                    ctx.closePath();
+                    ctx.clip();
+                }
                 ctx.drawImage(img, rect.dx, rect.dy, rect.dw, rect.dh);
                 if (matrix) {
                     var id = ctx.getImageData(0, 0, w, h);   // throws on a tainted canvas — caught below, image left as is
@@ -1683,6 +1741,7 @@
             if (src) return imgTag(el, src, baseImageSrc(el, prop), opts);
             // A co-agent avatar on a single-agent listing leaves the slot EMPTY.
             if (isAgent2(f) && !opts.placeholders) return '';
+            if (!opts.placeholders && isAgentAvatarField(f) && SHAPE_POINTS[el.shapeType]) return emptyClipPhotoHtml(el);
             return opts.placeholders ? placeholderHtml(el.label) : emptyPhotoHtml();
         }
 
@@ -1703,6 +1762,7 @@
         if (f === 'color_block') return '<div style="' + colorBlockCss(el) + '"></div>';
         if (f === 'shape') {
             if (DECOR_SHAPES[el.shapeType]) return decorShapeHtml(el);
+            if (SHAPE_POINTS[el.shapeType]) return clipShapeHtml(el);   // §B.9-2 — polygon as SVG, not clip-path (export-safe)
             return '<div style="' + shapeCss(el) + '"></div>';
         }
         if (f === 'gradient')    return '<div style="' + gradientCss(el) + '"></div>';
@@ -1923,6 +1983,7 @@
     root.CoreXAd = {
         CANVAS_PRESETS: CANVAS_PRESETS,
         SHAPE_CLIPS: SHAPE_CLIPS,
+        SHAPE_POINTS: SHAPE_POINTS,
         SHAPES: SHAPES,
         FONTS: FONTS,
         IMAGE_FIELDS: IMAGE_FIELDS,

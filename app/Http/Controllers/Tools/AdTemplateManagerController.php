@@ -12,6 +12,7 @@ use App\Models\Property;
 use App\Models\PropertyAdTemplate;
 use App\Models\PropertySettingItem;
 use App\Services\AdTemplates\AdLayoutValidator;
+use App\Services\AdTemplates\AdTemplateStyles;
 use App\Services\AdTemplates\AiTemplateBuilderService;
 use App\Services\AdTemplates\ListingQrMatrix;
 use Illuminate\Http\JsonResponse;
@@ -143,6 +144,8 @@ class AdTemplateManagerController extends Controller
             'idea'            => ['required', 'string', 'max:' . AiTemplateBuilderService::IDEA_MAX_CHARS],
             'ad_size'         => ['required', 'string', 'in:' . implode(',', array_keys(AdLayoutValidator::SIZES))],
             'property_type'   => ['nullable', 'string', 'max:100'],
+            'style'           => ['nullable', 'string', 'in:' . implode(',', array_merge([AdTemplateStyles::AUTO], AdTemplateStyles::keys()))],
+            'match_existing'  => ['nullable', 'boolean'],
             'reference_image' => ['nullable', 'file', 'mimes:jpg,jpeg,png', 'mimetypes:image/jpeg,image/png', 'max:5120'],
         ], [
             'idea.required'            => 'Describe the look you want first.',
@@ -157,7 +160,10 @@ class AdTemplateManagerController extends Controller
         }
 
         try {
-            $generation = $builder->generate($user, $data['idea'], $data['ad_size'], $data['property_type'] ?? null, $file);
+            $generation = $builder->generate(
+                $user, $data['idea'], $data['ad_size'], $data['property_type'] ?? null, $file,
+                $data['style'] ?? AdTemplateStyles::AUTO, (bool) ($data['match_existing'] ?? false),
+            );
         } catch (AiPausedException $e) {
             return response()->json(['ok' => false, 'kind' => 'paused', 'message' => AiPausedException::MESSAGE], 503);
         } catch (AiTemplateLimitReachedException $e) {
@@ -168,7 +174,9 @@ class AdTemplateManagerController extends Controller
 
         $options = [];
         foreach ((array) $generation->options_json as $i => $opt) {
-            $options[] = ['index' => $i, 'name' => $opt['name'], 'layout' => $opt['layout']];
+            $styleKey  = $opt['style'] ?? null;
+            $options[] = ['index' => $i, 'name' => $opt['name'], 'layout' => $opt['layout'],
+                'style' => $styleKey, 'style_name' => AdTemplateStyles::get($styleKey)['name'] ?? null];
         }
 
         return response()->json([
@@ -242,6 +250,10 @@ class AdTemplateManagerController extends Controller
                 'limit' => $usage['limit'], 'used' => $usage['used'], 'remaining' => $usage['remaining'],
                 'resets_on' => $usage['resets_at']->format('j F Y'),
             ],
+            'styles' => AdTemplateStyles::forPanel(),
+            // "Match our existing templates": offered (and ticked by default) only when the agency has at least one saved,
+            // non-archived template of its own. Pinned to the agency explicitly - an owner-role user is not scope-limited.
+            'templateCount' => PropertyAdTemplate::query()->where('agency_id', $agencyId)->count(),
             'sizes' => collect(AdLayoutValidator::SIZES)->map(fn ($s, $k) => ['key' => $k, 'label' => $s['label']])->values()->all(),
             'propertyTypes' => PropertySettingItem::group(PropertySettingItem::GROUP_TYPE)
                 ->where('active', true)->orderBy('sort_order')->pluck('name')->all(),

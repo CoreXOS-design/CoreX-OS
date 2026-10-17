@@ -201,6 +201,8 @@
 <div x-data="aiTemplatePanel(@js([
         'usage'    => $aiPanel['usage'],
         'sample'   => $aiPanel['sample'],
+        'styles'   => $aiPanel['styles'],
+        'templateCount' => $aiPanel['templateCount'],
         'generate' => route('api.v1.ad-manager.templates.ai.generate', [], false),
         'save'     => route('api.v1.ad-manager.templates.ai.save', ['generation' => '__GEN__'], false),
     ]))"
@@ -253,6 +255,29 @@
                 <span class="block text-xs mt-1" style="color:var(--ds-crimson,#c41e3a);" x-show="fileError" x-text="fileError"></span>
             </label>
 
+            <label class="md:col-span-3 block">
+                <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Style</span>
+                <select x-model="style" :disabled="loading" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $inputStyle }}">
+                    <option value="auto">Let the AI choose</option>
+                    @foreach($aiPanel['styles'] as $st)
+                        <option value="{{ $st['key'] }}">{{ $st['name'] }}</option>
+                    @endforeach
+                </select>
+                <span class="text-xs" style="color:var(--text-muted);" x-text="styleHint()"></span>
+            </label>
+            {{-- Only offered when the agency has at least one saved, non-archived template (ticked by default then). --}}
+            @if(($aiPanel['templateCount'] ?? 0) > 0)
+            <div class="md:col-span-3 block">
+                <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Your own look</span>
+                <label class="flex items-start gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" x-model="match" :disabled="loading" class="mt-0.5">
+                    <span>Match our existing templates
+                        <span class="block text-xs" style="color:var(--text-muted);">The AI looks at up to three of your agency's saved templates and designs in the same spirit. It adds a little to the cost of each generation.</span>
+                    </span>
+                </label>
+            </div>
+            @endif
+
             <div class="md:col-span-6 flex flex-wrap items-center gap-3">
                 <button type="submit" class="corex-btn-primary text-sm px-4 py-2" :disabled="loading || usage.remaining <= 0 || idea.trim() === ''">
                     <span x-show="!loading">Design 3 options</span>
@@ -283,6 +308,9 @@
                         <div class="rounded overflow-hidden" style="background:#111;" x-init="$nextTick(() => renderPreview($el, opt))">
                             <div></div>
                         </div>
+                        <div class="text-xs" style="color:var(--text-secondary);">
+                            Style: <span class="font-semibold" x-text="opt.style_name || 'not named'"></span>
+                        </div>
                         <input type="text" x-model="opt.name" maxlength="100" :disabled="opt.saved || opt.saving"
                                class="w-full rounded-md px-3 py-1.5 text-sm" style="{{ $inputStyle }}" aria-label="Template name">
                         <div class="text-xs" style="color:var(--ds-crimson,#c41e3a);" x-show="opt.err" x-text="opt.err"></div>
@@ -307,6 +335,8 @@
 function aiTemplatePanel(cfg) {
     return {
         open: false, idea: '', size: 'facebook', ptype: '', file: null, fileError: '',
+        style: 'auto', styles: cfg.styles || [],
+        hasTemplates: (cfg.templateCount || 0) > 0, match: (cfg.templateCount || 0) > 0,
         usage: cfg.usage, sample: cfg.sample,
         loading: false, error: '', generationId: null, options: [], savedAny: false,
 
@@ -315,6 +345,11 @@ function aiTemplatePanel(cfg) {
             this.open = false; document.body.style.overflow = '';
             // Newly saved templates only appear in the table after a reload.
             if (this.savedAny) window.location.reload();
+        },
+        styleHint() {
+            if (this.style === 'auto') return 'The AI picks the best of our eight styles for each design, and tells you which.';
+            const s = this.styles.find(x => x.key === this.style);
+            return s ? s.summary : '';
         },
         pickFile(e) {
             this.fileError = ''; this.file = null;
@@ -330,6 +365,8 @@ function aiTemplatePanel(cfg) {
             const body = new FormData();
             body.append('idea', this.idea); body.append('ad_size', this.size);
             if (this.ptype) body.append('property_type', this.ptype);
+            body.append('style', this.style);
+            body.append('match_existing', (this.hasTemplates && this.match) ? '1' : '0');
             if (this.file) body.append('reference_image', this.file);
             try {
                 // window.CoreX.api.fetch adds the CSRF token + JSON headers and throws on a non-2xx (error.status / error.data).

@@ -7997,5 +7997,247 @@
    "content": "<div style=\"width:100%;height:100%;display:flex;overflow:hidden;align-items:center;font-family:'Figtree',Arial,sans-serif;font-size:20px;font-weight:600;color:#ffffff;text-align:left;text-transform:none;letter-spacing:0em;line-height:1.2;padding:8px;\"><span style=\"width:100%;\"></span></div>",
    "text": ""
   }
- ]
+ ],
+ "exportSafe": {
+  "shape#47|full|ph": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 100,100 0,100\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": "Shape"
+  },
+  "shape#47|full|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 100,100 0,100\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": ""
+  },
+  "shape#47|sparse|ph": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 100,100 0,100\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": "Shape"
+  },
+  "shape#47|sparse|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 100,100 0,100\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": ""
+  },
+  "shape#47|empty|ph": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 100,100 0,100\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": "Shape"
+  },
+  "shape#47|empty|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 100,100 0,100\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": ""
+  },
+  "shape#48|full|ph": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 100,50 50,100 0,50\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": "Shape"
+  },
+  "shape#48|full|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 100,50 50,100 0,50\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": ""
+  },
+  "shape#48|sparse|ph": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 100,50 50,100 0,50\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": "Shape"
+  },
+  "shape#48|sparse|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 100,50 50,100 0,50\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": ""
+  },
+  "shape#48|empty|ph": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 100,50 50,100 0,50\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": "Shape"
+  },
+  "shape#48|empty|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 100,50 50,100 0,50\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": ""
+  },
+  "shape#49|full|ph": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 100,38 82,100 18,100 0,38\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": "Shape"
+  },
+  "shape#49|full|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 100,38 82,100 18,100 0,38\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": ""
+  },
+  "shape#49|sparse|ph": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 100,38 82,100 18,100 0,38\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": "Shape"
+  },
+  "shape#49|sparse|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 100,38 82,100 18,100 0,38\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": ""
+  },
+  "shape#49|empty|ph": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 100,38 82,100 18,100 0,38\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": "Shape"
+  },
+  "shape#49|empty|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 100,38 82,100 18,100 0,38\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": ""
+  },
+  "shape#50|full|ph": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"25,0 75,0 100,50 75,100 25,100 0,50\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": "Shape"
+  },
+  "shape#50|full|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"25,0 75,0 100,50 75,100 25,100 0,50\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": ""
+  },
+  "shape#50|sparse|ph": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"25,0 75,0 100,50 75,100 25,100 0,50\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": "Shape"
+  },
+  "shape#50|sparse|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"25,0 75,0 100,50 75,100 25,100 0,50\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": ""
+  },
+  "shape#50|empty|ph": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"25,0 75,0 100,50 75,100 25,100 0,50\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": "Shape"
+  },
+  "shape#50|empty|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"25,0 75,0 100,50 75,100 25,100 0,50\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": ""
+  },
+  "shape#51|full|ph": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 61,35 98,35 68,57 79,91 50,70 21,91 32,57 2,35 39,35\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": "Shape"
+  },
+  "shape#51|full|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 61,35 98,35 68,57 79,91 50,70 21,91 32,57 2,35 39,35\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": ""
+  },
+  "shape#51|sparse|ph": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 61,35 98,35 68,57 79,91 50,70 21,91 32,57 2,35 39,35\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": "Shape"
+  },
+  "shape#51|sparse|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 61,35 98,35 68,57 79,91 50,70 21,91 32,57 2,35 39,35\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": ""
+  },
+  "shape#51|empty|ph": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 61,35 98,35 68,57 79,91 50,70 21,91 32,57 2,35 39,35\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": "Shape"
+  },
+  "shape#51|empty|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"50,0 61,35 98,35 68,57 79,91 50,70 21,91 32,57 2,35 39,35\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": ""
+  },
+  "shape#52|full|ph": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"0,0 75,0 100,50 75,100 0,100 25,50\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": "Shape"
+  },
+  "shape#52|full|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"0,0 75,0 100,50 75,100 0,100 25,50\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": ""
+  },
+  "shape#52|sparse|ph": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"0,0 75,0 100,50 75,100 0,100 25,50\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": "Shape"
+  },
+  "shape#52|sparse|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"0,0 75,0 100,50 75,100 0,100 25,50\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": ""
+  },
+  "shape#52|empty|ph": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"0,0 75,0 100,50 75,100 0,100 25,50\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": "Shape"
+  },
+  "shape#52|empty|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:160px;height:160px;z-index:2;overflow:hidden;border-radius:0px;",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><polygon points=\"0,0 75,0 100,50 75,100 0,100 25,50\" fill=\"#336699\" fill-opacity=\"1\"/></svg>",
+   "text": ""
+  },
+  "agent_avatar#57|sparse|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:80px;height:80px;z-index:2;overflow:hidden;border-radius:0;clip-path:polygon(50% 0,100% 100%,0 100%);",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><defs><linearGradient id=\"cxe57\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#0b2a4a\"/><stop offset=\"1\" stop-color=\"#143d6e\"/></linearGradient></defs><polygon points=\"50,0 100,100 0,100\" fill=\"url(#cxe57)\"/></svg>",
+   "text": ""
+  },
+  "agent_avatar#57|empty|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:80px;height:80px;z-index:2;overflow:hidden;border-radius:0;clip-path:polygon(50% 0,100% 100%,0 100%);",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><defs><linearGradient id=\"cxe57\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#0b2a4a\"/><stop offset=\"1\" stop-color=\"#143d6e\"/></linearGradient></defs><polygon points=\"50,0 100,100 0,100\" fill=\"url(#cxe57)\"/></svg>",
+   "text": ""
+  },
+  "agent_avatar#58|sparse|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:80px;height:80px;z-index:2;overflow:hidden;border-radius:0;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%);",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><defs><linearGradient id=\"cxe58\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#0b2a4a\"/><stop offset=\"1\" stop-color=\"#143d6e\"/></linearGradient></defs><polygon points=\"50,0 100,50 50,100 0,50\" fill=\"url(#cxe58)\"/></svg>",
+   "text": ""
+  },
+  "agent_avatar#58|empty|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:80px;height:80px;z-index:2;overflow:hidden;border-radius:0;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%);",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><defs><linearGradient id=\"cxe58\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#0b2a4a\"/><stop offset=\"1\" stop-color=\"#143d6e\"/></linearGradient></defs><polygon points=\"50,0 100,50 50,100 0,50\" fill=\"url(#cxe58)\"/></svg>",
+   "text": ""
+  },
+  "agent_avatar#59|sparse|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:80px;height:80px;z-index:2;overflow:hidden;border-radius:0;clip-path:polygon(50% 0,100% 38%,82% 100%,18% 100%,0 38%);",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><defs><linearGradient id=\"cxe59\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#0b2a4a\"/><stop offset=\"1\" stop-color=\"#143d6e\"/></linearGradient></defs><polygon points=\"50,0 100,38 82,100 18,100 0,38\" fill=\"url(#cxe59)\"/></svg>",
+   "text": ""
+  },
+  "agent_avatar#59|empty|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:80px;height:80px;z-index:2;overflow:hidden;border-radius:0;clip-path:polygon(50% 0,100% 38%,82% 100%,18% 100%,0 38%);",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><defs><linearGradient id=\"cxe59\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#0b2a4a\"/><stop offset=\"1\" stop-color=\"#143d6e\"/></linearGradient></defs><polygon points=\"50,0 100,38 82,100 18,100 0,38\" fill=\"url(#cxe59)\"/></svg>",
+   "text": ""
+  },
+  "agent_avatar#60|sparse|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:80px;height:80px;z-index:2;overflow:hidden;border-radius:0;clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%);",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><defs><linearGradient id=\"cxe60\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#0b2a4a\"/><stop offset=\"1\" stop-color=\"#143d6e\"/></linearGradient></defs><polygon points=\"25,0 75,0 100,50 75,100 25,100 0,50\" fill=\"url(#cxe60)\"/></svg>",
+   "text": ""
+  },
+  "agent_avatar#60|empty|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:80px;height:80px;z-index:2;overflow:hidden;border-radius:0;clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%);",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><defs><linearGradient id=\"cxe60\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#0b2a4a\"/><stop offset=\"1\" stop-color=\"#143d6e\"/></linearGradient></defs><polygon points=\"25,0 75,0 100,50 75,100 25,100 0,50\" fill=\"url(#cxe60)\"/></svg>",
+   "text": ""
+  },
+  "agent_avatar#61|sparse|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:80px;height:80px;z-index:2;overflow:hidden;border-radius:0;clip-path:polygon(50% 0,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%);",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><defs><linearGradient id=\"cxe61\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#0b2a4a\"/><stop offset=\"1\" stop-color=\"#143d6e\"/></linearGradient></defs><polygon points=\"50,0 61,35 98,35 68,57 79,91 50,70 21,91 32,57 2,35 39,35\" fill=\"url(#cxe61)\"/></svg>",
+   "text": ""
+  },
+  "agent_avatar#61|empty|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:80px;height:80px;z-index:2;overflow:hidden;border-radius:0;clip-path:polygon(50% 0,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%);",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><defs><linearGradient id=\"cxe61\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#0b2a4a\"/><stop offset=\"1\" stop-color=\"#143d6e\"/></linearGradient></defs><polygon points=\"50,0 61,35 98,35 68,57 79,91 50,70 21,91 32,57 2,35 39,35\" fill=\"url(#cxe61)\"/></svg>",
+   "text": ""
+  },
+  "agent_avatar#62|sparse|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:80px;height:80px;z-index:2;overflow:hidden;border-radius:0;clip-path:polygon(0 0,75% 0,100% 50%,75% 100%,0 100%,25% 50%);",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><defs><linearGradient id=\"cxe62\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#0b2a4a\"/><stop offset=\"1\" stop-color=\"#143d6e\"/></linearGradient></defs><polygon points=\"0,0 75,0 100,50 75,100 0,100 25,50\" fill=\"url(#cxe62)\"/></svg>",
+   "text": ""
+  },
+  "agent_avatar#62|empty|real": {
+   "frame": "position:absolute;left:5px;top:5px;width:80px;height:80px;z-index:2;overflow:hidden;border-radius:0;clip-path:polygon(0 0,75% 0,100% 50%,75% 100%,0 100%,25% 50%);",
+   "content": "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\" width=\"100%\" height=\"100%\" style=\"display:block;\"><defs><linearGradient id=\"cxe62\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0\" stop-color=\"#0b2a4a\"/><stop offset=\"1\" stop-color=\"#143d6e\"/></linearGradient></defs><polygon points=\"0,0 75,0 100,50 75,100 0,100 25,50\" fill=\"url(#cxe62)\"/></svg>",
+   "text": ""
+  }
+ }
 }
