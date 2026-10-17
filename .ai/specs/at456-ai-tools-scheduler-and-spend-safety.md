@@ -245,7 +245,7 @@ Pick an ad (image + copy) and platform(s), choose a date/time; CoreX publishes i
 
 ### D.7 As built (2026-10-17) — decisions beyond the text above
 - **Data:** migration `2026_11_09_100000_at456_d_post_scheduler.php` — `status` was a MySQL ENUM, extended to `draft, published, failed, scheduled, publishing, cancelled` (a pure superset: no existing row changes). `scheduled_for` is a plain `DATETIME` holding UTC (not `TIMESTAMP`, which MySQL shifts by session zone), read/written through `App\Casts\UtcDateTime` because Eloquent's stock `datetime` cast would read the UTC string as Johannesburg time; indexed alone and with `status`. `failure_reason` text. Second migration `2026_11_09_100100_at456_d_grant_schedule_posts_permission.php` grants the new key to existing `agent / branch_manager / admin / office_admin` roles that already hold `access_ad_manager` (idempotent).
-- **Where posts come from.** Scheduling happens from the Ad Manager results step: "Schedule this post" on an ad, or "Schedule N ads" for the batch. The browser renders each ad to a picture (JPEG, never wider than Instagram's 1440px), uploads it (`tools.ad-manager.scheduled.image`), then ONE request (`...scheduled.store`) schedules all of them — all or nothing. The Scheduled Posts screen's "Schedule a post" button takes you to the Ad Manager (a post needs an ad's picture + text); it has no create form of its own. Brochure PDFs and ads with no description cannot be scheduled.
+- **Where posts come from.** Scheduling happens from the Ad Manager results step: "Schedule this post" on an ad, or "Schedule N ads" for the batch. The browser renders each ad to a picture (JPEG, never wider than Instagram's 1440px), uploads it (`api.v1.ad-manager.scheduled.image`), then ONE request (`api.v1.ad-manager.scheduled.store`) schedules all of them — all or nothing. The Scheduled Posts screen's "Schedule a post" button takes you to the Ad Manager (a post needs an ad's picture + text); it has no create form of its own. Brochure PDFs and ads with no description cannot be scheduled.
 - **One row per platform.** An ad on Facebook + Instagram becomes two rows with the same slot. Bulk modes: `daily` ("one a day at HH:MM" — the first ad on the chosen date, the next the following day, same local time) and `at` (all at one date/time). Both end-points are checked: the first must be >= 5 minutes ahead and the last <= 60 days.
 - **Who may schedule what:** the user's PROPERTIES data scope (`Property::visibleTo`) plus on-market + marketing-readiness (same rules as posting straight away); the post publishes from the scheduling user's OWN connected Page. A platform not connected for the user is refused with a plain sentence pointing to My Portal, Tools, Social Media. The screen shows who is not connected.
 - **Screen scoping** (`PropertyMarketingPost::visibleTo`): all = whole agency; branch = posts on the branch's listings + the user's own; own = posts on the user's book (an assistant's = their agent's) + the user's own. Edit / Cancel / Reschedule on an id outside that scope is a 404 (as is another agency's). The list shows only rows that carry a scheduled time, so posts made by the old direct publish are not mixed in.
@@ -275,6 +275,19 @@ Automated proof: `tests/Feature/Tools/ScheduledPostsTest.php` (Meta faked at the
 - [ ] Johan tests on QA2 (needs a connected Facebook/Instagram test account; run `php artisan marketing:publish-due` by hand there).
 
 ---
+
+## API endpoints (CoreX non-negotiable #7) — as built 2026-10-17
+
+The four JSON endpoints AT-456 added live in the session-authenticated `api/v1` group of `routes/web.php` (same cookie session + CSRF as `api.v1.logged-user`), are named `api.v1.*`, appear in **Admin -> API**, and are called from the browser through `window.CoreX.api.fetch` (`resources/js/corex-api.js`, unchanged - it already passes FormData and JSON bodies through and throws `error.status` / `error.data` on a non-2xx). Permission middleware, feature gate (`feature:ad-manager`), `agency.required` and throttles are exactly as before the move. The old `tools/ad-manager/...` POST URLs were removed (no aliases).
+
+| Name | Method + URI | Controller | Gates (unchanged) |
+|---|---|---|---|
+| `api.v1.ad-manager.templates.ai.generate` | POST `/api/v1/ad-manager/templates/ai/generate` | `AdTemplateManagerController@generateWithAi` | `access_ad_manager`, `agency.required`, `feature:ad-manager`, throttle 8/min |
+| `api.v1.ad-manager.templates.ai.save` | POST `/api/v1/ad-manager/templates/ai/{generation}/save` | `AdTemplateManagerController@saveAiOption` | `access_ad_manager`, `agency.required`, `feature:ad-manager` |
+| `api.v1.ad-manager.scheduled.image` | POST `/api/v1/ad-manager/scheduled/image` | `ScheduledPostsController@uploadImage` | `access_ad_manager` + `ad_manager.schedule_posts`, `agency.required`, `feature:ad-manager`, throttle 60/min |
+| `api.v1.ad-manager.scheduled.store` | POST `/api/v1/ad-manager/scheduled` | `ScheduledPostsController@store` | `access_ad_manager` + `ad_manager.schedule_posts`, `agency.required`, `feature:ad-manager`, throttle 20/min |
+
+Every other AT-456 route returns a page or a redirect (Dev Settings Article Library, the AI usage page actions, Article Library "Use this", Scheduled Posts list/update/cancel/reschedule) and stays a normal web route. Callers: `tools/ad-manager/templates.blade.php` (generate, save), `tools/ad-manager.blade.php` (image, store; URLs handed over by `AdManagerController::scheduleConfig`). Test: `tests/Feature/Tools/AdManagerApiV1RoutesTest.php`.
 
 ## Settings audit (CoreX rule 10a — "NOT in the wizard", for Johan's confirmation)
 

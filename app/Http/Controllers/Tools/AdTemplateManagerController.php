@@ -130,7 +130,7 @@ class AdTemplateManagerController extends Controller
     }
 
     /**
-     * POST tools.ad-manager.templates.ai.generate — one idea in, three validated options out.
+     * POST api.v1.ad-manager.templates.ai.generate — one idea in, three validated options out.
      * Synchronous (QA2 has no queue worker). Every failure is a plain sentence the panel shows.
      */
     public function generateWithAi(Request $request, AiTemplateBuilderService $builder): JsonResponse
@@ -178,7 +178,7 @@ class AdTemplateManagerController extends Controller
     }
 
     /**
-     * POST tools.ad-manager.templates.ai.save — keep one of the options as a normal template.
+     * POST api.v1.ad-manager.templates.ai.save — keep one of the options as a normal template.
      * The layout is read from the stored, already-validated generation; nothing is taken from
      * the browser but the option number and an optional name. AgencyScope makes another
      * agency's generation id a 404; another user's generation in the same agency is a 403.

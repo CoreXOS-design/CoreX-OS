@@ -76,18 +76,18 @@ final class ScheduledPostsTest extends TestCase
         $this->actingAs($agent);
 
         // 10:03 local = 3 minutes ahead.
-        $this->postJson(route('tools.ad-manager.scheduled.store'), $this->payload($property, $path, '2026-10-20', '10:03'))
+        $this->postJson(route('api.v1.ad-manager.scheduled.store'), $this->payload($property, $path, '2026-10-20', '10:03'))
             ->assertStatus(422)->assertJsonPath('ok', false)
             ->assertJsonFragment(['error' => 'Pick a time at least 5 minutes from now.']);
 
         // 61 days ahead.
-        $this->postJson(route('tools.ad-manager.scheduled.store'), $this->payload($property, $path, '2026-12-21', '10:00'))
+        $this->postJson(route('api.v1.ad-manager.scheduled.store'), $this->payload($property, $path, '2026-12-21', '10:00'))
             ->assertStatus(422)->assertJsonFragment(['error' => 'Posts can be scheduled up to 60 days ahead.']);
 
         $this->assertSame(0, PropertyMarketingPost::withoutGlobalScopes()->count());
 
         // Exactly 6 minutes ahead is fine.
-        $this->postJson(route('tools.ad-manager.scheduled.store'), $this->payload($property, $path, '2026-10-20', '10:06'))
+        $this->postJson(route('api.v1.ad-manager.scheduled.store'), $this->payload($property, $path, '2026-10-20', '10:06'))
             ->assertOk()->assertJsonPath('scheduled', 1);
     }
 
@@ -98,7 +98,7 @@ final class ScheduledPostsTest extends TestCase
         $property = $this->property($agency, $branch, $agent, 'Sunset Villa');
         $path = $this->storedImage($agent);
 
-        $this->actingAs($agent)->postJson(route('tools.ad-manager.scheduled.store'), $this->payload($property, $path, '2026-10-21', '09:00'))->assertOk();
+        $this->actingAs($agent)->postJson(route('api.v1.ad-manager.scheduled.store'), $this->payload($property, $path, '2026-10-21', '09:00'))->assertOk();
 
         // 09:00 in Johannesburg is 07:00 UTC, in the column as plain UTC.
         $this->assertSame('2026-10-21 07:00:00', DB::table('property_marketing_posts')->value('scheduled_for'));
@@ -130,7 +130,7 @@ final class ScheduledPostsTest extends TestCase
         $path = $this->storedImage($agent);
         $this->actingAs($agent);
 
-        $this->postJson(route('tools.ad-manager.scheduled.store'), $this->payload($property, $path, '2026-10-21', '09:00'))
+        $this->postJson(route('api.v1.ad-manager.scheduled.store'), $this->payload($property, $path, '2026-10-21', '09:00'))
             ->assertStatus(422)
             ->assertJsonFragment(['error' => 'Facebook is not connected for you yet. Connect it under My Portal, Tools, Social Media first, then schedule again.']);
 
@@ -153,10 +153,10 @@ final class ScheduledPostsTest extends TestCase
 
         $this->actingAs($agent);
         foreach ([$notMine, $foreign] as $p) {
-            $this->postJson(route('tools.ad-manager.scheduled.store'), $this->payload($p, $path, '2026-10-21', '09:00'))
+            $this->postJson(route('api.v1.ad-manager.scheduled.store'), $this->payload($p, $path, '2026-10-21', '09:00'))
                 ->assertStatus(422)->assertJsonFragment(['error' => 'One of those listings is not yours to post for.']);
         }
-        $this->postJson(route('tools.ad-manager.scheduled.store'), $this->payload($sold, $path, '2026-10-21', '09:00'))
+        $this->postJson(route('api.v1.ad-manager.scheduled.store'), $this->payload($sold, $path, '2026-10-21', '09:00'))
             ->assertStatus(422)->assertJsonFragment(['error' => 'Sold House is not on the market, so it cannot be advertised.']);
         $this->assertSame(0, PropertyMarketingPost::withoutGlobalScopes()->count());
     }
@@ -169,9 +169,9 @@ final class ScheduledPostsTest extends TestCase
         $property = $this->property($agency, $branch, $agent);
 
         $this->actingAs($agent);
-        $this->postJson(route('tools.ad-manager.scheduled.store'), $this->payload($property, $this->storedImage($other), '2026-10-21', '09:00'))
+        $this->postJson(route('api.v1.ad-manager.scheduled.store'), $this->payload($property, $this->storedImage($other), '2026-10-21', '09:00'))
             ->assertStatus(422);
-        $this->postJson(route('tools.ad-manager.scheduled.store'), $this->payload($property, 'marketing-scheduled/../../.env', '2026-10-21', '09:00'))
+        $this->postJson(route('api.v1.ad-manager.scheduled.store'), $this->payload($property, 'marketing-scheduled/../../.env', '2026-10-21', '09:00'))
             ->assertStatus(422);
         $this->assertSame(0, PropertyMarketingPost::withoutGlobalScopes()->count());
     }
@@ -189,7 +189,7 @@ final class ScheduledPostsTest extends TestCase
         $this->actingAs($agent);
 
         $items = array_map(fn ($p) => ['property_id' => $p->id, 'copy' => 'Come see ' . $p->title, 'image_path' => $this->storedImage($agent)], $props);
-        $this->postJson(route('tools.ad-manager.scheduled.store'), [
+        $this->postJson(route('api.v1.ad-manager.scheduled.store'), [
             'items' => $items, 'platforms' => ['facebook', 'instagram'], 'mode' => 'daily', 'date' => '2026-10-22', 'time' => '08:30',
         ])->assertOk()->assertJsonPath('scheduled', 6);
 
@@ -212,7 +212,7 @@ final class ScheduledPostsTest extends TestCase
 
         $items = array_map(fn ($p) => ['property_id' => $p->id, 'copy' => 'Hi', 'image_path' => $this->storedImage($agent)], $props);
         // Starts 59 days ahead; the third ad lands on day 61.
-        $this->postJson(route('tools.ad-manager.scheduled.store'), [
+        $this->postJson(route('api.v1.ad-manager.scheduled.store'), [
             'items' => $items, 'platforms' => ['facebook'], 'mode' => 'daily', 'date' => '2026-12-18', 'time' => '10:00',
         ])->assertStatus(422)->assertJsonFragment(['error' => 'Posts can be scheduled up to 60 days ahead.']);
         $this->assertSame(0, PropertyMarketingPost::withoutGlobalScopes()->count());
@@ -223,7 +223,7 @@ final class ScheduledPostsTest extends TestCase
         [$agency, $branch, $agent] = $this->world();
         $this->actingAs($agent);
 
-        $res = $this->postJson(route('tools.ad-manager.scheduled.image'), ['image' => $this->pngDataUrl(2000, 1000)])->assertOk();
+        $res = $this->postJson(route('api.v1.ad-manager.scheduled.image'), ['image' => $this->pngDataUrl(2000, 1000)])->assertOk();
         $path = $res->json('path');
         $this->assertStringStartsWith("marketing-scheduled/{$agency}/{$agent->id}/", $path);
         Storage::disk('public')->assertExists($path);
@@ -231,7 +231,7 @@ final class ScheduledPostsTest extends TestCase
         $this->assertSame(IMAGETYPE_JPEG, $info[2]);
         $this->assertSame(1440, $info[0], 'Wider than Instagram allows, so it is scaled down.');
 
-        $this->postJson(route('tools.ad-manager.scheduled.image'), ['image' => 'data:image/png;base64,' . base64_encode('this is not a picture')])
+        $this->postJson(route('api.v1.ad-manager.scheduled.image'), ['image' => 'data:image/png;base64,' . base64_encode('this is not a picture')])
             ->assertStatus(422);
     }
 
@@ -679,8 +679,8 @@ final class ScheduledPostsTest extends TestCase
 
         $this->actingAs($agent->fresh());
         $this->get(route('tools.ad-manager.scheduled'))->assertForbidden();
-        $this->postJson(route('tools.ad-manager.scheduled.image'), ['image' => $this->pngDataUrl(10, 10)])->assertForbidden();
-        $this->postJson(route('tools.ad-manager.scheduled.store'), [])->assertForbidden();
+        $this->postJson(route('api.v1.ad-manager.scheduled.image'), ['image' => $this->pngDataUrl(10, 10)])->assertForbidden();
+        $this->postJson(route('api.v1.ad-manager.scheduled.store'), [])->assertForbidden();
         $this->post(route('tools.ad-manager.scheduled.cancel', $id))->assertForbidden();
         $this->post(route('tools.ad-manager.scheduled.update', $id), [])->assertForbidden();
         $this->post(route('tools.ad-manager.scheduled.reschedule', $id), [])->assertForbidden();

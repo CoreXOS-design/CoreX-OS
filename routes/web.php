@@ -519,6 +519,26 @@ Route::middleware('auth')->group(function () {
             ->middleware('permission:access_properties')
             ->name('properties.syndication-panel');
 
+        // AT-456 Part B — Template Manager "Create with AI" (JSON). Same gates as the Template Manager page it is used from;
+        // generation is throttled on top of the monthly allowance and both re-check access_properties in the controller.
+        // Spec: .ai/specs/at456-ai-tools-scheduler-and-spend-safety.md §B.
+        Route::post('/ad-manager/templates/ai/generate', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'generateWithAi'])
+            ->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager', 'throttle:8,1'])
+            ->name('ad-manager.templates.ai.generate');
+        Route::post('/ad-manager/templates/ai/{generation}/save', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'saveAiOption'])
+            ->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])
+            ->whereNumber('generation')
+            ->name('ad-manager.templates.ai.save');
+
+        // AT-456 Part D — Post Scheduler (JSON): upload a generated ad picture, then store the scheduled posts.
+        // Scope (own / branch / agency) is enforced in the controller's queries. Spec: same file, §D.
+        Route::post('/ad-manager/scheduled/image', [\App\Http\Controllers\Tools\ScheduledPostsController::class, 'uploadImage'])
+            ->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager', 'throttle:60,1'])
+            ->name('ad-manager.scheduled.image');
+        Route::post('/ad-manager/scheduled', [\App\Http\Controllers\Tools\ScheduledPostsController::class, 'store'])
+            ->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager', 'throttle:20,1'])
+            ->name('ad-manager.scheduled.store');
+
         Route::get('/contacts',        [\App\Http\Controllers\Api\V1\ContactsController::class, 'index'])->name('contacts.index');
         Route::get('/contacts/{contact}', [\App\Http\Controllers\Api\V1\ContactsController::class, 'show'])->name('contacts.show');
 
@@ -1578,9 +1598,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/tools/ad-manager/templates/{template}/archive', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'archive'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.templates.archive')->whereNumber('template');
     Route::post('/tools/ad-manager/templates/{template}/restore', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'restore'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.templates.restore')->whereNumber('template')->withTrashed();
     // AT-456 Part B — "Create with AI" in the Template Manager (spec .ai/specs/at456-ai-tools-scheduler-and-spend-safety.md §B).
-    // Generation is throttled on top of the monthly allowance; both re-check access_properties in the controller.
-    Route::post('/tools/ad-manager/templates/ai/generate', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'generateWithAi'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager', 'throttle:8,1'])->name('tools.ad-manager.templates.ai.generate');
-    Route::post('/tools/ad-manager/templates/ai/{generation}/save', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'saveAiOption'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.templates.ai.save')->whereNumber('generation');
+    // Its two JSON endpoints (generate / save-option) live under /api/v1 — see api.v1.ad-manager.templates.ai.* in the api/v1 group.
 
     // AT-456 Part C — Article Library (third Ad Manager tab). Library rows are global and read-only; "Use this"
     // makes the user's own unpublished AgentArticle (agency-scoped). Spec: at456-ai-tools-scheduler-and-spend-safety.md §C.5.
@@ -1588,11 +1606,10 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/tools/ad-manager/articles/{article}/use', [\App\Http\Controllers\Tools\ArticleLibraryController::class, 'use'])->middleware(['permission:access_ad_manager', 'permission:edit_own_profile', 'agency.required', 'feature:ad-manager', 'throttle:30,1'])->name('tools.ad-manager.articles.use')->whereNumber('article');
 
     // Scheduled Posts — AT-456 Part D, spec .ai/specs/at456-ai-tools-scheduler-and-spend-safety.md §D. Fourth Ad Manager pill.
-    // Posts are made from the Ad Manager's generated ads (image upload + store); this list edits / cancels / reschedules.
+    // Posts are made from the Ad Manager's generated ads (image upload + store are JSON endpoints under /api/v1 —
+    // api.v1.ad-manager.scheduled.image / .store); this list edits / cancels / reschedules.
     // Cancel is a status change, never a delete. Scope (own / branch / agency) is enforced in the controller's queries.
     Route::get('/tools/ad-manager/scheduled', [\App\Http\Controllers\Tools\ScheduledPostsController::class, 'index'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.scheduled');
-    Route::post('/tools/ad-manager/scheduled/image', [\App\Http\Controllers\Tools\ScheduledPostsController::class, 'uploadImage'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager', 'throttle:60,1'])->name('tools.ad-manager.scheduled.image');
-    Route::post('/tools/ad-manager/scheduled', [\App\Http\Controllers\Tools\ScheduledPostsController::class, 'store'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager', 'throttle:20,1'])->name('tools.ad-manager.scheduled.store');
     Route::post('/tools/ad-manager/scheduled/{post}/update', [\App\Http\Controllers\Tools\ScheduledPostsController::class, 'update'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.scheduled.update')->whereNumber('post');
     Route::post('/tools/ad-manager/scheduled/{post}/cancel', [\App\Http\Controllers\Tools\ScheduledPostsController::class, 'cancel'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.scheduled.cancel')->whereNumber('post');
     Route::post('/tools/ad-manager/scheduled/{post}/reschedule', [\App\Http\Controllers\Tools\ScheduledPostsController::class, 'reschedule'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.scheduled.reschedule')->whereNumber('post');

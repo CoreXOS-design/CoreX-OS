@@ -201,9 +201,8 @@
 <div x-data="aiTemplatePanel(@js([
         'usage'    => $aiPanel['usage'],
         'sample'   => $aiPanel['sample'],
-        'generate' => route('tools.ad-manager.templates.ai.generate'),
-        'save'     => route('tools.ad-manager.templates.ai.save', ['generation' => '__GEN__']),
-        'csrf'     => csrf_token(),
+        'generate' => route('api.v1.ad-manager.templates.ai.generate', [], false),
+        'save'     => route('api.v1.ad-manager.templates.ai.save', ['generation' => '__GEN__'], false),
     ]))"
      x-on:open-ai-template-panel.window="openPanel()"
      x-on:keydown.escape.window="if (open && !loading) closePanel()"
@@ -333,19 +332,27 @@ function aiTemplatePanel(cfg) {
             if (this.ptype) body.append('property_type', this.ptype);
             if (this.file) body.append('reference_image', this.file);
             try {
-                const res = await fetch(cfg.generate, { method: 'POST', body, headers: { 'X-CSRF-TOKEN': cfg.csrf, 'Accept': 'application/json' }, credentials: 'same-origin' });
-                const data = await res.json().catch(() => ({}));
+                // window.CoreX.api.fetch adds the CSRF token + JSON headers and throws on a non-2xx (error.status / error.data).
+                const data = await window.CoreX.api.fetch(cfg.generate, { method: 'POST', body });
                 if (data.usage) this.usage = data.usage;
-                if (!res.ok || !data.ok) {
-                    this.error = data.message
-                        || (data.errors ? Object.values(data.errors).flat().join(' ') : '')
-                        || (res.status === 429 ? 'You are going a little fast — wait a minute and try again.' : 'Something went wrong. Nothing was counted — please try again.');
+                if (!data.ok) {
+                    this.error = data.message || 'Something went wrong. Nothing was counted — please try again.';
                 } else {
                     this.generationId = data.generation_id;
                     this.options = data.options.map(o => ({ ...o, saving: false, saved: false, editUrl: '', err: '' }));
                 }
             } catch (e) {
-                this.error = 'We could not reach the server. Nothing was counted — please try again.';
+                const data = (e && e.data && typeof e.data === 'object') ? e.data : null;
+                if (data && data.usage) this.usage = data.usage;
+                if (data) {
+                    this.error = data.message
+                        || (data.errors ? Object.values(data.errors).flat().join(' ') : '')
+                        || (e.status === 429 ? 'You are going a little fast — wait a minute and try again.' : 'Something went wrong. Nothing was counted — please try again.');
+                } else if (e && e.status) {
+                    this.error = e.status === 429 ? 'You are going a little fast — wait a minute and try again.' : 'Something went wrong. Nothing was counted — please try again.';
+                } else {
+                    this.error = 'We could not reach the server. Nothing was counted — please try again.';
+                }
             } finally { this.loading = false; }
         },
         renderPreview(box, opt) {
@@ -359,15 +366,18 @@ function aiTemplatePanel(cfg) {
         async save(opt) {
             opt.saving = true; opt.err = '';
             try {
-                const res = await fetch(cfg.save.replace('__GEN__', this.generationId), {
-                    method: 'POST', credentials: 'same-origin',
-                    headers: { 'X-CSRF-TOKEN': cfg.csrf, 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                const data = await window.CoreX.api.fetch(cfg.save.replace('__GEN__', this.generationId), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ option: opt.index, name: opt.name }),
                 });
-                const data = await res.json().catch(() => ({}));
-                if (res.ok && data.ok) { opt.saved = true; opt.editUrl = data.edit_url; this.savedAny = true; }
+                if (data.ok) { opt.saved = true; opt.editUrl = data.edit_url; this.savedAny = true; }
                 else { opt.err = data.message || 'Could not save this template — please try again.'; }
-            } catch (e) { opt.err = 'We could not reach the server — please try again.'; }
+            } catch (e) {
+                if (e && e.data && typeof e.data === 'object') { opt.err = e.data.message || 'Could not save this template — please try again.'; }
+                else if (e && e.status) { opt.err = 'Could not save this template — please try again.'; }
+                else { opt.err = 'We could not reach the server — please try again.'; }
+            }
             finally { opt.saving = false; }
         },
     };

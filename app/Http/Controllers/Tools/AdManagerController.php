@@ -233,8 +233,8 @@ class AdManagerController extends Controller
         $tz  = $svc->timezone();
 
         return [
-            'imageUrl'    => route('tools.ad-manager.scheduled.image'),
-            'storeUrl'    => route('tools.ad-manager.scheduled.store'),
+            'imageUrl'    => route('api.v1.ad-manager.scheduled.image', [], false),
+            'storeUrl'    => route('api.v1.ad-manager.scheduled.store', [], false),
             'listUrl'     => route('tools.ad-manager.scheduled'),
             'portalUrl'   => route('agent.portal', ['pane' => 'social']) . '#tools',
             'platforms'   => \App\Services\Marketing\ScheduledPostService::PLATFORMS,

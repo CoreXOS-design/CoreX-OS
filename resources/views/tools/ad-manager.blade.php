@@ -695,23 +695,34 @@ function adManager() {
                     const r = s.rows[i];
                     s.progress = 'Preparing picture ' + (i + 1) + ' of ' + s.rows.length + '…';
                     const image = await this.captureJpeg(r);
-                    const up = await fetch(ADM_SCHEDULE.imageUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': ADM_CSRF, 'Accept': 'application/json' },
-                        body: JSON.stringify({ image }),
-                    });
-                    const upData = await up.json().catch(() => ({}));
-                    if (!up.ok || !upData.ok) throw new Error(upData.error || upData.message || 'A picture could not be saved. Please try again.');
+                    let upData;
+                    try {
+                        upData = await window.CoreX.api.fetch(ADM_SCHEDULE.imageUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ image }),
+                        });
+                    } catch (err) {
+                        const d = (err && err.data && typeof err.data === 'object') ? err.data : {};
+                        throw new Error(d.error || d.message || 'A picture could not be saved. Please try again.');
+                    }
+                    if (!upData.ok) throw new Error(upData.error || upData.message || 'A picture could not be saved. Please try again.');
                     items.push({ property_id: r.id, copy: r.description, image_path: upData.path });
                 }
                 s.progress = 'Scheduling…';
-                const res = await fetch(ADM_SCHEDULE.storeUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': ADM_CSRF, 'Accept': 'application/json' },
-                    body: JSON.stringify({ items, platforms, mode: s.mode, date: s.date, time: s.time }),
-                });
-                const data = await res.json().catch(() => ({}));
-                if (!res.ok || !data.ok) {
+                let data;
+                try {
+                    data = await window.CoreX.api.fetch(ADM_SCHEDULE.storeUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ items, platforms, mode: s.mode, date: s.date, time: s.time }),
+                    });
+                } catch (err) {
+                    const d = (err && err.data && typeof err.data === 'object') ? err.data : {};
+                    const first = d.errors ? Object.values(d.errors)[0][0] : null;
+                    throw new Error(d.error || first || d.message || 'Could not schedule. Please try again.');
+                }
+                if (!data.ok) {
                     const first = data.errors ? Object.values(data.errors)[0][0] : null;
                     throw new Error(data.error || first || data.message || 'Could not schedule. Please try again.');
                 }

@@ -2506,6 +2506,8 @@ already what `SoftDeletes` does).
 
 ### 19.3 Page: `GET /tools/ad-manager/templates` — route `tools.ad-manager.templates`
 
+> AT-456: the page's "Create with AI" panel and the Post Scheduler call JSON endpoints under `/api/v1/ad-manager/...` (`api.v1.ad-manager.templates.ai.generate|save`, `api.v1.ad-manager.scheduled.image|store`) - see `at456-ai-tools-scheduler-and-spend-safety.md`, "API endpoints".
+
 - **Columns:** Name · Created by · Canvas size (W × H) · Designs (Default + N property-type
   variants, §18) · Last updated · Actions.
 - **Search:** template name, creator's name.

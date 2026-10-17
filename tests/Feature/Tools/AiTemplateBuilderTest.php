@@ -680,7 +680,7 @@ final class AiTemplateBuilderTest extends TestCase
 
     private function postGenerate(User $user, array $fields, ?UploadedFile $file = null)
     {
-        $request = Request::create('/tools/ad-manager/templates/ai/generate', 'POST', $fields, [], $file ? ['reference_image' => $file] : []);
+        $request = Request::create('/api/v1/ad-manager/templates/ai/generate', 'POST', $fields, [], $file ? ['reference_image' => $file] : []);
         $request->setUserResolver(fn () => $user);
         $this->app->instance('request', $request);
 
