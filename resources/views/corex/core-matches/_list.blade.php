@@ -28,7 +28,7 @@
 @endif
 <button type="button" @click="pick({{ (int) $contact->id }})"
         @if($withTour && $loop->first) data-tour="re-core-matches-card" @endif
-        class="w-full text-left flex items-center gap-2.5 px-3.5 py-2.5 border-0 cursor-pointer transition-colors"
+        class="list-row-hover w-full text-left flex items-center gap-2.5 px-3.5 py-2.5 border-0 cursor-pointer transition-colors"
         :style="sel === {{ (int) $contact->id }} ? 'background: var(--surface-2); box-shadow: inset 3px 0 0 var(--brand-icon, #0ea5e9); border-bottom: 1px solid var(--border);' : 'background: transparent; border-bottom: 1px solid var(--border);'">
     <div class="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0"
          style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">{{ $contact->initials }}</div>

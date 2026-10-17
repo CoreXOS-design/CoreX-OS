@@ -87,7 +87,7 @@
                     <span class="text-xs font-semibold uppercase tracking-wider" style="color: {{ $style['var'] }};">
                         {{ \App\Models\AgentApplication::STATUS_LABELS[$status] }}
                     </span>
-                    <span class="ds-badge" style="background: {{ $style['soft'] }}; color: {{ $style['var'] }};">
+                    <span class="ds-badge ds-badge-pill" style="background: {{ $style['soft'] }}; color: {{ $style['var'] }};">
                         {{ number_format($cards->count()) }}
                     </span>
                 </div>

@@ -231,17 +231,17 @@
                 @foreach(request()->except(['queue_group_by', 'queue_sort', 'queue_property_id', 'queue_date_from', 'queue_date_to', 'queue_page']) as $qk => $qv)
                     @if(!is_array($qv))<input type="hidden" name="{{ $qk }}" value="{{ $qv }}">@endif
                 @endforeach
-                <select name="queue_group_by" onchange="this.form.submit()" class="rounded-md px-1 py-1 text-[11px] flex-shrink-0 min-w-0" style="background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); width: 56px;" aria-label="Group needs-action by">
+                <select name="queue_group_by" onchange="this.form.submit()" class="list-header-filter {{ $queueGroupBy !== 'none' ? 'is-active' : '' }} text-[11px] flex-shrink-0 min-w-0" style="height: auto; padding: 0.25rem; width: 56px;" aria-label="Group needs-action by">
                     <option value="none" @selected($queueGroupBy === 'none')>No grp</option>
                     <option value="property" @selected($queueGroupBy === 'property')>By prop</option>
                     <option value="date" @selected($queueGroupBy === 'date')>By date</option>
                 </select>
-                <select name="queue_sort" onchange="this.form.submit()" class="rounded-md px-1 py-1 text-[11px] flex-shrink-0 min-w-0" style="background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); width: 46px;" aria-label="Sort needs-action by">
+                <select name="queue_sort" onchange="this.form.submit()" class="list-header-filter {{ $queueSort !== 'urgency' ? 'is-active' : '' }} text-[11px] flex-shrink-0 min-w-0" style="height: auto; padding: 0.25rem; width: 46px;" aria-label="Sort needs-action by">
                     <option value="urgency" @selected($queueSort === 'urgency')>Urgent</option>
                     <option value="date" @selected($queueSort === 'date')>Date</option>
                     <option value="property" @selected($queueSort === 'property')>Prop</option>
                 </select>
-                <select name="queue_property_id" onchange="this.form.submit()" class="rounded-md px-1 py-1 text-[11px] flex-shrink-0 min-w-0" style="background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); width: 52px;" aria-label="Filter needs-action by property">
+                <select name="queue_property_id" onchange="this.form.submit()" class="list-header-filter {{ $queuePropertyId ? 'is-active' : '' }} text-[11px] flex-shrink-0 min-w-0" style="height: auto; padding: 0.25rem; width: 52px;" aria-label="Filter needs-action by property">
                     <option value="">Prop</option>
                     @foreach($queuePropertyOptions as $p)
                         <option value="{{ $p->id }}" @selected($queuePropertyId === $p->id)>{{ \Illuminate\Support\Str::limit($p->buildDisplayAddress(), 18) }}</option>
@@ -253,13 +253,13 @@
                      so the dropdown itself only needs to be as wide as ONE
                      date input, not two. --}}
                 <details id="rcc-queue-dates" class="relative inline-block flex-shrink-0">
-                    <summary class="rounded-md px-1 py-1 text-[11px] cursor-pointer list-none text-center" style="background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); width: 40px;" aria-label="Needs-action date range">Dates{{ ($queueDateFrom || $queueDateTo) ? ' •' : '' }}</summary>
+                    <summary class="list-header-filter {{ ($queueDateFrom || $queueDateTo) ? 'is-active' : '' }} text-[11px] list-none text-center" style="height: auto; padding: 0.25rem; width: 40px;" aria-label="Needs-action date range">Dates{{ ($queueDateFrom || $queueDateTo) ? ' •' : '' }}</summary>
                     <div class="absolute z-20 mt-1 rounded-md p-2 space-y-1.5" style="right: 0; width: 132px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 2px 8px rgba(0,0,0,0.12);">
                         <label class="block text-[10px]" style="color: var(--text-muted);">From
-                            <input type="date" name="queue_date_from" value="{{ $queueDateFrom }}" onchange="this.form.submit()" class="w-full rounded-md px-1 py-1 text-[11px] mt-0.5" style="background: var(--surface); color: var(--text-primary); border: 1px solid var(--border);" aria-label="Needs-action date from">
+                            <input type="date" name="queue_date_from" value="{{ $queueDateFrom }}" onchange="this.form.submit()" class="list-header-filter {{ $queueDateFrom ? 'is-active' : '' }} w-full text-[11px] mt-0.5" style="height: auto; padding: 0.25rem;" aria-label="Needs-action date from">
                         </label>
                         <label class="block text-[10px]" style="color: var(--text-muted);">To
-                            <input type="date" name="queue_date_to" value="{{ $queueDateTo }}" onchange="this.form.submit()" class="w-full rounded-md px-1 py-1 text-[11px] mt-0.5" style="background: var(--surface); color: var(--text-primary); border: 1px solid var(--border);" aria-label="Needs-action date to">
+                            <input type="date" name="queue_date_to" value="{{ $queueDateTo }}" onchange="this.form.submit()" class="list-header-filter {{ $queueDateTo ? 'is-active' : '' }} w-full text-[11px] mt-0.5" style="height: auto; padding: 0.25rem;" aria-label="Needs-action date to">
                         </label>
                     </div>
                 </details>
@@ -340,28 +340,28 @@
                 @foreach(request()->only(['queue_group_by', 'queue_sort', 'queue_property_id', 'queue_date_from', 'queue_date_to']) as $qk => $qv)
                     <input type="hidden" name="{{ $qk }}" value="{{ $qv }}">
                 @endforeach
-                <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Search" aria-label="Search address, tenant, landlord, or erf number" class="rounded-md px-2 text-xs flex-shrink-0" style="height: 2rem; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); width: 120px;">
-                <select name="status" aria-label="Status" class="rounded-md px-2 text-xs flex-shrink-0" style="height: 2rem; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); width: 86px;">
+                <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Search" aria-label="Search address, tenant, landlord, or erf number" class="list-header-filter {{ filled($filters['q'] ?? null) ? 'is-active' : '' }} text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 120px;">
+                <select name="status" aria-label="Status" class="list-header-filter {{ filled($filters['status'] ?? null) ? 'is-active' : '' }} text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 86px;">
                     <option value="">Status</option>
                     @foreach($statusOptions as $s)
                         <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ $humanise($s) }}</option>
                     @endforeach
                 </select>
-                <select name="agent_id" aria-label="Agent" class="rounded-md px-2 text-xs flex-shrink-0" style="height: 2rem; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); width: 90px;">
+                <select name="agent_id" aria-label="Agent" class="list-header-filter {{ filled($filters['agent_id'] ?? null) ? 'is-active' : '' }} text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 90px;">
                     <option value="">Agent</option>
                     @foreach($agents as $a)
                         <option value="{{ $a->id }}" @selected((string) ($filters['agent_id'] ?? '') === (string) $a->id)>{{ $a->name }}</option>
                     @endforeach
                 </select>
-                <select name="branch_id" aria-label="Branch" class="rounded-md px-2 text-xs flex-shrink-0" style="height: 2rem; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); width: 86px;">
+                <select name="branch_id" aria-label="Branch" class="list-header-filter {{ filled($filters['branch_id'] ?? null) ? 'is-active' : '' }} text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 86px;">
                     <option value="">Branch</option>
                     @foreach($branches as $b)
                         <option value="{{ $b->id }}" @selected((string) ($filters['branch_id'] ?? '') === (string) $b->id)>{{ $b->name }}</option>
                     @endforeach
                 </select>
-                <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" aria-label="Lease end from" class="rounded-md px-2 text-xs flex-shrink-0" style="height: 2rem; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); width: 98px;">
-                <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" aria-label="Lease end to" class="rounded-md px-2 text-xs flex-shrink-0" style="height: 2rem; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); width: 98px;">
-                <select name="per_page" onchange="this.form.submit()" aria-label="Rows per page" class="rounded-md px-2 text-xs flex-shrink-0" style="height: 2rem; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); width: 54px;">
+                <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" aria-label="Lease end from" class="list-header-filter {{ filled($filters['date_from'] ?? null) ? 'is-active' : '' }} text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 98px;">
+                <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" aria-label="Lease end to" class="list-header-filter {{ filled($filters['date_to'] ?? null) ? 'is-active' : '' }} text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 98px;">
+                <select name="per_page" onchange="this.form.submit()" aria-label="Rows per page" class="list-header-filter text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 54px;">
                     @foreach([10, 25, 50, 100] as $pp)
                         <option value="{{ $pp }}" @selected($properties->perPage() === $pp)>{{ $pp }}</option>
                     @endforeach

@@ -937,13 +937,14 @@ html.dark .corex-sidebar-logo .corex-logo-accent {
 .list-header-filter option:hover { background: var(--surface-2); color: var(--text-primary); }
 
 /* Filter panel (AT-455): the Properties look for any filter bar. A page adds the props-filter-panel
-   class to its filter container. No grey fill, and a lit accent edge along the top. */
+   class to its filter container. It only removes the grey fill: there is no accent edge (the
+   earlier comment promised one, but no rule ever drew it and the reference pages have none). */
 .props-filter-panel { background: transparent !important; }
 
 /* CoreX-wide filter bars (AT-455): every filter bar takes the Core Matches look without
    editing each page. A filter panel is either marked with .props-filter-panel, or found by
    its shape: a surface panel holding a GET filter form, or a GET filter form that is itself
-   the panel. Matching panels lose the grey fill and get the accent edge; their fields take
+   the panel. Matching panels lose the grey fill (no accent edge); their fields take
    the shared filter-field look; their stacked text labels are hidden visually but still read
    out by screen readers, so every field keeps its name. Pages with the CoreX sidebar only. */
 :is(
@@ -1518,6 +1519,12 @@ html:has(.corex-sidebar) main table tbody tr:hover {
     z-index: 1;
 }
 
+/* Row hover for lists built from div/button rows instead of a <table> (list-look): the same plain
+   light colour the table rows and the Contacts rows turn on hover. !important so it wins over a
+   row's own inline background (Core Matches sets one for the selected contact; the colours match). */
+.list-row-hover { transition: background-color 200ms ease; }
+.list-row-hover:hover { background: var(--surface-2) !important; }
+
 /* ===== Daily Activity page — day chips + field focus ===== */
 .ds-daily-chip {
     background: var(--surface-2);
@@ -1607,17 +1614,38 @@ html:has(.corex-sidebar) main table tbody tr:hover {
     text-decoration: underline;
 }
 
-/* Status Badges */
+/* Status Badges: dot + word (list-look, Johan 2026-10-17: "status labels = dot + word everywhere").
+   The shared status style for every .ds-badge: a 7px coloured dot, then the word in the normal text
+   colour (the Core Matches / Outcomes / Leave Types look). The variant classes only choose the dot
+   colour (--ds-badge-c). A badge that carries its own inline colour keeps that colour for the dot
+   and the word, and loses its tinted fill/border.
+   Opt-out: add .ds-badge-pill for the old filled pill (counts, tags, labels on dark banners or
+   photos where a dot would be unreadable). A badge whose inline style sets white text, or a white
+   translucent fill, is treated as such an on-dark label and stays a pill automatically. */
 .ds-badge {
     display: inline-flex;
     align-items: center;
-    padding: 0.125rem 0.5rem;
-    border-radius: 9999px;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.025em;
+    gap: 0.375rem;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.25;
+    text-transform: capitalize;
+    letter-spacing: 0;
     white-space: nowrap;
+}
+
+.ds-badge::before {
+    content: '';
+    flex: 0 0 7px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--ds-badge-c, currentColor);
 }
 
 /* Task card icon-button hover — token-aware (works in both themes) */
@@ -1625,23 +1653,51 @@ html:has(.corex-sidebar) main table tbody tr:hover {
     background: var(--surface-2);
 }
 
-.ds-badge-behind  { background: var(--ds-crimson); color: #fff; }
-.ds-badge-ontrack { background: var(--ds-green); color: #fff; }
-.ds-badge-ahead   { background: var(--ds-navy); color: #fff; }
-.ds-badge-achieved { background: var(--ds-green); color: #fff; }
-.ds-badge-onpace  { background: var(--ds-green); color: #fff; }
-.ds-badge-default { background: #e5e7eb; color: #374151; }
+.ds-badge-behind  { --ds-badge-c: var(--ds-crimson); }
+.ds-badge-ontrack { --ds-badge-c: var(--ds-green); }
+.ds-badge-ahead   { --ds-badge-c: var(--brand-icon, var(--ds-navy)); }
+.ds-badge-achieved { --ds-badge-c: var(--ds-green); }
+.ds-badge-onpace  { --ds-badge-c: var(--ds-green); }
+.ds-badge-default { --ds-badge-c: var(--text-muted); }
 
 /* Deal register badges */
-.ds-badge-success    { background: var(--ds-green); color: #fff; }
-.ds-badge-danger     { background: var(--ds-crimson); color: #fff; }
-.ds-badge-warning    { background: var(--ds-amber); color: #fff; }
-.ds-badge-orange     { background: var(--ds-orange); color: #fff; }
-.ds-badge-info       { background: var(--ds-navy); color: #fff; }
-.ds-badge-paid       { background: var(--ds-green); color: #fff; }
-.ds-badge-notpaid    { background: var(--ds-amber); color: #fff; }
-.ds-badge-loss       { background: var(--ds-crimson); color: #fff; }
-.ds-badge-muted      { background: #e5e7eb; color: #6b7280; }
+.ds-badge-success    { --ds-badge-c: var(--ds-green); }
+.ds-badge-danger     { --ds-badge-c: var(--ds-crimson); }
+.ds-badge-warning    { --ds-badge-c: var(--ds-amber); }
+.ds-badge-orange     { --ds-badge-c: var(--ds-orange); }
+.ds-badge-info       { --ds-badge-c: var(--brand-icon, var(--ds-navy)); }
+.ds-badge-paid       { --ds-badge-c: var(--ds-green); }
+.ds-badge-notpaid    { --ds-badge-c: var(--ds-amber); }
+.ds-badge-loss       { --ds-badge-c: var(--ds-crimson); }
+.ds-badge-muted      { --ds-badge-c: var(--text-muted); }
+
+/* A badge that sets its own inline fill or border (tinted chips) loses it: the dot is the status. */
+.ds-badge:not(.ds-badge-pill):not([style*="#fff"]):not([style*="255,255,255"]):not([style*="255, 255, 255"]) {
+    background: transparent !important;
+    border: 0 !important;
+}
+
+/* Opt-out: the old filled pill, for counts/tags and on-dark labels. */
+.ds-badge.ds-badge-pill,
+.ds-badge[style*="#fff"],
+.ds-badge[style*="255,255,255"],
+.ds-badge[style*="255, 255, 255"] {
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+    color: #fff;
+    background: var(--ds-badge-c, var(--text-muted));
+}
+.ds-badge.ds-badge-pill::before,
+.ds-badge[style*="#fff"]::before,
+.ds-badge[style*="255,255,255"]::before,
+.ds-badge[style*="255, 255, 255"]::before { display: none; }
+.ds-badge-pill.ds-badge-default,
+.ds-badge-pill.ds-badge-muted { background: #e5e7eb; color: #374151; }
+.ds-badge-pill.ds-badge-muted { color: #6b7280; }
 
 /* Money card accents (colored left border, white bg) */
 .ds-money-pending   { border-left-color: var(--ds-amber); }
@@ -3026,8 +3082,8 @@ html.dark .corex-icon-moon { display: none; }
    ======================================== */
 
 /* Badge defaults (light gray bg → dark surface in dark mode) */
-html.dark .ds-badge-default { background: var(--surface-2); color: var(--text-secondary); }
-html.dark .ds-badge-muted { background: var(--surface-2); color: var(--text-secondary); }
+html.dark .ds-badge-pill.ds-badge-default,
+html.dark .ds-badge-pill.ds-badge-muted { background: var(--surface-2); color: var(--text-secondary); }
 html.dark .corex-badge-blue { background: rgba(79,124,255,0.15); color: #7fa8ff; }
 
 /* Inputs & selects inside hfc-card and agency-tracker-sidebar */

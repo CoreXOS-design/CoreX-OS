@@ -216,8 +216,8 @@
         <div class="rounded-md overflow-hidden flex flex-col max-h-[40vh] lg:max-h-none lg:h-full" style="background:var(--surface); border:1px solid var(--border);">
             <label class="flex items-center gap-2 px-3 py-2 flex-shrink-0" style="border-bottom:1px solid var(--border);">
                 <svg class="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text-muted);"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                <input type="text" name="q" form="cm-filters" value="{{ $search }}" placeholder="Search name, phone or email" class="list-header-filter {{ $search !== '' ? 'is-active' : '' }}" data-tour="re-core-matches-search"
-                       class="w-full text-sm bg-transparent outline-none border-0 p-0" style="color:var(--text-primary);">
+                <input type="text" name="q" form="cm-filters" value="{{ $search }}" placeholder="Search name, phone or email" class="list-header-filter {{ $search !== '' ? 'is-active' : '' }} w-full text-sm bg-transparent outline-none border-0 p-0" data-tour="re-core-matches-search"
+                       style="color:var(--text-primary);">
             </label>
             {{-- The list loads its next batch of contacts by itself when scrolled
                  near its end (more() below) — no page bar. --}}

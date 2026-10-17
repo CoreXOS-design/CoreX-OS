@@ -34,12 +34,12 @@
     <form method="GET" action="{{ route('corex.breaches.index') }}" class="flex flex-wrap items-end gap-3" data-qa="breach-filters">
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
-            <input type="text" name="q" value="{{ request('q') }}" placeholder="Name, address, clause or reason" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <input type="text" name="q" value="{{ request('q') }}" placeholder="Name, address, clause or reason" class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}">
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
-            <select name="status" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                <option value="">All</option>
+            <select name="status" class="list-header-filter text-sm {{ filled(request('status')) ? 'is-active' : '' }}">
+                <option value="">All statuses</option>
                 @foreach(\App\Models\LeaseBreach::STATUS_LABELS as $key => $label)
                     <option value="{{ $key }}" @selected(request('status') === $key)>{{ $label }}</option>
                 @endforeach
@@ -47,15 +47,15 @@
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Kind</label>
-            <select name="kind" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                <option value="">Any</option>
+            <select name="kind" class="list-header-filter text-sm {{ filled(request('kind')) ? 'is-active' : '' }}">
+                <option value="">All kinds</option>
                 <option value="payment" @selected(request('kind') === 'payment')>Payment</option>
                 <option value="other" @selected(request('kind') === 'other')>Other</option>
             </select>
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">In breach</label>
-            <select name="party" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <select name="party" class="list-header-filter text-sm {{ filled(request('party')) ? 'is-active' : '' }}">
                 <option value="">Anyone</option>
                 <option value="tenant" @selected(request('party') === 'tenant')>Tenant</option>
                 <option value="landlord" @selected(request('party') === 'landlord')>Landlord</option>
@@ -63,11 +63,11 @@
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Issued from</label>
-            <input type="date" name="date_from" value="{{ request('date_from') }}" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <input type="date" name="date_from" value="{{ request('date_from') }}" class="list-header-filter text-sm {{ filled(request('date_from')) ? 'is-active' : '' }}">
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">to</label>
-            <input type="date" name="date_to" value="{{ request('date_to') }}" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <input type="date" name="date_to" value="{{ request('date_to') }}" class="list-header-filter text-sm {{ filled(request('date_to')) ? 'is-active' : '' }}">
         </div>
         <label class="flex items-center gap-2 text-xs" style="height:2.25rem; color: var(--text-secondary);"><input type="checkbox" name="archived" value="1" @checked(request()->boolean('archived'))> Archived</label>
         <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
