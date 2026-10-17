@@ -45,6 +45,7 @@
             'alert'  => ['ds-badge-warning', 'Alert email sent'],
             'pause'  => ['ds-badge-danger',  'AI paused'],
             'resume' => ['ds-badge-success', 'AI turned back on'],
+            'template_limit' => ['ds-badge-info', 'Template limit changed'],
         ];
     @endphp
     <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
@@ -88,8 +89,13 @@
                     @forelse($guardHistory as $h)
                         <tr style="border-top:1px solid var(--border);">
                             <td class="px-4 py-3 whitespace-nowrap" style="color:var(--text-secondary);">{{ $h->occurred_at->format('d M Y H:i') }}</td>
-                            <td class="px-4 py-3"><span class="ds-badge {{ $eventLabel[$h->type][0] ?? 'ds-badge-default' }}">{{ $eventLabel[$h->type][1] ?? ucfirst($h->type) }}</span></td>
-                            <td class="px-4 py-3 text-right font-mono" style="color:var(--text-primary);">R {{ number_format((float) $h->spend_zar, 2) }}</td>
+                            <td class="px-4 py-3">
+                                <span class="ds-badge {{ $eventLabel[$h->type][0] ?? 'ds-badge-default' }}">{{ $eventLabel[$h->type][1] ?? ucfirst($h->type) }}</span>
+                                @if($h->type === 'template_limit')
+                                    <span class="text-xs ml-1" style="color:var(--text-secondary);">{{ $h->details['old'] ?? '?' }} → {{ $h->details['new'] ?? '?' }} a month</span>
+                                @endif
+                            </td>
+                            <td class="px-4 py-3 text-right font-mono" style="color:var(--text-primary);">{{ $h->type === 'template_limit' ? '—' : 'R ' . number_format((float) $h->spend_zar, 2) }}</td>
                             <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $h->user?->name ?? 'CoreX (automatic)' }}</td>
                         </tr>
                     @empty
@@ -98,6 +104,32 @@
                 </tbody>
             </table>
         </div>
+    </div>
+
+    {{-- AI Template Builder allowance (AT-456 Part B §B.4). Owner-only page; the limit is Johan's per-agency dial. --}}
+    <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
+        <div class="flex flex-wrap items-end justify-between gap-4">
+            <div>
+                <h2 class="text-sm font-semibold" style="color:var(--text-primary);">AI template generations</h2>
+                <p class="text-xs mt-1" style="color:var(--text-muted);">
+                    {{ $templateUsage['used'] }} of {{ $templateUsage['limit'] }} used this month
+                    (resets {{ $templateUsage['resets_at']->format('j F Y') }}) · {{ $templatesSaved }} AI template{{ $templatesSaved === 1 ? '' : 's' }} saved in total.
+                    One generation = one idea submitted; a failed attempt is not counted.
+                </p>
+            </div>
+            <form method="POST" action="{{ route('admin.ai-usage.template-limit', ['agency' => $agency->id]) }}" class="flex items-end gap-2">
+                @csrf
+                <label class="block">
+                    <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Generations per month</span>
+                    <input type="number" name="limit" min="0" max="1000" step="1" required value="{{ old('limit', $templateUsage['limit']) }}"
+                           class="w-32 rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                </label>
+                <button type="submit" class="corex-btn-primary text-xs px-4 py-2">Save limit</button>
+            </form>
+        </div>
+        @error('limit')
+            <p class="text-xs mt-2" style="color:var(--ds-crimson,#c41e3a);">{{ $message }}</p>
+        @enderror
     </div>
 
     {{-- KPI tiles --}}

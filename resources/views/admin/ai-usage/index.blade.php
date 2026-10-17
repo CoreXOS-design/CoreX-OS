@@ -223,6 +223,8 @@
                         <x-sort-header field="spend_24h" label="Spend — last {{ $guard['window_hours'] }}h" align="right" :current-sort="$filters['sort']" :current-direction="$filters['direction']" />
                         <x-sort-header field="spend_month" label="Spend — {{ $monthLabel }}" align="right" :current-sort="$filters['sort']" :current-direction="$filters['direction']" />
                         <x-sort-header field="status" label="Status" :current-sort="$filters['sort']" :current-direction="$filters['direction']" />
+                        <x-sort-header field="template_gens" label="Template generations" align="right" :current-sort="$filters['sort']" :current-direction="$filters['direction']" />
+                        <x-sort-header field="templates_saved" label="AI templates saved" align="right" :current-sort="$filters['sort']" :current-direction="$filters['direction']" />
                         <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Actions</th>
                     </tr>
                 </thead>
@@ -251,6 +253,12 @@
                                     <div class="text-[11px] mt-1" style="color:var(--text-muted);">since {{ $a['paused_at']->format('d M H:i') }}</div>
                                 @endif
                             </td>
+                            <td class="px-4 py-3 text-right whitespace-nowrap font-mono"
+                                style="color: {{ $a['template_used'] >= $a['template_limit'] ? 'var(--ds-crimson,#c41e3a)' : 'var(--text-primary)' }};"
+                                title="AI template ideas used this calendar month / the agency's monthly limit">
+                                {{ number_format($a['template_used']) }} / {{ number_format($a['template_limit']) }}
+                            </td>
+                            <td class="px-4 py-3 text-right font-mono" style="color:var(--text-primary);">{{ number_format($a['templates_saved']) }}</td>
                             <td class="px-4 py-3 text-right whitespace-nowrap">
                                 @if($a['status'] === 'paused')
                                     <form method="POST" action="{{ route('admin.ai-usage.resume', ['agency' => $a['id']]) }}" class="inline"
@@ -264,7 +272,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="5" class="px-4 py-12 text-center text-sm" style="color:var(--text-muted);">
+                            <td colspan="7" class="px-4 py-12 text-center text-sm" style="color:var(--text-muted);">
                                 @if($hasFilters)
                                     No agencies match these filters.
                                     <a href="{{ route('admin.ai-usage.index', ['month' => $month]) }}" class="font-semibold" style="color:var(--brand-icon,#0ea5e9);">Clear filters</a>

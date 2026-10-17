@@ -13,11 +13,12 @@ class PropertyAdTemplate extends Model
 
 
     protected $fillable = [
-        'agency_id','user_id', 'name', 'layout_json', 'is_global'];
+        'agency_id','user_id', 'name', 'layout_json', 'is_global', 'ai_generated', 'ai_idea'];
 
     protected $casts = [
         'layout_json' => 'array',
         'is_global'   => 'boolean',
+        'ai_generated' => 'boolean',
     ];
 
     public function user(): BelongsTo

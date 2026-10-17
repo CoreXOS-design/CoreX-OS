@@ -502,6 +502,8 @@ class Agency extends Model
         'ai_paused_spend_zar'   => 'decimal:4',
         'ai_resumed_at'         => 'datetime',
         'ai_alert_last_sent_at' => 'datetime',
+        // AT-456 Part B — owner-set per-agency cap on AI template ideas per calendar month.
+        'ai_template_monthly_limit' => 'integer',
         // Presentations V2 Phase 2.
         'presentations_coverage_rich_threshold'     => 'integer',
         'presentations_coverage_moderate_threshold' => 'integer',

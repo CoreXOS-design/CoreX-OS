@@ -609,3 +609,7 @@ Schedule::command('minion:capture --cycle --by=schedule')
 // Platform E-Sign — Subscription Agreement: expire lapsed links, remind the agency and RR (spec §11.14). Hourly; the thresholds
 // are platform settings (Platform E-Sign → Agreement wording), not constants.
 Schedule::command('platform-esign:remind-agreements')->hourly()->onOneServer()->withoutOverlapping();
+
+// AT-456 Part B — AI Template Builder reference images are private and live 7 days. Daily at 03:15;
+// also runnable by hand: php artisan ai-templates:purge-reference-images
+Schedule::command('ai-templates:purge-reference-images')->dailyAt('03:15')->onOneServer()->withoutOverlapping();

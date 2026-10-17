@@ -1,6 +1,6 @@
 # AT-456 — AI Template Builder, Article Library, Post Scheduler & AI Spend Safety
 
-> Status: **Part A BUILT on QA2 2026-10-17 (Johan: "save spec and build") — awaiting Johan's test on QA2.** Parts B, C, D: not started; build one at a time after A is accepted.
+> Status: **Part A BUILT on QA2 2026-10-17 (Johan: "save spec and build") — awaiting Johan's test on QA2.** **Part B BUILT 2026-10-17 (QA2) — awaiting Johan's test.** Parts C, D: not started; build one at a time.
 > Drafted 2026-10-14 on QA2 from the AT-456 investigation conversation.
 > Every business decision below is Johan's, quoted or plainly paraphrased from that conversation.
 > Pillars: **Property** (read), **Agent** (read/write own drafts + posts), **Agency** (scope + AI safety).
@@ -88,14 +88,14 @@ Per-agency table, one row per agency:
 | Spend — last 24h | live, vs R30 / R50 |
 | Spend — this month | |
 | Status | Active · Alerted · **Paused** |
-| Template generations | `used / limit` this month — **added with Part B** (its table does not exist yet) |
-| AI templates saved | count of `property_ad_templates.ai_generated` — **added with Part B** |
+| Template generations | `used / limit` this month — **built with Part B** (sortable) |
+| AI templates saved | count of `property_ad_templates.ai_generated` per agency, archived ones included — **built with Part B** (sortable) |
 | Library articles used | count of `agent_articles.library_article_id` — **added with Part C** |
 | Actions | **Turn AI back on** (only when Paused), View detail |
 
 - **Search:** agency name. **Sort:** every column; default = 24h spend, highest first. **Filters:** status (All · Active · Alerted · Paused), month. **Pagination:** 25. **Empty states:** "No agencies yet." (every agency is listed, usage or not, so a usage-based message would never be true); "No agencies match these filters." + Clear filters.
 - "Spend — last 24h" is the spend the guard is counting: for an agency turned back on inside the window it is the spend since the resume, labelled "since turned back on <time>".
-- Agency detail page: per-source breakdown (existing), AI Spend Safety status + **Turn AI back on**, the alert/pause/resume history (who, when, spend at the time). The per-agency **template generation limit** input (default 20) is **added with Part B**.
+- Agency detail page: per-source breakdown (existing), AI Spend Safety status + **Turn AI back on**, the alert/pause/resume history (who, when, spend at the time). The per-agency **template generation limit** input (default 20) is **built with Part B** (owner-only POST, whole number 0–1000, audited as a `template_limit` row in `ai_spend_guard_events`: who, old → new).
 - Scoping: owner-only at the route; no agency user can reach it.
 
 ### A.6 Acceptance
@@ -113,7 +113,7 @@ Automated proof: `tests/Feature/AI/AiSpendGuardTest.php` (16 tests), `tests/Unit
 ## B. AI Template Builder (inside Template Manager)
 
 ### B.1 What it does
-On `tools/ad-manager/templates` a **"Create with AI"** button opens a panel: **idea box** (text, required) + **reference image** (optional) + **ad size** (Facebook / Instagram / Story / WhatsApp) + **property type** (optional, drives §18 variants). Generate → **three previews** → agent saves any they like → each saved option becomes a normal `PropertyAdTemplate` in the agency library (editable in the Ad Builder, archivable, restorable).
+On `tools/ad-manager/templates` a **"Create with AI"** button opens a panel: **idea box** (text, required) + **reference image** (optional) + **ad size** (Facebook / Instagram / Story / WhatsApp) + **property type** (optional, drives §18 variants). Generate → **exactly three previews** (Johan 2026-10-17: "make it 3 templates to choose the best one") → agent saves any they like → each saved option becomes a normal `PropertyAdTemplate` in the agency library (editable in the Ad Builder, archivable, restorable).
 
 ### B.2 Pillars
 Agency (READ: brand colours/logo — never HFC's; WRITE: templates), Agent (WRITE: creator), Property (none — templates are reusable, §3).
@@ -137,12 +137,30 @@ AI badge on AI-made rows; new filter **Created: Everyone · Only mine · AI-made
 Reuse the template-create gate (`access_properties` + `access_ad_manager`); no new key. Server re-checks agency scope.
 
 ### B.7 Acceptance
-- [ ] "Create with AI" yields three valid previews for a one-line idea; each saves as a normal template that opens in the Ad Builder.
-- [ ] Uploading a reference image changes the result and is purged after 7 days.
-- [ ] Invalid AI output never reaches the user and doesn't consume allowance.
-- [ ] 21st generation in a month is refused with the reset date; Johan raising the agency limit takes effect immediately.
-- [ ] Second agency sees its own colours/logo and none of HFC's.
-- [ ] **Pre-build trial (before any UI):** run the prompt against 5 real listings and let Johan judge the ads. Go/no-go on the output quality.
+Automated proof: `tests/Feature/Tools/AiTemplateBuilderTest.php` (39 cases incl. the validator's reject list), `tests/Feature/AI/AiTemplateUsageAdminTest.php` (11).
+- [x] "Create with AI" yields three valid previews for a one-line idea; each saves as a normal template that opens in the Ad Builder. (Tests prove the validated, builder-shaped layout and the save; the *look* of real model output is Johan's judgement on QA2.)
+- [x] Uploading a reference image sends it to the model as an image block; it is stored privately and purged after 7 days by `ai-templates:purge-reference-images` (scheduled daily 03:15, runnable by hand).
+- [x] Invalid AI output never reaches the user and doesn't consume allowance (one automatic retry, then a friendly failure).
+- [x] 21st generation in a month is refused with the reset date and no AI call; raising the agency limit takes effect immediately.
+- [x] Second agency sees its own colours/logo and none of HFC's (brand block is read from the requesting agency's record; test asserts agency B's prompt carries B's colours only).
+- ~~**Pre-build trial (before any UI):** run the prompt against 5 real listings and let Johan judge the ads.~~ **Struck — Johan 2026-10-17: no trial — build the screen; the user judges the 3 options in the real screen.**
+- [ ] Johan tests on QA2.
+
+### B.8 As built (2026-10-17) — decisions beyond the text above
+- **One model call returns all three options** (cheaper and the options differ from each other). If some fail validation, ONE retry asks only for the missing ones and is told exactly what was wrong. If at least one option is valid after that, the user sees what is valid (success, counts once); if none is, friendly failure, not counted. Worst case in time is bounded: model call capped at 100s, retry skipped if the first attempt already took > 120s; nginx on QA2/Staging/live allows 300s+. The screen says "this usually takes about a minute".
+- **Allowance counting:** a generation counts when it succeeds, plus any still genuinely in flight (a pending row younger than 10 minutes), so a double-click cannot slip two ideas past the cap. Failed and stale-pending rows never count. Calendar month in the app timezone; reset date = the 1st of next month.
+- **The server keeps the options.** `ai_template_generations.options_json` holds the validated layouts; saving sends only the option number (+ optional name) — the browser can never hand the server a layout to store. Saving is idempotent (`saved_template_ids`). Only the user who made a generation may save from it (403 for a colleague); another agency's generation id is a 404 (AgencyScope).
+- **Validation (`AdLayoutValidator`)**: element types limited to the Ad Builder's own (no custom image/video, no Agent 2); unknown properties dropped; every number range-checked; element fully inside the canvas (2px tolerance); text ≥ 16px; at least one property photo, 3–40 elements; colours must be `#hex`/`rgb()`/`rgba()` — anything else is refused because the render kernel writes colours straight into `style=""` (injection guard); literal text ≤ 80 chars, markup stripped. **Contrast is a heuristic (≥ 3:1)**: text is tested against its own pill, else the nearest covering colour block/shape/gradient beneath it (opaque stops), else the canvas; text straight on a photo with none of those is refused unless it has a text shadow. It does not sample real pixels. The model's sparse answer is completed server-side to the full element shape `makeElement()` produces, so a saved template edits like any other.
+- **Canvas sizes** are the four from §B.1 (Facebook 1200×628, Instagram 1080×1080, Story 1080×1920, WhatsApp 900×900); a test fails if they drift from `CANVAS_PRESETS` in the kernel. Property type is sent to the model as context only (no automatic §18 variants are generated).
+- **Previews** are drawn by the existing `corex-ad-render.js` kernel against a made-up sample listing (neutral generated photos; the signed-in user as agent; the agency's own name, website and logo).
+- **Ledger:** new `AiUsageEvent::SOURCE_AD_TEMPLATE`. `NarrativeRequest` gained optional `source` and `timeoutSeconds` (defaults leave every existing caller unchanged); `AnthropicGateway` records under `$request->source` and honours the timeout.
+- **Limit audit:** new `ai_spend_guard_events.type = template_limit` (details `{old, new}`) — no new table.
+- **Reference image purge** deletes the FILE after 7 days and stamps `reference_image_purged_at`; the generation row stays (it is the usage record). `ai_template_generations` has no delete or archive action anywhere (append-only log, same posture as `ai_usage_events`).
+- **Setup Wizard:** nothing added — the per-agency limit is owner-set, listed in the "NOT in the wizard" table below.
+- **Template Manager filter** label changed from "Created by" to "Created" (Everyone · Only mine · AI-made).
+- Route throttle `8/min` on generation as a belt-and-braces guard on top of the monthly allowance.
+
+---
 
 ---
 
@@ -235,7 +253,7 @@ Own colours/logo in B; own drafts and own count in C; own posts, scope and conne
 
 ## Files (indicative)
 **A (as built):** `Services/AI/AiSpendGuard.php`, `Exceptions/AI/AiPausedException.php`, `Mail/AiSpendAlertMail.php` + `emails/ai-spend-alert.blade.php`, `Models/AI/AiSpendGuardEvent.php`, Dev Settings section (`DevSettingsController`, `admin/dev-settings/index.blade.php`), edits to `AiUsageRecorder`, `AnthropicGateway`, `MarketingCopyService`, `WarmThisWeekTilesJob`, all direct callers, `Agency.php`, `AiUsageController`, `admin/ai-usage/*.blade.php`, routes, 2 migrations, tests.
-**B:** `Services/AdTemplates/AiTemplateBuilderService.php`, `Tools/AdTemplateManagerController` (+ `generateWithAi`, `saveAiOption`), `tools/ad-manager/templates.blade.php`, migration, tests.
+**B (as built):** `Services/AdTemplates/AiTemplateBuilderService.php`, `Services/AdTemplates/AdLayoutValidator.php`, `Models/AiTemplateGeneration.php`, `Exceptions/AI/AiTemplate*Exception.php`, `Console/Commands/PurgeAiTemplateReferenceImages.php` (+ `routes/console.php`), `Tools/AdTemplateManagerController` (+ `generateWithAi`, `saveAiOption`), `Admin/AiUsageController` (+ `updateTemplateLimit`), `tools/ad-manager/templates.blade.php`, `admin/ai-usage/{index,agency}.blade.php`, `NarrativeRequest` + `AnthropicGateway` (source/timeout), migration `2026_11_07_100000_at456_b_ai_template_builder.php`, 2 test files.
 **C:** `Services/Articles/ArticleLibraryService.php`, `ArticleScraperService` (read from table), `Admin/ArticleLibraryController`, `Tools/ArticleLibraryController`, views, `_switcher.blade.php`, 2–3 migrations, command + schedule entry, tests.
 **D:** `Console/Commands/PublishDueMarketingPosts.php`, `Jobs/PublishMarketingPostJob.php`, `Tools/ScheduledPostsController`, views, `_switcher.blade.php`, permission keys, migration, event, tests.
 

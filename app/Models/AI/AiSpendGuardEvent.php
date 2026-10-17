@@ -30,6 +30,8 @@ final class AiSpendGuardEvent extends Model
     public const TYPE_PAUSE    = 'pause';
     public const TYPE_RESUME   = 'resume';
     public const TYPE_SETTINGS = 'settings';
+    /** AT-456 Part B — the owner changed an agency's monthly AI template generation limit (details: old, new). */
+    public const TYPE_TEMPLATE_LIMIT = 'template_limit';
 
     protected $fillable = [
         'agency_id',

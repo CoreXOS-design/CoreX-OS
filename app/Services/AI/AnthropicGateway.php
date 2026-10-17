@@ -145,7 +145,7 @@ final class AnthropicGateway
             . '/v1/messages';
 
         try {
-            $response = $this->callApi($endpoint, $apiKey, $payload);
+            $response = $this->callApi($endpoint, $apiKey, $payload, $request->timeoutSeconds);
         } catch (Throwable $e) {
             return $this->handleApiFailure($request, $inputHash, $e);
         }
@@ -199,6 +199,8 @@ final class AnthropicGateway
             fallbackData:     $request->fallbackData,
             forceRefresh:     $request->forceRefresh,
             promptVersion:    $request->promptVersion,
+            source:           $request->source,
+            timeoutSeconds:   $request->timeoutSeconds,
         );
 
         $response = $this->generate($augmented);
@@ -287,9 +289,9 @@ final class AnthropicGateway
         return $content;
     }
 
-    private function callApi(string $endpoint, string $apiKey, array $payload): Response
+    private function callApi(string $endpoint, string $apiKey, array $payload, ?int $timeoutSeconds = null): Response
     {
-        $timeout    = (int) config('services.anthropic.timeout', 30);
+        $timeout    = $timeoutSeconds ?? (int) config('services.anthropic.timeout', 30);
         $maxRetries = (int) config('services.anthropic.max_retries', 3);
 
         return Http::withHeaders([
@@ -366,7 +368,7 @@ final class AnthropicGateway
 
         // Cost ledger — one row per API call (spec ai-cost-ledger.md §4.3).
         $this->usageRecorder->record(
-            source:       AiUsageEvent::SOURCE_MIC_NARRATIVE,
+            source:       $request->source,
             model:        $model,
             inputTokens:  $inputTokens,
             outputTokens: $outputTokens,
@@ -468,7 +470,7 @@ final class AnthropicGateway
         // Cost ledger — log the degraded call (cost 0) so the dashboard shows
         // fallbacks, not silent gaps (spec ai-cost-ledger.md §4.3).
         $this->usageRecorder->record(
-            source:       AiUsageEvent::SOURCE_MIC_NARRATIVE,
+            source:       $request->source,
             model:        (string) $model,
             inputTokens:  0,
             outputTokens: 0,

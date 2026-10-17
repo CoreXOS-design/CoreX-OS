@@ -10,6 +10,7 @@ use App\Models\AI\AiSpendGuardEvent;
 use App\Models\Agency;
 use App\Services\AI\AICostAggregator;
 use App\Services\AI\AiSpendGuard;
+use App\Services\AdTemplates\AiTemplateBuilderService;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -33,6 +34,7 @@ class AiUsageController extends Controller
     public function __construct(
         private readonly AICostAggregator $aggregator,
         private readonly AiSpendGuard $spendGuard,
+        private readonly AiTemplateBuilderService $templateBuilder,
     ) {
         // Middleware is applied at the route level (see routes/web.php):
         // `auth` via the wrapping group, `permission:mic.view_ai_costs` per route.
@@ -194,7 +196,7 @@ class AiUsageController extends Controller
         $guardHistory = AiSpendGuardEvent::query()
             ->with('user:id,name')
             ->where('agency_id', $agency->id)
-            ->whereIn('type', [AiSpendGuardEvent::TYPE_ALERT, AiSpendGuardEvent::TYPE_PAUSE, AiSpendGuardEvent::TYPE_RESUME])
+            ->whereIn('type', [AiSpendGuardEvent::TYPE_ALERT, AiSpendGuardEvent::TYPE_PAUSE, AiSpendGuardEvent::TYPE_RESUME, AiSpendGuardEvent::TYPE_TEMPLATE_LIMIT])
             ->orderByDesc('occurred_at')
             ->orderByDesc('id')
             ->limit(50)
@@ -204,6 +206,9 @@ class AiUsageController extends Controller
             'guardSnapshot' => $this->spendGuard->snapshot($agency),
             'guard'         => $this->spendGuard->settings(),
             'guardHistory'  => $guardHistory,
+            // AT-456 Part B — this month's AI template allowance + how many AI templates are saved.
+            'templateUsage' => $this->templateBuilder->usage((int) $agency->id),
+            'templatesSaved' => (int) DB::table('property_ad_templates')->where('agency_id', $agency->id)->where('ai_generated', true)->count(),
             'agency'     => $agency,
             'month'      => $monthCarbon->format('Y-m'),
             'monthLabel' => $monthCarbon->format('F Y'),
@@ -237,6 +242,47 @@ class AiUsageController extends Controller
     }
 
     /**
+     * Set an agency's monthly AI template generation limit (AT-456 Part B, spec §B.4).
+     * Owner-only at the route. Takes effect on the agency's very next attempt. Audited in
+     * ai_spend_guard_events as a `template_limit` row (who, old → new).
+     */
+    public function updateTemplateLimit(Request $request, Agency $agency): RedirectResponse
+    {
+        $this->authorizeAgency($agency);
+
+        $data = $request->validate([
+            'limit' => ['required', 'integer', 'min:0', 'max:1000'],
+        ], [
+            'limit.required' => 'Enter a whole number from 0 to 1000.',
+            'limit.integer'  => 'Enter a whole number from 0 to 1000.',
+            'limit.min'      => 'Enter a whole number from 0 to 1000.',
+            'limit.max'      => 'Enter a whole number from 0 to 1000.',
+        ]);
+
+        $new = (int) $data['limit'];
+        $old = $this->templateBuilder->limitFor((int) $agency->id);
+
+        if ($new === $old) {
+            return back()->with('status', "{$agency->name}'s template limit is already {$new} a month.");
+        }
+
+        DB::transaction(function () use ($agency, $new, $old, $request) {
+            DB::table('agencies')->where('id', $agency->id)->update(['ai_template_monthly_limit' => $new]);
+
+            AiSpendGuardEvent::create([
+                'agency_id'   => $agency->id,
+                'type'        => AiSpendGuardEvent::TYPE_TEMPLATE_LIMIT,
+                'spend_zar'   => 0,
+                'user_id'     => $request->user()->id,
+                'details'     => ['old' => $old, 'new' => $new],
+                'occurred_at' => Carbon::now(),
+            ]);
+        });
+
+        return back()->with('status', "{$agency->name} can now make {$new} AI template generation" . ($new === 1 ? '' : 's') . ' a month (was ' . $old . ').');
+    }
+
+    /**
      * "Turn AI back on" for the platform-wide system bucket (AI no agency owns).
      */
     public function resumeSystem(Request $request): RedirectResponse
@@ -256,6 +302,8 @@ class AiUsageController extends Controller
         'spend_24h'   => 'spend_24h',
         'spend_month' => 'spend_month',
         'status'      => 'status',
+        'template_gens'   => 'template_used',
+        'templates_saved' => 'templates_saved',
     ];
 
     private const STATUSES = [
@@ -286,10 +334,20 @@ class AiUsageController extends Controller
             ->selectRaw('agency_id, SUM(cost_zar) AS cost')
             ->pluck('cost', 'agency_id');
 
+        // AT-456 Part B — this calendar month's AI template generations (the window the limit
+        // counts) and every AI-made template an agency has saved (archived ones included: it
+        // measures what the AI made for them, not what is currently on show).
+        $templateUsed  = $this->templateBuilder->usedThisMonthByAgency();
+        $templateSaved = DB::table('property_ad_templates')
+            ->where('ai_generated', true)
+            ->groupBy('agency_id')
+            ->selectRaw('agency_id, COUNT(*) AS n')
+            ->pluck('n', 'agency_id');
+
         $rows = Agency::query()
             ->when($search !== '', fn ($q) => $q->where('name', 'like', '%' . $search . '%'))
             ->get()
-            ->map(function (Agency $a) use ($monthSpend) {
+            ->map(function (Agency $a) use ($monthSpend, $templateUsed, $templateSaved) {
                 $snap = $this->spendGuard->snapshot($a);
 
                 return [
@@ -299,6 +357,9 @@ class AiUsageController extends Controller
                     'since_resume'  => $snap['since_resume'],
                     'window_start'  => $snap['window_start'],
                     'spend_month'   => (float) ($monthSpend[$a->id] ?? 0),
+                    'template_used'  => (int) ($templateUsed[$a->id] ?? 0),
+                    'template_limit' => $a->ai_template_monthly_limit === null ? AiTemplateBuilderService::DEFAULT_LIMIT : (int) $a->ai_template_monthly_limit,
+                    'templates_saved' => (int) ($templateSaved[$a->id] ?? 0),
                     'status'        => $snap['status'],
                     'paused_at'     => $a->ai_paused_at,
                     'paused_reason' => $a->ai_paused_reason,

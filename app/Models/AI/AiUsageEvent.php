@@ -52,6 +52,8 @@ final class AiUsageEvent extends Model
     public const SOURCE_PRESENTATION_EVIDENCE = 'presentation_evidence';
     /** Ellie's tool-using chat loop (.ai/specs/ellie-v2.md §4). */
     public const SOURCE_ELLIE_CHAT            = 'ellie_chat';
+    /** AT-456 Part B — the AI Template Builder in Template Manager. */
+    public const SOURCE_AD_TEMPLATE           = 'ad_template';
 
     protected $fillable = [
         'agency_id',

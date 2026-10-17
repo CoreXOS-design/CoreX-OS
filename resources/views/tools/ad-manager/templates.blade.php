@@ -2,10 +2,15 @@
 {{-- Template Manager — spec .ai/specs/ad-manager.md §19 --}}
 @extends('layouts.corex')
 
+{{-- AT-456 Part B: the "Create with AI" previews use the SAME render kernel + fonts as the Ad Builder (ad-manager.md §12). --}}
+@push('head')
+    @include('corex.properties._ad-fonts')
+@endpush
+
 @section('corex-content')
 @php
     $f = $filters;
-    $filtersActive = $f['q'] !== '' || $f['status'] !== 'active' || $f['creator'] === 'mine' || $f['from'] || $f['to'];
+    $filtersActive = $f['q'] !== '' || $f['status'] !== 'active' || $f['creator'] !== 'all' || $f['from'] || $f['to'];
 
     // Clickable column headers: same column toggles direction, a new column starts at its natural direction.
     $sortUrl = function (string $key) use ($f) {
@@ -31,6 +36,12 @@
             </div>
             <div class="flex items-center gap-3 flex-wrap">
                 @include('tools.ad-manager._switcher', ['inHeader' => true])
+                @if($aiPanel)
+                    <button type="button" onclick="window.dispatchEvent(new CustomEvent('open-ai-template-panel'))" class="corex-btn-outline text-sm px-4 py-2 inline-flex items-center gap-1.5 self-start md:self-auto">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z"/></svg>
+                        Create with AI
+                    </button>
+                @endif
                 @if($canBuild)
                     <a href="{{ route('corex.ad-templates.builder', ['from' => 'templates']) }}" class="corex-btn-primary text-sm px-4 py-2 inline-flex items-center gap-1.5 self-start md:self-auto">
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
@@ -64,10 +75,11 @@
         </label>
 
         <label class="block">
-            <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Created by</span>
+            <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Created</span>
             <select name="creator" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $inputStyle }}">
                 <option value="all"  @selected($f['creator'] === 'all')>Everyone</option>
                 <option value="mine" @selected($f['creator'] === 'mine')>Only mine</option>
+                <option value="ai"   @selected($f['creator'] === 'ai')>AI-made</option>
             </select>
         </label>
 
@@ -134,6 +146,11 @@
                         <tr style="border-top:1px solid var(--border); {{ $t->trashed() ? 'opacity:.65;' : '' }}">
                             <td class="px-4 py-3 font-semibold">
                                 {{ $t->name }}
+                                @if($t->ai_generated)
+                                    <span class="ml-1 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded inline-flex items-center gap-1"
+                                          style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 14%, transparent); color:var(--brand-icon,#0ea5e9);"
+                                          title="Designed by the AI Template Builder{{ $t->ai_idea ? ' from the idea: ' . \Illuminate\Support\Str::limit($t->ai_idea, 160) : '' }}">AI</span>
+                                @endif
                                 @if($t->trashed())
                                     <span class="ml-1 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:var(--surface-2); color:var(--text-muted);">Archived</span>
                                 @endif
@@ -177,4 +194,184 @@
         <div>{{ $templates->links() }}</div>
     @endif
 </div>
+
+{{-- ══ Create with AI (AT-456 Part B) ═══════════════════════════════════════ --}}
+@if($aiPanel)
+<script src="{{ asset_v('js/corex-ad-render.js') }}"></script>
+<div x-data="aiTemplatePanel(@js([
+        'usage'    => $aiPanel['usage'],
+        'sample'   => $aiPanel['sample'],
+        'generate' => route('tools.ad-manager.templates.ai.generate'),
+        'save'     => route('tools.ad-manager.templates.ai.save', ['generation' => '__GEN__']),
+        'csrf'     => csrf_token(),
+    ]))"
+     x-on:open-ai-template-panel.window="openPanel()"
+     x-on:keydown.escape.window="if (open && !loading) closePanel()"
+     x-show="open" style="display:none;"
+     class="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true" aria-label="Create a template with AI">
+    <div class="fixed inset-0" style="background:rgba(0,0,0,.55);" @click="if (!loading) closePanel()"></div>
+
+    <div class="relative mx-auto my-6 w-[min(1100px,94vw)] rounded-md p-5 space-y-4" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+        <div class="flex items-start justify-between gap-3">
+            <div>
+                <h2 class="text-lg font-bold">Create a template with AI</h2>
+                <p class="text-sm" style="color:var(--text-muted);">Describe the look you want. You get three different designs to choose from — keep the ones you like, then fine-tune them in the Ad Builder.</p>
+            </div>
+            <button type="button" class="corex-btn-outline text-xs" :disabled="loading" @click="closePanel()">Close</button>
+        </div>
+
+        {{-- The idea form --}}
+        <form @submit.prevent="generate()" class="grid gap-3 md:grid-cols-6 items-start">
+            <label class="md:col-span-6 block">
+                <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Your idea</span>
+                <textarea x-model="idea" maxlength="1000" rows="3" required :disabled="loading"
+                          placeholder="e.g. A bold, modern look for new listings — big photo, price in a strong colour bar, agent photo bottom right."
+                          class="w-full rounded-md px-3 py-2 text-sm" style="{{ $inputStyle }}"></textarea>
+                <span class="text-xs" style="color:var(--text-muted);" x-text="idea.length + ' / 1000'"></span>
+            </label>
+            <label class="md:col-span-2 block">
+                <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Ad size</span>
+                <select x-model="size" :disabled="loading" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $inputStyle }}">
+                    @foreach($aiPanel['sizes'] as $sz)
+                        <option value="{{ $sz['key'] }}">{{ $sz['label'] }}</option>
+                    @endforeach
+                </select>
+            </label>
+            <label class="md:col-span-2 block">
+                <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Mainly for (optional)</span>
+                <select x-model="ptype" :disabled="loading" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $inputStyle }}">
+                    <option value="">Any property type</option>
+                    @foreach($aiPanel['propertyTypes'] as $pt)
+                        <option value="{{ $pt }}">{{ $pt }}</option>
+                    @endforeach
+                </select>
+            </label>
+            <label class="md:col-span-2 block">
+                <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Reference image (optional)</span>
+                <input type="file" accept="image/jpeg,image/png" :disabled="loading" @change="pickFile($event)"
+                       class="w-full text-xs" style="color:var(--text-secondary);">
+                <span class="text-xs" style="color:var(--text-muted);">JPG or PNG, up to 5 MB. Used for inspiration only and deleted after 7 days.</span>
+                <span class="block text-xs mt-1" style="color:var(--ds-crimson,#c41e3a);" x-show="fileError" x-text="fileError"></span>
+            </label>
+
+            <div class="md:col-span-6 flex flex-wrap items-center gap-3">
+                <button type="submit" class="corex-btn-primary text-sm px-4 py-2" :disabled="loading || usage.remaining <= 0 || idea.trim() === ''">
+                    <span x-show="!loading">Design 3 options</span>
+                    <span x-show="loading">Designing…</span>
+                </button>
+                <span class="text-sm" style="color:var(--text-secondary);" x-show="usage.remaining > 0"
+                      x-text="usage.remaining + ' of ' + usage.limit + ' generations left this month'"></span>
+                <span class="text-sm" style="color:var(--ds-crimson,#c41e3a);" x-show="usage.remaining <= 0 && usage.limit > 0"
+                      x-text="'You have used all ' + usage.limit + ' generations this month. They reset on ' + usage.resets_on + '.'"></span>
+                <span class="text-sm" style="color:var(--ds-crimson,#c41e3a);" x-show="usage.limit <= 0">AI template generation is switched off for your agency.</span>
+            </div>
+        </form>
+
+        <div x-show="loading" class="rounded-md px-4 py-3 text-sm" style="background:var(--surface-2); border:1px solid var(--border);">
+            Designing your three templates — this usually takes about a minute. Please keep this window open.
+        </div>
+
+        <div x-show="error" class="rounded-md px-4 py-3 text-sm" role="alert"
+             style="background:color-mix(in srgb, var(--ds-crimson,#c41e3a) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson,#c41e3a) 35%, transparent);"
+             x-text="error"></div>
+
+        {{-- The three options --}}
+        <div x-show="options.length" class="space-y-2">
+            <h3 class="text-sm font-semibold">Pick the ones you like</h3>
+            <div class="grid gap-4 md:grid-cols-3">
+                <template x-for="opt in options" :key="generationId + '-' + opt.index">
+                    <div class="rounded-md p-3 space-y-2" style="background:var(--surface-2); border:1px solid var(--border);">
+                        <div class="rounded overflow-hidden" style="background:#111;" x-init="$nextTick(() => renderPreview($el, opt))">
+                            <div></div>
+                        </div>
+                        <input type="text" x-model="opt.name" maxlength="100" :disabled="opt.saved || opt.saving"
+                               class="w-full rounded-md px-3 py-1.5 text-sm" style="{{ $inputStyle }}" aria-label="Template name">
+                        <div class="text-xs" style="color:var(--ds-crimson,#c41e3a);" x-show="opt.err" x-text="opt.err"></div>
+                        <div class="flex items-center gap-2" x-show="!opt.saved">
+                            <button type="button" class="corex-btn-primary text-xs px-3 py-1.5" :disabled="opt.saving" @click="save(opt)">
+                                <span x-show="!opt.saving">Save this template</span><span x-show="opt.saving">Saving…</span>
+                            </button>
+                        </div>
+                        <div class="flex items-center gap-2 text-xs" x-show="opt.saved">
+                            <span style="color:var(--ds-green,#059669);">Saved to your templates.</span>
+                            <a :href="opt.editUrl" class="corex-btn-outline text-xs">Open in Ad Builder</a>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            <p class="text-xs" style="color:var(--text-muted);">Previews use sample photos and details, with your agency's own name and logo. Real listings are filled in when you make an ad.</p>
+        </div>
+    </div>
+</div>
+
+<script>
+function aiTemplatePanel(cfg) {
+    return {
+        open: false, idea: '', size: 'facebook', ptype: '', file: null, fileError: '',
+        usage: cfg.usage, sample: cfg.sample,
+        loading: false, error: '', generationId: null, options: [], savedAny: false,
+
+        openPanel() { this.open = true; document.body.style.overflow = 'hidden'; },
+        closePanel() {
+            this.open = false; document.body.style.overflow = '';
+            // Newly saved templates only appear in the table after a reload.
+            if (this.savedAny) window.location.reload();
+        },
+        pickFile(e) {
+            this.fileError = ''; this.file = null;
+            const f = e.target.files && e.target.files[0];
+            if (!f) return;
+            if (!/^image\/(jpeg|png)$/.test(f.type)) { this.fileError = 'Please choose a JPG or PNG image.'; e.target.value = ''; return; }
+            if (f.size > 5 * 1024 * 1024) { this.fileError = 'That image is larger than 5 MB.'; e.target.value = ''; return; }
+            this.file = f;
+        },
+        async generate() {
+            if (this.loading) return;
+            this.loading = true; this.error = ''; this.options = []; this.generationId = null;
+            const body = new FormData();
+            body.append('idea', this.idea); body.append('ad_size', this.size);
+            if (this.ptype) body.append('property_type', this.ptype);
+            if (this.file) body.append('reference_image', this.file);
+            try {
+                const res = await fetch(cfg.generate, { method: 'POST', body, headers: { 'X-CSRF-TOKEN': cfg.csrf, 'Accept': 'application/json' }, credentials: 'same-origin' });
+                const data = await res.json().catch(() => ({}));
+                if (data.usage) this.usage = data.usage;
+                if (!res.ok || !data.ok) {
+                    this.error = data.message
+                        || (data.errors ? Object.values(data.errors).flat().join(' ') : '')
+                        || (res.status === 429 ? 'You are going a little fast — wait a minute and try again.' : 'Something went wrong. Nothing was counted — please try again.');
+                } else {
+                    this.generationId = data.generation_id;
+                    this.options = data.options.map(o => ({ ...o, saving: false, saved: false, editUrl: '', err: '' }));
+                }
+            } catch (e) {
+                this.error = 'We could not reach the server. Nothing was counted — please try again.';
+            } finally { this.loading = false; }
+        },
+        renderPreview(box, opt) {
+            const l = opt.layout, inner = box.firstElementChild;
+            if (!inner || !window.CoreXAd) return;
+            const s = (box.clientWidth || 320) / l.canvasW;
+            box.style.height = Math.round(l.canvasH * s) + 'px';
+            inner.style.cssText = 'position:relative;width:' + l.canvasW + 'px;height:' + l.canvasH + 'px;overflow:hidden;transform-origin:top left;transform:scale(' + s + ');';
+            window.CoreXAd.renderLayout(l, this.sample, inner, { paintBackground: true, placeholders: true });
+        },
+        async save(opt) {
+            opt.saving = true; opt.err = '';
+            try {
+                const res = await fetch(cfg.save.replace('__GEN__', this.generationId), {
+                    method: 'POST', credentials: 'same-origin',
+                    headers: { 'X-CSRF-TOKEN': cfg.csrf, 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ option: opt.index, name: opt.name }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok && data.ok) { opt.saved = true; opt.editUrl = data.edit_url; this.savedAny = true; }
+                else { opt.err = data.message || 'Could not save this template — please try again.'; }
+            } catch (e) { opt.err = 'We could not reach the server — please try again.'; }
+            finally { opt.saving = false; }
+        },
+    };
+}
+</script>
+@endif
 @endsection

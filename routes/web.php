@@ -457,6 +457,11 @@ Route::middleware('auth')->group(function () {
     Route::post('/admin/ai-usage/system/resume', [\App\Http\Controllers\Admin\AiUsageController::class, 'resumeSystem'])
         ->middleware(['owner_only', 'permission:mic.view_ai_costs'])
         ->name('admin.ai-usage.system.resume');
+    // AT-456 Part B — the owner sets an agency's monthly AI template generation limit (audited).
+    Route::post('/admin/ai-usage/agencies/{agency}/template-limit', [\App\Http\Controllers\Admin\AiUsageController::class, 'updateTemplateLimit'])
+        ->middleware(['owner_only', 'permission:mic.view_ai_costs'])
+        ->where('agency', '[0-9]+')
+        ->name('admin.ai-usage.template-limit');
 
 // ── CoreX Global API v1 (session-authenticated, browser-visible XHR) ──
     Route::prefix('api/v1')->name('api.v1.')->group(function () {
@@ -1572,6 +1577,10 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/tools/ad-manager/templates', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'index'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.templates');
     Route::post('/tools/ad-manager/templates/{template}/archive', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'archive'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.templates.archive')->whereNumber('template');
     Route::post('/tools/ad-manager/templates/{template}/restore', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'restore'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.templates.restore')->whereNumber('template')->withTrashed();
+    // AT-456 Part B — "Create with AI" in the Template Manager (spec .ai/specs/at456-ai-tools-scheduler-and-spend-safety.md §B).
+    // Generation is throttled on top of the monthly allowance; both re-check access_properties in the controller.
+    Route::post('/tools/ad-manager/templates/ai/generate', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'generateWithAi'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager', 'throttle:8,1'])->name('tools.ad-manager.templates.ai.generate');
+    Route::post('/tools/ad-manager/templates/ai/{generation}/save', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'saveAiOption'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.templates.ai.save')->whereNumber('generation');
 
     // Tools History (backend)
     Route::get('/tools/history', [ToolsController::class, 'historyIndex'])->middleware('permission:access_calculators')->name('tools.history.index');

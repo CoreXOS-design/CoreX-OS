@@ -53,6 +53,13 @@ final class NarrativeRequest
      *                                  When non-empty, AnthropicGateway emits
      *                                  the messages.content[] in multipart form
      *                                  (document blocks before the text block).
+     * @param string  $source           AiUsageEvent::SOURCE_* the ledger row is filed
+     *                                  under. Default keeps every existing caller on
+     *                                  mic_narrative; a new surface passes its own so its
+     *                                  spend shows up under its own name (AT-456 Part B).
+     * @param int|null $timeoutSeconds  Per-request HTTP timeout override. Null = the
+     *                                  config default (30s) — fine for a short brief, too
+     *                                  short for a multi-layout generation.
      */
     public function __construct(
         public readonly string $narrativeType,
@@ -69,6 +76,8 @@ final class NarrativeRequest
         public readonly bool $forceRefresh = false,
         public readonly string $promptVersion = 'v1',
         public readonly array $documents = [],
+        public readonly string $source = \App\Models\AI\AiUsageEvent::SOURCE_MIC_NARRATIVE,
+        public readonly ?int $timeoutSeconds = null,
     ) {}
 
     /**
