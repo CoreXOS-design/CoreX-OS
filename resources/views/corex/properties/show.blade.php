@@ -10316,7 +10316,7 @@
                         <form method="POST" action="{{ route('corex.properties.notes.destroy', [$property, $note]) }}"
                               onsubmit="return confirm('Delete this note?')">
                             @csrf @method('DELETE')
-                            <button type="submit" class="text-xs font-semibold flex-shrink-0 transition-opacity hover:opacity-80" style="color:var(--ds-crimson);">Delete</button>
+                            <button type="submit" class="text-xs font-semibold flex-shrink-0 rounded-md px-2 py-1 -my-1 -mr-2 transition-opacity hover:opacity-80" style="color:var(--ds-crimson);">Delete</button>
                         </form>
                         @endif
                     </div>
@@ -11235,13 +11235,13 @@
             @foreach($coreMatches as $cm)
             @php $views = $cm->propertyViewCount($property->id); @endphp
             <div x-data="{ open: false }"
-                 class="rounded-md overflow-hidden"
+                 class="prop-cm-card rounded-md overflow-hidden"
                  style="background:var(--surface); border:1px solid var(--border);">
 
                 {{-- Row --}}
                 <button type="button"
                         @click="open = !open"
-                        class="w-full flex items-center gap-4 px-5 py-4 text-left"
+                        class="prop-cm-row w-full flex items-center gap-4 px-5 py-4 text-left"
                         style="background:transparent;">
 
                     {{-- Client avatar --}}
@@ -11351,7 +11351,7 @@
                             </div>
                             @if($cm->contact)
                             <a href="{{ route('corex.contacts.matches.results', [$cm->contact, $cm]) }}"
-                               class="inline-flex items-center gap-1.5 mt-2 text-xs font-semibold no-underline"
+                               class="prop-cm-open inline-flex items-center gap-1.5 mt-2 text-xs font-semibold no-underline"
                                style="color:var(--brand-icon);">
                                 View match results →
                             </a>

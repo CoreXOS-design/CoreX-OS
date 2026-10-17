@@ -23,7 +23,7 @@ class PropertyNoteController extends Controller
             'content' => $request->content,
         ]);
 
-        return back()->with('success', 'Note added.')->with('tab', 'notes');
+        return $this->backToNotes('Note added.', $property);
     }
 
     public function destroy(Property $property, PropertyNote $note)
@@ -36,6 +36,24 @@ class PropertyNoteController extends Controller
 
         $note->delete();
 
-        return back()->with('success', 'Note deleted.')->with('tab', 'notes');
+        return $this->backToNotes('Note deleted.', $property);
+    }
+
+    /**
+     * Land on the Notes tab of the property, whatever URL the agent came from.
+     *
+     * This used to be back()->with('tab', 'notes'). The property page picks its open tab as
+     * `request('tab') ?? session('tab')`, so when the agent had arrived on a deep link such as
+     * /corex/properties/6042?tab=contacts, back() returned to that same URL, the ?tab=contacts
+     * in it beat the flashed 'notes', and the page reopened on Contacts: the note WAS saved but
+     * the agent saw "Note added." on the wrong tab and no note — which reads as "Add Note does
+     * nothing". An explicit ?tab=notes on the redirect wins over everything.
+     */
+    private function backToNotes(string $message, Property $property)
+    {
+        return redirect()
+            ->route('corex.properties.show', ['property' => $property, 'tab' => 'notes'])
+            ->with('success', $message)
+            ->with('tab', 'notes');
     }
 }

@@ -326,6 +326,100 @@
         outline-offset: 2px;
     }
 
+    /* ── 8. Every OTHER tab (Overview, Gallery, Inventory, Contacts, Notes, History, Drive, Intelligence, Core Matches,
+          Rental, Inspections, Auction ...). Johan 2026-10-18: "there is no hover for these buttons: Select / Tag Images /
+          Sort order & Custom tags / Saved" - the control hover of section 7 only reached the Info tab. Same recipe:
+          raise 1px + soft shadow + brand glow; pills and bold buttons grow ~2%; tiny icon buttons ~8%; disabled / locked
+          controls get nothing and show not-allowed; reduced motion keeps the glow and drops the movement.
+          Links only count when they are styled AS buttons (corex-btn, padded, a filled/bordered rounded box) - plain
+          text links keep their own underline hover. Anything that already has its own hover (the action buttons, the
+          clickable cards, the text links, accordion headers) is left alone, and drag-to-reorder handles are never touched.
+          Controls that sit inside a clipped / scrolling box (photo thumbnails, scroll rows, tables) cannot lift without
+          being cut off or jumping, so they light up from the inside instead. ──────────────────────────────────────── */
+    .corex-props-v2 .prop-tab-panel > [x-show*="activeTab"]:not(.prop-info-panel) {
+        --pp-ring: color-mix(in srgb, var(--pp-accent) 24%, transparent);
+        --pp-ring-soft: color-mix(in srgb, var(--pp-accent) 14%, transparent);
+        --pp-lift: 0 8px 16px -10px color-mix(in srgb, var(--pp-accent) 60%, transparent);
+    }
+    .corex-props-v2 .prop-tab-panel > [x-show*="activeTab"]:not(.prop-info-panel) :is(select, button, summary[class*="cursor-pointer"], [role="button"], label[class*="cursor-pointer"][class*="border"], a[href]:where([class*="corex-btn"], [class*="px-"][class*="py-"], [class*="rounded"][style*="background"], [class*="rounded"][style*="border"])) {
+        transition: transform 200ms var(--pp-spring), box-shadow 200ms ease, border-color 200ms ease,
+                    background-color 150ms ease, color 150ms ease, opacity 150ms ease;
+    }
+    .corex-props-v2 .prop-tab-panel > [x-show*="activeTab"]:not(.prop-info-panel) :is(button, select, input, textarea):disabled { cursor: not-allowed; }
+    .corex-props-v2 .prop-tab-panel > [x-show*="activeTab"]:not(.prop-info-panel) :where(select, button, summary[class*="cursor-pointer"], [role="button"], label[class*="cursor-pointer"][class*="border"], a[href]:where([class*="corex-btn"], [class*="px-"][class*="py-"], [class*="rounded"][style*="background"], [class*="rounded"][style*="border"])):hover:where(:not(:disabled, [aria-disabled="true"], .cursor-not-allowed, .prop-section-toggle, .prop-action-btn, .prop-card-link, .prop-text-link, .prop-cm-row, .prop-cm-open, [draggable="true"], [class*="cursor-grab"], [class*="cursor-move"])) {
+        box-shadow: var(--pp-lift), 0 0 0 3px var(--pp-ring);
+    }
+    .corex-props-v2 .prop-tab-panel > [x-show*="activeTab"]:not(.prop-info-panel) :where(select, button, summary[class*="cursor-pointer"], [role="button"], label[class*="cursor-pointer"][class*="border"], a[href]:where([class*="corex-btn"], [class*="px-"][class*="py-"], [class*="rounded"][style*="background"], [class*="rounded"][style*="border"])):hover:where(:not(:disabled, [aria-disabled="true"], .cursor-not-allowed, .prop-section-toggle, .prop-action-btn, .prop-card-link, .prop-text-link, .prop-cm-row, .prop-cm-open, [draggable="true"], [class*="cursor-grab"], [class*="cursor-move"], .absolute, [class*="translate"])) {
+        transform: translateY(-1px);
+    }
+    /* Pills and bold buttons (Select, Tag Images, Sort order, Saved, Add Note, chips) grow a touch - never the wide ones. */
+    .corex-props-v2 .prop-tab-panel > [x-show*="activeTab"]:not(.prop-info-panel) :is(button.rounded-full, button[class*="font-semibold"], button[class*="font-bold"]):hover:where(:not(:disabled, [aria-disabled="true"], .cursor-not-allowed, .prop-section-toggle, .prop-action-btn, .prop-card-link, .prop-text-link, .prop-cm-row, .prop-cm-open, [draggable="true"], [class*="cursor-grab"], [class*="cursor-move"], .absolute, [class*="translate"], .w-full, .flex-1)) {
+        transform: translateY(-1px) scale(1.02);
+    }
+    /* Little icon buttons grow a bit more - they are tiny. */
+    .corex-props-v2 .prop-tab-panel > [x-show*="activeTab"]:not(.prop-info-panel) button:is(.w-5.h-5, .w-6.h-6, .w-7.h-7, .w-8.h-8, .p-1):hover:where(:not(:disabled, [aria-disabled="true"], .cursor-not-allowed, .prop-section-toggle, .prop-action-btn, .prop-card-link, .prop-text-link, .prop-cm-row, .prop-cm-open, [draggable="true"], [class*="cursor-grab"], [class*="cursor-move"], .absolute, [class*="translate"])) {
+        transform: translateY(-1px) scale(1.08);
+    }
+    /* Filled brand buttons (their colour is inline, so the tint rules above cannot reach it): a touch brighter. */
+    .corex-props-v2 .prop-tab-panel > [x-show*="activeTab"]:not(.prop-info-panel) button[style*="background:var(--brand-button"]:hover:where(:not(:disabled)) { filter: brightness(1.08); }
+    /* Inside a clipped / scrolling box (photo thumbnails, scroll rows, tables): no movement, glow from the inside. */
+    .corex-props-v2 .prop-tab-panel > [x-show*="activeTab"]:not(.prop-info-panel) :is(.overflow-hidden, .overflow-auto, .overflow-x-auto, .overflow-y-auto, .overflow-x-hidden, .overflow-y-hidden, .overflow-scroll, [style*="overflow"]) :where(select, button, summary[class*="cursor-pointer"], [role="button"], label[class*="cursor-pointer"][class*="border"], a[href]:where([class*="corex-btn"], [class*="px-"][class*="py-"], [class*="rounded"][style*="background"], [class*="rounded"][style*="border"])):hover:where(:not(:disabled, [aria-disabled="true"], .cursor-not-allowed, .prop-section-toggle, .prop-action-btn, .prop-card-link, .prop-text-link, .prop-cm-row, .prop-cm-open, [draggable="true"], [class*="cursor-grab"], [class*="cursor-move"])) {
+        transform: none !important;
+        box-shadow: inset 0 0 0 2px var(--pp-ring), inset 0 -22px 20px -22px color-mix(in srgb, var(--pp-accent) 55%, transparent);
+    }
+    .corex-props-v2 .prop-tab-panel > [x-show*="activeTab"]:not(.prop-info-panel) :where(select, button, summary[class*="cursor-pointer"], [role="button"], label[class*="cursor-pointer"][class*="border"], a[href]:where([class*="corex-btn"], [class*="px-"][class*="py-"], [class*="rounded"][style*="background"], [class*="rounded"][style*="border"])):focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--pp-accent) 65%, transparent);
+        outline-offset: 2px;
+    }
+
+    /* ── 9. Core Matches tab: each buyer search is a clickable card. Hover tints the row, grows an accent edge in
+          on the left, lifts the card a hair and lights its border; avatar and chevron answer too. ─────────────── */
+    .corex-props-v2 .prop-cm-card {
+        position: relative;
+        transition: transform 220ms var(--pp-spring), border-color 200ms ease, box-shadow 200ms ease;
+    }
+    .corex-props-v2 .prop-cm-card:hover {
+        transform: translateY(-1px);
+        border-color: color-mix(in srgb, var(--pp-accent) 55%, var(--border)) !important;
+        box-shadow: 0 12px 22px -16px color-mix(in srgb, var(--pp-accent) 55%, transparent);
+    }
+    .corex-props-v2 .prop-cm-row {
+        position: relative;
+        transition: background-color 150ms ease, box-shadow 200ms ease;
+    }
+    .corex-props-v2 .prop-cm-row::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 20%;
+        bottom: 20%;
+        width: 3px;
+        border-radius: 3px;
+        background: var(--pp-accent);
+        transform: scaleY(0);
+        transition: transform 220ms ease;
+        pointer-events: none;
+    }
+    .corex-props-v2 .prop-cm-row:hover {
+        background: color-mix(in srgb, var(--pp-accent) 8%, var(--surface-2)) !important;
+    }
+    .corex-props-v2 .prop-cm-row:is(:hover, :focus-visible)::before { transform: scaleY(1); }
+    .corex-props-v2 .prop-cm-row > div:first-child { transition: transform 220ms var(--pp-spring); }
+    .corex-props-v2 .prop-cm-row:hover > div:first-child { transform: scale(1.06); }
+    .corex-props-v2 .prop-cm-row > svg { transition: transform 200ms ease, color 150ms ease; }
+    .corex-props-v2 .prop-cm-row:hover > svg { color: var(--pp-accent) !important; }
+    .corex-props-v2 .prop-cm-row:focus-visible {
+        outline: 0;
+        box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--pp-accent) 45%, transparent);
+    }
+    /* The "View match results" link inside an opened card: same nudge as the other text links. */
+    .corex-props-v2 .prop-cm-open { display: inline-flex; transition: transform 200ms var(--pp-spring), opacity 150ms ease; }
+    .corex-props-v2 .prop-cm-open:hover { transform: translateX(3px); text-decoration: underline; }
+    .corex-props-v2 .prop-cm-open:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--pp-accent) 65%, transparent);
+        outline-offset: 2px;
+    }
+
     /* ── Respect reduced motion: no movement, instant state changes ─────────────────────────── */
     @media (prefers-reduced-motion: reduce) {
         .corex-props-v2 .prop-action-btn,
@@ -354,6 +448,19 @@
         .corex-props-v2 .prop-info-panel :is(select, button, a[href]):hover,
         .corex-props-v2 .prop-info-panel button.flex-col:hover > *,
         .corex-props-v2 .prop-info-panel button.flex-col > * { transform: none !important; transition: none; }
+        .corex-props-v2 .prop-tab-panel > [x-show*="activeTab"]:not(.prop-info-panel) :is(select, button, summary[class*="cursor-pointer"], [role="button"], label[class*="cursor-pointer"][class*="border"], a[href]:where([class*="corex-btn"], [class*="px-"][class*="py-"], [class*="rounded"][style*="background"], [class*="rounded"][style*="border"])) {
+            transition: box-shadow 150ms ease, border-color 150ms ease, background-color 150ms ease, color 150ms ease;
+        }
+        .corex-props-v2 .prop-tab-panel > [x-show*="activeTab"]:not(.prop-info-panel) :is(select, button, summary[class*="cursor-pointer"], [role="button"], label[class*="cursor-pointer"][class*="border"], a[href]:where([class*="corex-btn"], [class*="px-"][class*="py-"], [class*="rounded"][style*="background"], [class*="rounded"][style*="border"])):hover { transform: none !important; }
+        .corex-props-v2 .prop-cm-card,
+        .corex-props-v2 .prop-cm-row,
+        .corex-props-v2 .prop-cm-row::before,
+        .corex-props-v2 .prop-cm-row > div:first-child,
+        .corex-props-v2 .prop-cm-row > svg,
+        .corex-props-v2 .prop-cm-open { transition: none; }
+        .corex-props-v2 .prop-cm-card:hover,
+        .corex-props-v2 .prop-cm-row:hover > div:first-child,
+        .corex-props-v2 .prop-cm-open:hover { transform: none; }
     }
 </style>
 
