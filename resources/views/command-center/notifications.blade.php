@@ -2,8 +2,12 @@
 
 @section('corex-content')
 <div class="space-y-4" data-tour="cc-notifications-list">
-    <div class="flex items-center justify-between" data-tour="cc-notifications-header">
-        <h1 class="text-xl font-bold" style="color:var(--text-primary);">Notifications</h1>
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cc-notifications-header">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+            <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Notifications</h1>
+            <p class="text-xs" style="color:var(--text-muted);">Alerts and updates sent to you across CoreX.</p>
+        </div>
         <div class="flex items-center gap-2">
             @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             @if($notifications->count() > 0)
@@ -13,6 +17,7 @@
             </form>
             @endif
         </div>
+      </div>
     </div>
 
     @forelse($notifications as $n)
@@ -20,7 +25,7 @@
             $data = json_decode($n->data, true);
             $isUnread = !$n->read_at;
         @endphp
-        <div class="rounded-md px-4 py-3 flex items-start gap-3" data-tour="cc-notifications-item" style="background:var(--surface);border:1px solid var(--border);{{ $isUnread ? 'border-left:3px solid var(--brand-button);' : '' }}">
+        <div class="rounded-md px-4 py-3 flex items-start gap-3 list-row-hover" data-tour="cc-notifications-item" style="background:var(--surface);border:1px solid var(--border);{{ $isUnread ? 'border-left:3px solid var(--brand-button);' : '' }}">
             <div class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style="{{ $isUnread ? 'background:var(--brand-button);' : 'background:var(--text-muted);opacity:0.3;' }}"></div>
             <div class="flex-1 min-w-0">
                 @php

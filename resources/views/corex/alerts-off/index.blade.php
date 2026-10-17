@@ -26,16 +26,18 @@
     $switchWords = fn ($d) => 'in-app ' . ($d->switch_in_app ? 'on' : 'off') . ', email ' . ($d->switch_email ? 'on' : 'off') . ', push ' . ($d->switch_push ? 'on' : 'off');
 @endphp
 
-@section('content')
-<div class="p-6 space-y-4">
-    <div class="flex items-center justify-between flex-wrap gap-2">
-        <div>
-            <h1 class="text-lg font-semibold">Users with all alerts off</h1>
-            <p class="text-xs" style="color: var(--text-muted);">
-                These people will not be told about new faults, leads or approvals. Turn their in-app alerts back on, or accept that they stay off - either way it is kept on record.
-            </p>
+@section('corex-content')
+<div class="w-full space-y-4">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Users with all alerts off</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    These people will not be told about new faults, leads or approvals. Turn their in-app alerts back on, or accept that they stay off - either way it is kept on record.
+                </p>
+            </div>
+            <a href="{{ route('admin.users') }}" class="corex-btn-outline text-xs">Back to users</a>
         </div>
-        <a href="{{ route('admin.users') }}" class="corex-btn-outline text-xs">Back to users</a>
     </div>
 
     @if(session('success'))
@@ -45,57 +47,59 @@
         <div class="rounded-md px-3 py-2 text-xs" style="background: color-mix(in srgb, var(--ds-crimson, #c41e3a) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson, #c41e3a) 40%, transparent);">{{ session('error') }}</div>
     @endif
 
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
     <form method="GET" action="{{ route('corex.alerts-off.index') }}" class="flex flex-wrap items-end gap-3" data-qa="alerts-off-filters">
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Search</label><br>
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
             <input type="search" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Name or email" maxlength="100"
-                   class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                   class="list-header-filter text-sm {{ filled($filters['q'] ?? '') ? 'is-active' : '' }}">
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Decision</label><br>
-            <select name="status" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                <option value="all" @selected(($filters['status'] ?? 'all') === 'all')>All</option>
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Decision</label>
+            <select name="status" class="list-header-filter text-sm {{ ($filters['status'] ?? 'all') !== 'all' ? 'is-active' : '' }}">
+                <option value="all" @selected(($filters['status'] ?? 'all') === 'all')>All decisions</option>
                 <option value="open" @selected(($filters['status'] ?? '') === 'open')>Not decided yet</option>
                 <option value="accepted" @selected(($filters['status'] ?? '') === 'accepted')>Accepted - stays off</option>
             </select>
         </div>
         @if($branches->count() > 1)
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Branch</label><br>
-            <select name="branch_id" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                <option value="">All</option>
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Branch</label>
+            <select name="branch_id" class="list-header-filter text-sm {{ filled($filters['branch_id'] ?? '') ? 'is-active' : '' }}">
+                <option value="">All branches</option>
                 @foreach($branches as $b)
                     <option value="{{ $b->id }}" @selected((int) ($filters['branch_id'] ?? 0) === $b->id)>{{ $b->name }}</option>
                 @endforeach
             </select>
         </div>
         @endif
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Off since - from</label><br>
-            <input type="date" name="from" value="{{ $filters['from'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Off since - from</label>
+            <input type="date" name="from" value="{{ $filters['from'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['from'] ?? '') ? 'is-active' : '' }}">
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">to</label><br>
-            <input type="date" name="to" value="{{ $filters['to'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">to</label>
+            <input type="date" name="to" value="{{ $filters['to'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['to'] ?? '') ? 'is-active' : '' }}">
         </div>
         <div class="flex items-center gap-2">
-            <button type="submit" class="corex-btn-primary text-xs">Apply</button>
+            <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Apply</button>
             @if($filtered)
-                <a href="{{ route('corex.alerts-off.index') }}" class="corex-btn-outline text-xs">Clear</a>
+                <a href="{{ route('corex.alerts-off.index') }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>
             @endif
         </div>
     </form>
+    </div>
 
     <div class="rounded-md overflow-x-auto" style="border: 1px solid var(--border); background: var(--surface);">
         <table class="w-full text-sm" data-qa="alerts-off-table">
             <thead>
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('name') }}" style="color: var(--text-muted);">User{{ $sortMark('name') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('role') }}" style="color: var(--text-muted);">Role{{ $sortMark('role') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('branch') }}" style="color: var(--text-muted);">Branch{{ $sortMark('branch') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('since') }}" style="color: var(--text-muted);" title="When the notification settings were last saved">Off since{{ $sortMark('since') }}</a></th>
-                    <th class="text-left px-4 py-2" style="color: var(--text-muted);">Decision</th>
-                    <th class="text-left px-4 py-2" style="color: var(--text-muted);">What to do</th>
+                <tr style="background: var(--surface-2); border-bottom: 1px solid var(--border);">
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide"><a href="{{ $sortLink('name') }}" style="color: var(--text-muted);">User{{ $sortMark('name') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide"><a href="{{ $sortLink('role') }}" style="color: var(--text-muted);">Role{{ $sortMark('role') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide"><a href="{{ $sortLink('branch') }}" style="color: var(--text-muted);">Branch{{ $sortMark('branch') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide"><a href="{{ $sortLink('since') }}" style="color: var(--text-muted);" title="When the notification settings were last saved">Off since{{ $sortMark('since') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Decision</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">What to do</th>
                 </tr>
             </thead>
             <tbody>
