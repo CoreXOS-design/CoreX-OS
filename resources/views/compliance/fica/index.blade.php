@@ -177,10 +177,8 @@
           style="background: var(--surface); border: 1px solid var(--border);">
         <input type="hidden" name="tab" value="{{ $tab }}">
         @if($canPickAgent ?? false)<input type="hidden" name="agent_id" value="{{ $filterAgentId }}">@endif {{-- AT-346 keep My/All across search --}}
-        <input type="text" name="search" data-tour="fica-search" value="{{ request('search') }}"
-               placeholder="Search by contact name or email..."
-               class="flex-1 rounded-md px-3 py-2 text-sm"
-               style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+        <input class="list-header-filter flex-1 {{ request('search') ? 'is-active' : '' }}" type="text" name="search" data-tour="fica-search" value="{{ request('search') }}"
+               placeholder="Search by contact name or email...">
         <div class="flex gap-2">
             <button type="submit" class="corex-btn-primary" data-tour="fica-search-btn">Search</button>
             @if(request('search'))
@@ -221,9 +219,9 @@
                             </td>
                             <td class="px-4 py-3">
                                 @if($sub->intake_type === 'wet_ink')
-                                    <span class="ds-badge ds-badge-warning">Wet-Ink</span>
+                                    <span class="ds-badge ds-badge-warning ds-badge-pill">Wet-Ink</span>
                                 @else
-                                    <span class="ds-badge ds-badge-info">Online</span>
+                                    <span class="ds-badge ds-badge-info ds-badge-pill">Online</span>
                                 @endif
                             </td>
                             <td class="px-4 py-3 capitalize" style="color: var(--text-secondary);">{{ $sub->entity_type }}</td>

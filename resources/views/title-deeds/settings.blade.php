@@ -170,7 +170,7 @@
         @else
         <div class="overflow-x-auto">
             <table class="w-full text-sm">
-                <thead><tr class="text-left text-xs" style="color: var(--text-secondary);"><th class="py-2 pr-3 font-medium">When</th><th class="py-2 pr-3 font-medium">Who</th><th class="py-2 pr-3 font-medium">Setting</th><th class="py-2 pr-3 font-medium">From</th><th class="py-2 font-medium">To</th></tr></thead>
+                <thead><tr class="text-left text-xs uppercase tracking-wider" style="color: var(--text-muted);"><th class="py-2 pr-3 font-semibold">When</th><th class="py-2 pr-3 font-semibold">Who</th><th class="py-2 pr-3 font-semibold">Setting</th><th class="py-2 pr-3 font-semibold">From</th><th class="py-2 font-semibold">To</th></tr></thead>
                 <tbody>
                 @foreach($history as $h)
                     <tr style="border-top: 1px solid var(--border); color: var(--text-primary);">

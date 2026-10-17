@@ -1,17 +1,25 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="-m-4 lg:-m-6">
-    <x-page-header title="Compliance Officer" :back-route="route('compliance.rmcp.index')" back-label="RMCP" :flush="true">
-        <x-slot:actions>
-            <a href="{{ route('compliance.officer.create') }}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold transition" style="background:var(--brand-icon); color:var(--text-primary); border-radius:6px;" data-tour="comp-officer-appoint">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                Appoint New
-            </a>
-        </x-slot:actions>
-    </x-page-header>
+<div class="w-full space-y-5">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <a href="{{ route('compliance.rmcp.index') }}" class="text-xs no-underline" style="color: var(--text-muted);">&larr; RMCP</a>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Compliance Officer</h1>
+                <p class="text-xs" style="color: var(--text-muted);">The appointed FICA compliance officer and previous appointments.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('compliance.officer.create') }}" class="corex-btn-primary text-xs inline-flex items-center gap-1.5" data-tour="comp-officer-appoint">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    Appoint New
+                </a>
+            </div>
+        </div>
+    </div>
 
-    <div class="p-4 lg:p-6" data-tour="comp-officer-intro">
+    <div data-tour="comp-officer-intro">
         {{-- No current CO warning --}}
         @if(!$currentOfficer)
         <div class="mb-4 px-4 py-3 text-sm font-semibold" style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid rgba(239,68,68,0.3); border-radius:6px; color:var(--ds-crimson);">
@@ -59,19 +67,19 @@
                 Previous Officers ({{ $historicalOfficers->count() }})
             </button>
 
-            <div x-show="showHistory" x-cloak class="overflow-x-auto" style="border:1px solid var(--border, #e5e7eb); border-radius:6px;">
-                <table class="w-full text-sm" style="">
+            <div x-show="showHistory" x-cloak class="overflow-x-auto rounded-md" style="background: var(--surface); border:1px solid var(--border);">
+                <table class="min-w-full text-sm ds-table">
                     <thead>
-                        <tr style="background:var(--surface-2, #f8fafc); border-bottom:1px solid var(--border, #e5e7eb);">
-                            <th class="px-4 py-3 text-left font-semibold" style="color:var(--text-secondary, #6b7280);">Name</th>
-                            <th class="px-4 py-3 text-left font-semibold" style="color:var(--text-secondary, #6b7280);">Title</th>
-                            <th class="px-4 py-3 text-left font-semibold" style="color:var(--text-secondary, #6b7280);">Appointed</th>
-                            <th class="px-4 py-3 text-left font-semibold" style="color:var(--text-secondary, #6b7280);">Ended</th>
+                        <tr style="background: var(--surface-2);">
+                            <th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Name</th>
+                            <th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Title</th>
+                            <th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Appointed</th>
+                            <th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Ended</th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach($historicalOfficers as $officer)
-                        <tr style="border-bottom:1px solid var(--border, #f1f5f9);">
+                        <tr>
                             <td class="px-4 py-3">{{ $officer->full_name }}</td>
                             <td class="px-4 py-3" style="color:var(--text-muted);">{{ $officer->title }}</td>
                             <td class="px-4 py-3" style="color:var(--text-muted);">{{ $officer->appointed_on->format('d M Y') }}</td>

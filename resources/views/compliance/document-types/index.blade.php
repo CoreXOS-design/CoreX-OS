@@ -91,9 +91,9 @@
                             </td>
                             <td class="px-4 py-3 text-center">
                                 @if($type->required)
-                                    <span class="ds-badge ds-badge-success">Required</span>
+                                    <span class="ds-badge ds-badge-success ds-badge-pill">Required</span>
                                 @else
-                                    <span class="ds-badge ds-badge-default">Optional</span>
+                                    <span class="ds-badge ds-badge-default ds-badge-pill">Optional</span>
                                 @endif
                             </td>
                             <td class="px-4 py-3 text-center">

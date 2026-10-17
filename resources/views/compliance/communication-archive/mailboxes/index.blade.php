@@ -22,12 +22,11 @@
     <form method="GET" class="rounded-md px-4 py-3 mt-3 flex-shrink-0 flex flex-wrap items-end gap-3" style="background: var(--surface); border:1px solid var(--border);">
         <div>
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
-            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Email or user name"
-                   class="rounded-md px-3 py-1.5 text-sm" style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
+            <input class="list-header-filter {{ !empty($filters['q']) ? 'is-active' : '' }}" type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Email or user name">
         </div>
         <div>
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
-            <select name="status" class="rounded-md px-3 py-1.5 text-sm" style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
+            <select class="list-header-filter {{ !empty($filters['status']) ? 'is-active' : '' }}" name="status">
                 <option value="">All statuses</option>
                 <option value="active" @selected(($filters['status'] ?? null) === 'active')>Active</option>
                 <option value="inactive" @selected(($filters['status'] ?? null) === 'inactive')>Inactive</option>
@@ -35,7 +34,7 @@
         </div>
         <div>
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outgoing mail</label>
-            <select name="outgoing" class="rounded-md px-3 py-1.5 text-sm" style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
+            <select class="list-header-filter {{ !empty($filters['outgoing']) ? 'is-active' : '' }}" name="outgoing">
                 <option value="">All outgoing mail</option>
                 <option value="yes" @selected(($filters['outgoing'] ?? null) === 'yes')>Enabled</option>
                 <option value="no" @selected(($filters['outgoing'] ?? null) === 'no')>Not enabled</option>
@@ -43,7 +42,7 @@
         </div>
         <div>
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Send health</label>
-            <select name="send_health" class="rounded-md px-3 py-1.5 text-sm" style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
+            <select class="list-header-filter {{ !empty($filters['send_health']) ? 'is-active' : '' }}" name="send_health">
                 <option value="">Any send health</option>
                 <option value="healthy" @selected(($filters['send_health'] ?? null) === 'healthy')>Healthy</option>
                 <option value="failing" @selected(($filters['send_health'] ?? null) === 'failing')>Failing</option>
