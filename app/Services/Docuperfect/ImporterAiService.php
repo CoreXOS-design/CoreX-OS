@@ -426,6 +426,8 @@ PROMPT;
                 'media_type' => 'application/pdf',
                 'data'       => base64_encode($pdfBytes),
             ]],
+            // File the spend under DocuPerfect, not the gateway's MIC default.
+            source:          \App\Models\AI\AiUsageEvent::SOURCE_DOCUPERFECT_VISION,
         );
 
         try {

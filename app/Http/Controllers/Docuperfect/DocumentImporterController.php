@@ -613,9 +613,18 @@ class DocumentImporterController extends Controller
                 ->route('docuperfect.templates.edit', ['id' => $template->id])
                 ->with('success', $successMsg);
 
+        } catch (\App\Exceptions\Docuperfect\TemplateGenerationRefused $e) {
+            // Something the author can fix (nothing tagged yet) — the message is written for them.
+            return redirect()
+                ->route('docuperfect.import.review', ['draft_id' => $draft->id])
+                ->with('error', $e->getMessage() . ' Your draft has been preserved.');
         } catch (\Exception $e) {
-            // Draft is preserved — user can retry
+            // Draft is preserved — user can retry. Same rule as parse(): full detail in the
+            // log under a short reference, never the raw exception text on screen.
+            $ref = strtoupper(\Illuminate\Support\Str::random(8));
+
             \Log::error('DocumentImporter: generate failed', [
+                'ref'      => $ref,
                 'draft_id' => $draft->id,
                 'user_id'  => $user->id,
                 'error'    => $e->getMessage(),
@@ -624,7 +633,7 @@ class DocumentImporterController extends Controller
 
             return redirect()
                 ->route('docuperfect.import.review', ['draft_id' => $draft->id])
-                ->with('error', 'Generation failed: ' . $e->getMessage() . ' — Your draft has been preserved. Please try again.');
+                ->with('error', 'The template could not be created. Your draft has been preserved — please try again, or send this reference to support: ' . $ref);
         }
     }
 

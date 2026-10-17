@@ -74,6 +74,28 @@ final class GenerateStructuredCarriesEveryFieldTest extends TestCase
         $this->assertNull($row->agency_id);
     }
 
+    /** The real PDF import files its spend under DocuPerfect, not the gateway's MIC default. */
+    public function test_pdf_import_spend_is_filed_under_docuperfect_vision(): void
+    {
+        Http::fake(['*' => Http::response([
+            'content' => [['type' => 'text', 'text' => '{"fields":{},"insertable_blocks":[]}']],
+            'usage'   => ['input_tokens' => 2000, 'output_tokens' => 50],
+        ], 200)]);
+
+        $path = tempnam(sys_get_temp_dir(), 'pdf');
+        file_put_contents($path, '%PDF-1.4 fake ' . uniqid());
+
+        try {
+            app(\App\Services\Docuperfect\ImporterAiService::class)->detectFromPdf($path);
+        } finally {
+            @unlink($path);
+        }
+
+        $row = AiUsageEvent::query()->withoutGlobalScopes()->latest('id')->first();
+        $this->assertNotNull($row);
+        $this->assertSame(AiUsageEvent::SOURCE_DOCUPERFECT_VISION, $row->source);
+    }
+
     public function test_with_system_prompt_copies_every_constructor_field(): void
     {
         $original = new NarrativeRequest(
