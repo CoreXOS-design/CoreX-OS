@@ -110,7 +110,7 @@
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
             <select name="status" class="list-header-filter text-sm {{ filled($filters['status'] ?? null) ? 'is-active' : '' }}">
-                <option value="">All</option>
+                <option value="">All statuses</option>
                 @foreach(['draft', 'signed_awaiting_start', 'active', 'expired', 'cancelled'] as $s)
                     <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ $s === 'signed_awaiting_start' ? 'Signed - starts later' : ucfirst($s) }}</option>
                 @endforeach
@@ -119,7 +119,7 @@
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Agreement</label>
             <select name="agreement" class="list-header-filter text-sm {{ filled($filters['agreement'] ?? null) ? 'is-active' : '' }}">
-                <option value="">All</option>
+                <option value="">All agreements</option>
                 @foreach(\App\Models\Lease::SIGNING_LABELS as $signingKey => $signingLabel)
                     <option value="{{ $signingKey }}" @selected(($filters['agreement'] ?? '') === $signingKey)>{{ $signingLabel }}</option>
                 @endforeach
@@ -128,7 +128,7 @@
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Notice terms</label>
             <select name="notice_terms" class="list-header-filter text-sm {{ filled($filters['notice_terms'] ?? null) ? 'is-active' : '' }}" data-qa="lease-filter-notice-terms">
-                <option value="">All</option>
+                <option value="">All notice terms</option>
                 <option value="unconfirmed" @selected(($filters['notice_terms'] ?? '') === 'unconfirmed')>To check — not confirmed</option>
             </select>
         </div>
