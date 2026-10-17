@@ -133,7 +133,7 @@
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Crew</label>
             <select name="rental_crew_id" class="list-header-filter text-sm {{ filled($filters['rental_crew_id'] ?? null) ? 'is-active' : '' }}">
-                <option value="">All</option>
+                <option value="">All crews</option>
                 @foreach($crews as $c)
                     <option value="{{ $c->id }}" @selected(($filters['rental_crew_id'] ?? null) == $c->id)>{{ $c->name }}</option>
                 @endforeach

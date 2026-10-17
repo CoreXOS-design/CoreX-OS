@@ -49,7 +49,7 @@
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Category</label>
             <select name="category" class="list-header-filter text-sm {{ filled(request('category')) ? 'is-active' : '' }}">
-                <option value="">All</option>
+                <option value="">All categories</option>
                 @foreach($categories as $c)
                     <option value="{{ $c }}" @selected(request('category') === $c)>{{ $c }}</option>
                 @endforeach
@@ -58,7 +58,7 @@
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Urgency</label>
             <select name="urgency" class="list-header-filter text-sm {{ filled(request('urgency')) ? 'is-active' : '' }}">
-                <option value="">All</option>
+                <option value="">All urgencies</option>
                 @foreach(['routine', 'urgent', 'emergency'] as $u)
                     <option value="{{ $u }}" @selected(request('urgency') === $u)>{{ ucfirst($u) }}</option>
                 @endforeach

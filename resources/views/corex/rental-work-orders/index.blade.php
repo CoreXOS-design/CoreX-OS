@@ -143,7 +143,7 @@
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Trade type</label>
             <select name="trade_type" class="list-header-filter text-sm {{ filled($filters['trade_type'] ?? null) ? 'is-active' : '' }}">
-                <option value="">All</option>
+                <option value="">All trades</option>
                 @foreach(\App\Models\DealV2\AgencyServiceType::work()->orderBy('label')->get() as $type)
                     <option value="{{ $type->code }}" @selected(($filters['trade_type'] ?? '') === $type->code)>{{ $type->label }}</option>
                 @endforeach
@@ -152,7 +152,7 @@
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Priority</label>
             <select name="priority" class="list-header-filter text-sm {{ filled($filters['priority'] ?? null) ? 'is-active' : '' }}">
-                <option value="">All</option>
+                <option value="">All priorities</option>
                 @foreach(['low', 'normal', 'urgent'] as $p)
                     <option value="{{ $p }}" @selected(($filters['priority'] ?? '') === $p)>{{ ucfirst($p) }}</option>
                 @endforeach
@@ -161,7 +161,7 @@
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Paid by</label>
             <select name="paid_by" class="list-header-filter text-sm {{ filled($filters['paid_by'] ?? null) ? 'is-active' : '' }}">
-                <option value="">All</option>
+                <option value="">All payers</option>
                 @foreach(['owner', 'tenant', 'deposit_deduction', 'not_yet_paid'] as $p)
                     <option value="{{ $p }}" @selected(($filters['paid_by'] ?? '') === $p)>{{ ucfirst(str_replace('_', ' ', $p)) }}</option>
                 @endforeach
@@ -170,7 +170,7 @@
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Who pays (ruling)</label>
             <select name="who_pays" class="list-header-filter text-sm {{ filled($filters['who_pays'] ?? null) ? 'is-active' : '' }}">
-                <option value="">All</option>
+                <option value="">All rulings</option>
                 @foreach(\App\Models\RentalPayerRuling::PAYERS as $p => $pl)
                     <option value="{{ $p }}" @selected(($filters['who_pays'] ?? '') === $p)>{{ $pl }}</option>
                 @endforeach

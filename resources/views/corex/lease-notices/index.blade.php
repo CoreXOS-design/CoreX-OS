@@ -35,7 +35,7 @@
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
             <select name="status" class="list-header-filter text-sm {{ $status !== 'received' ? 'is-active' : '' }}">
-                <option value="">All</option>
+                <option value="">All statuses</option>
                 @foreach(\App\Models\LeaseNotice::STATUS_LABELS as $key => $label)
                     <option value="{{ $key }}" @selected($status === $key)>{{ $label }}</option>
                 @endforeach

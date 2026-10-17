@@ -130,7 +130,7 @@
                 <div class="flex flex-col gap-1">
                     <label class="text-xs font-medium" style="color: var(--text-secondary);">Done by</label>
                     <select name="done_by" class="list-header-filter text-sm {{ filled($params['done_by'] ?? null) ? 'is-active' : '' }}">
-                        <option value="">Any</option>
+                        <option value="">Anyone</option>
                         <option value="supplier" @selected(($params['done_by'] ?? '') === 'supplier')>Supplier</option>
                         <option value="own_team" @selected(($params['done_by'] ?? '') === 'own_team')>Own team</option>
                     </select>
@@ -162,7 +162,7 @@
                 <div class="flex flex-col gap-1">
                     <label class="text-xs font-medium" style="color: var(--text-secondary);">Type</label>
                     <select name="type" class="list-header-filter text-sm {{ filled($params['type'] ?? null) ? 'is-active' : '' }}">
-                        <option value="">All</option>
+                        <option value="">All types</option>
                         <option value="in" @selected(($params['type'] ?? '') === 'in')>In</option>
                         <option value="out" @selected(($params['type'] ?? '') === 'out')>Out</option>
                         <option value="ad_hoc" @selected(($params['type'] ?? '') === 'ad_hoc')>Ad hoc</option>

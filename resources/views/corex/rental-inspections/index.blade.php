@@ -137,7 +137,7 @@
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Type</label>
             <select name="type" class="list-header-filter text-sm {{ filled($filters['type'] ?? null) ? 'is-active' : '' }}">
-                <option value="">All</option>
+                <option value="">All types</option>
                 @foreach(['in' => 'In-inspection', 'ad_hoc' => 'Routine', 'interim' => 'Interim', 'out' => 'Out-inspection'] as $value => $label)
                     <option value="{{ $value }}" @selected(($filters['type'] ?? '') === $value)>{{ $label }}</option>
                 @endforeach
@@ -154,7 +154,7 @@
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Inspector</label>
             <select name="inspector_id" class="list-header-filter text-sm {{ filled($filters['inspector_id'] ?? null) ? 'is-active' : '' }}">
-                <option value="">All</option>
+                <option value="">All inspectors</option>
                 @foreach($inspectorOptions as $inspectorOption)
                     <option value="{{ $inspectorOption->id }}" @selected(($filters['inspector_id'] ?? '') == $inspectorOption->id)>{{ $inspectorOption->name }}</option>
                 @endforeach
@@ -163,7 +163,7 @@
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Attendance</label>
             <select name="attendance" class="list-header-filter text-sm {{ filled($filters['attendance'] ?? null) ? 'is-active' : '' }}">
-                <option value="">All</option>
+                <option value="">All attendance</option>
                 <option value="incomplete" @selected(($filters['attendance'] ?? '') === 'incomplete')>Not fully recorded</option>
                 <option value="did_not_attend" @selected(($filters['attendance'] ?? '') === 'did_not_attend')>Someone did not attend</option>
             </select>

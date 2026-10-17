@@ -65,7 +65,7 @@
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Type</label>
             <select name="type" class="list-header-filter text-sm {{ filled(request('type')) ? 'is-active' : '' }}">
-                <option value="">All</option>
+                <option value="">All types</option>
                 @foreach($catalogueItemTypes as $t)
                     <option value="{{ $t->id }}" @selected((string) request('type') === (string) $t->id)>{{ $t->name }}</option>
                 @endforeach

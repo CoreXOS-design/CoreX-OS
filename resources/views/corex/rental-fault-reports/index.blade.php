@@ -112,7 +112,7 @@
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
             <select name="status" class="list-header-filter text-sm {{ filled($filters['status'] ?? null) ? 'is-active' : '' }}">
-                <option value="">All</option>
+                <option value="">All statuses</option>
                 @foreach(['reported', 'under_review', 'awaiting_approval', 'approved', 'declined', 'work_order_raised', 'owner_handling', 'resolved', 'cancelled'] as $s)
                     <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ (new \App\Models\RentalFaultReport(['status' => $s]))->statusLabel() }}</option>
                 @endforeach
@@ -138,7 +138,7 @@
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Outcome</label>
             <select name="outcome" class="list-header-filter text-sm {{ filled($filters['outcome'] ?? null) ? 'is-active' : '' }}">
-                <option value="">All</option>
+                <option value="">All outcomes</option>
                 @foreach(['repaired', 'repaired_partially', 'not_repaired', 'owner_declined', 'tenant_liable'] as $o)
                     <option value="{{ $o }}" @selected(($filters['outcome'] ?? '') === $o)>{{ ucfirst(str_replace('_', ' ', $o)) }}</option>
                 @endforeach
