@@ -3287,6 +3287,22 @@
 </div>
 
 <script>
+// Sub-menu click, option 2 (ripple): a soft ring spreads from the exact point pressed on a sub-menu link.
+// Styling lives in corex.css (.corex-subitem-ripple). Skipped for users who ask for reduced motion.
+document.addEventListener('pointerdown', function (e) {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var link = e.target.closest ? e.target.closest('.corex-nav-panel .corex-nav-subitem') : null;
+    if (!link) return;
+    var r = link.getBoundingClientRect();
+    var ring = document.createElement('span');
+    ring.className = 'corex-subitem-ripple';
+    ring.style.left = (e.clientX - r.left) + 'px';
+    ring.style.top = (e.clientY - r.top) + 'px';
+    link.appendChild(ring);
+    setTimeout(function () { ring.remove(); }, 600);
+});
+</script>
+<script>
 // ── Sidebar Favourites ────────────────────────────────────────────────
 // Spec: .ai/specs/sidebar-favourites.md §6.1, §6.2
 // Defined here, in a plain (non-deferred) script, so it exists before Alpine
