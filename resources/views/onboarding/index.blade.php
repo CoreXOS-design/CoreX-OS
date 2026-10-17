@@ -35,25 +35,24 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
                 </svg>
                 <input id="onboarding-search" type="text" name="search" value="{{ request('search') }}" placeholder="Name or email..."
-                       class="w-full rounded-md pl-9 pr-3 py-2 text-sm"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                       class="list-header-filter w-full text-sm {{ filled(request('search')) ? 'is-active' : '' }}"
+                       style="padding-left:2.25rem;">
             </div>
         </div>
         <div class="md:w-56">
             <label for="onboarding-designation" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Designation</label>
             <select id="onboarding-designation" name="designation" onchange="this.form.submit()"
-                    class="w-full rounded-md px-3 py-2 text-sm"
-                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-                <option value="">All</option>
+                    class="list-header-filter w-full text-sm {{ filled(request('designation')) ? 'is-active' : '' }}">
+                <option value="">All designations</option>
                 @foreach(\App\Models\AgentApplication::DESIGNATION_LABELS as $key => $label)
                     <option value="{{ $key }}" {{ request('designation') === $key ? 'selected' : '' }}>{{ $label }}</option>
                 @endforeach
             </select>
         </div>
         <div class="flex items-center gap-2">
-            <button type="submit" class="corex-btn-primary">Filter</button>
+            <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
             @if(request('search') || request('designation'))
-                <a href="{{ route('onboarding.index') }}" class="corex-btn-outline no-underline">Clear</a>
+                <a href="{{ route('onboarding.index') }}" class="corex-btn-outline no-underline text-sm" style="height:2.25rem;">Clear</a>
             @endif
         </div>
     </form>
