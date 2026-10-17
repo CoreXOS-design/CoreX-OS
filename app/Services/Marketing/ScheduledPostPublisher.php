@@ -5,10 +5,14 @@ declare(strict_types=1);
 namespace App\Services\Marketing;
 
 use App\Events\Marketing\MarketingPostScheduleFailed;
+use App\Models\Agency;
 use App\Models\AgentSocialAccount;
 use App\Models\Property;
 use App\Models\PropertyMarketingPost;
+use App\Models\Scopes\AgencyScope;
+use App\Models\User;
 use App\Services\Compliance\MarketingReadinessService;
+use App\Services\Features\AgencyFeatureService;
 use App\Services\MetaOAuthService;
 use App\Services\MetaPublishingService;
 use Illuminate\Support\Facades\DB;
@@ -36,6 +40,10 @@ class ScheduledPostPublisher
 {
     /** A post that has been 'publishing' this long was interrupted (process died); never retried. */
     public const STUCK_AFTER_MINUTES = 30;
+
+    /** explain() context: a scheduled post that failed vs a post made straight away. */
+    public const CONTEXT_SCHEDULED = 'scheduled';
+    public const CONTEXT_DIRECT    = 'direct';
 
     public function __construct(
         private readonly MetaPublishingService $publisher,
@@ -70,12 +78,19 @@ class ScheduledPostPublisher
                 continue;
             }
 
-            $post = PropertyMarketingPost::withoutGlobalScopes()->find($id);
-            if (! $post) {
-                continue;
-            }
+            // One post's trouble never stops the rest of the run. A post that blew up unexpectedly stays
+            // 'publishing' and is failed (never re-published) by the interrupted sweep.
+            try {
+                $post = PropertyMarketingPost::withoutGlobalScopes()->find($id);
+                if (! $post) {
+                    continue;
+                }
 
-            $this->publishClaimed($post) ? $out['published']++ : $out['failed']++;
+                $this->publishClaimed($post) ? $out['published']++ : $out['failed']++;
+            } catch (\Throwable $e) {
+                $out['failed']++;
+                Log::error('ScheduledPostPublisher: unexpected error on post ' . $id . ': ' . $this->scrub($e->getMessage()));
+            }
         }
 
         return $out;
@@ -103,8 +118,14 @@ class ScheduledPostPublisher
                 return false;
             }
 
-            $copy   = (string) $post->ad_copy;
-            $images = array_values((array) $post->image_urls);
+            $copy = (string) $post->ad_copy;
+            // Rebuilt from the stored file path NOW, so a host / domain change since the post was scheduled
+            // cannot send Meta a dead address.
+            $images = array_values(array_map(function ($url) {
+                $path = $this->images->pathFromUrl((string) $url);
+
+                return $path !== null ? $this->images->urlFor($path) : (string) $url;
+            }, (array) $post->image_urls));
 
             $platformPostId = $post->platform === 'instagram'
                 ? $this->publisher->publishToInstagram($account, $copy, $images)
@@ -116,16 +137,50 @@ class ScheduledPostPublisher
             return false;
         }
 
-        // Meta has the post. Record it; if THIS write failed the post would be left 'publishing' and
-        // later marked interrupted — never re-published.
-        $post->forceFill([
-            'platform_post_id' => $platformPostId,
-            'status'           => PropertyMarketingPost::STATUS_PUBLISHED,
-            'published_at'     => now(),
-            'failure_reason'   => null,
-        ])->save();
+        // Meta has the post. Write its id to the log FIRST, so even if every database write below fails
+        // the platform id is not lost (someone can reconcile the post by hand).
+        Log::info('ScheduledPostPublisher: Meta accepted post ' . $post->id . ' as ' . $platformPostId, [
+            'post_id' => $post->id, 'platform' => $post->platform, 'platform_post_id' => $platformPostId,
+        ]);
+
+        $this->recordPublished($post, (string) $platformPostId);
 
         return true;
+    }
+
+    /**
+     * Record a post Meta has accepted. A failed save is retried as a plain row update (no model events);
+     * if even that fails the id stays in the log above and the post is left 'publishing' (later marked
+     * interrupted, never re-published). Never throws.
+     */
+    private function recordPublished(PropertyMarketingPost $post, string $platformPostId): void
+    {
+        try {
+            $post->forceFill([
+                'platform_post_id' => $platformPostId,
+                'status'           => PropertyMarketingPost::STATUS_PUBLISHED,
+                'published_at'     => now(),
+                'failure_reason'   => null,
+            ])->save();
+
+            return;
+        } catch (\Throwable $e) {
+            Log::error('ScheduledPostPublisher: could not save published state for post ' . $post->id
+                . ' (platform id ' . $platformPostId . '), retrying plainly: ' . $this->scrub($e->getMessage()));
+        }
+
+        try {
+            DB::table('property_marketing_posts')->where('id', $post->id)->update([
+                'platform_post_id' => $platformPostId,
+                'status'           => PropertyMarketingPost::STATUS_PUBLISHED,
+                'published_at'     => now(),
+                'failure_reason'   => null,
+                'updated_at'       => now(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::critical('ScheduledPostPublisher: post ' . $post->id . ' IS LIVE on ' . $post->platform
+                . ' as ' . $platformPostId . ' but its published state could not be saved: ' . $this->scrub($e->getMessage()));
+        }
     }
 
     /**
@@ -135,6 +190,21 @@ class ScheduledPostPublisher
     private function preflight(PropertyMarketingPost $post, ?AgentSocialAccount &$account = null): ?string
     {
         $label = ucfirst((string) $post->platform);
+
+        // The person who scheduled it must still be allowed to: they exist, are active, still hold the
+        // Ad Manager + scheduling permissions, and the agency still has the Ad Manager switched on.
+        $noAccess = 'The person who scheduled this post no longer has access to schedule posts, so it was not published.';
+        $owner = User::withoutGlobalScopes()->find($post->user_id);
+        if (! $owner || $owner->deleted_at !== null || ! $owner->is_active) {
+            return $noAccess;
+        }
+        if (! $owner->hasPermission('access_ad_manager') || ! $owner->hasPermission('ad_manager.schedule_posts')) {
+            return $noAccess;
+        }
+        $agency = Agency::withoutGlobalScopes()->find($post->agency_id);
+        if (! $agency || ! app(AgencyFeatureService::class)->enabled('ad-manager', $agency)) {
+            return 'The Ad Manager is no longer switched on for this agency, so the post was not published.';
+        }
 
         $property = Property::withoutGlobalScopes()->find($post->property_id);
         if (! $property || $property->deleted_at !== null || (int) $property->agency_id !== (int) $post->agency_id) {
@@ -147,7 +217,9 @@ class ScheduledPostPublisher
             return 'The listing is no longer marketing-ready, so the post was not published.';
         }
 
-        $account = AgentSocialAccount::withoutGlobalScopes()
+        // Only the agency scope is lifted (no signed-in user here). Soft deletes stay ON: disconnecting an
+        // account soft-deletes the row, and a disconnected account must never publish.
+        $account = AgentSocialAccount::withoutGlobalScope(AgencyScope::class)
             ->where('user_id', $post->user_id)
             ->where('platform', $post->platform)
             ->where('is_active', true)
@@ -218,20 +290,22 @@ class ScheduledPostPublisher
      * Public: the direct (non-scheduled) publish in PropertyMarketingController stores the
      * same plain, scrubbed reason on a failed post, so there is one scrubbing path.
      */
-    public function explain(string $platform, string $raw): string
+    public function explain(string $platform, string $raw, string $context = self::CONTEXT_SCHEDULED): string
     {
         $label = ucfirst($platform);
         $clean = $this->scrub($raw);
 
         if (preg_match('/OAuthException|"code"\s*:\s*190|access token|session (has )?(expired|been invalidated)|Error validating|permission|\(#200\)|\(#10\)/i', $clean)) {
             return "$label no longer accepts your connection (it was disconnected, expired or lost a permission). "
-                . 'Reconnect it under My Portal, Tools, Social Media, then schedule the post again.';
+                . 'Reconnect it under My Portal, Tools, Social Media, then '
+                . ($context === self::CONTEXT_DIRECT ? 'post it again.' : 'schedule the post again.');
         }
 
         return "$label did not accept the post: " . mb_substr(preg_replace('/^Failed to publish to \w+:\s*/', '', $clean) ?? $clean, 0, 300);
     }
 
-    private function scrub(string $text): string
+    /** Hides access tokens in any text before it is logged or shown. */
+    public function scrub(string $text): string
     {
         $text = preg_replace('/access_token=[^&\s"\']+/i', 'access_token=[hidden]', $text) ?? $text;
 

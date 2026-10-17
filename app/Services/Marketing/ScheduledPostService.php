@@ -283,8 +283,11 @@ final class ScheduledPostService
         $when = $this->toUtc($date, $time);
         $this->assertInWindow($when);
 
-        $owner = User::withoutGlobalScopes()->find($post->user_id);
-        if (! $owner || empty($this->connections($owner)[$post->platform] ?? false)) {
+        $owner = User::withoutGlobalScopes()->whereNull('deleted_at')->find($post->user_id);
+        if (! $owner || ! $owner->is_active) {
+            throw new ScheduleException('The person who owns this post no longer has access, so it cannot be put back on the schedule.');
+        }
+        if (empty($this->connections($owner)[$post->platform] ?? false)) {
             throw new ScheduleException(
                 (self::PLATFORMS[$post->platform] ?? ucfirst((string) $post->platform)) . ' is not connected for the person who owns this post. ' . $this->connectHint()
             );

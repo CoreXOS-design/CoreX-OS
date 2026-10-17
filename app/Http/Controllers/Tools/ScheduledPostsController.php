@@ -94,7 +94,8 @@ class ScheduledPostsController extends Controller
         }
 
         match ($sort) {
-            'status'  => $query->orderBy('status', $dir),
+            // Lifecycle order, not the database's enum order.
+            'status'  => $query->orderByRaw("FIELD(property_marketing_posts.status, 'scheduled', 'publishing', 'published', 'failed', 'cancelled', 'draft') " . ($dir === 'desc' ? 'DESC' : 'ASC')),
             'agent'   => $query->orderBy(User::query()->withoutGlobalScopes()->select('name')
                 ->whereColumn('users.id', 'property_marketing_posts.user_id')->limit(1), $dir),
             'created' => $query->orderBy('property_marketing_posts.created_at', $dir),
@@ -137,7 +138,7 @@ class ScheduledPostsController extends Controller
         $user = $request->user();
         $this->authorizeUse($user);
 
-        $data = $request->validate(['image' => 'required|string']);
+        $data = $request->validate(['image' => 'required|string|max:21000000']);
 
         try {
             return response()->json(['ok' => true, 'path' => $this->images->storeDataUrl($user, $data['image'])]);

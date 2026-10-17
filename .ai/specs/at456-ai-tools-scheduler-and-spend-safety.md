@@ -259,6 +259,16 @@ Pick an ad (image + copy) and platform(s), choose a date/time; CoreX publishes i
 - **Not built / out of scope:** a "publish now" button; automatic retry; a standalone create form; Phase 2 "Make a social post" from an article.
 - **QA2:** no scheduler cron and no queue worker (left that way by Johan) — run `php artisan marketing:publish-due` by hand to publish what is due. Meta App Review is still pending, so only app Testers can connect an account to test with.
 
+### D.8 Audit fixes (2026-10-17) — tests: `tests/Feature/Tools/ScheduledPostsAuditFixesTest.php`
+- **Disconnected account no longer publishes (blocker).** The publisher looked the account up with every global scope lifted, which also lifted soft deletes — and "Disconnect" soft-deletes the row, so posts scheduled earlier still went out with the stored token. Now only the agency scope is lifted; a disconnected account fails the post with "No connected … account was found" and nothing is sent to Meta.
+- **A killed run cannot block publishing.** `marketing:publish-due` is registered `withoutOverlapping(10)` (lock expires in 10 minutes, not 24 hours — the atomic claim already prevents double publishing) and `runInBackground()` (slow Meta calls do not hold up other scheduled tasks).
+- **Write after Meta success.** The platform post id is logged before the database write; a failed save is retried as a plain row update; a failure on one post never aborts the run (an unexpected error leaves that post `publishing`, to be failed — never re-published — by the interrupted sweep). The plain-update fallback does not fire `MarketingPostPublished` (no model event); event payloads are unchanged.
+- **Owner re-checked at publish.** Before publishing: the scheduling user exists, is active and not deleted, still holds `access_ad_manager` and `ad_manager.schedule_posts`, and the agency still has the `ad-manager` feature; otherwise the post fails with a plain "no longer has access" / "no longer switched on" reason. Reschedule also refuses a deleted or inactive owner.
+- **Picture size cap.** Uploaded pictures are refused before decoding if either side is over 8000 px or the area over 40 megapixels; the upload's `image` field has a maximum length.
+- **Picture address rebuilt at publish time** from the stored file path, so a host/domain change inside the 60-day window cannot send Meta a dead address.
+- **Status sort** on Scheduled Posts follows the lifecycle (scheduled, publishing, published, failed, cancelled, draft), not the database enum order.
+- **Direct publish wording/logging.** `ScheduledPostPublisher::explain()` takes a context: a direct publish says "…then post it again", a scheduled one "…then schedule the post again". The direct-publish error log keeps the original Meta message (token-scrubbed) for diagnosis; the user still sees the plain reason.
+
 ### D.5 Blockers / prerequisites
 - **Meta App Review + Business Verification** must pass before any agency other than app Testers can connect. Build and test on Johan's/Andre's own accounts until then.
 - QA2 has no scheduler cron and no queue worker running; test on QA1/Staging or start them on QA2.

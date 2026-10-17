@@ -29,6 +29,9 @@ final class ScheduledPostImages
     public const KEEP_DAYS_UNUSED = 2;
     private const MAX_BYTES = 15 * 1024 * 1024;
     private const MAX_WIDTH = 1440;
+    /** Decoding a picture costs ~4 bytes per pixel in memory; refuse before decoding anything huge. */
+    private const MAX_SIDE = 8000;
+    private const MAX_PIXELS = 40_000_000;
 
     private function disk(): \Illuminate\Contracts\Filesystem\Filesystem
     {
@@ -58,6 +61,13 @@ final class ScheduledPostImages
         $info = @getimagesizefromstring($bytes);
         if ($info === false || ! in_array($info[2] ?? 0, [IMAGETYPE_PNG, IMAGETYPE_JPEG, IMAGETYPE_WEBP], true)) {
             throw new ScheduleException('That file is not a picture CoreX can post.');
+        }
+
+        // Checked from the header BEFORE decoding: a tiny, highly compressible PNG can claim gigapixels.
+        $w = (int) ($info[0] ?? 0);
+        $h = (int) ($info[1] ?? 0);
+        if ($w < 1 || $h < 1 || $w > self::MAX_SIDE || $h > self::MAX_SIDE || $w * $h > self::MAX_PIXELS) {
+            throw new ScheduleException('That picture is too large. Please use one no bigger than 8000 pixels on its longest side.');
         }
 
         [$out, $ext] = $this->asJpeg($bytes, $info);
