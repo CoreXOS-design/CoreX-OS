@@ -155,13 +155,13 @@
     </div>
 
     {{-- Page header --}}
-    <div style="background:linear-gradient(135deg,#0b2a4a,#0d3b6e); border-radius:16px; padding:20px 24px;" class="flex items-center gap-4">
+    <div class="rounded-md px-6 py-5 corex-page-banner flex items-center gap-4">
         <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style="background:rgba(0,180,216,0.2);">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#00b4d8" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 1 1 0-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 0 1-1.44-4.282m3.102.069a18.03 18.03 0 0 1-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 0 1 8.835 2.535M10.34 6.66a23.847 23.847 0 0 1 8.835-2.535m0 0A23.74 23.74 0 0 1 18.795 3m.38 1.125a23.91 23.91 0 0 1 1.014 5.395m-1.014 8.855c-.118.38-.245.754-.38 1.125m.38-1.125a23.91 23.91 0 0 0 1.014-5.395m-1.394 0A21.967 21.967 0 0 1 18 11.25c0-2.61-.353-5.135-1.014-7.52M20.489 18.824A21.961 21.961 0 0 1 22.5 12c0-2.61-.353-5.135-1.014-7.52m0 0a24.5 24.5 0 0 1 1.014-1.48"/></svg>
         </div>
         <div>
-            <h1 class="text-base font-extrabold text-white">Market This Property</h1>
-            <div class="text-xs mt-0.5" style="color:rgba(255,255,255,0.55);">{{ $property->title }} &mdash; {{ $property->suburb }}{{ $property->city ? ', '.$property->city : '' }}</div>
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Market This Property</h1>
+            <p class="text-xs" style="color: var(--text-muted);">{{ $property->title }} &mdash; {{ $property->suburb }}{{ $property->city ? ', '.$property->city : '' }}</p>
         </div>
     </div>
 
@@ -179,9 +179,9 @@
                     <div class="text-sm font-semibold" style="color:var(--text-primary);">Facebook</div>
                     @if($fbAccount)
                     <div class="text-xs truncate" style="color:var(--text-muted);">{{ $fbAccount->platform_page_name }}</div>
-                    <span class="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full mt-0.5" style="background:rgba(34,197,94,0.12); color:#22c55e;">Connected</span>
+                    <span class="ds-badge ds-badge-success mt-0.5">Connected</span>
                     @else
-                    <span class="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full mt-0.5" style="background:rgba(148,163,184,0.12); color:var(--text-muted);">Not Connected</span>
+                    <span class="ds-badge ds-badge-muted mt-0.5">Not Connected</span>
                     <div class="text-[10px] mt-1 leading-tight" style="color:var(--text-muted);">Requires a Facebook Page, not a personal profile.</div>
                     @endif
                 </div>
@@ -453,23 +453,22 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr style="border-bottom:1px solid var(--border); background:var(--surface-2);">
-                        <th class="px-4 py-3 text-left text-xs font-semibold" style="color:var(--text-muted);">Platform</th>
-                        <th class="px-4 py-3 text-left text-xs font-semibold" style="color:var(--text-muted);">Date</th>
-                        <th class="px-4 py-3 text-left text-xs font-semibold" style="color:var(--text-muted);">Status</th>
-                        <th class="px-4 py-3 text-right text-xs font-semibold" style="color:var(--text-muted);">Impressions</th>
-                        <th class="px-4 py-3 text-right text-xs font-semibold" style="color:var(--text-muted);">Reach</th>
-                        <th class="px-4 py-3 text-right text-xs font-semibold" style="color:var(--text-muted);">Likes</th>
-                        <th class="px-4 py-3 text-right text-xs font-semibold" style="color:var(--text-muted);">Comments</th>
-                        <th class="px-4 py-3 text-right text-xs font-semibold" style="color:var(--text-muted);">Shares</th>
-                        <th class="px-4 py-3 text-right text-xs font-semibold" style="color:var(--text-muted);">Clicks</th>
-                        <th class="px-4 py-3 text-right text-xs font-semibold" style="color:var(--text-muted);">Action</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Platform</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Date</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Status</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Impressions</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Reach</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Likes</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Comments</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Shares</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Clicks</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Action</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach($posts as $post)
                     @php
-                        $statusColors = ['published'=>'#22c55e','draft'=>'#94a3b8','failed'=>'#ef4444'];
-                        $sc = $statusColors[$post->status] ?? '#94a3b8';
+                        $postTone = ['published' => 'ds-badge-success', 'draft' => 'ds-badge-muted', 'failed' => 'ds-badge-danger'][$post->status] ?? 'ds-badge-muted';
                     @endphp
                     <tr style="border-bottom:1px solid var(--border);">
                         <td class="px-4 py-3">
@@ -487,7 +486,7 @@
                         </td>
                         <td class="px-4 py-3 text-xs" style="color:var(--text-muted);">{{ $post->published_at ? $post->published_at->format('d M Y') : $post->created_at->format('d M Y') }}</td>
                         <td class="px-4 py-3">
-                            <span class="text-[10px] px-2 py-0.5 rounded-full font-semibold" style="background:{{ $sc }}22; color:{{ $sc }};">{{ ucfirst($post->status) }}</span>
+                            <span class="ds-badge {{ $postTone }}">{{ ucfirst($post->status) }}</span>
                             @if($post->status === 'failed' && $post->failure_reason)
                                 <div class="text-[11px] mt-1" style="color:var(--text-secondary); max-width:260px;">{{ $post->failure_reason }}</div>
                             @endif
