@@ -41,6 +41,20 @@
         @vite(['resources/css/app.css', 'resources/css/corex.css', 'resources/js/app.js'])
         <link rel="stylesheet" href="/css/paye-fix.css">
 
+        {{-- Page transition (AT-455, option 1): moving between CoreX pages fades the old page out and the
+             new one in. The sidebar is named so it stays still while the page changes. Browsers without
+             cross-page view transitions simply navigate as before. --}}
+        <style>
+            @view-transition { navigation: auto; }
+            ::view-transition-old(root) { animation: corex-page-out 240ms ease-in both; }
+            ::view-transition-new(root) { animation: corex-page-in 320ms ease-out both; }
+            @keyframes corex-page-out { to { opacity: 0; } }
+            @keyframes corex-page-in { from { opacity: 0; } }
+            @media (prefers-reduced-motion: reduce) {
+                ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+            }
+        </style>
+
         @stack('head')
 
         {{-- Agency brand colours — MUST be last in <head> to override any bundled CSS --}}
