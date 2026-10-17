@@ -2641,6 +2641,19 @@ No migration, no new permission (still `access_ad_manager` + `ad_manager.view`),
 
 ---
 
+## 21. Building blocks added by AT-456 §B.9-1 (2026-10-17)
+
+The render kernel gained: 35 more icons (47 total, offered on every text element), 12 more fonts (20 total; the new 12 load lazily — a template
+that does not use them costs nothing), decorative shapes (`wave curve_top curve_bottom arc blob_1 blob_2 blob_3` as a Shape's `shapeType`), line
+styles (`lineStyle` solid/dashed/dotted), photo masks (`photoMask` none/rounded/circle/arch/blob) and effects (`photoEffect` none/bw/duotone/warm/cool/brighter,
+`duoColor1/2`), and the elements `collage`, `ribbon`, `qr`, `feature_pills` plus ten listing-fact text fields (`erf_size levy rates_taxes price_per_m2
+pet_friendly available_from rent_per_month show_day auction_date auction_venue`). A fact the listing does not have is left off a real ad. All new
+`layout_json` properties default to "not set", so templates saved before this render unchanged. Nothing uses `clip-path`, CSS `filter` or
+`backdrop-filter` (html2canvas, the export, ignores them). Full detail, exact property names and how it was proved:
+`.ai/specs/at456-ai-tools-scheduler-and-spend-safety.md` §B.9 "B.9-1 as built".
+
+---
+
 ## 11. Files to create / modify
 
 ### Ad Manager restyle — Guided Steps (§20)

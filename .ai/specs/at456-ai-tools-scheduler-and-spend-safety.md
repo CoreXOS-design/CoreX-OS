@@ -247,6 +247,60 @@ on the listing hides itself (existing kernel behaviour), never prints "null", "0
       changes the result; "Match our existing templates" uses only the agency's own templates.
 - [ ] Existing templates render exactly as before (no visual regression on saved templates).
 
+#### B.9-1 as built (2026-10-17, branch `at456-b9-1-blocks`) — items 1–8 done, 9–11 NOT started
+
+**Where it lives.** Everything is in the one render kernel (`public/js/corex-ad-render.js`), so the Ad Builder canvas, the Template Manager
+previews, the single-property generator, the bulk Ad Manager and the picture the Post Scheduler uploads all draw it from the same code.
+Listing data is built server-side in `Property::adData()` (new `App\Services\AdTemplates\AdListingFacts` + `ListingQrMatrix`); the
+Template Manager sample listing (`AdTemplateManagerController::samplePropertyData`) carries neutral values for the new facts.
+No migrations, no new permission keys (the Ad Builder gates are reused), no new routes, no setting → nothing for the Setup Wizard.
+**Deploy needs NO `npm run build`** — only `public/js/corex-ad-render.js` and Blade views changed (no `resources/js`).
+
+**The export rule, and what it forced.** The picture that is exported (and posted) is made by **html2canvas 1.4.1**, which silently
+IGNORES `clip-path`, CSS `filter`, `backdrop-filter` and `mask`. So no new block uses any of them: shapes/masks are `border-radius` or inline
+SVG; QR is inline SVG; effects are one 4×5 colour matrix applied two ways with the same numbers — an inline SVG `feColorMatrix` (colour space
+forced to sRGB) on the live canvas, and the very same matrix run over the pixels inside the existing `prepareImagesForCapture()` step that
+every export already calls. Proved with the real export code in a real browser (see "How it was proved").
+
+| # | Item | What shipped |
+|---|------|--------------|
+| 1 | Icons | **35** new (all of the spec's list), Material Design Icons (Pictogrammers, Apache-2.0): same single-path 24px `currentColor` style as the 12 old ones, no brand marks. Keys: `sea_view mountain_view pet_friendly solar security cctv alarm braai fireplace air_con garden flatlet wifi golf_estate school shopping beach estate_gated borehole backup_power lift gym study kitchen laundry balcony calendar clock phone email chat star heart check sparkle`. The icon picker now offers all 47 on **every** text element (it used to be Beds/Baths/Garages/Parking only), so a calendar icon can sit in front of a show day. |
+| 2 | Fonts | 12 added (`Cormorant Garamond`, `DM Serif Display`, `Libre Baskerville`, `Great Vibes`, `Dancing Script`, `Barlow Condensed`, `Anton`, `Nunito`, `Quicksand`, `Raleway`, `Work Sans`, `Space Grotesk`), same CDN (fonts.bunny.net) and same Open Font Licence families. **Lazy**: their stylesheet is added the first time a template draws text in one (`CoreXAd.requestFont`, called from `fontStack`), and every capture waits for it (`fontsReady()` inside `prepareImagesForCapture`). A template that does not use them costs nothing. The two script fonts show "short headlines only, never prices/phone numbers/body text" under the font picker. The stylesheet parameters live in `_ad-fonts.blade.php` (`window.CoreXAdLazyFonts`). |
+| 3 | Shapes & frames | Shape element: `wave`, `curve_top`, `curve_bottom`, `arc`, `blob_1/2/3` (inline SVG stretched to the box, fill + opacity). Line element: `lineStyle` `solid`/`dashed`/`dotted` (dashed/dotted are SVG). New **Corner Ribbon** element (`ribbon`): text, corner `tl/tr/bl/br`, band colour, text colour, font. Photo masks on `image_1…5` and `custom_image`: `photoMask` `none/rounded/circle/arch/blob` (border-radius only). The existing frame border (`frameBorderWidth/Color`) follows the curve. |
+| 4 | Collage & effects | New **Photo Collage** element (`collage`): `collagePreset` `2_side/2_stack/3_hero_left/3_hero_top/4_grid/5_hero`, `collageGap`, corner radius (`borderRadius`), `collageFirst` (start from photo 1–5, e.g. when Image 1 is already shown elsewhere). A listing with fewer photos than the preset needs gets the nearest smaller layout (never empty holes); none at all → the element is left off the ad. Photo effects `photoEffect` `none/bw/duotone/warm/cool/brighter` (+ `duoColor1/2`) on photos and collages. **Soft blur behind text was LEFT OUT**: html2canvas cannot draw a blur of what is behind an element, so it could not match the canvas — per the rule above it does not ship. |
+| 5 | Facts | Text fields `erf_size`, `levy`, `rates_taxes`, `price_per_m2`, `pet_friendly`, `available_from`, `rent_per_month` (values from the property's own columns, see `AdListingFacts`). Sales: erf/levy/rates/price-per-m²/pet. Rentals: rent (with the agency's rental price type: per month/week/day/year/m², an unknown typed unit falls back to "per month"), available-from (`lease_start_date`: future → "Available from 1 Nov 2026", otherwise "Available now"; hidden if the property's "show available-from date" switch is off or the rental is let/rented). Price per m² = asking price ÷ **floor** size, sales only, hidden for price-on-application / sold. A value that is missing → `''` → the element is **left off a real ad** (never "R 0", "null" or an empty coloured pill); in the builder it shows its sample text so it can be designed. |
+| 6 | Show day / auction | **Source found:** `PropertyShowday` (`property_showdays`, via `Property::showdays()`, the same records the website feed and PrivateProperty already use). `show_day` = the next active show day that has not ended ("Sat 25 Oct · 10:00–13:00"; two-day ones name both days), in the agency timezone (`Agency::outreachTimezone()` = app timezone until agencies carry their own). `auction_date` ("12 Nov 2026 · 11:00") and `auction_venue` ("Venue, address", or "Online auction") from `Property::currentAuctionLot()->auction`; nothing for a draft / cancelled / postponed / closed / settled auction, an auction whose start has passed, or a concluded lot. |
+| 7 | QR | New element `qr` → `Property::public_url` (the agency's own website where configured, else CoreX's public page for that agency — the 14 Oct rule), dark/light colours (`qrDark`, `qrLight`), minimum 120 px (the builder will not let it be made smaller and warns). Generated **server-side** with the endroid/bacon library already in the app, sent as a module grid (`qr_matrix`), drawn by the kernel as one inline SVG path: no CDN, no image service, identical on canvas and export. Error correction M. A link that cannot be encoded (empty, not http(s), over 200 chars) → no code → element left off. |
+| 8 | Feature pills | New element `feature_pills`: 1–4 of the listing's own features as separate pills, `pillDirection` `row/column`, `pillGap`, pill colour/opacity/corner radius, text colour/font/size/weight, padding, alignment; the agent ticks which features (`selectedFeatures`, same checklist as the Features element), default = the first N. No features → left off the ad. |
+
+**How it was proved (the export rule).** A throw-away browser harness (real Chromium + the real html2canvas 1.4.1 + the real kernel, not committed)
+drew a 1200×900 layout with every block and compared the live DOM screenshot with the exported PNG: mean per-pixel difference 0.84/255, 0.6% of pixels
+differing by more than 40 levels (all text anti-aliasing and curve edges). The same through the **real Ad Builder page** (rendered Blade, real Alpine,
+the page's own `capture()`): mean difference 0.66/255. The QR decoded to the exact public URL from the live canvas, the 1× export, and the 2× export
+(the Ad Manager scale) with a software QR reader, including a custom-coloured one. Existing templates: `tests/js/ad-legacy-snapshot.mjs` replays 564
+renderings of old-shape elements recorded from the kernel BEFORE this change and fails on a single differing character.
+
+**Tests.** `tests/js/ad-building-blocks.mjs` (141 kernel checks), `tests/js/ad-legacy-snapshot.mjs` (regression), `tests/js/ad-render-kernel.mjs` (existing);
+PHP wrappers + validator drift guards in `tests/Feature/Tools/AdBuildingBlocksKernelTest.php`; server facts / show day / auction / QR per agency in
+`tests/Feature/Tools/AdBuildingBlocksFactsTest.php`.
+
+**AI validator — kept in step, NOT taught (that is B.9-2).** `AdLayoutValidator` now ACCEPTS the new fonts, icons, shape kinds and the new enum
+properties `photoMask` / `photoEffect` / `lineStyle` (+ colours `duoColor1/2` through the strict colour gate) so a template that uses them is never
+rejected, and its `baseElement()` carries the new keys at their "not set" values. `FIELDS` was **not** touched (the drift guard did not force it), so the
+AI cannot add the new element types yet. `promptLimits()` still tells the AI only the ORIGINAL fonts / icons / shapes and none of the new properties
+(constants `PROMPT_FONTS`, `PROMPT_ICONS`, `PROMPT_SHAPES`, `PROMPT_HIDDEN_ENUMS`; a test pins that the prompt is unchanged) — B.9-2 deletes those four
+constants to hand the AI the full lists, or filters them to the subset it should use (e.g. script fonts for headlines only). New drift tests compare
+the validator's ICONS / SHAPES / mask / effect / line-style lists with the kernel's.
+
+**For B.9-2 — exact names to teach the AI.**
+- New element types (`field`): `collage`, `ribbon`, `qr`, `feature_pills`, and the text facts `erf_size`, `levy`, `rates_taxes`, `price_per_m2`, `pet_friendly`, `available_from`, `rent_per_month`, `show_day`, `auction_date`, `auction_venue`. Each needs a `FIELDS` entry, a `baseElement()` per-type start, contrast handling (ribbon/pills sit on their own colour; QR needs `qrDark` far darker than `qrLight`) and an `isTextField`/`BLOCK_FIELDS` decision.
+- New properties: `photoMask` (`none rounded circle arch blob`) and `photoEffect` (`none bw duotone warm cool brighter`, + `duoColor1`, `duoColor2`) on `image_1…5`; `lineStyle` (`solid dashed dotted`) on `line`; `shapeType` += `wave curve_top curve_bottom arc blob_1 blob_2 blob_3` on `shape`; `icon` is now valid on any text element and takes the 35 new keys; `showLabel` (bool) on the facts.
+- `collage`: `collagePreset` (`2_side 2_stack 3_hero_left 3_hero_top 4_grid 5_hero`), `collageGap` (0–60), `collageFirst` (1–5), `borderRadius`, `photoEffect`, `duoColor1/2`. `ribbon`: `text`, `ribbonCorner` (`tl tr bl br`), `bgColor`+`bgOpacity` (band), `color`, `fontFamily/fontSize/fontWeight`, `letterSpacing`, `padding`; the band is clipped to its box (default 200×200). `qr`: `qrDark`, `qrLight`, w/h ≥ 120. `feature_pills`: `pillCount` (1–4), `pillDirection` (`row column`), `pillGap`, `bgColor`, `bgOpacity`, `borderRadius`, `color`, `fontFamily/fontSize/fontWeight`, `padding`, `textAlign`, `verticalAlign`, `selectedFeatures`.
+- Fonts to teach with care: `Great Vibes`, `Dancing Script` are script faces — short headlines only. The facts are hidden on a real ad when the listing lacks them, so a design must not rely on them being present.
+- Data keys in the kernel payload: the ten fact keys above, `public_url`, `qr_matrix` (+ the existing `features_list`, `image_1…5`).
+
+**Reported, not fixed (existing behaviour).** html2canvas ignores `clip-path`, so the EXISTING clip-path shapes (`triangle`, `diamond`, `pentagon`, `hexagon`, `star`, `chevron`) — as a Shape element **and as an Agent Image mask** — appear correctly on the canvas but are exported as plain rectangles (seen directly in the harness). Fixing it means drawing them as SVG/border-radius like the new blocks; out of B.9-1's scope.
+
 ## C. Article Library (system-dev section → Ad Manager tab)
 
 ### C.1 What it does

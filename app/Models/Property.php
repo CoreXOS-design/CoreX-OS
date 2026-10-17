@@ -3891,6 +3891,15 @@ class Property extends Model
             'website'           => $agency?->website_url ?: '',
             'logo'              => $logoUrl,
             'watermark'         => strtoupper((string) ($agency?->name ?? '')),
+
+            // AT-456 §B.9-1 — more listing facts (erf size, levy, rates, price per m², pet friendly, available
+            // from, rent, show day, auction), each '' when the listing has no value so the ad leaves it off.
+            ...\App\Services\AdTemplates\AdListingFacts::for($this),
+
+            // §B.9-1 — the QR block: the listing's own public page (the agency's own website where it has one,
+            // else CoreX's public page — Property::public_url), as the module grid the kernel draws.
+            'public_url'        => $this->public_url,
+            'qr_matrix'         => \App\Services\AdTemplates\ListingQrMatrix::forUrl($this->public_url),
         ];
     }
 

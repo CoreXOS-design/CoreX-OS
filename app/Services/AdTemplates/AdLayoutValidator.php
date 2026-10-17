@@ -115,11 +115,36 @@ final class AdLayoutValidator
         'color_block'       => ['label' => 'Color Block',           'help' => 'solid rectangle; colour in "bg"'],
     ];
 
-    private const SHAPES   = ['rectangle', 'rounded', 'circle', 'pill', 'triangle', 'diamond', 'pentagon', 'hexagon', 'star', 'chevron'];
+    /** Mirrors SHAPES + DECOR_SHAPES in the render kernel (a drift test compares them). */
+    private const SHAPES   = ['rectangle', 'rounded', 'circle', 'pill', 'triangle', 'diamond', 'pentagon', 'hexagon', 'star', 'chevron',
+        'wave', 'curve_top', 'curve_bottom', 'arc', 'blob_1', 'blob_2', 'blob_3'];
     /** Mirrors FONTS in the render kernel (and _ad-fonts.blade.php). */
-    private const FONTS    = ['Figtree', 'Inter', 'Poppins', 'Montserrat', 'Oswald', 'Bebas Neue', 'Playfair Display', 'Lora'];
+    private const FONTS    = ['Figtree', 'Inter', 'Poppins', 'Montserrat', 'Oswald', 'Bebas Neue', 'Playfair Display', 'Lora',
+        'Cormorant Garamond', 'DM Serif Display', 'Libre Baskerville', 'Great Vibes', 'Dancing Script', 'Barlow Condensed', 'Anton',
+        'Nunito', 'Quicksand', 'Raleway', 'Work Sans', 'Space Grotesk'];
     private const WEIGHTS  = ['400', '500', '600', '700', '800', '900'];
-    private const ICONS    = ['bed', 'bath', 'garage', 'parking', 'ruler', 'house', 'pin', 'key', 'pool', 'tree', 'door', 'tag'];
+    /** Mirrors ICON_LIST in the render kernel (a drift test compares them). */
+    private const ICONS    = ['bed', 'bath', 'garage', 'parking', 'ruler', 'house', 'pin', 'key', 'pool', 'tree', 'door', 'tag',
+        'sea_view', 'mountain_view', 'pet_friendly', 'solar', 'security', 'cctv', 'alarm', 'braai', 'fireplace', 'air_con', 'garden', 'flatlet', 'wifi', 'golf_estate', 'school', 'shopping', 'beach', 'estate_gated', 'borehole', 'backup_power', 'lift', 'gym', 'study', 'kitchen', 'laundry', 'balcony', 'calendar', 'clock', 'phone', 'email', 'chat', 'star', 'heart', 'check', 'sparkle'];
+
+    // AT-456 §B.9-1 — values of the new per-element properties (mirrors of the kernel's PHOTO_MASKS / PHOTO_EFFECTS /
+    // LINE_STYLES). They are ACCEPTED here so a saved template that uses a new block is never rejected, but they are
+    // deliberately NOT yet in the AI's instructions (see PROMPT_*): teaching the AI the new blocks is the next step (§B.9-2).
+    private const PHOTO_MASKS   = ['none', 'rounded', 'circle', 'arch', 'blob'];
+    private const PHOTO_EFFECTS = ['none', 'bw', 'duotone', 'warm', 'cool', 'brighter'];
+    private const LINE_STYLES   = ['solid', 'dashed', 'dotted'];
+
+    /**
+     * What the AI is TOLD today — the kernel's original fonts / icons / shapes. promptLimits() lists these instead of
+     * the full allowed lists, so the new fonts, icons and decorative shapes exist for agents in the Ad Builder without
+     * the AI starting to use them before §B.9-2 teaches it how (e.g. script fonts are for short headlines only).
+     * §B.9-2: delete these three constants and the two PROMPT_* uses in promptLimits() to hand the AI the full lists.
+     */
+    private const PROMPT_FONTS  = ['Figtree', 'Inter', 'Poppins', 'Montserrat', 'Oswald', 'Bebas Neue', 'Playfair Display', 'Lora'];
+    private const PROMPT_ICONS  = ['bed', 'bath', 'garage', 'parking', 'ruler', 'house', 'pin', 'key', 'pool', 'tree', 'door', 'tag'];
+    private const PROMPT_SHAPES = ['rectangle', 'rounded', 'circle', 'pill', 'triangle', 'diamond', 'pentagon', 'hexagon', 'star', 'chevron'];
+    /** New enum properties the prompt does not mention yet. */
+    private const PROMPT_HIDDEN_ENUMS = ['photoMask', 'photoEffect', 'lineStyle'];
 
     /** Design-time sample copy the builder shows in an empty slot (mirrors the kernel's `preview`). */
     private const PREVIEWS = [
@@ -140,7 +165,7 @@ final class AdLayoutValidator
         'iconSize' => [8, 200, 0],
     ];
 
-    private const COLOR_KEYS = ['color', 'bgColor', 'bg', 'gradFrom', 'gradTo', 'frameBorderColor', 'shadowColor'];
+    private const COLOR_KEYS = ['color', 'bgColor', 'bg', 'gradFrom', 'gradTo', 'frameBorderColor', 'shadowColor', 'duoColor1', 'duoColor2'];
 
     private const ENUMS = [
         'fontFamily'    => self::FONTS,
@@ -152,6 +177,9 @@ final class AdLayoutValidator
         'shapeType'     => self::SHAPES,
         'numberFormat'  => ['number', 'label'],
         'icon'          => self::ICONS,
+        'photoMask'     => self::PHOTO_MASKS,
+        'photoEffect'   => self::PHOTO_EFFECTS,
+        'lineStyle'     => self::LINE_STYLES,
     ];
 
     /**
@@ -480,7 +508,10 @@ final class AdLayoutValidator
         foreach (self::NUMBERS as $k => [$min, $max]) {
             $ranges[] = "{$k} {$min} to {$max}";
         }
-        $enum = static fn (string $k): string => $k . ': ' . implode(' / ', self::ENUMS[$k]);
+        // What the AI is told: the original fonts / icons / shapes only, and none of the §B.9-1 properties (see PROMPT_*).
+        $told = ['fontFamily' => self::PROMPT_FONTS, 'icon' => self::PROMPT_ICONS, 'shapeType' => self::PROMPT_SHAPES];
+        $enum = static fn (string $k): string => $k . ': ' . implode(' / ', $told[$k] ?? self::ENUMS[$k]);
+        $taughtEnums = array_values(array_diff(array_keys(self::ENUMS), self::PROMPT_HIDDEN_ENUMS));
 
         $min = self::MIN_FONT_SIZE;
         $con = self::MIN_CONTRAST;
@@ -497,7 +528,7 @@ final class AdLayoutValidator
             . '5. Words: custom_text and badge need a non-empty "text" of at most ' . self::MAX_TEXT_LEN . ' characters, plain words, no markup. The option "name" is at most ' . self::MAX_NAME_LEN . " characters.\n"
             . '6. Watermark: opacity at most ' . self::WATERMARK_MAX_OPACITY . ".\n"
             . '7. Allowed numeric ranges: ' . implode('; ', $ranges) . ".\n"
-            . '8. Allowed words: ' . implode('; ', array_map($enum, array_keys(self::ENUMS))) . '. fontWeight is a string such as "700".' . "\n";
+            . '8. Allowed words: ' . implode('; ', array_map($enum, $taughtEnums)) . '. fontWeight is a string such as "700".' . "\n";
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -637,6 +668,10 @@ final class AdLayoutValidator
             'frameBorderWidth' => 0, 'frameBorderColor' => '#ffffff',
             'shadowOn' => false, 'shadowX' => 0, 'shadowY' => 4, 'shadowBlur' => 12, 'shadowColor' => '#000000', 'shadowOpacity' => 0.45,
             'groupId' => null, 'removeBackground' => false,
+            // AT-456 §B.9-1 — defaults for the new per-element properties (all mean "not set"), the keys makeElement() now creates.
+            'photoMask' => 'none', 'photoEffect' => 'none', 'duoColor1' => '#0b2a4a', 'duoColor2' => '#f4d58d', 'lineStyle' => 'solid',
+            'collagePreset' => '3_hero_left', 'collageGap' => 8, 'collageFirst' => 1, 'ribbonCorner' => 'tl',
+            'qrDark' => '#000000', 'qrLight' => '#ffffff', 'pillCount' => 4, 'pillDirection' => 'row', 'pillGap' => 10, 'showLabel' => true,
         ];
 
         if ($field === 'status_badge') {

@@ -760,6 +760,79 @@
                         </div>
                     </template>
 
+                    {{-- AT-456 §B.9-1 — photo mask for a property photo / custom image. Pure rounded corners, so the exported
+                         picture is identical to this canvas. The Border width / colour near the bottom frames the shape. --}}
+                    <template x-if="CoreXAd.MASKABLE_FIELDS.includes(sel.field)">
+                        <div>
+                            <div class="pp-row">
+                                <label>Photo shape</label>
+                                <select :value="sel.photoMask || 'none'" @input="mutate('photoMask', $event.target.value)">
+                                    <template x-for="m in CoreXAd.PHOTO_MASKS" :key="m.key">
+                                        <option :value="m.key" x-text="m.label"></option>
+                                    </template>
+                                </select>
+                            </div>
+                            <div class="pp-hint" x-show="sel.photoMask === 'rounded'">Uses the Border Radius above (24px when that is 0).</div>
+                            <div class="pp-hint" x-show="sel.photoMask && sel.photoMask !== 'none'">Set a Border width and colour (lower down) to frame the shape.</div>
+                        </div>
+                    </template>
+
+                    {{-- Photo effect — photos and collages. The same colour recipe is applied on this canvas and in the exported picture. --}}
+                    <template x-if="CoreXAd.EFFECT_FIELDS.includes(sel.field)">
+                        <div>
+                            <div class="pp-row">
+                                <label>Photo effect</label>
+                                <select :value="sel.photoEffect || 'none'" @input="mutate('photoEffect', $event.target.value)">
+                                    <template x-for="m in CoreXAd.PHOTO_EFFECTS" :key="m.key">
+                                        <option :value="m.key" x-text="m.label"></option>
+                                    </template>
+                                </select>
+                            </div>
+                            <template x-if="sel.photoEffect === 'duotone'">
+                                <div>
+                                    <div class="pp-row">
+                                        <label>Duotone: dark colour</label>
+                                        <input type="color" :value="sel.duoColor1 || '#0b2a4a'" @input="mutate('duoColor1', $event.target.value)">
+                                    </div>
+                                    <div class="pp-row">
+                                        <label>Duotone: light colour</label>
+                                        <input type="color" :value="sel.duoColor2 || '#f4d58d'" @input="mutate('duoColor2', $event.target.value)">
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+
+                    {{-- Photo collage — 2 to 5 of the listing's own photos in a preset layout. --}}
+                    <template x-if="sel.field === 'collage'">
+                        <div>
+                            <div class="pp-row">
+                                <label>Layout</label>
+                                <select :value="sel.collagePreset || '3_hero_left'" @input="mutate('collagePreset', $event.target.value)">
+                                    <template x-for="p in CoreXAd.COLLAGE_PRESETS" :key="p.key">
+                                        <option :value="p.key" x-text="p.label"></option>
+                                    </template>
+                                </select>
+                            </div>
+                            <div class="pp-row">
+                                <label>Gap between photos (px)</label>
+                                <input type="number" min="0" max="60" :value="sel.collageGap ?? 8" @input="mutate('collageGap', Math.max(0, +$event.target.value))">
+                            </div>
+                            <div class="pp-row">
+                                <label>Photo corner radius (px)</label>
+                                <input type="number" min="0" :value="sel.borderRadius || 0" @input="mutate('borderRadius', Math.max(0, +$event.target.value))">
+                            </div>
+                            <div class="pp-row">
+                                <label>Start from photo</label>
+                                <select :value="sel.collageFirst || 1" @input="mutate('collageFirst', +$event.target.value)">
+                                    <option value="1">Image 1</option><option value="2">Image 2</option><option value="3">Image 3</option>
+                                    <option value="4">Image 4</option><option value="5">Image 5</option>
+                                </select>
+                            </div>
+                            <div class="pp-hint">Uses the listing's own photos in order. If the listing has fewer photos than the layout needs, a smaller layout is used instead of empty boxes. Pick "Start from photo 2" when Image 1 is already shown elsewhere.</div>
+                        </div>
+                    </template>
+
                     {{-- Agent Image — shape mask (circle/rounded/square/pill/hexagon/…),
                          mirrors the Shape element's own picker (§13, same CoreXAd.SHAPES list
                          and CoreXAd.shapeCss() swatch preview — applied to a photo, not a fill). --}}
@@ -819,19 +892,157 @@
                         </div>
                     </template>
 
-                    {{-- Beds/Baths/Garages/Parking — display format + icon. Spec: ad-manager.md §14. --}}
-                    <template x-if="CoreXAd.NUMERIC_FEATURE_FIELDS.includes(sel.field)">
+                    {{-- AT-456 §B.9-1 — Corner ribbon / sash --}}
+                    <template x-if="sel.field === 'ribbon'">
                         <div>
                             <div class="pp-row">
-                                <label>Display as</label>
-                                <select :value="sel.numberFormat || 'number'" @input="mutate('numberFormat', $event.target.value)">
-                                    <option value="number">Number only — e.g. "3"</option>
-                                    <option value="label">Number + label — e.g. "1 Bedroom" / "3 Bedrooms"</option>
+                                <label>Ribbon text</label>
+                                <input type="text" maxlength="40" :value="sel.text || ''" @input="mutate('text', $event.target.value)" placeholder="JUST LISTED">
+                            </div>
+                            <div class="pp-row">
+                                <label>Corner</label>
+                                <select :value="sel.ribbonCorner || 'tl'" @input="mutate('ribbonCorner', $event.target.value)">
+                                    <template x-for="c in CoreXAd.RIBBON_CORNERS" :key="c.key">
+                                        <option :value="c.key" x-text="c.label"></option>
+                                    </template>
                                 </select>
                             </div>
+                            <div class="pp-row">
+                                <label>Ribbon colour</label>
+                                <input type="color" :value="sel.bgColor || '#e63946'" @input="mutate('bgColor', $event.target.value)">
+                            </div>
+                            <div class="pp-row">
+                                <label>Text colour</label>
+                                <input type="color" :value="sel.color || '#ffffff'" @input="mutate('color', $event.target.value)">
+                            </div>
+                            <div class="pp-row">
+                                <label>Font</label>
+                                <select :value="sel.fontFamily || 'Figtree'" @input="mutate('fontFamily', $event.target.value)">
+                                    <template x-for="f in CoreXAd.FONTS" :key="f.name">
+                                        <option :value="f.name" :style="'font-family:' + f.stack" x-text="f.name"></option>
+                                    </template>
+                                </select>
+                            </div>
+                            <div class="pp-row">
+                                <label>Font size (px)</label>
+                                <input type="number" min="8" max="120" :value="sel.fontSize" @input="mutate('fontSize', +$event.target.value)">
+                            </div>
+                            <div class="pp-row">
+                                <label>Letter spacing (em)</label>
+                                <input type="number" step="0.01" :value="sel.letterSpacing ?? 0.08" @input="mutate('letterSpacing', +$event.target.value)">
+                            </div>
+                            <div class="pp-hint">The ribbon sits across the chosen corner of this box. Make the box bigger for a longer ribbon; anything outside the box is cut off.</div>
+                        </div>
+                    </template>
+
+                    {{-- AT-456 §B.9-1 — QR code to the listing's public page --}}
+                    <template x-if="sel.field === 'qr'">
+                        <div>
+                            <div class="pp-row">
+                                <label>Dark colour</label>
+                                <input type="color" :value="sel.qrDark || '#000000'" @input="mutate('qrDark', $event.target.value)">
+                            </div>
+                            <div class="pp-row">
+                                <label>Light colour</label>
+                                <input type="color" :value="sel.qrLight || '#ffffff'" @input="mutate('qrLight', $event.target.value)">
+                            </div>
+                            <div class="pp-hint">Opens the listing's public page: the agency's own website where it has one, otherwise CoreX's public page. Keep the dark colour much darker than the light one, and the code at least 120 px, so phones can scan it. The builder preview shows a sample code until you open it from a property.</div>
+                            <div class="pp-hint" style="color:#f59e0b;" x-show="Math.min(sel.w, sel.h) < CoreXAd.minSize(sel)">Smaller than 120 px: phones may not scan this. Make it bigger.</div>
+                        </div>
+                    </template>
+
+                    {{-- AT-456 §B.9-1 — Feature pills --}}
+                    <template x-if="sel.field === 'feature_pills'">
+                        <div>
+                            <div class="pp-row">
+                                <label>How many pills (1 to 4)</label>
+                                <select :value="sel.pillCount || 4" @input="mutate('pillCount', +$event.target.value)">
+                                    <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option>
+                                </select>
+                            </div>
+                            <div class="pp-row">
+                                <label>Direction</label>
+                                <select :value="sel.pillDirection || 'row'" @input="mutate('pillDirection', $event.target.value)">
+                                    <option value="row">In a row</option>
+                                    <option value="column">In a column</option>
+                                </select>
+                            </div>
+                            <div class="pp-row">
+                                <label>Gap between pills (px)</label>
+                                <input type="number" min="0" max="60" :value="sel.pillGap ?? 10" @input="mutate('pillGap', Math.max(0, +$event.target.value))">
+                            </div>
+                            <div class="pp-row">
+                                <label>Pill colour</label>
+                                <input type="color" :value="sel.bgColor || '#00b4d8'" @input="mutate('bgColor', $event.target.value)">
+                            </div>
+                            <div class="pp-row">
+                                <label>Pill opacity — <span x-text="Math.round((sel.bgOpacity ?? 1) * 100) + '%'"></span></label>
+                                <input type="range" min="0" max="1" step="0.05" :value="sel.bgOpacity ?? 1" @input="mutate('bgOpacity', +$event.target.value)">
+                            </div>
+                            <div class="pp-row">
+                                <label>Pill corner radius (px)</label>
+                                <input type="number" min="0" :value="sel.borderRadius ?? 999" @input="mutate('borderRadius', Math.max(0, +$event.target.value))">
+                            </div>
+                            <div class="pp-row">
+                                <label>Text colour</label>
+                                <input type="color" :value="sel.color || '#ffffff'" @input="mutate('color', $event.target.value)">
+                            </div>
+                            <div class="pp-row">
+                                <label>Font</label>
+                                <select :value="sel.fontFamily || 'Figtree'" @input="mutate('fontFamily', $event.target.value)">
+                                    <template x-for="f in CoreXAd.FONTS" :key="f.name">
+                                        <option :value="f.name" :style="'font-family:' + f.stack" x-text="f.name"></option>
+                                    </template>
+                                </select>
+                            </div>
+                            <div class="pp-row">
+                                <label>Font size (px)</label>
+                                <input type="number" min="8" max="120" :value="sel.fontSize" @input="mutate('fontSize', +$event.target.value)">
+                            </div>
+                            <div class="pp-row">
+                                <label>Font weight</label>
+                                <select :value="sel.fontWeight" @input="mutate('fontWeight', $event.target.value)">
+                                    <option value="400">Normal</option><option value="600">Semi Bold</option><option value="700">Bold</option><option value="800">Extra Bold</option>
+                                </select>
+                            </div>
+                            <div class="pp-row">
+                                <label>Pill padding (px)</label>
+                                <input type="number" min="0" max="60" :value="sel.padding ?? 8" @input="mutate('padding', Math.max(0, +$event.target.value))">
+                            </div>
+                            <div class="pp-row">
+                                <label>Align</label>
+                                <select :value="sel.textAlign || 'left'" @input="mutate('textAlign', $event.target.value)">
+                                    <option value="left">Start</option><option value="center">Centre</option><option value="right">End</option>
+                                </select>
+                            </div>
+                        </div>
+                    </template>
+
+                    {{-- Beds/Baths/Garages/Parking — display format; any text element — icon. Spec: ad-manager.md §14. --}}
+                    <template x-if="CoreXAd.isTextField(sel.field)">
+                        <div>
+                            <template x-if="CoreXAd.NUMERIC_FEATURE_FIELDS.includes(sel.field)">
+                                <div class="pp-row">
+                                    <label>Display as</label>
+                                    <select :value="sel.numberFormat || 'number'" @input="mutate('numberFormat', $event.target.value)">
+                                        <option value="number">Number only — e.g. "3"</option>
+                                        <option value="label">Number + label — e.g. "1 Bedroom" / "3 Bedrooms"</option>
+                                    </select>
+                                </div>
+                            </template>
+                            <template x-if="CoreXAd.FACT_LABELS[sel.field]">
+                                <div class="pp-row">
+                                    <label style="display:flex;align-items:center;gap:7px;cursor:pointer;">
+                                        <input type="checkbox" :checked="sel.showLabel !== false" @change="mutate('showLabel', $event.target.checked)"
+                                               style="accent-color:var(--brand-button,#00b4d8);cursor:pointer;">
+                                        <span style="font-weight:600;color:var(--chrome-text);" x-text="'Print the word &quot;' + CoreXAd.FACT_LABELS[sel.field] + '&quot; before the value'"></span>
+                                    </label>
+                                </div>
+                            </template>
+                            <div class="pp-hint" x-show="CoreXAd.FACT_FIELDS.includes(sel.field)">Comes from the property. If the property has no value for it, this element is left off the finished ad (the sample text shows here only so you can design with it).</div>
                             <div class="pp-row" style="align-items:flex-start;">
                                 <label>Icon</label>
-                                <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:5px;width:100%;">
+                                <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:5px;width:100%;max-height:230px;overflow-y:auto;">
                                     <button type="button" @click="mutate('icon', null)" title="No icon"
                                             :style="'min-width:0;aspect-ratio:1;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:4px;font-size:9px;overflow:hidden;color:var(--chrome-text-soft);background:' + (!sel.icon ? 'color-mix(in srgb, var(--brand-button,#00b4d8) 18%, transparent)' : 'var(--chrome-surface-2)') + ';border:1.5px solid ' + (!sel.icon ? 'var(--brand-button,#00b4d8)' : 'var(--chrome-border)') + ';'">
                                         None
@@ -854,13 +1065,13 @@
                         </div>
                     </template>
 
-                    {{-- Features — pick which amenities to display --}}
-                    <template x-if="sel.field === 'features'">
+                    {{-- Features — pick which amenities to display (also the pills: up to the chosen count are drawn) --}}
+                    <template x-if="sel.field === 'features' || sel.field === 'feature_pills'">
                         <div>
                             <div class="pp-row" style="align-items:flex-start;">
                                 <label>Show features</label>
                                 <template x-if="featuresList.length === 0">
-                                    <div class="pp-hint">This property has no listed features. The element falls back to the summary (e.g. beds · baths).</div>
+                                    <div class="pp-hint" x-text="sel.field === 'feature_pills' ? 'This property has no listed features, so no pills are drawn on a finished ad.' : 'This property has no listed features. The element falls back to the summary (e.g. beds · baths).'"></div>
                                 </template>
                                 <template x-if="featuresList.length > 0">
                                     <div style="display:flex;flex-direction:column;gap:5px;max-height:200px;overflow-y:auto;width:100%;">
@@ -902,6 +1113,7 @@
                                     </template>
                                 </select>
                             </div>
+                            <div class="pp-hint" x-show="fontNote(sel.fontFamily)" x-text="fontNote(sel.fontFamily)"></div>
                             <div class="pp-row">
                                 <label>Font size (px)</label>
                                 <input type="number" :value="sel.fontSize" @input="mutate('fontSize', +$event.target.value)" min="8" max="300">
@@ -1001,6 +1213,17 @@
                                     </template>
                                 </div>
                             </div>
+                            {{-- AT-456 §B.9-1 — decorative shapes (waves, curves, arc, blobs), drawn as SVG so the export matches. --}}
+                            <div class="pp-row" style="align-items:flex-start;">
+                                <label>Decorative</label>
+                                <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:5px;width:100%;">
+                                    <template x-for="s in CoreXAd.DECOR_SHAPE_LIST" :key="s.type">
+                                        <button type="button" @click="mutate('shapeType', s.type)" :title="s.label"
+                                                :style="'aspect-ratio:1;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:6px;background:' + (sel.shapeType === s.type ? 'color-mix(in srgb, var(--brand-button,#00b4d8) 18%, transparent)' : 'var(--chrome-surface-2)') + ';border:1.5px solid ' + (sel.shapeType === s.type ? 'var(--brand-button,#00b4d8)' : 'var(--chrome-border)') + ';'"
+                                                x-html="CoreXAd.shapeSwatchHtml(s.type)"></button>
+                                    </template>
+                                </div>
+                            </div>
                             <div class="pp-row">
                                 <label>Fill colour</label>
                                 <input type="color" :value="sel.bg" @input="mutate('bg', $event.target.value)">
@@ -1069,6 +1292,14 @@
                                 <label>Thickness (px)</label>
                                 <input type="number" min="1" :value="sel.borderWidth || 3" @input="mutate('borderWidth', +$event.target.value)">
                             </div>
+                            <div class="pp-row">
+                                <label>Line style</label>
+                                <select :value="sel.lineStyle || 'solid'" @input="mutate('lineStyle', $event.target.value)">
+                                    <option value="solid">Solid</option>
+                                    <option value="dashed">Dashed</option>
+                                    <option value="dotted">Dotted</option>
+                                </select>
+                            </div>
                         </div>
                     </template>
 
@@ -1084,7 +1315,7 @@
                         </label>
                     </div>
                     <template x-if="!CoreXAd.canShadow(sel)">
-                        <div class="pp-hint">A clip-path shape (triangle, star, hexagon…) cuts its own shadow away, so shadows are unavailable for this shape. Use a Rectangle, Rounded, Circle or Pill.</div>
+                        <div class="pp-hint">This kind of element cannot carry a drop shadow (a triangle, star or hexagon, a wave/curve/blob, a corner ribbon, feature pills or a dashed line). A Rectangle, Rounded, Circle or Pill shape can.</div>
                     </template>
                     <template x-if="sel.shadowOn && CoreXAd.canShadow(sel)">
                         <div>
@@ -1638,7 +1869,18 @@ function builder() {
             const idxs = this.selIdx;
             if (!idxs.length) return;
             this.commitCoalesced('mut:' + key + ':' + this.selIds.join(','));
-            idxs.forEach(i => { this.elements[i] = { ...this.elements[i], [key]: value }; });
+            idxs.forEach(i => {
+                let v = value;
+                // AT-456 §B.9-1 — a QR code is never made smaller than the size phones can scan (CoreXAd.minSize).
+                if ((key === 'w' || key === 'h') && typeof v === 'number') v = Math.max(this.CoreXAd.minSize(this.elements[i]), v);
+                this.elements[i] = { ...this.elements[i], [key]: v };
+            });
+        },
+
+        /** Hint shown under the font picker for a font that needs care (script fonts), else ''. */
+        fontNote(name) {
+            const f = this.CoreXAd.FONTS.find(x => x.name === name);
+            return (f && f.note) || '';
         },
 
         setCanvas(key, value) {
@@ -2146,8 +2388,9 @@ function builder() {
                     if (d.includes('n')) y = ds.y + (ds.h - h);
                 }
 
-                w = Math.max(8, w);
-                h = Math.max(8, h);
+                const minPx = this.CoreXAd.minSize(this.elements[i]);
+                w = Math.max(minPx, w);
+                h = Math.max(minPx, h);
 
                 // Snap the moving EDGES, not the origin: dragging the east handle should
                 // snap the right edge to its neighbour, not the untouched left edge.
@@ -2166,10 +2409,10 @@ function builder() {
                         if (this.snapGrid) return Math.round(val / this.gridSize) * this.gridSize;
                         return val;
                     };
-                    if (d.includes('e')) { const r = snapEdge(x + w, 'x'); w = Math.max(8, r - x); }
-                    if (d.includes('w')) { const l = snapEdge(x, 'x');     w = Math.max(8, (ds.x + ds.w) - l); x = l; }
-                    if (d.includes('s')) { const b = snapEdge(y + h, 'y'); h = Math.max(8, b - y); }
-                    if (d.includes('n')) { const t = snapEdge(y, 'y');     h = Math.max(8, (ds.y + ds.h) - t); y = t; }
+                    if (d.includes('e')) { const r = snapEdge(x + w, 'x'); w = Math.max(minPx, r - x); }
+                    if (d.includes('w')) { const l = snapEdge(x, 'x');     w = Math.max(minPx, (ds.x + ds.w) - l); x = l; }
+                    if (d.includes('s')) { const b = snapEdge(y + h, 'y'); h = Math.max(minPx, b - y); }
+                    if (d.includes('n')) { const t = snapEdge(y, 'y');     h = Math.max(minPx, (ds.y + ds.h) - t); y = t; }
                     this.guides = g;
                 }
 

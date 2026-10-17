@@ -13,6 +13,7 @@ use App\Models\PropertyAdTemplate;
 use App\Models\PropertySettingItem;
 use App\Services\AdTemplates\AdLayoutValidator;
 use App\Services\AdTemplates\AiTemplateBuilderService;
+use App\Services\AdTemplates\ListingQrMatrix;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -285,6 +286,14 @@ class AdTemplateManagerController extends Controller
             'agency_name' => $name, 'website' => (string) ($agency?->website_url ?? ''),
             'logo' => $logoPath ? Property::adSafeImageUrl(asset('storage/' . $logoPath)) : null,
             'watermark' => strtoupper($name),
+            // AT-456 §B.9-1 — neutral made-up values for the new facts, so a preview of a template that uses them
+            // looks sensible. (A rental-only fact is left '' here; the preview then shows the element's own sample text.)
+            'erf_size' => '800 m²', 'levy' => 'R 1 250 pm', 'rates_taxes' => 'R 900 pm', 'price_per_m2' => 'R 7 656 per m²',
+            'pet_friendly' => 'Pet friendly', 'available_from' => '', 'rent_per_month' => '',
+            'show_day' => now()->next('Saturday')->format('D j M') . ' · 10:00–13:00',
+            'auction_date' => now()->addWeeks(3)->format('j M Y') . ' · 11:00', 'auction_venue' => 'Sample Venue, Sample Town',
+            // The QR on a preview points at the agency's OWN website when it has one; otherwise the kernel draws its neutral sample code.
+            'qr_matrix' => ListingQrMatrix::forUrl((string) ($agency?->website_url ?? '')),
         ];
     }
 
