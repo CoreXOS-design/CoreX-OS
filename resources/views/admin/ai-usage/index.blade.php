@@ -14,8 +14,7 @@
             <div class="flex flex-wrap items-center gap-2">
                 <form method="GET" class="flex items-center gap-2">
                     <label class="text-xs font-medium" style="color: var(--text-muted);">Month</label>
-                    <input type="month" name="month" value="{{ $month }}" class="rounded-md px-3 py-1.5 text-xs"
-                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    <input class="list-header-filter" type="month" name="month" value="{{ $month }}">
                     <button type="submit" class="corex-btn-primary text-xs">View</button>
                 </form>
             </div>
@@ -198,12 +197,9 @@
                 <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color: var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
                 </svg>
-                <input type="text" name="search" value="{{ $filters['search'] }}" placeholder="Search agency name…"
-                       class="w-full pl-10 pr-3 py-2 text-sm rounded-md focus:outline-none"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                <input class="list-header-filter w-full {{ !empty($filters['search']) ? 'is-active' : '' }}" style="padding-left:2.5rem;" type="text" name="search" value="{{ $filters['search'] }}" placeholder="Search agency name…">
             </div>
-            <select name="status" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm"
-                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <select class="list-header-filter {{ ($filters['status'] ?? 'all') !== 'all' ? 'is-active' : '' }}" name="status" onchange="this.form.submit()">
                 <option value="all" @selected($filters['status'] === 'all')>All statuses</option>
                 <option value="active" @selected($filters['status'] === 'active')>Active</option>
                 <option value="alerted" @selected($filters['status'] === 'alerted')>Alerted</option>

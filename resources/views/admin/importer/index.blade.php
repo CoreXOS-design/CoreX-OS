@@ -44,9 +44,7 @@
           style="background: var(--surface); border: 1px solid var(--border);">
         <div class="flex-1">
             <label for="agency_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Target Agency</label>
-            <select id="agency_id" name="agency_id" onchange="this.form.submit()"
-                    class="w-full rounded-md px-3 py-2 text-sm"
-                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <select class="list-header-filter w-full {{ $activeAgencyId ? 'is-active' : '' }}" id="agency_id" name="agency_id" onchange="this.form.submit()">
                 <option value="">— Select Agency —</option>
                 @foreach ($agencies as $a)
                     <option value="{{ $a->id }}" @selected($activeAgencyId === $a->id)>{{ $a->name }}</option>
@@ -62,7 +60,7 @@
         <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);" x-data="importerUpload()">
             <div class="flex items-center justify-between mb-3">
                 <h3 class="text-sm font-bold" style="color: var(--text-primary);">1. Agents</h3>
-                <span class="ds-badge ds-badge-info">Stage 1</span>
+                <span class="ds-badge ds-badge-info ds-badge-pill">Stage 1</span>
             </div>
             <form method="POST" action="{{ route('admin.importer.agents.upload') }}" enctype="multipart/form-data" class="space-y-3" @submit.prevent="submit($event)">
                 @csrf
@@ -92,7 +90,7 @@
         <div class="rounded-md p-5 {{ !$hasAgentsRun ? 'opacity-60' : '' }}" style="background: var(--surface); border: 1px solid var(--border);" x-data="importerUpload()">
             <div class="flex items-center justify-between mb-3">
                 <h3 class="text-sm font-bold" style="color: var(--text-primary);">2. Listings &amp; Images</h3>
-                <span class="ds-badge ds-badge-info">Stage 2</span>
+                <span class="ds-badge ds-badge-info ds-badge-pill">Stage 2</span>
             </div>
             @if (!$hasAgentsRun)
                 <div class="rounded-md px-3 py-2 text-xs mb-3"

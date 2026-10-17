@@ -27,19 +27,19 @@
         <input type="hidden" name="direction" value="{{ $f['direction'] }}">
         <label class="lg:col-span-2 block">
             <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Search</span>
-            <input type="search" name="q" value="{{ $f['q'] }}" placeholder="Title or source…" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $input }}">
+            <input class="list-header-filter w-full {{ !empty($f['q']) ? 'is-active' : '' }}" type="search" name="q" value="{{ $f['q'] }}" placeholder="Title or source…">
         </label>
         <label class="block">
             <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Status</span>
-            <select name="status" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $input }}">
-                <option value="all"    @selected($f['status'] === 'all')>All</option>
+            <select class="list-header-filter w-full {{ $f['status'] !== 'all' ? 'is-active' : '' }}" name="status">
+                <option value="all"    @selected($f['status'] === 'all')>All statuses</option>
                 <option value="ready"  @selected($f['status'] === 'ready')>Ready</option>
                 <option value="hidden" @selected($f['status'] === 'hidden')>Hidden</option>
             </select>
         </label>
         <label class="block">
             <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Source</span>
-            <select name="source" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $input }}">
+            <select class="list-header-filter w-full {{ !empty($f['source']) ? 'is-active' : '' }}" name="source">
                 <option value="0">All sources</option>
                 @foreach($sources as $s)
                     <option value="{{ $s->id }}" @selected($f['source'] === $s->id)>{{ $s->name }}{{ $s->deleted_at ? ' (archived)' : '' }}</option>
@@ -48,11 +48,11 @@
         </label>
         <label class="block">
             <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">From</span>
-            <input type="date" name="from" value="{{ $f['from'] }}" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $input }}">
+            <input class="list-header-filter w-full {{ !empty($f['from']) ? 'is-active' : '' }}" type="date" name="from" value="{{ $f['from'] }}">
         </label>
         <label class="block">
             <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">To</span>
-            <input type="date" name="to" value="{{ $f['to'] }}" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $input }}">
+            <input class="list-header-filter w-full {{ !empty($f['to']) ? 'is-active' : '' }}" type="date" name="to" value="{{ $f['to'] }}">
         </label>
         <div class="sm:col-span-2 lg:col-span-6 flex items-center gap-2">
             <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Apply</button>
@@ -94,7 +94,7 @@
                                 <div class="font-semibold" style="color:var(--text-primary);">{{ $a->title }}</div>
                                 @if($a->excerpt)<div class="text-xs mt-0.5" style="color:var(--text-muted);">{{ \Illuminate\Support\Str::limit($a->excerpt, 160) }}</div>@endif
                                 @if($a->tagList())
-                                    <div class="flex flex-wrap gap-1 mt-1">@foreach($a->tagList() as $t)<span class="ds-badge ds-badge-muted">{{ $t }}</span>@endforeach</div>
+                                    <div class="flex flex-wrap gap-1 mt-1">@foreach($a->tagList() as $t)<span class="ds-badge ds-badge-muted ds-badge-pill">{{ $t }}</span>@endforeach</div>
                                 @endif
                             </td>
                             <td class="px-4 py-3 align-top" style="color:var(--text-secondary);">

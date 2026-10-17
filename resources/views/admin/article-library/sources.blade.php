@@ -65,11 +65,11 @@
         <input type="hidden" name="direction" value="{{ $f['direction'] }}">
         <label class="lg:col-span-2 block">
             <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Search</span>
-            <input type="search" name="q" value="{{ $f['q'] }}" placeholder="Name or link…" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $input }}">
+            <input class="list-header-filter w-full {{ !empty($f['q']) ? 'is-active' : '' }}" type="search" name="q" value="{{ $f['q'] }}" placeholder="Name or link…">
         </label>
         <label class="block">
             <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Show</span>
-            <select name="status" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $input }}">
+            <select class="list-header-filter w-full {{ $f['status'] !== 'active' ? 'is-active' : '' }}" name="status">
                 <option value="active"   @selected($f['status'] === 'active')>Active</option>
                 <option value="archived" @selected($f['status'] === 'archived')>Archived</option>
                 <option value="all"      @selected($f['status'] === 'all')>All</option>
@@ -77,11 +77,11 @@
         </label>
         <label class="block">
             <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Last read from</span>
-            <input type="date" name="from" value="{{ $f['from'] }}" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $input }}">
+            <input class="list-header-filter w-full {{ !empty($f['from']) ? 'is-active' : '' }}" type="date" name="from" value="{{ $f['from'] }}">
         </label>
         <label class="block">
             <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Last read to</span>
-            <input type="date" name="to" value="{{ $f['to'] }}" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $input }}">
+            <input class="list-header-filter w-full {{ !empty($f['to']) ? 'is-active' : '' }}" type="date" name="to" value="{{ $f['to'] }}">
         </label>
         <div class="sm:col-span-2 lg:col-span-5 flex items-center gap-2">
             <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Apply</button>

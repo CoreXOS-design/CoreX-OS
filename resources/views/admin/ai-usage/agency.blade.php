@@ -19,8 +19,7 @@
                 <a href="{{ route('admin.ai-usage.index', ['month' => $month]) }}" class="corex-btn-outline text-xs">&larr; AI Usage &amp; Cost</a>
                 <form method="GET" class="flex items-center gap-2">
                     <label class="text-xs font-medium" style="color: var(--text-muted);">Month</label>
-                    <input type="month" name="month" value="{{ $month }}" class="rounded-md px-3 py-1.5 text-xs"
-                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    <input class="list-header-filter" type="month" name="month" value="{{ $month }}">
                     <button type="submit" class="corex-btn-primary text-xs">View</button>
                 </form>
             </div>
@@ -210,8 +209,8 @@
                         <td class="px-4 py-3 whitespace-nowrap" style="color:var(--text-secondary);">{{ \Illuminate\Support\Carbon::parse($r['occurred_at'])->format('d M H:i') }}</td>
                         <td class="px-4 py-3" style="color:var(--text-primary);">{{ $r['user'] }}</td>
                         <td class="px-4 py-3">
-                            <span class="ds-badge ds-badge-info">{{ ucwords(str_replace('_', ' ', $r['source'])) }}</span>
-                            @if($r['fallback'])<span class="ds-badge ds-badge-warning">Fallback</span>@elseif($r['cache_hit'])<span class="ds-badge ds-badge-default">Cache</span>@endif
+                            <span class="ds-badge ds-badge-info ds-badge-pill">{{ ucwords(str_replace('_', ' ', $r['source'])) }}</span>
+                            @if($r['fallback'])<span class="ds-badge ds-badge-warning ds-badge-pill">Fallback</span>@elseif($r['cache_hit'])<span class="ds-badge ds-badge-default ds-badge-pill">Cache</span>@endif
                         </td>
                         <td class="px-4 py-3 font-mono text-xs" style="color:var(--text-muted);">{{ $r['surface'] ?: '—' }}</td>
                         <td class="px-4 py-3 font-mono text-xs" style="color:var(--text-secondary);">{{ $r['model'] }}</td>

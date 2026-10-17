@@ -28,12 +28,9 @@
 @endphp
 <div class="w-full space-y-4" x-data>
 
-    {{-- Header — the flat bar the Properties page uses (AT-336): no card fill, no rounded
-         corners, no brand block; the negative margins break it out of <main>'s padding so
-         the rule spans the full width and sits flush at the top. --}}
-    <div class="-mx-4 lg:-mx-6 -mt-4 lg:-mt-6">
-        <div class="px-6 py-3.5" style="border-bottom: 1px solid var(--border);">
-            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
                     <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Demo Access</h1>
                     <p class="text-xs" style="color: var(--text-muted);">
@@ -57,7 +54,6 @@
                     </a>
                 </div>
             </div>
-        </div>
     </div>
 
     {{-- No T&C published = the clickwrap has nothing to show and EVERY prospect is
@@ -130,15 +126,13 @@
                          style="color: var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
                     </svg>
-                    <input type="text" name="q" value="{{ $f['q'] }}" placeholder="Search company, name or email…"
-                           aria-label="Search company, contact name or email"
-                           class="w-full pl-10 pr-3 py-2 text-sm rounded-md"
-                           style="border: 1px solid var(--border); background: var(--surface-2); color: var(--text-primary); outline: none;">
+                    <input class="list-header-filter w-full {{ !empty($f['q']) ? 'is-active' : '' }}" style="padding-left:2.5rem;" type="text" name="q" value="{{ $f['q'] }}" placeholder="Search company, name or email…"
+                           aria-label="Search company, contact name or email">
                 </div>
 
                 <div>
                     <label for="da-sort" class="text-xs font-medium block mb-1" style="color: var(--text-secondary);">Sort by</label>
-                    <select id="da-sort" name="sort" onchange="this.form.submit()" class="list-header-filter w-full">
+                    <select class="list-header-filter w-full" id="da-sort" name="sort" onchange="this.form.submit()">
                         @foreach (\App\Support\DemoAccessListing::SORTS as $key => $label)
                             <option value="{{ $key }}" @selected($f['sort'] === $key)>{{ $label }}</option>
                         @endforeach
@@ -148,10 +142,8 @@
                 <div>
                     <div class="text-xs font-medium mb-1" style="color: var(--text-secondary);">Issued between</div>
                     <div class="grid grid-cols-2 gap-2">
-                        <input type="date" name="issued_from" value="{{ $f['issued_from'] }}" onchange="this.form.submit()" aria-label="Issued from"
-                               class="text-xs rounded-md px-2 py-1.5" style="border: 1px solid var(--border); background: var(--surface-2); color: var(--text-primary); color-scheme: light dark;">
-                        <input type="date" name="issued_to" value="{{ $f['issued_to'] }}" onchange="this.form.submit()" aria-label="Issued to"
-                               class="text-xs rounded-md px-2 py-1.5" style="border: 1px solid var(--border); background: var(--surface-2); color: var(--text-primary); color-scheme: light dark;">
+                        <input class="list-header-filter w-full {{ !empty($f['issued_from']) ? 'is-active' : '' }}" type="date" name="issued_from" value="{{ $f['issued_from'] }}" onchange="this.form.submit()" aria-label="Issued from">
+                        <input class="list-header-filter w-full {{ !empty($f['issued_to']) ? 'is-active' : '' }}" type="date" name="issued_to" value="{{ $f['issued_to'] }}" onchange="this.form.submit()" aria-label="Issued to">
                     </div>
                 </div>
 
@@ -236,7 +228,7 @@
                             $usable = in_array($m['status'], ['pending', 'active'], true);
                             $max    = max(1, max($m['spark']));
                         @endphp
-                        <article class="rounded-md p-4 flex flex-col gap-3" style="background: var(--surface); border: 1px solid var(--border);">
+                        <article class="list-row-hover rounded-md p-4 flex flex-col gap-3" style="background: var(--surface); border: 1px solid var(--border);">
                             <div class="flex items-start justify-between gap-2">
                                 <div class="min-w-0">
                                     <a href="{{ route('admin.demo-access.show', $m['grant']) }}"

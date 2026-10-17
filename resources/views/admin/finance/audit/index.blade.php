@@ -1,31 +1,32 @@
 @extends('layouts.corex')
 
-@section('content')
-<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+@section('corex-content')
+<div class="w-full space-y-5">
 
-    <div style="background:var(--brand-default);" class="rounded-2xl px-6 py-4">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h2 class="text-xl font-bold text-white leading-tight">Finance Audit Center</h2>
-                <div class="text-sm text-white/60">View past audit runs or run a new audit for any period.</div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Finance Audit Center</h1>
+                <p class="text-xs" style="color: var(--text-muted);">View past audit runs or run a new audit for any period.</p>
             </div>
-
-            <form method="GET" action="{{ route('admin.finance.audit.index') }}" class="flex items-center gap-2">
-                <select name="period"
-                        class="rounded-lg border-0 bg-white/10 text-white text-sm px-3 py-1.5 [&>option]:text-slate-900">
-                    <option value="">All periods</option>
-                    @foreach($availablePeriods as $p)
-                        <option value="{{ $p }}" {{ request('period') === $p ? 'selected' : '' }}>
-                            {{ \Carbon\Carbon::createFromFormat('Y-m', $p)->format('F Y') }}
-                        </option>
-                    @endforeach
-                </select>
-                <button class="corex-btn-primary text-sm">Filter</button>
-                @if(request('period'))
-                    <a href="{{ route('admin.finance.audit.index') }}" class="text-sm text-white/60 hover:underline">Clear</a>
-                @endif
-            </form>
         </div>
+    </div>
+
+    <div class="props-filter-panel rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <form method="GET" action="{{ route('admin.finance.audit.index') }}" class="flex flex-wrap items-center gap-3">
+            <select name="period" class="list-header-filter {{ request('period') ? 'is-active' : '' }}">
+                <option value="">All periods</option>
+                @foreach($availablePeriods as $p)
+                    <option value="{{ $p }}" {{ request('period') === $p ? 'selected' : '' }}>
+                        {{ \Carbon\Carbon::createFromFormat('Y-m', $p)->format('F Y') }}
+                    </option>
+                @endforeach
+            </select>
+            <button class="corex-btn-primary text-xs px-4 py-1.5">Filter</button>
+            @if(request('period'))
+                <a href="{{ route('admin.finance.audit.index') }}" class="text-xs underline" style="color: var(--text-muted);">Clear</a>
+            @endif
+        </form>
     </div>
 
     {{-- Flash messages handled by global toast system --}}
@@ -36,9 +37,7 @@
               onsubmit="return confirm('Run recalculation and audit for the selected period?')">
             @csrf
             <input type="hidden" name="mode" value="single">
-            <select name="period"
-                    class="rounded-lg border px-3 py-2 text-sm"
-                    style="border-color:var(--border); background:var(--surface); color:var(--text-primary)">
+            <select name="period" class="list-header-filter">
                 @foreach($availablePeriods as $p)
                     <option value="{{ $p }}" {{ $p === now()->format('Y-m') ? 'selected' : '' }}>
                         {{ \Carbon\Carbon::createFromFormat('Y-m', $p)->format('F Y') }}
@@ -49,7 +48,7 @@
         </form>
     </div>
 
-    <div class="rounded-2xl border overflow-hidden" style="border-color:var(--border); background:var(--surface)">
+    <div class="rounded-md border overflow-hidden" style="border-color:var(--border); background:var(--surface)">
         <div class="px-4 py-3 border-b" style="border-color:var(--border)">
             <h3 class="ds-section-header">Audit Runs</h3>
         </div>
@@ -57,22 +56,22 @@
         <div class="overflow-x-auto">
             <table class="min-w-full text-sm ds-table">
                 <thead>
-                    <tr class="border-b" style="color:var(--text-secondary); background:var(--surface-2); border-color:var(--border)">
-                        <th class="text-left px-4 py-3">Run</th>
-                        <th class="text-left px-4 py-3">Period</th>
-                        <th class="text-left px-4 py-3">Status</th>
-                        <th class="text-right px-4 py-3">Items</th>
-                        <th class="text-right px-4 py-3">Errors</th>
-                        <th class="text-right px-4 py-3">Warnings</th>
-                        <th class="text-right px-4 py-3">Pass</th>
-                        <th class="text-left px-4 py-3">Started</th>
-                        <th class="text-left px-4 py-3">Finished</th>
+                    <tr style="background: var(--surface-2);">
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Run</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Period</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Status</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Items</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Errors</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Warnings</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Pass</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Started</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Finished</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y" style="border-color:var(--border)">
                     @forelse($runs as $run)
                         @php $passCount = $run->items_count - $run->errors_count - $run->warnings_count; @endphp
-                        <tr class="hover:opacity-90" style="border-color:var(--border)">
+                        <tr>
                             <td class="px-4 py-3">
                                 <a href="{{ route('admin.finance.audit.run', $run) }}"
                                    class="font-semibold hover:underline" style="color:var(--brand-icon)">
@@ -84,11 +83,11 @@
                             </td>
                             <td class="px-4 py-3">
                                 @if($run->status === 'complete')
-                                    <span class="inline-flex items-center rounded-full bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">complete</span>
+                                    <span class="ds-badge ds-badge-success">complete</span>
                                 @elseif($run->status === 'failed')
-                                    <span class="inline-flex items-center rounded-full bg-red-50 dark:bg-red-900/30 px-2 py-0.5 text-xs font-semibold text-red-700 dark:text-red-400">failed</span>
+                                    <span class="ds-badge ds-badge-danger">failed</span>
                                 @else
-                                    <span class="inline-flex items-center rounded-full bg-amber-50 dark:bg-amber-900/30 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-400">{{ $run->status }}</span>
+                                    <span class="ds-badge ds-badge-warning">{{ $run->status }}</span>
                                 @endif
                             </td>
                             <td class="px-4 py-3 text-right" style="color:var(--text-secondary)">{{ number_format($run->items_count) }}</td>
