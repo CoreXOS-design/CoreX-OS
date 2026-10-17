@@ -33,15 +33,21 @@
     };
 @endphp
 
-@section('content')
-<div class="p-6 space-y-4">
-    <div class="flex items-center justify-between flex-wrap gap-2">
-        <h1 class="text-lg font-semibold">Rental Reports</h1>
-        <div class="flex items-center gap-3">
-            <a href="{{ route('corex.rentals.reports.print', request()->query()) }}" target="_blank" class="corex-btn-outline text-xs">Print</a>
-            <a href="{{ route('corex.rentals.reports.pdf', request()->query()) }}" class="corex-btn-outline text-xs">PDF</a>
-            <a href="{{ route('corex.rentals.reports.export', array_merge(request()->query(), ['format' => 'xlsx'])) }}" class="corex-btn-outline text-xs">Export XLSX</a>
-            <a href="{{ route('corex.rentals.reports.export', array_merge(request()->query(), ['format' => 'csv'])) }}" class="corex-btn-outline text-xs">Export CSV</a>
+@section('corex-content')
+<div class="w-full space-y-5">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Reports</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Pick a report on the left, narrow it by period, scope and search, then print it or export it.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                <a href="{{ route('corex.rentals.reports.print', request()->query()) }}" target="_blank" class="corex-btn-outline text-xs">Print</a>
+                <a href="{{ route('corex.rentals.reports.pdf', request()->query()) }}" class="corex-btn-outline text-xs">PDF</a>
+                <a href="{{ route('corex.rentals.reports.export', array_merge(request()->query(), ['format' => 'xlsx'])) }}" class="corex-btn-outline text-xs">Export XLSX</a>
+                <a href="{{ route('corex.rentals.reports.export', array_merge(request()->query(), ['format' => 'csv'])) }}" class="corex-btn-outline text-xs">Export CSV</a>
+            </div>
         </div>
     </div>
 
@@ -50,21 +56,22 @@
         <div class="w-48 flex-shrink-0 rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
             @foreach($reports as $key => $label)
             <a href="{{ route('corex.rentals.reports.index', ['report' => $key]) }}"
-               class="block px-3 py-2.5 text-sm no-underline"
+               class="list-row-hover block px-3 py-2.5 text-sm no-underline"
                style="border-bottom: 1px solid var(--border); {{ $reportKey === $key ? 'background:color-mix(in srgb, var(--brand-icon,#6366f1) 10%, var(--surface)); font-weight:600;' : 'color: var(--text-muted);' }}">{{ $label }}</a>
             @endforeach
             <a href="{{ route('corex.rentals.reports.property-history') }}"
-               class="block px-3 py-2.5 text-sm no-underline" style="color: var(--text-muted);">Property history ↗</a>
+               class="list-row-hover block px-3 py-2.5 text-sm no-underline" style="color: var(--text-muted);">Property history ↗</a>
         </div>
 
         {{-- Chosen report --}}
         <div class="flex-1 min-w-0 space-y-3">
+            <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
             <form method="GET" action="{{ route('corex.rentals.reports.index') }}" class="flex flex-wrap items-end gap-3 cx-equal-btns">
                 <input type="hidden" name="report" value="{{ $reportKey }}">
 
                 @if(count($scopeOptions) > 1)
-                <div>
-                    <label class="text-xs" style="color: var(--text-muted);">Showing</label><br>
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs font-medium" style="color: var(--text-secondary);">Showing</label>
                     <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
                         @foreach($scopeOptions as $i => $sc)
                         <a href="{{ route('corex.rentals.reports.index', $baseParams(['scope' => $sc])) }}"
@@ -75,9 +82,9 @@
                 </div>
                 @endif
 
-                <div>
-                    <label class="text-xs" style="color: var(--text-muted);">Period</label><br>
-                    <select name="period" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs font-medium" style="color: var(--text-secondary);">Period</label>
+                    <select name="period" onchange="this.form.submit()" class="list-header-filter text-sm {{ ($params['period'] ?? null) && $params['period'] !== (in_array($reportKey, $forwardPeriodReports, true) ? 'next_30' : 'this_month') ? 'is-active' : '' }}">
                         @if(in_array($reportKey, $forwardPeriodReports, true))
                             @foreach(['next_30' => 'Next 30 days', 'next_60' => 'Next 60 days', 'next_90' => 'Next 90 days', 'this_month' => 'This month', 'custom' => 'Custom range', 'any' => 'Any period'] as $p => $l)
                                 <option value="{{ $p }}" @selected(($params['period'] ?? 'next_30') === $p)>{{ $l }}</option>
@@ -89,24 +96,24 @@
                         @endif
                     </select>
                 </div>
-                <div>
-                    <label class="text-xs" style="color: var(--text-muted);">From</label><br>
-                    <input type="date" name="date_from" value="{{ $params['date_from'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs font-medium" style="color: var(--text-secondary);">From</label>
+                    <input type="date" name="date_from" value="{{ $params['date_from'] ?? '' }}" class="list-header-filter text-sm {{ filled($params['date_from'] ?? '') ? 'is-active' : '' }}">
                 </div>
-                <div>
-                    <label class="text-xs" style="color: var(--text-muted);">To</label><br>
-                    <input type="date" name="date_to" value="{{ $params['date_to'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs font-medium" style="color: var(--text-secondary);">To</label>
+                    <input type="date" name="date_to" value="{{ $params['date_to'] ?? '' }}" class="list-header-filter text-sm {{ filled($params['date_to'] ?? '') ? 'is-active' : '' }}">
                 </div>
 
-                <div>
-                    <label class="text-xs" style="color: var(--text-muted);">Search</label><br>
-                    <input type="text" name="q" value="{{ $params['q'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
+                    <input type="text" name="q" value="{{ $params['q'] ?? '' }}" class="list-header-filter text-sm {{ filled($params['q'] ?? '') ? 'is-active' : '' }}">
                 </div>
 
                 @if(!empty($groupByOptions))
-                <div>
-                    <label class="text-xs" style="color: var(--text-muted);">Group by</label><br>
-                    <select name="group_by" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs font-medium" style="color: var(--text-secondary);">Group by</label>
+                    <select name="group_by" onchange="this.form.submit()" class="list-header-filter text-sm {{ filled($params['group_by'] ?? null) ? 'is-active' : '' }}">
                         <option value="">None</option>
                         @foreach($groupByOptions as $g => $l)
                             <option value="{{ $g }}" @selected(($params['group_by'] ?? '') === $g)>{{ $l }}</option>
@@ -116,13 +123,13 @@
                 @endif
 
                 @if($reportKey === 'work-orders')
-                <div>
-                    <label class="text-xs" style="color: var(--text-muted);">Trade</label><br>
-                    <input type="text" name="trade_type" value="{{ $params['trade_type'] ?? '' }}" placeholder="e.g. plumber" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs font-medium" style="color: var(--text-secondary);">Trade</label>
+                    <input type="text" name="trade_type" value="{{ $params['trade_type'] ?? '' }}" placeholder="e.g. plumber" class="list-header-filter text-sm {{ filled($params['trade_type'] ?? '') ? 'is-active' : '' }}">
                 </div>
-                <div>
-                    <label class="text-xs" style="color: var(--text-muted);">Done by</label><br>
-                    <select name="done_by" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs font-medium" style="color: var(--text-secondary);">Done by</label>
+                    <select name="done_by" class="list-header-filter text-sm {{ filled($params['done_by'] ?? null) ? 'is-active' : '' }}">
                         <option value="">Any</option>
                         <option value="supplier" @selected(($params['done_by'] ?? '') === 'supplier')>Supplier</option>
                         <option value="own_team" @selected(($params['done_by'] ?? '') === 'own_team')>Own team</option>
@@ -131,19 +138,19 @@
                 @endif
 
                 @if($reportKey === 'lease-status')
-                <div>
-                    <label class="text-xs" style="color: var(--text-muted);">Agent</label><br>
-                    <select name="agent_id" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                        <option value="">All</option>
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs font-medium" style="color: var(--text-secondary);">Agent</label>
+                    <select name="agent_id" class="list-header-filter text-sm {{ filled($params['agent_id'] ?? null) ? 'is-active' : '' }}">
+                        <option value="">All agents</option>
                         @foreach($agents as $a)
                             <option value="{{ $a->id }}" @selected((string) ($params['agent_id'] ?? '') === (string) $a->id)>{{ $a->name }}</option>
                         @endforeach
                     </select>
                 </div>
-                <div>
-                    <label class="text-xs" style="color: var(--text-muted);">Branch</label><br>
-                    <select name="branch_id" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                        <option value="">All</option>
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs font-medium" style="color: var(--text-secondary);">Branch</label>
+                    <select name="branch_id" class="list-header-filter text-sm {{ filled($params['branch_id'] ?? null) ? 'is-active' : '' }}">
+                        <option value="">All branches</option>
                         @foreach($branches as $b)
                             <option value="{{ $b->id }}" @selected((string) ($params['branch_id'] ?? '') === (string) $b->id)>{{ $b->name }}</option>
                         @endforeach
@@ -152,9 +159,9 @@
                 @endif
 
                 @if($reportKey === 'inspections')
-                <div>
-                    <label class="text-xs" style="color: var(--text-muted);">Type</label><br>
-                    <select name="type" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs font-medium" style="color: var(--text-secondary);">Type</label>
+                    <select name="type" class="list-header-filter text-sm {{ filled($params['type'] ?? null) ? 'is-active' : '' }}">
                         <option value="">All</option>
                         <option value="in" @selected(($params['type'] ?? '') === 'in')>In</option>
                         <option value="out" @selected(($params['type'] ?? '') === 'out')>Out</option>
@@ -163,18 +170,24 @@
                 </div>
                 @endif
 
-                <div>
-                    <label class="text-xs" style="color: var(--text-muted);">Per page</label><br>
-                    <select name="per_page" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs font-medium" style="color: var(--text-secondary);">Per page</label>
+                    <select name="per_page" onchange="this.form.submit()" class="list-header-filter text-sm">
                         @foreach([10, 25, 50, 100] as $pp)
                             <option value="{{ $pp }}" @selected($result['paginated']->perPage() === $pp)>{{ $pp }}</option>
                         @endforeach
                     </select>
                 </div>
 
-                <button type="submit" class="corex-btn-outline text-xs">Filter</button>
-                <a href="{{ route('corex.rentals.reports.index', ['report' => $reportKey]) }}" class="corex-btn-outline text-xs">Clear</a>
+                <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+                <a href="{{ route('corex.rentals.reports.index', ['report' => $reportKey]) }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>
+                    <div class="flex-1"></div>
+        <span class="text-xs font-semibold px-2.5 py-1 rounded-md whitespace-nowrap"
+              style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent);">
+            {{ number_format($result['paginated']->total()) }} {{ \Illuminate\Support\Str::plural('row', $result['paginated']->total()) }}
+        </span>
             </form>
+            </div>
 
             @if(!empty($result['buckets']))
             <form method="GET" action="{{ route('corex.rentals.reports.index') }}" class="flex flex-wrap items-center gap-3 text-xs">
@@ -197,12 +210,13 @@
             @endif
 
             {{-- Result grid --}}
-            <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="overflow-x-auto">
                 <table class="w-full text-sm">
                     <thead>
-                        <tr style="border-bottom: 1px solid var(--border);">
+                        <tr style="background: var(--surface-2); color: var(--text-muted); border-bottom: 1px solid var(--border);">
                             @foreach($result['columns'] as $colKey => $colLabel)
-                            <th class="text-left px-4 py-2"><a href="{{ $sortLink($colKey) }}" style="color: var(--text-muted);">{{ $colLabel }}{{ $sortIndicator($colKey) }}</a></th>
+                            <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink($colKey) }}">{{ $colLabel }}{{ $sortIndicator($colKey) }}</a></th>
                             @endforeach
                         </tr>
                     </thead>
@@ -210,17 +224,17 @@
                         @forelse($result['paginated'] as $row)
                             @if($loop->first || $row['_group'] !== ($prevGroup ?? null))
                                 @if(!empty($row['_group']))
-                                <tr style="background: var(--bg-subtle, #f8fafc);"><td colspan="{{ count($result['columns']) }}" class="px-4 py-1.5 text-xs font-semibold">{{ $row['_group'] }} ({{ $result['groups'][$row['_group']] ?? '' }})</td></tr>
+                                <tr style="background: var(--surface-2);"><td colspan="{{ count($result['columns']) }}" class="px-4 py-1.5 text-xs font-semibold">{{ $row['_group'] }} ({{ $result['groups'][$row['_group']] ?? '' }})</td></tr>
                                 @endif
                             @endif
                             @php($prevGroup = $row['_group'])
-                            <tr style="border-bottom: 1px solid var(--border);">
+                            <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);">
                                 @foreach($result['columns'] as $colKey => $colLabel)
-                                <td class="px-4 py-2">{{ (is_numeric($row[$colKey] ?? null) && $isMoneyCol($colKey)) ? 'R ' . number_format((float) $row[$colKey], 2) : ($row[$colKey] ?? '—') }}</td>
+                                <td class="px-4 py-3">{{ (is_numeric($row[$colKey] ?? null) && $isMoneyCol($colKey)) ? 'R ' . number_format((float) $row[$colKey], 2) : ($row[$colKey] ?? '—') }}</td>
                                 @endforeach
                             </tr>
                         @empty
-                        <tr><td colspan="{{ count($result['columns']) }}" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
+                        <tr><td colspan="{{ count($result['columns']) }}" class="px-6 py-12 text-center text-sm" style="color: var(--text-muted);">
                             No {{ strtolower($reports[$reportKey]) }} in this period for this scope.
                         </td></tr>
                         @endforelse
@@ -230,21 +244,25 @@
                         <tr style="border-top: 2px solid var(--border); font-weight:600;">
                             @foreach($result['columns'] as $colKey => $colLabel)
                                 @if($loop->first)
-                                    <td class="px-4 py-2">Total ({{ $result['count'] }})</td>
+                                    <td class="px-4 py-3">Total ({{ $result['count'] }})</td>
                                 @elseif(in_array($colKey, $result['sumKeys'], true))
                                     @php($sum = $result['rows']->sum(fn($r) => (float) ($r[$colKey] ?? 0)))
-                                    <td class="px-4 py-2">{{ $isMoneyCol($colKey) ? 'R ' . number_format($sum, 2) : number_format($sum, 0) }}</td>
+                                    <td class="px-4 py-3">{{ $isMoneyCol($colKey) ? 'R ' . number_format($sum, 2) : number_format($sum, 0) }}</td>
                                 @else
-                                    <td class="px-4 py-2"></td>
+                                    <td class="px-4 py-3"></td>
                                 @endif
                             @endforeach
                         </tr>
                     </tfoot>
                     @endif
                 </table>
+                </div>
+                @if($result['paginated']->hasPages())
+                <div class="px-5 py-4" style="border-top:1px solid var(--border);">
+                    {{ $result['paginated']->links() }}
+                </div>
+                @endif
             </div>
-
-            {{ $result['paginated']->links() }}
         </div>
     </div>
 </div>
