@@ -10,8 +10,9 @@ use App\Models\Agency;
 use App\Models\AiTemplateGeneration;
 use App\Models\Property;
 use App\Models\PropertyAdTemplate;
-use App\Models\PropertySettingItem;
 use App\Services\AdTemplates\AdLayoutValidator;
+use App\Services\AdTemplates\AdTemplateMustIncludes;
+use App\Services\AdTemplates\AdTemplatePropertyTypes;
 use App\Services\AdTemplates\AdTemplateStyles;
 use App\Services\AdTemplates\AiTemplateBuilderService;
 use App\Services\AdTemplates\ListingQrMatrix;
@@ -19,6 +20,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 /**
  * Template Manager (Tools → Ad Manager → Template Manager).
@@ -143,12 +145,19 @@ class AdTemplateManagerController extends Controller
         $data = $request->validate([
             'idea'            => ['required', 'string', 'max:' . AiTemplateBuilderService::IDEA_MAX_CHARS],
             'ad_size'         => ['required', 'string', 'in:' . implode(',', array_keys(AdLayoutValidator::SIZES))],
-            'property_type'   => ['nullable', 'string', 'max:100'],
+            'property_type'   => ['nullable', 'string', 'max:100'],       // legacy: context only, never a variant
+            // §B.10 - the agency's own property types (checked against its list by the service) and the must-include ticks.
+            'property_types'   => ['nullable', 'array', 'max:' . AdTemplatePropertyTypes::MAX_TYPES],
+            'property_types.*' => ['string', 'max:100'],
+            'must_include'     => ['nullable', 'array', 'max:' . count(AdTemplateMustIncludes::keys())],
+            'must_include.*'   => ['string', Rule::in(AdTemplateMustIncludes::keys())],
+            'ribbon_text'      => ['nullable', 'string', 'max:200'],
             'style'           => ['nullable', 'string', 'in:' . implode(',', array_merge([AdTemplateStyles::AUTO], AdTemplateStyles::keys()))],
             'match_existing'  => ['nullable', 'boolean'],
             'reference_image' => ['nullable', 'file', 'mimes:jpg,jpeg,png', 'mimetypes:image/jpeg,image/png', 'max:5120'],
         ], [
             'idea.required'            => 'Describe the look you want first.',
+            'property_types.max'       => 'Please pick at most ' . AdTemplatePropertyTypes::MAX_TYPES . ' property types for one request.',
             'reference_image.max'      => 'The reference image must be 5 MB or smaller.',
             'reference_image.mimes'    => 'The reference image must be a JPG or PNG.',
             'reference_image.mimetypes' => 'The reference image must be a JPG or PNG.',
@@ -163,6 +172,7 @@ class AdTemplateManagerController extends Controller
             $generation = $builder->generate(
                 $user, $data['idea'], $data['ad_size'], $data['property_type'] ?? null, $file,
                 $data['style'] ?? AdTemplateStyles::AUTO, (bool) ($data['match_existing'] ?? false),
+                (array) ($data['property_types'] ?? []), (array) ($data['must_include'] ?? []), $data['ribbon_text'] ?? null,
             );
         } catch (AiPausedException $e) {
             return response()->json(['ok' => false, 'kind' => 'paused', 'message' => AiPausedException::MESSAGE], 503);
@@ -172,16 +182,30 @@ class AdTemplateManagerController extends Controller
             return response()->json(['ok' => false, 'kind' => 'failed', 'message' => $e->getMessage()] + $this->usagePayload($builder, $user), 422);
         }
 
+        // The versions are listed in the order the types were ticked (the JSON column does not keep key order).
+        $typeOrder = array_values((array) $generation->property_types_json);
         $options = [];
         foreach ((array) $generation->options_json as $i => $opt) {
             $styleKey  = $opt['style'] ?? null;
+            $variants  = (array) ($opt['variants'] ?? []);
+            $ordered   = [];
+            foreach ($typeOrder as $type) {
+                if (isset($variants[$type])) {
+                    $ordered[$type] = $variants[$type];
+                }
+            }
             $options[] = ['index' => $i, 'name' => $opt['name'], 'layout' => $opt['layout'],
-                'style' => $styleKey, 'style_name' => AdTemplateStyles::get($styleKey)['name'] ?? null];
+                'style' => $styleKey, 'style_name' => AdTemplateStyles::get($styleKey)['name'] ?? null,
+                // §B.10 - what a design lacks of what was ticked, its per-property-type versions and the "uses the main design" notes.
+                'missing'       => array_values((array) ($opt['missing'] ?? [])),
+                'variants'      => (object) $ordered,
+                'variant_notes' => (object) (array) ($opt['variant_notes'] ?? [])];
         }
 
         return response()->json([
             'ok'            => true,
             'generation_id' => $generation->id,
+            'property_types' => array_values((array) $generation->property_types_json),
             'options'       => $options,
         ] + $this->usagePayload($builder, $user));
     }
@@ -254,9 +278,13 @@ class AdTemplateManagerController extends Controller
             // "Match our existing templates": offered (and ticked by default) only when the agency has at least one saved,
             // non-archived template of its own. Pinned to the agency explicitly - an owner-role user is not scope-limited.
             'templateCount' => PropertyAdTemplate::query()->where('agency_id', $agencyId)->count(),
-            'sizes' => collect(AdLayoutValidator::SIZES)->map(fn ($s, $k) => ['key' => $k, 'label' => $s['label']])->values()->all(),
-            'propertyTypes' => PropertySettingItem::group(PropertySettingItem::GROUP_TYPE)
-                ->where('active', true)->orderBy('sort_order')->pluck('name')->all(),
+            'sizes' => collect(AdLayoutValidator::SIZES)->map(fn ($s, $k) => ['key' => $k, 'label' => $s['label'], 'w' => $s['w'], 'h' => $s['h']])->values()->all(),
+            // The agency's OWN active Property Type list (the one the property form uses) - pinned to the agency in the query.
+            'propertyTypes' => AdTemplatePropertyTypes::forAgency($agencyId),
+            'maxTypes'      => AdTemplatePropertyTypes::MAX_TYPES,
+            'mustIncludes'  => AdTemplateMustIncludes::forPanel(),
+            'ribbonMax'     => AdLayoutValidator::MAX_RIBBON_TEXT,
+            'hasLogo'       => (bool) Agency::query()->whereKey($agencyId)->value('logo_path'),
             'sample' => $this->samplePropertyData($user, Agency::query()->find($agencyId)),
         ]];
     }

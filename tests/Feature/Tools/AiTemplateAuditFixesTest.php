@@ -252,7 +252,8 @@ final class AiTemplateAuditFixesTest extends TestCase
 
     public function test_the_panel_swaps_the_throttles_too_many_attempts_for_friendly_words_but_keeps_the_monthly_limit_message(): void
     {
-        $blade = (string) file_get_contents(resource_path('views/tools/ad-manager/templates.blade.php'));
+        // The panel's script lives in the pop-up partial since AT-456 §B.10.
+        $blade = (string) file_get_contents(resource_path('views/tools/ad-manager/_ai-template-modal.blade.php'));
         $this->assertStringContainsString("e.status === 429 && !(data && data.usage)", $blade);
         $this->assertStringContainsString('You are going a little fast', $blade);
 

@@ -27,7 +27,7 @@ class AiTemplateGeneration extends Model
     public const STATUS_FAILED  = 'failed';
 
     protected $fillable = [
-        'agency_id', 'user_id', 'idea', 'ad_size', 'property_type', 'style', 'match_existing', 'example_template_ids_json',
+        'agency_id', 'user_id', 'idea', 'ad_size', 'property_type', 'property_types_json', 'must_include_json', 'style', 'match_existing', 'example_template_ids_json',
         'reference_image_path', 'reference_image_purged_at',
         'status', 'failure_reason', 'cost_zar', 'options_json', 'validation_log_json', 'saved_template_ids',
     ];
@@ -36,6 +36,8 @@ class AiTemplateGeneration extends Model
         'cost_zar'                  => 'decimal:4',
         'options_json'              => 'array',
         'validation_log_json'       => 'array',
+        'property_types_json'       => 'array',
+        'must_include_json'         => 'array',
         'match_existing'            => 'boolean',
         'example_template_ids_json' => 'array',
         'saved_template_ids'        => 'array',

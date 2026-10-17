@@ -61,6 +61,103 @@ final class AnthropicGateway
      */
     public function generate(NarrativeRequest $request): NarrativeResponse
     {
+        $prepared = $this->prepareCall($request);
+        if ($prepared instanceof NarrativeResponse) {
+            return $prepared; // feature flag / cache hit / no key / paused: answered without an API call
+        }
+
+        try {
+            $response = $this->callApi($prepared['endpoint'], $prepared['apiKey'], $prepared['payload'], $request->timeoutSeconds, !empty($request->documents));
+        } catch (Throwable $e) {
+            return $this->handleApiFailure($request, $prepared['inputHash'], $e);
+        }
+
+        return $this->finishCall($request, $prepared, $response);
+    }
+
+    /**
+     * Several independent requests at the same time (AT-456 §B.10: one AI call per ticked property type).
+     *
+     * Every request goes through exactly the same checks and bookkeeping as generate() - feature flag, cache,
+     * model, key, spend-guard pause, ledger row, cache row, failure handling - so a paused agency still causes no
+     * HTTP call and every call is still its own ledger line. Only the waiting is shared: the HTTP calls are made
+     * as one concurrent pool instead of one after another.
+     *
+     * Differences from generate(), by design: no automatic retry inside a call (the pool cannot retry one call
+     * in isolation - the caller decides what to re-ask), and one call failing never stops the others.
+     *
+     * @param  array<string|int, NarrativeRequest> $requests keyed by the caller's own key
+     * @return array<string|int, NarrativeResponse|Throwable> same keys; a Throwable is that call's failure
+     */
+    public function generateMany(array $requests): array
+    {
+        $results  = [];
+        $prepared = [];
+
+        foreach ($requests as $key => $request) {
+            try {
+                $prep = $this->prepareCall($request);
+            } catch (Throwable $e) {
+                $results[$key] = $e;
+                continue;
+            }
+            if ($prep instanceof NarrativeResponse) {
+                $results[$key] = $prep;
+            } else {
+                $prepared[$key] = $prep;
+            }
+        }
+
+        if ($prepared !== []) {
+            $responses = Http::pool(function ($pool) use ($prepared, $requests) {
+                $calls = [];
+                foreach ($prepared as $key => $prep) {
+                    $calls[] = $pool->as((string) $key)->withHeaders([
+                            'x-api-key'         => $prep['apiKey'],
+                            'anthropic-version' => self::API_VERSION_HEADER,
+                            'content-type'      => 'application/json',
+                        ])
+                        ->timeout($requests[$key]->timeoutSeconds ?? (int) config('services.anthropic.timeout', 30))
+                        ->post($prep['endpoint'], $prep['payload']);
+                }
+
+                return $calls;
+            });
+
+            foreach ($prepared as $key => $prep) {
+                $response = $responses[(string) $key] ?? null;
+                try {
+                    if ($response instanceof Response) {
+                        $results[$key] = $this->finishCall($requests[$key], $prep, $response);
+                    } else {
+                        $error = $response instanceof Throwable ? $response : new AnthropicApiException('No response from the AI service', 0, '');
+                        $results[$key] = $this->handleApiFailure($requests[$key], $prep['inputHash'], $error);
+                    }
+                } catch (Throwable $e) {
+                    $results[$key] = $e;
+                }
+            }
+        }
+
+        // Hand the results back in the order the requests were given.
+        $ordered = [];
+        foreach (array_keys($requests) as $key) {
+            $ordered[$key] = $results[$key];
+        }
+
+        return $ordered;
+    }
+
+    /**
+     * Everything generate() does BEFORE the HTTP call.
+     *
+     * @return NarrativeResponse|array{model:string, apiKey:string, payload:array<string, mixed>, endpoint:string, inputHash:string}
+     *         A response when the request is answered without an API call (flag off, cache hit, no key, AI paused);
+     *         otherwise what is needed to make the call.
+     * @throws InvalidNarrativeRequestException|AiPausedException|NarrativeGenerationException
+     */
+    private function prepareCall(NarrativeRequest $request): NarrativeResponse|array
+    {
         $enabled = (bool) config('services.anthropic.enabled', true);
         $inputHash = $request->inputHash();
 
@@ -127,7 +224,7 @@ final class AnthropicGateway
             return $this->emitFallback($request, $inputHash, AiPausedException::MESSAGE, persist: false);
         }
 
-        // ── 4. Compose payload + call ──────────────────────────────────────
+        // ── 4. Compose payload ─────────────────────────────────────────────
         // ES-6.1: when the request carries documents (PDF / images), emit
         // multipart messages.content[] in the Anthropic format. Otherwise
         // keep the original string-content shape so existing surfaces are
@@ -147,27 +244,37 @@ final class AnthropicGateway
         $endpoint = rtrim((string) config('services.anthropic.api_base', 'https://api.anthropic.com'), '/')
             . '/v1/messages';
 
-        try {
-            $response = $this->callApi($endpoint, $apiKey, $payload, $request->timeoutSeconds, !empty($request->documents));
-        } catch (Throwable $e) {
-            return $this->handleApiFailure($request, $inputHash, $e);
-        }
+        return [
+            'model'     => $model,
+            'apiKey'    => $apiKey,
+            'payload'   => $payload,
+            'endpoint'  => $endpoint,
+            'inputHash' => $inputHash,
+        ];
+    }
 
+    /**
+     * Everything generate() does AFTER the HTTP call: failure handling, cost, cache row, ledger row.
+     *
+     * @param array{model:string, apiKey:string, payload:array<string, mixed>, endpoint:string, inputHash:string} $prepared
+     */
+    private function finishCall(NarrativeRequest $request, array $prepared, Response $response): NarrativeResponse
+    {
         if (!$response->successful()) {
             return $this->handleApiFailure(
                 $request,
-                $inputHash,
+                $prepared['inputHash'],
                 new AnthropicApiException(
                     message: 'Anthropic API returned ' . $response->status(),
                     statusCode: $response->status(),
                     upstreamBody: $response->body(),
-                    requestUrl: $endpoint,
+                    requestUrl: $prepared['endpoint'],
                 ),
             );
         }
 
         // ── 5. Parse + cost + cache + event ────────────────────────────────
-        return $this->handleApiSuccess($request, $inputHash, $model, $response);
+        return $this->handleApiSuccess($request, $prepared['inputHash'], $prepared['model'], $response);
     }
 
     /**
