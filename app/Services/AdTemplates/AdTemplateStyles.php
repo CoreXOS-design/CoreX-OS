@@ -144,8 +144,12 @@ final class AdTemplateStyles
         return false;
     }
 
-    /** One style in full, as the instructions for "every option uses this style". */
-    public static function chosenBlock(string $key, string $sizeKey): string
+    /**
+     * One style in full, as the instructions for "every option uses this style".
+     *
+     * @param array<int, string> $forbidden element types the user did not tick (never suggested)
+     */
+    public static function chosenBlock(string $key, string $sizeKey, array $forbidden = []): string
     {
         $s = self::get($key);
         if ($s === null) {
@@ -158,7 +162,7 @@ final class AdTemplateStyles
             . "- Brand colours: {$s['brand']}\n"
             . "- Photo: it takes about " . (int) round($s['photo']['min'] * 100) . '% to ' . (int) round($s['photo']['max'] * 100) . "% of the canvas area; {$s['photo']['placement']}.\n"
             . "- Text: {$s['text']}\n"
-            . '- Blocks that suit it: ' . implode(', ', $s['blocks']) . ".\n"
+            . '- Blocks that suit it: ' . self::suits($s, $forbidden) . ".\n"
             . "- Keep out: {$s['avoid']}\n";
         if (! in_array($sizeKey, (array) $s['sizes'], true)) {
             $out .= "- Note: this style is usually made for " . implode(' / ', array_map(fn ($k) => AdLayoutValidator::SIZES[$k]['label'], (array) $s['sizes'])) . "; adapt it carefully to the requested {$size}.\n";
@@ -168,16 +172,29 @@ final class AdTemplateStyles
     }
 
     /** All eight, compactly, for "Let the AI choose". */
-    public static function catalogueBlock(string $sizeKey): string
+    public static function catalogueBlock(string $sizeKey, array $forbidden = []): string
     {
         $out = "STYLE - the user left the style to you. Choose, for EACH option, the one style below that best fits the idea. Different options may (and usually should) use different styles. Name the style you used in that option as \"style\": \"<key>\" (the key before the colon). Follow that style's fonts, brand-colour rule and photo share for that option.\n";
         foreach (self::all() as $key => $s) {
             $suits = in_array($sizeKey, (array) $s['sizes'], true) ? '' : ' (not usually made for this ad size)';
             $out  .= "- {$key}: {$s['name']}. {$s['summary']} Fonts: " . self::fontLine($s) . " Brand colours: {$s['brand']} Photo: "
-                . (int) round($s['photo']['min'] * 100) . '-' . (int) round($s['photo']['max'] * 100) . '% of the canvas. Suits: ' . implode(', ', $s['blocks']) . ".{$suits}\n";
+                . (int) round($s['photo']['min'] * 100) . '-' . (int) round($s['photo']['max'] * 100) . '% of the canvas. Suits: ' . self::suits($s, $forbidden) . ".{$suits}\n";
         }
 
         return $out;
+    }
+
+    /**
+     * A style's suggested blocks, minus the element types the user did not tick (decision 20: a style never suggests an unticked extra).
+     *
+     * @param array<string, mixed> $s
+     * @param array<int, string>   $forbidden element types that must not be suggested
+     */
+    private static function suits(array $s, array $forbidden): string
+    {
+        $blocks = array_values(array_filter((array) $s['blocks'], static fn ($b) => ! in_array($b, $forbidden, true)));
+
+        return $blocks === [] ? 'nothing in particular' : implode(', ', $blocks);
     }
 
     /** @param array<string, mixed> $s */

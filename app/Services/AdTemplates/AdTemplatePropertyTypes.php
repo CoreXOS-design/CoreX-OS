@@ -72,10 +72,10 @@ final class AdTemplatePropertyTypes
     }
 
     /**
-     * Plain-language guidance for adapting a design to one of the agency's property types.
-     * Built from the type's NAME (keyword guesses); the fact names are the render kernel's own.
+     * Which kind of property a type NAME is, from whole-word keyword guesses: rental, land, farm, sectional, commercial, family
+     * or other. Shared by hint() and the demo photos the previews show (AdTemplateDemoPhotos).
      */
-    public static function hint(string $typeName): string
+    public static function category(string $typeName): string
     {
         $n = mb_strtolower($typeName);
         // Whole words only (an optional plural s): "Standalone House" must not read as a "stand" (a plot).
@@ -83,28 +83,48 @@ final class AdTemplatePropertyTypes
             return (bool) preg_match('/(?<![\p{L}])(' . implode('|', array_map(static fn ($w) => preg_quote($w, '/'), $words)) . ')s?(?![\p{L}])/u', $n);
         };
 
-        if ($has(['rent', 'rental', 'to let', 'lease', 'letting'])) {
+        return match (true) {
+            $has(['rent', 'rental', 'to let', 'lease', 'letting'])                                            => 'rental',
+            $has(['vacant', 'land', 'plot', 'stand', 'erf'])                                                  => 'land',
+            $has(['farm', 'smallholding', 'agricultural', 'game'])                                            => 'farm',
+            $has(['apartment', 'flat', 'sectional', 'townhouse', 'cluster', 'duplex', 'simplex', 'penthouse']) => 'sectional',
+            $has(['commercial', 'industrial', 'office', 'retail', 'warehouse', 'business', 'factory'])        => 'commercial',
+            $has(['house', 'home', 'villa', 'estate', 'cottage', 'bungalow', 'residential'])                  => 'family',
+            default                                                                                           => 'other',
+        };
+    }
+
+    /**
+     * Plain-language guidance for adapting a design to one of the agency's property types.
+     * Built from the type's NAME (keyword guesses); the fact names are the render kernel's own.
+     * $pillsAllowed = false (decision 20: the user did not tick "Key features as pills") leaves every mention of pills out.
+     */
+    public static function hint(string $typeName, bool $pillsAllowed = true): string
+    {
+        $category = self::category($typeName);
+
+        if ($category === 'rental') {
             return 'Rentals: lead with the rent per month ("rent_per_month") and when it can be moved into ("available_from"); "pet_friendly" suits a rental. '
                 . 'Levy, rates and price per square metre are sales facts - do not build the design around "levy", "rates_taxes" or "price_per_m2".';
         }
-        if ($has(['vacant', 'land', 'plot', 'stand', 'erf'])) {
+        if ($category === 'land') {
             return 'Land with nothing built on it: it has NO bedrooms, bathrooms, garages, parking or floor size. Remove "beds", "baths", "garages", "parking", "garages_or_parking", "size_m2" and the "features" line, '
                 . 'and show the plot instead ("erf_size", or "size_or_land") with the price (and "price_per_m2" if it suits). Re-balance the layout so it does not look as if something is missing.';
         }
-        if ($has(['farm', 'smallholding', 'agricultural', 'game'])) {
+        if ($category === 'farm') {
             return 'Farms and smallholdings: the size of the land is the headline ("erf_size" or "size_or_land"), the house matters less. Keep "beds"/"baths" only as small secondary details, '
-                . 'and use wide scenic photos; water and power ("feature_pills") are good to show.';
+                . 'and use wide scenic photos' . ($pillsAllowed ? '; water and power ("feature_pills") are good to show.' : '.');
         }
-        if ($has(['apartment', 'flat', 'sectional', 'townhouse', 'cluster', 'duplex', 'simplex', 'penthouse'])) {
+        if ($category === 'sectional') {
             return 'Sectional-title homes: a monthly levy and rates matter to buyers, so show "levy" (and "rates_taxes" if it fits), beds, baths and parking ("garages_or_parking"). '
                 . 'There is little or no garden or plot, so do not feature "erf_size".';
         }
-        if ($has(['commercial', 'industrial', 'office', 'retail', 'warehouse', 'business', 'factory'])) {
+        if ($category === 'commercial') {
             return 'Commercial and industrial property: bedrooms and bathrooms do not apply. Lead with the floor area ("size_m2") and the price per square metre ("price_per_m2"), '
                 . 'with the plot ("erf_size") as a secondary fact. Use a businesslike, uncluttered look.';
         }
-        if ($has(['house', 'home', 'villa', 'estate', 'cottage', 'bungalow', 'residential'])) {
-            return 'Family homes: beds, baths and garages ("garages_or_parking") are the key facts; the plot ("erf_size") and the key features as pills ("feature_pills") are good supporting details.';
+        if ($category === 'family') {
+            return 'Family homes: beds, baths and garages ("garages_or_parking") are the key facts; ' . ($pillsAllowed ? 'the plot ("erf_size") and the key features as pills ("feature_pills") are good supporting details.' : 'the plot ("erf_size") is a good supporting detail.');
         }
 
         return 'Adapt the design to what buyers of this kind of property care about: decide, from its name, which of the listing facts make sense (and which do not - remove those) and give the right ones room.';

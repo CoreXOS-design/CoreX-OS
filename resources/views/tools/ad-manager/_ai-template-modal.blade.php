@@ -51,6 +51,30 @@
     .aitp-pill { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--text-secondary); cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .aitp-pill[aria-pressed="true"] { background: var(--accent, #4f7cff); border-color: var(--accent, #4f7cff); color: #fff; }
     .aitp-small { font-size: 12px; color: var(--text-secondary); }
+    .aitp-prev[data-zoom="1"] { cursor: zoom-in; }
+    .aitp-view-btn { align-self: flex-start; }
+    /* Full-screen viewer (always a dark stage, so light and dark themes both read well). */
+    .aitv-overlay { position: fixed; inset: 0; z-index: 10000; display: flex; flex-direction: column; overscroll-behavior: contain; touch-action: none; color: #fff; }
+    .aitv-backdrop { position: absolute; inset: 0; background: rgba(8, 10, 14, .97); }
+    .aitv-top, .aitv-bottom, .aitv-switch { position: relative; flex: 0 0 auto; display: flex; align-items: center; gap: 8px 12px; padding: 10px 16px; pointer-events: none; }
+    .aitv-top { justify-content: space-between; }
+    .aitv-top > *, .aitv-bottom > *, .aitv-switch > * { pointer-events: auto; }
+    .aitv-title { font-size: 14px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .aitv-switch { flex-wrap: wrap; justify-content: center; padding-top: 0; }
+    .aitv-bottom { justify-content: center; }
+    .aitv-btn { min-width: 44px; height: 44px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, .35); background: rgba(255, 255, 255, .1); color: #fff; font-size: 14px; cursor: pointer; }
+    .aitv-btn:hover:not(:disabled) { background: rgba(255, 255, 255, .22); }
+    .aitv-btn:focus-visible, .aitv-pill:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    .aitv-x { font-size: 26px; line-height: 1; padding: 0; width: 44px; }
+    .aitv-pill { font-size: 13px; padding: 6px 14px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .35); background: transparent; color: #fff; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .aitv-pill[aria-pressed="true"] { background: #fff; color: #111; border-color: #fff; }
+    .aitv-stage { position: relative; flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 8px 16px; pointer-events: none; overflow: hidden; }
+    .aitv-frame { position: relative; flex: 0 0 auto; overflow: hidden; background: #111; box-shadow: 0 10px 40px rgba(0, 0, 0, .6); pointer-events: auto; }
+    .aitv-inner { position: absolute; top: 0; left: 0; overflow: hidden; transform-origin: top left; }
+    @media (max-width: 760px) {
+        .aitv-top, .aitv-bottom, .aitv-switch { padding-left: 12px; padding-right: 12px; }
+        .aitv-stage { padding: 6px 12px; }
+    }
     @media (max-width: 760px) {
         .aitp-form { grid-template-columns: minmax(0, 1fr); }
         .aitp-groups { grid-template-columns: minmax(0, 1fr); }
@@ -66,6 +90,7 @@
 <div x-data="aiTemplatePanel(@js([
         'usage'    => $aiPanel['usage'],
         'sample'   => $aiPanel['sample'],
+        'typePhotos' => $aiPanel['typePhotos'] ?? [],
         'styles'   => $aiPanel['styles'],
         'sizes'    => $aiPanel['sizes'],
         'maxTypes' => $aiPanel['maxTypes'],
@@ -78,7 +103,7 @@
     <template x-teleport="body">
         <div x-show="open" x-cloak class="aitp-overlay" data-aitp="overlay"
              role="dialog" aria-modal="true" aria-labelledby="aitp-title"
-             @keydown.escape.window="if (open && !loading) closePanel()"
+             @keydown.escape.window="onEscape()"
              @keydown.tab="trapTab($event)">
             <div class="aitp-backdrop" @click="if (!loading) closePanel()"></div>
 
@@ -222,9 +247,10 @@
                             <div class="aitp-cards">
                                 <template x-for="opt in options" :key="generationId + '-' + opt.index">
                                     <article class="aitp-card" data-aitp="card">
-                                        <div class="aitp-prev" :id="'aitp-prev-' + opt.index" x-init="$nextTick(() => paintPreview(opt))">
+                                        <div class="aitp-prev" data-zoom="1" :id="'aitp-prev-' + opt.index" title="Click to view full size" @click="openViewer(opt)" x-init="$nextTick(() => paintPreview(opt))">
                                             <div class="aitp-prev-inner"></div>
                                         </div>
+                                        <button type="button" class="corex-btn-outline text-xs px-3 py-1.5 aitp-view-btn" data-aitp="view-full" :data-aitp-view="opt.index" @click="openViewer(opt)">View full size</button>
 
                                         <div class="aitp-switch" x-show="variantNames(opt).length" role="group" aria-label="Version to preview">
                                             <button type="button" class="aitp-pill" :aria-pressed="opt.view === '' ? 'true' : 'false'" @click="showView(opt, '')">Default</button>
@@ -277,6 +303,37 @@
             </div>
         </div>
     </template>
+
+    {{-- Full-screen viewer (decision: previews open full size). Teleported to <body>, above the pop-up; never available while a design is being made. --}}
+    <template x-teleport="body">
+        <div x-show="viewer.open" x-cloak class="aitv-overlay" data-aitv="overlay"
+             role="dialog" aria-modal="true" aria-label="Full-size preview"
+             @keydown.arrow-left.window="viewerStep(-1)" @keydown.arrow-right.window="viewerStep(1)"
+             @keydown.tab="trapTab($event, $refs.viewerBox)" @resize.window="fitViewer()" x-ref="viewerBox" tabindex="-1">
+            <div class="aitv-backdrop" data-aitv="backdrop" @click="closeViewer()"></div>
+
+            <div class="aitv-top">
+                <div class="aitv-title" aria-live="polite" data-aitv="title" x-text="viewerTitle()"></div>
+                <button type="button" class="aitv-btn aitv-x" data-aitv="close" x-ref="viewerClose" @click="closeViewer()" aria-label="Close full-size preview" title="Close (Esc)">&times;</button>
+            </div>
+
+            <div class="aitv-switch" role="group" aria-label="Version to preview" x-show="viewerOpt() && variantNames(viewerOpt()).length">
+                <button type="button" class="aitv-pill" data-aitv="version" :aria-pressed="viewerOpt() && viewerOpt().view === '' ? 'true' : 'false'" @click="showView(viewerOpt(), '')">Default</button>
+                <template x-for="t in (viewerOpt() ? variantNames(viewerOpt()) : [])" :key="t">
+                    <button type="button" class="aitv-pill" data-aitv="version" :aria-pressed="viewerOpt().view === t ? 'true' : 'false'" :title="t" @click="showView(viewerOpt(), t)" x-text="t"></button>
+                </template>
+            </div>
+
+            <div class="aitv-stage" x-ref="viewerStage" data-aitv="stage">
+                <div class="aitv-frame" x-ref="viewerFrame" data-aitv="frame"><div class="aitv-inner" x-ref="viewerInner"></div></div>
+            </div>
+
+            <div class="aitv-bottom" x-show="options.length > 1">
+                <button type="button" class="aitv-btn" data-aitv="prev" @click="viewerStep(-1)" aria-label="Previous design">&#8249; Previous</button>
+                <button type="button" class="aitv-btn" data-aitv="next" @click="viewerStep(1)" aria-label="Next design">Next &#8250;</button>
+            </div>
+        </div>
+    </template>
 </div>
 
 <script>
@@ -289,6 +346,7 @@ function aiTemplatePanel(cfg) {
         usage: cfg.usage, sample: cfg.sample,
         loading: false, error: '', generationId: null, options: [], savedAny: false,
         _opener: null, _bodyOverflow: '',
+        viewer: { open: false, index: 0 }, _viewerRO: null,
 
         openPanel() {
             this._opener = document.activeElement;
@@ -297,14 +355,20 @@ function aiTemplatePanel(cfg) {
             this.$nextTick(() => { (this.$refs.idea || this.$refs.dialog).focus(); });
         },
         closePanel() {
+            this.closeViewer(false);
             this.open = false; document.body.style.overflow = this._bodyOverflow;
             if (this._opener && typeof this._opener.focus === 'function') { try { this._opener.focus(); } catch (e) {} }
             // Newly saved templates only appear in the table after a reload.
             if (this.savedAny) window.location.reload();
         },
-        // Keep Tab / Shift+Tab inside the dialog.
-        trapTab(e) {
-            const dlg = this.$refs.dialog; if (!dlg) return;
+        // Esc closes the full-size viewer first; only a second Esc closes the pop-up (and never while a design is being made).
+        onEscape() {
+            if (this.viewer.open) { this.closeViewer(); return; }
+            if (this.open && !this.loading) this.closePanel();
+        },
+        // Keep Tab / Shift+Tab inside the dialog (or the viewer).
+        trapTab(e, box) {
+            const dlg = box || this.$refs.dialog; if (!dlg) return;
             const items = Array.from(dlg.querySelectorAll('a[href], button, textarea, input, select, [tabindex]'))
                 .filter(el => !el.disabled && el.tabIndex !== -1 && el.type !== 'hidden' && el.offsetParent !== null);
             if (!items.length) { e.preventDefault(); dlg.focus(); return; }
@@ -329,6 +393,7 @@ function aiTemplatePanel(cfg) {
         async generate() {
             if (this.loading) return;
             if (this.must.includes('ribbon') && this.ribbon.trim() === '') { this.error = 'Type the words you want on the corner ribbon, for example JUST LISTED.'; return; }
+            this.closeViewer(false);
             this.loading = true; this.error = ''; this.options = []; this.generationId = null;
             const body = new FormData();
             body.append('idea', this.idea); body.append('ad_size', this.size);
@@ -375,7 +440,72 @@ function aiTemplatePanel(cfg) {
         },
         // The property types this design has its own version for (in the order they were ticked).
         variantNames(opt) { return Object.keys(opt.variants || {}); },
-        showView(opt, view) { opt.view = view; this.paintPreview(opt); },
+        showView(opt, view) { opt.view = view; this.paintPreview(opt); if (this.viewer.open && this.viewerOpt() === opt) this.paintViewer(); },
+        // The sample listing for a design's current version: a property type's version shows the demo photos that fit that type.
+        sampleFor(opt) {
+            const photos = (opt && opt.view && cfg.typePhotos && cfg.typePhotos[opt.view]) || null;
+            return photos ? Object.assign({}, this.sample, photos) : this.sample;
+        },
+        // ── Full-size viewer ──────────────────────────────────────────────
+        viewerOpt() { return this.options[this.viewer.index] || null; },
+        viewerTitle() {
+            const o = this.viewerOpt(); if (!o) return '';
+            return 'Design ' + (this.viewer.index + 1) + ' of ' + this.options.length + (o.name ? ' · ' + o.name : '') + (o.view ? ' · ' + o.view : '');
+        },
+        openViewer(opt) {
+            if (this.loading) return;
+            const i = this.options.indexOf(opt); if (i < 0) return;
+            this.viewer.index = i; this.viewer.open = true;
+            this.$nextTick(() => {
+                this.paintViewer();
+                if (this.$refs.viewerClose) this.$refs.viewerClose.focus();
+                if (!this._viewerRO && window.ResizeObserver && this.$refs.viewerStage) {
+                    this._viewerRO = new ResizeObserver(() => this.fitViewer());
+                    this._viewerRO.observe(this.$refs.viewerStage);
+                }
+            });
+        },
+        closeViewer(restoreFocus = true) {
+            if (!this.viewer.open) return;
+            const opt = this.viewerOpt();
+            this.viewer.open = false;
+            if (restoreFocus && opt) {
+                this.$nextTick(() => {
+                    const btn = document.querySelector('[data-aitp-view="' + opt.index + '"]');
+                    if (btn) { try { btn.focus(); } catch (e) {} }
+                });
+            }
+        },
+        viewerStep(dir) {
+            if (!this.viewer.open || this.options.length < 2) return;
+            const n = this.options.length;
+            this.viewer.index = (this.viewer.index + dir + n) % n;
+            this.$nextTick(() => this.paintViewer());
+        },
+        // Same render kernel as the cards, the Ad Builder and the export, drawn at the canvas's own size and scaled to fit.
+        paintViewer() {
+            const opt = this.viewerOpt(), inner = this.$refs.viewerInner;
+            const l = opt && this.layoutFor(opt);
+            if (!l || !inner || !window.CoreXAd) return;
+            inner.style.width = l.canvasW + 'px'; inner.style.height = l.canvasH + 'px';
+            inner.dataset.cw = l.canvasW; inner.dataset.ch = l.canvasH;
+            window.CoreXAd.renderLayout(l, this.sampleFor(opt), inner, { paintBackground: true, placeholders: true });
+            this.fitViewer();
+        },
+        // The largest size that fits the stage with the ad's aspect kept.
+        fitViewer() {
+            const stage = this.$refs.viewerStage, frame = this.$refs.viewerFrame, inner = this.$refs.viewerInner;
+            if (!this.viewer.open || !stage || !frame || !inner) return;
+            const cw = parseFloat(inner.dataset.cw || '0'), ch = parseFloat(inner.dataset.ch || '0');
+            if (!cw || !ch) return;
+            const cs = getComputedStyle(stage);
+            const aw = stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+            const ah = stage.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+            if (aw <= 0 || ah <= 0) return;
+            const k = Math.min(aw / cw, ah / ch);
+            frame.style.width = Math.floor(cw * k) + 'px'; frame.style.height = Math.floor(ch * k) + 'px';
+            inner.style.transform = 'scale(' + k + ')';
+        },
         layoutFor(opt) { return (opt.view && opt.variants[opt.view] && opt.variants[opt.view].layout) || opt.layout; },
         // Draws the chosen version into the card's preview box and keeps it scaled to the box's width as the box resizes.
         paintPreview(opt) {
@@ -386,7 +516,7 @@ function aiTemplatePanel(cfg) {
             box.style.aspectRatio = l.canvasW + ' / ' + l.canvasH;
             inner.style.width = l.canvasW + 'px'; inner.style.height = l.canvasH + 'px';
             box.dataset.cw = l.canvasW;
-            window.CoreXAd.renderLayout(l, this.sample, inner, { paintBackground: true, placeholders: true });
+            window.CoreXAd.renderLayout(l, this.sampleFor(opt), inner, { paintBackground: true, placeholders: true });
             this.scalePreview(box);
             if (!box._aitpRO && window.ResizeObserver) {
                 box._aitpRO = new ResizeObserver(() => this.scalePreview(box));

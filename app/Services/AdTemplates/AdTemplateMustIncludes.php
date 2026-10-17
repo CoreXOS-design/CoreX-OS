@@ -30,6 +30,7 @@ final class AdTemplateMustIncludes
             'ask'   => 'a "price" element with fontSize of at least ' . self::BIG_PRICE_MIN_FONT . ' (the price is the hero of the ad)',
         ],
         'show_day' => [
+            'extra' => 'show_day',
             'label' => 'Show day date', 'group' => 'info',
             'needs' => [['show_day']],
             'ask'   => 'a "show_day" element (the next show day with its times)',
@@ -45,21 +46,25 @@ final class AdTemplateMustIncludes
             'ask'   => 'the agency logo (a "logo" element - it shows the agency name as text when no logo file is on file - or "agency_logo")',
         ],
         'feature_pills' => [
+            'extra' => 'feature_pills',
             'label' => 'Key features as pills', 'group' => 'info',
             'needs' => [['feature_pills']],
             'ask'   => 'a "feature_pills" element (the listing\'s key features as separate pills)',
         ],
         'qr' => [
+            'extra' => 'qr',
             'label' => 'QR code to the listing', 'group' => 'extras',
             'needs' => [['qr']],
             'ask'   => 'a "qr" element (a scannable code to the listing\'s web page, large enough to scan)',
         ],
         'collage' => [
+            'extra' => 'collage',
             'label' => 'Photo collage', 'group' => 'extras',
             'needs' => [['collage']],
             'ask'   => 'a "collage" element (several of the listing\'s photos together)',
         ],
         self::RIBBON_KEY => [
+            'extra' => 'ribbon',
             'label' => 'Corner ribbon', 'group' => 'extras',
             'needs' => [['ribbon']],
             'ask'   => 'a "ribbon" element carrying exactly the words given below',
@@ -124,6 +129,127 @@ final class AdTemplateMustIncludes
         $t = trim((string) preg_replace('/\s+/u', ' ', $t));
 
         return mb_substr($t, 0, AdLayoutValidator::MAX_RIBBON_TEXT);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Decision 20: "extras only when ticked"
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * The extras - the building blocks that appear in a design ONLY when the user ticked them (decision 20): option key =>
+     * element type. Price, agent photo / contact and the agency logo are NOT extras: they stay normal ad content the AI may use
+     * unticked (ticking them only makes them required). Defined once, here - the prompt, the style text and the clean-up all read it.
+     *
+     * @return array<string, string>
+     */
+    public static function extras(): array
+    {
+        $out = [];
+        foreach (self::OPTIONS as $key => $def) {
+            if (isset($def['extra'])) {
+                $out[$key] = $def['extra'];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * The extras the user did NOT tick: option key => element type.
+     *
+     * @param  array<int, string> $keys the ticked keys
+     * @return array<string, string>
+     */
+    public static function unticked(array $keys): array
+    {
+        return array_diff_key(self::extras(), array_flip($keys));
+    }
+
+    /**
+     * The element types that must NOT appear (the unticked extras), as a plain list.
+     *
+     * @param  array<int, string> $keys the ticked keys
+     * @return array<int, string>
+     */
+    public static function forbiddenFields(array $keys): array
+    {
+        return array_values(self::unticked($keys));
+    }
+
+    /**
+     * The prompt lines that forbid the unticked extras ('' when every extra was ticked).
+     *
+     * @param array<int, string> $keys the ticked keys
+     */
+    public static function notTickedBlock(array $keys): string
+    {
+        $parts = [];
+        foreach (self::unticked($keys) as $key => $field) {
+            $parts[] = self::OPTIONS[$key]['label'] . ' ("' . $field . '")';
+        }
+        if ($parts === []) {
+            return '';
+        }
+
+        return "\nDO NOT USE - the user did NOT tick these, so NO option and NO property-type version may contain any of them, whatever the style or the idea suggests: "
+            . implode(', ', $parts) . ". Do not use those element types at all (a program removes them if you do). Price, agent details and the agency logo are normal ad content and stay available.\n";
+    }
+
+    /**
+     * Take every unticked extra out of ONE design (a raw answer option or a validated layout - both keep their elements under
+     * `elements`, each with a `field`). A collage that was the design's only property photo is turned into a single main photo
+     * (image_1) in the same box, so the design never loses the photo the validator requires. Returns the cleaned design and a
+     * plain-words note per change ("removed ... - not ticked"), for the validation log.
+     *
+     * @param  array<string, mixed> $design
+     * @param  array<int, string>   $keys   the ticked keys
+     * @return array{0: array<string, mixed>, 1: array<int, string>}
+     */
+    public static function stripUnticked(array $design, array $keys): array
+    {
+        $forbidden = self::unticked($keys);
+        $elements  = $design['elements'] ?? null;
+        if ($forbidden === [] || ! is_array($elements)) {
+            return [$design, []];
+        }
+        $labelOf = [];
+        foreach ($forbidden as $key => $field) {
+            $labelOf[$field] = self::OPTIONS[$key]['label'];
+        }
+        $fieldOf = static fn ($el): string => is_array($el) ? strtolower(trim((string) ($el['field'] ?? ''))) : '';
+
+        $photos = array_values(array_filter(array_keys($elements), static function ($i) use ($elements, $fieldOf) {
+            return in_array($fieldOf($elements[$i]), ['image_1', 'image_2', 'image_3', 'image_4', 'image_5'], true);
+        }));
+        $needsPhoto = $photos === [];
+
+        $kept  = [];
+        $notes = [];
+        foreach ($elements as $i => $el) {
+            $field = $fieldOf($el);
+            if (! isset($labelOf[$field])) {
+                $kept[$i] = $el;
+                continue;
+            }
+            if ($field === 'collage' && $needsPhoto) {
+                // The only property photo: keep its box, as the main photo.
+                foreach (['collagePreset', 'collageGap', 'collageFirst'] as $k) {
+                    unset($el[$k]);
+                }
+                $el['field'] = 'image_1';
+                $kept[$i]    = $el;
+                $needsPhoto  = false;
+                $notes[]     = 'removed ' . $labelOf[$field] . ' - not ticked (it was the only photo, so its place now shows the main photo)';
+                continue;
+            }
+            $notes[] = 'removed ' . $labelOf[$field] . ' - not ticked';
+        }
+        if ($notes === []) {
+            return [$design, []];
+        }
+        $design['elements'] = array_values($kept);
+
+        return [$design, $notes];
     }
 
     /**

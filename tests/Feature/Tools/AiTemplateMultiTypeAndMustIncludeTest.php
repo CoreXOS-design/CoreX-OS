@@ -73,9 +73,10 @@ final class AiTemplateMultiTypeAndMustIncludeTest extends TestCase
         $this->assertStringContainsString('form="aitp-form"', $html);
 
         // Behaviour: Esc closes (not while generating), the backdrop closes, focus is kept inside and returned.
-        $this->assertStringContainsString('@keydown.escape.window="if (open && !loading) closePanel()"', $html);
+        $this->assertStringContainsString('@keydown.escape.window="onEscape()"', $html);
+        $this->assertStringContainsString('if (this.open && !this.loading) this.closePanel();', $partial);
         $this->assertStringContainsString('@click="if (!loading) closePanel()"', $html);
-        $this->assertStringContainsString('trapTab(e)', $partial);
+        $this->assertStringContainsString('trapTab(e, box)', $partial);
         $this->assertStringContainsString('this._opener.focus()', $partial);
         $this->assertStringContainsString('aria-label="Close"', $html);
 

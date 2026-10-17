@@ -434,10 +434,15 @@ final class AiTemplateBlocksAndStylesTest extends TestCase
         $this->assertCount(3, $gen->options_json);
         Http::assertSentCount(1);                      // no retry needed: all three passed first time
         $blocks = collect($gen->options_json)->map(fn ($o) => collect($o['layout']['elements'])->pluck('field')->all());
-        $this->assertContains('collage', $blocks[1]);
-        $this->assertContains('ribbon', $blocks[0]);
-        $this->assertContains('qr', $blocks[0]);
-        $this->assertContains('feature_pills', $blocks[1]);
+        // Decision 20 (extras only when ticked): nothing was ticked, so the recorded answer's collage / ribbon / QR / pills are
+        // taken out (the designs stay valid and are kept); the blocks that are not extras are untouched.
+        foreach ($blocks as $i => $fields) {
+            foreach (['collage', 'ribbon', 'qr', 'feature_pills', 'show_day'] as $extra) {
+                $this->assertNotContains($extra, $fields, "option {$i}: unticked {$extra} must be removed");
+            }
+        }
+        $removed = collect($gen->validation_log_json)->pluck('repairs')->flatten()->filter(fn ($r) => str_contains((string) $r, '- not ticked'))->all();
+        $this->assertNotEmpty($removed);
         $this->assertContains('auction_date', $blocks[2]);
         $this->assertSame('arch', collect($gen->options_json[0]['layout']['elements'])->firstWhere('field', 'image_1')['photoMask']);
 

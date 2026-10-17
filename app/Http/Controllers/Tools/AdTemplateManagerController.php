@@ -11,6 +11,7 @@ use App\Models\AiTemplateGeneration;
 use App\Models\Property;
 use App\Models\PropertyAdTemplate;
 use App\Services\AdTemplates\AdLayoutValidator;
+use App\Services\AdTemplates\AdTemplateDemoPhotos;
 use App\Services\AdTemplates\AdTemplateMustIncludes;
 use App\Services\AdTemplates\AdTemplatePropertyTypes;
 use App\Services\AdTemplates\AdTemplateStyles;
@@ -280,7 +281,9 @@ class AdTemplateManagerController extends Controller
             'templateCount' => PropertyAdTemplate::query()->where('agency_id', $agencyId)->count(),
             'sizes' => collect(AdLayoutValidator::SIZES)->map(fn ($s, $k) => ['key' => $k, 'label' => $s['label'], 'w' => $s['w'], 'h' => $s['h']])->values()->all(),
             // The agency's OWN active Property Type list (the one the property form uses) - pinned to the agency in the query.
-            'propertyTypes' => AdTemplatePropertyTypes::forAgency($agencyId),
+            'propertyTypes' => $propertyTypes = AdTemplatePropertyTypes::forAgency($agencyId),
+            // Per property type: the demo photos that fit it (a land version opens on a lawn, a flat on an apartment block).
+            'typePhotos'    => AdTemplateDemoPhotos::forTypes($propertyTypes),
             'maxTypes'      => AdTemplatePropertyTypes::MAX_TYPES,
             'mustIncludes'  => AdTemplateMustIncludes::forPanel(),
             'ribbonMax'     => AdLayoutValidator::MAX_RIBBON_TEXT,
@@ -290,29 +293,18 @@ class AdTemplateManagerController extends Controller
     }
 
     /**
-     * A made-up listing for the previews. Property photos are neutral generated placeholders;
+     * A made-up listing for the previews. Property photos are generic licensed demo photos (AdTemplateDemoPhotos);
      * agency name, website and logo are the user's own agency's; the agent is the signed-in user.
      *
      * @return array<string, mixed>
      */
     private function samplePropertyData($user, ?Agency $agency): array
     {
-        $photo = function (string $from, string $to) {
-            $svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">'
-                . '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="' . $from . '"/><stop offset="1" stop-color="' . $to . '"/></linearGradient></defs>'
-                . '<rect width="1200" height="800" fill="url(#g)"/>'
-                . '<path d="M600 230 380 420h60v200h130V500h60v120h130V420h60z" fill="#ffffff" fill-opacity="0.55"/></svg>';
-
-            return 'data:image/svg+xml;base64,' . base64_encode($svg);
-        };
-
         $logoPath = $agency?->logo_path;
         $name     = (string) ($agency?->name ?? '');
 
-        return [
-            'image_1' => $photo('#8aa4b8', '#4a6073'), 'image_2' => $photo('#b9a98a', '#6e5f45'),
-            'image_3' => $photo('#8fb59b', '#47684f'), 'image_4' => $photo('#a89bc0', '#5b4f78'),
-            'image_5' => $photo('#c09b9b', '#774a4a'),
+        // image_1 ... image_5: generic licensed demo photos (public/images/ad-demo) - never any agency's own listing photos.
+        return AdTemplateDemoPhotos::set() + [
             'price' => 'R 2 450 000', 'title' => 'MODERN FAMILY HOME', 'suburb' => 'SAMPLE SUBURB, YOUR CITY',
             'property_type' => 'HOUSE', 'property_type_raw' => 'House',
             'features' => '4 Bed · 3 Bath · 2 Garage', 'features_list' => ['Pool', 'Garden', 'Security'],

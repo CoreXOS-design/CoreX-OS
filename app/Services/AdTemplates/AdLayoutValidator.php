@@ -880,8 +880,13 @@ final class AdLayoutValidator
      * this class's own constants, so the prompt can never promise a limit the validator does not
      * enforce (or the other way round).
      */
-    public function promptLimits(int $cw, int $ch): string
+    public function promptLimits(int $cw, int $ch, array $forbidden = []): string
     {
+        // Decision 20: an extra the user did not tick (qr, collage, ribbon, show_day, feature_pills) is not mentioned at all.
+        $on      = static fn (string $field): bool => ! in_array($field, $forbidden, true);
+        $geoNames = array_keys(array_filter(['ribbons' => 'ribbon', 'pills' => 'feature_pills', 'the QR code' => 'qr'], $on));
+        $lastGeo  = $geoNames === [] ? null : array_pop($geoNames);
+        $geoList  = $lastGeo === null ? '' : ', ' . ($geoNames === [] ? $lastGeo : implode(', ', $geoNames) . ' and ' . $lastGeo) . ' included';
         $t = self::EDGE_TOLERANCE;
         $inset  = self::EXAMPLE_INSET;
         $insetW = $cw - 2 * $inset;
@@ -901,7 +906,7 @@ final class AdLayoutValidator
         $script   = implode(' / ', self::SCRIPT_FONTS);
 
         return "HARD LIMITS - every option is checked by a program. One broken rule throws the whole option away, so check your own numbers before you answer:\n"
-            . "1. Geometry: EVERY element - divider lines, shapes, gradients, ribbons, pills and the QR code included, not only photos and text - must lie fully inside the canvas: x >= 0, y >= 0, x + w <= {$cw}, y + h <= {$ch}. "
+            . "1. Geometry: EVERY element - divider lines, shapes, gradients{$geoList}, not only photos and text - must lie fully inside the canvas: x >= 0, y >= 0, x + w <= {$cw}, y + h <= {$ch}. "
             . "{$t}px of slack is tolerated; never rely on it. w and h are at least 4. "
             . "A line or block across the whole width is x=0 with w={$cw}; across the whole height is y=0 with h={$ch}; inset by a margin of {$inset}px it is x={$inset} with w={$insetW} (the width MINUS the margin on BOTH sides). "
             . "The usual mistake is a divider line given the full width ({$cw}) but an x greater than 0, which runs past the right edge (x + w is then more than {$cw}).\n"
@@ -917,14 +922,15 @@ final class AdLayoutValidator
             . '7. Allowed numeric ranges: ' . implode('; ', $ranges) . ".\n"
             . '8. Allowed words: ' . implode('; ', array_map($enum, $taughtEnums)) . '. fontWeight is a string such as "700".' . "\n"
             . "9. {$own} sit on their OWN colour (bgColor + bgOpacity): bgOpacity must be {$bm} or more (use 0.9 or 1) and their text colour must pass rule 4 against that colour.\n"
-            . '10. ribbon: "text" is required and at most ' . self::MAX_RIBBON_TEXT . ' characters (e.g. JUST LISTED, SOLD, NEW PRICE); w and h at least ' . self::MIN_RIBBON_SIZE
-            . '; the words must fit along the band, which is about 0.75 x the shorter box side x 1.41 long minus the band thickness (fontSize x 1.5 + 2 x padding) - about 0.75 x fontSize pixels per capital letter. A 200 x 200 ribbon at fontSize 18 holds about 12 capitals.' . "\n"
-            . '11. qr: w and h at least ' . self::MIN_QR_SIZE . ' (a smaller code cannot be scanned). qrDark and qrLight must be solid colours, qrDark darker than qrLight, with a contrast of at least '
-            . self::MIN_QR_CONTRAST . ':1 (black #000000 on white #ffffff is always safe). Keep other elements off the QR.' . "\n"
+            . ($on('ribbon') ? '10. ribbon: "text" is required and at most ' . self::MAX_RIBBON_TEXT . ' characters (e.g. JUST LISTED, SOLD, NEW PRICE); w and h at least ' . self::MIN_RIBBON_SIZE
+            . '; the words must fit along the band, which is about 0.75 x the shorter box side x 1.41 long minus the band thickness (fontSize x 1.5 + 2 x padding) - about 0.75 x fontSize pixels per capital letter. A 200 x 200 ribbon at fontSize 18 holds about 12 capitals.' . "\n" : '')
+            . ($on('qr') ? '11. qr: w and h at least ' . self::MIN_QR_SIZE . ' (a smaller code cannot be scanned). qrDark and qrLight must be solid colours, qrDark darker than qrLight, with a contrast of at least '
+            . self::MIN_QR_CONTRAST . ':1 (black #000000 on white #ffffff is always safe). Keep other elements off the QR.' . "\n" : '')
             . "12. Script fonts ({$script}) are for a few headline words only: allowed on {$okScript}; at most " . self::MAX_SCRIPT_TEXT . ' characters; fontSize at least ' . self::MIN_SCRIPT_FONT_SIZE
             . ". Never on a price, phone number, address, listing fact or any body text.\n"
-            . '13. feature_pills: the box must be tall enough: one pill is about fontSize x 1.2 + padding x 1.2 pixels high; a column needs pillCount of those plus the pillGap between them. You cannot choose which features show - the listing supplies its own.' . "\n"
-            . '14. Photo effects, masks and collages apply to photos only (image_1 to image_5, collage); a collage counts as a property photo. duoColor1 / duoColor2 (only used when photoEffect is duotone) follow the colour rule in 4b.' . "\n";
+            . ($on('feature_pills') ? '13. feature_pills: the box must be tall enough: one pill is about fontSize x 1.2 + padding x 1.2 pixels high; a column needs pillCount of those plus the pillGap between them. You cannot choose which features show - the listing supplies its own.' . "\n" : '')
+            . '14. Photo effects, masks' . ($on('collage') ? ' and collages' : ' ') . ' apply to photos only (image_1 to image_5' . ($on('collage') ? ', collage); a collage counts as a property photo.' : ').')
+            . ' duoColor1 / duoColor2 (only used when photoEffect is duotone) follow the colour rule in 4b.' . "\n";
     }
 
     // ─────────────────────────────────────────────────────────────────────
