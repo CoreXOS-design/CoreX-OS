@@ -39,7 +39,7 @@
                 <label for="document_type" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Type</label>
                 <select id="document_type" name="document_type" class="list-header-filter rounded-md px-3 py-2 text-sm"
                         style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                    <option value="All" {{ request('document_type') === 'All' ? 'selected' : '' }}>All</option>
+                    <option value="All" {{ request('document_type') === 'All' ? 'selected' : '' }}>All types</option>
                     <option value="OA" {{ request('document_type') === 'OA' ? 'selected' : '' }}>OA</option>
                     <option value="EA" {{ request('document_type') === 'EA' ? 'selected' : '' }}>EA</option>
                     <option value="Other" {{ request('document_type') === 'Other' ? 'selected' : '' }}>Other</option>
@@ -49,7 +49,7 @@
                 <label for="status" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
                 <select id="status" name="status" class="list-header-filter rounded-md px-3 py-2 text-sm"
                         style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                    <option value="All" {{ request('status') === 'All' ? 'selected' : '' }}>All</option>
+                    <option value="All" {{ request('status') === 'All' ? 'selected' : '' }}>All statuses</option>
                     <option value="Active" {{ request('status') === 'Active' ? 'selected' : '' }}>Active</option>
                     <option value="Expiring" {{ request('status') === 'Expiring' ? 'selected' : '' }}>Expiring Soon</option>
                     <option value="Expired" {{ request('status') === 'Expired' ? 'selected' : '' }}>Expired</option>

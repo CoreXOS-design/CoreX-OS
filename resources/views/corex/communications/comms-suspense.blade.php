@@ -104,7 +104,18 @@
                 <div class="px-3.5 py-2 text-xs" x-show="q && !hays.review.some(h => hit(h))" x-cloak style="color: var(--text-muted);">No emails match your search.</div>
             </div>
             @if($items->hasPages())
-                <div x-show="tab === 'review'" class="flex-shrink-0 px-3 py-2 text-xs" style="border-top: 1px solid var(--border);">{{ $items->links() }}</div>
+                {{-- Compact pager for the 380px list column: the full page-number bar
+                     overflowed the column once it reached seven pages (Andre, 2026-10-14;
+                     same fix as Deeds Capture). Range text on its own line, Previous /
+                     Next below it. --}}
+                <div x-show="tab === 'review'" class="flex-shrink-0 px-3 py-2 text-xs space-y-1.5" style="border-top: 1px solid var(--border);">
+                    @if($items->hasPages())
+                        <div style="color: var(--text-muted);">{{ number_format($items->firstItem()) }}–{{ number_format($items->lastItem()) }} of {{ number_format($items->total()) }} · page {{ $items->currentPage() }} of {{ $items->lastPage() }}</div>
+                        {{ $items->links('pagination::simple-tailwind') }}
+                    @else
+                        <div style="color: var(--text-muted);">{{ number_format($items->total()) }} to review</div>
+                    @endif
+                </div>
             @endif
 
             {{-- recently filed list --}}

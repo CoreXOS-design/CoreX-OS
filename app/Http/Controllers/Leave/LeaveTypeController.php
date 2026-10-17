@@ -9,7 +9,27 @@ use Illuminate\Validation\Rule;
 
 class LeaveTypeController extends Controller
 {
+    /**
+     * AT-455 (Andre, 2026-10-14): the Leave Types list lives in the Settings hub
+     * (corex/settings?s=leave-types). The old standalone page redirects there so
+     * bookmarks keep working; create / edit / delete stay on their own routes and
+     * return to the Settings section.
+     */
     public function index(Request $request)
+    {
+        return redirect()->route('corex.settings', array_filter([
+            's'      => 'leave-types',
+            'status' => $request->query('status'),
+            'q'      => $request->query('q'),
+        ]));
+    }
+
+    /**
+     * The list's data (paginated rows + per-filter counts), shared by the
+     * Settings hub section. Filters: status = all|active|inactive|system|custom,
+     * q = search on code / label.
+     */
+    public static function listData(Request $request): array
     {
         $status = $request->query('status', 'all');
         $q = $request->query('q');
@@ -43,7 +63,7 @@ class LeaveTypeController extends Controller
             'custom'   => LeaveType::where('is_system', false)->count(),
         ];
 
-        return view('payroll.leave.types.index', compact('types', 'status', 'q', 'counts'));
+        return compact('types', 'status', 'q', 'counts');
     }
 
     public function create()
@@ -66,7 +86,7 @@ class LeaveTypeController extends Controller
 
         LeaveType::create($validated);
 
-        return redirect()->route('payroll.leave.types.index')
+        return redirect()->route('corex.settings', ['s' => 'leave-types'])
             ->with('success', "Leave type \"{$validated['label']}\" created.");
     }
 
@@ -107,7 +127,7 @@ class LeaveTypeController extends Controller
 
         $type->update($validated);
 
-        return redirect()->route('payroll.leave.types.index')
+        return redirect()->route('corex.settings', ['s' => 'leave-types'])
             ->with('success', "Leave type \"{$type->label}\" updated.");
     }
 
@@ -129,7 +149,7 @@ class LeaveTypeController extends Controller
 
         $type->delete();
 
-        return redirect()->route('payroll.leave.types.index')
+        return redirect()->route('corex.settings', ['s' => 'leave-types'])
             ->with('success', "\"{$type->label}\" deleted.");
     }
 

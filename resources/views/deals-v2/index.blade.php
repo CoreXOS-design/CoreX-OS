@@ -36,7 +36,7 @@
     @endif
 
     {{-- Filter bar --}}
-    <div class="rounded-md px-4 py-3" data-tour="deals-filter" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="props-filter-panel rounded-md px-4 py-3" data-tour="deals-filter" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="GET" action="{{ route('deals-v2.index') }}" class="flex flex-wrap items-center gap-3">
 
             {{-- Search --}}

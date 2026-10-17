@@ -28,7 +28,7 @@
         <div>
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
             <select name="status" class="rounded-md px-3 py-1.5 text-sm" style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
-                <option value="">All</option>
+                <option value="">All statuses</option>
                 <option value="active" @selected(($filters['status'] ?? null) === 'active')>Active</option>
                 <option value="inactive" @selected(($filters['status'] ?? null) === 'inactive')>Inactive</option>
             </select>
@@ -36,7 +36,7 @@
         <div>
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outgoing mail</label>
             <select name="outgoing" class="rounded-md px-3 py-1.5 text-sm" style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
-                <option value="">All</option>
+                <option value="">All outgoing mail</option>
                 <option value="yes" @selected(($filters['outgoing'] ?? null) === 'yes')>Enabled</option>
                 <option value="no" @selected(($filters['outgoing'] ?? null) === 'no')>Not enabled</option>
             </select>
@@ -44,7 +44,7 @@
         <div>
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Send health</label>
             <select name="send_health" class="rounded-md px-3 py-1.5 text-sm" style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
-                <option value="">All</option>
+                <option value="">Any send health</option>
                 <option value="healthy" @selected(($filters['send_health'] ?? null) === 'healthy')>Healthy</option>
                 <option value="failing" @selected(($filters['send_health'] ?? null) === 'failing')>Failing</option>
                 <option value="pending" @selected(($filters['send_health'] ?? null) === 'pending')>Pending</option>

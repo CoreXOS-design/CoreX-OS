@@ -109,6 +109,7 @@ The flat Settings sidebar item became a **Settings** slide-panel group (`$active
 
 Role Manager (Johan 2026-10-12): the `manage_users` switch (key unchanged, so no grant or route changes) now shows as **Users** under the **Settings** heading, beside Access Settings and Manage Features — three independent on/off switches (it used to be "Manage Users" under Franchise Admin). Run `corex:sync-permissions` to refresh the stored label/heading.
 
+Role Manager in the sub menu (Andre 2026-10-14): the **Role Manager** entry (`corex.role-manager`, `access_role_manager`) moved out of the Company group into the Settings sub menu, after Users. The Settings group now also shows when the user holds `access_role_manager`, and the Company group no longer counts it. Route, permission and the page itself are unchanged; `corex.role-manager*` lights up the Settings group. Covered by the same `FeaturesPageTest` sub-menu test.
 
 ## Agency type (2026-10-14)
 

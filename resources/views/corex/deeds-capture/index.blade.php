@@ -86,8 +86,8 @@
                 </svg>
                 <input type="text" name="search" value="{{ $searchTerm }}"
                        placeholder="Search address or contact…"
-                       class="w-full pl-10 pr-3 py-2 text-sm rounded-md transition-all duration-300"
-                       style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);outline:none;">
+                       class="list-header-filter w-full {{ $searchTerm !== '' ? 'is-active' : '' }}"
+                       style="padding-left:2.25rem;">
             </div>
 
             @if($canPickAgent)
@@ -1327,7 +1327,13 @@
                     @stack('deedsQueueRows')
                 </div>
                 @if($captures->hasPages())
-                    <div class="px-3 py-2 flex-shrink-0 text-xs" style="border-top: 1px solid var(--border);">{{ $captures->links() }}</div>
+                    {{-- Compact pager for the 380px queue column: the full page-number bar
+                         overflowed the column once it reached seven pages (Andre, 2026-10-14).
+                         Range text on its own line, Previous / Next below it. --}}
+                    <div class="px-3 py-2 flex-shrink-0 text-xs space-y-1.5" style="border-top: 1px solid var(--border);">
+                        <div style="color: var(--text-muted);">{{ number_format($captures->firstItem()) }}–{{ number_format($captures->lastItem()) }} of {{ number_format($captures->total()) }} · page {{ $captures->currentPage() }} of {{ $captures->lastPage() }}</div>
+                        {{ $captures->links('pagination::simple-tailwind') }}
+                    </div>
                 @endif
             </div>
 

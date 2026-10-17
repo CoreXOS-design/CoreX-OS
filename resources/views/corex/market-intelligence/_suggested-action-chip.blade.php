@@ -36,13 +36,19 @@
 @else
     @php
         // Tier → style. Solid for CRITICAL; tinted bg for ACTION/AWAIT; outline for INFO.
+        // AT-455 (Andre, 2026-10-14): one blue button for the thing to do now
+        // (ACTION), red only for a genuine escalation (CRITICAL), and plain
+        // outline text for wait / info states — no green or amber filled boxes.
         $tierStyle = match($s->tier) {
             'critical' => 'background: var(--ds-crimson, #dc2626); color: #fff; border: 1px solid var(--ds-crimson, #dc2626);',
-            'action'   => 'background: color-mix(in srgb, var(--ds-green, #10b981) 18%, transparent); color: var(--ds-green, #10b981); border: 1px solid color-mix(in srgb, var(--ds-green, #10b981) 45%, transparent);',
-            'await'    => 'background: color-mix(in srgb, var(--ds-amber, #f59e0b) 18%, transparent); color: var(--ds-amber, #f59e0b); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 45%, transparent);',
+            'action'   => 'background: var(--brand-button, #0ea5e9); color: #fff; border: 1px solid var(--brand-button, #0ea5e9);',
+            'await'    => 'background: var(--surface); color: var(--ds-amber, #f59e0b); border: 1px solid var(--border-hover, var(--border));',
             'info'     => 'background: transparent; color: var(--text-secondary); border: 1px solid var(--border);',
             default    => 'background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);',
         };
+        // Sentence case for the label ("PITCH NOW · HIGH" → "Pitch now · high");
+        // the two initialisms stay upper-case.
+        $chipLabel = str_replace([' bm', ' Bm', 'P24', 'pp '], [' BM', ' BM', 'P24', 'PP '], ucfirst(mb_strtolower((string) $s->label)));
 
         // Plain-text tooltip (strip <strong>/<br>) — the title attribute can't render HTML.
         $tooltipText = trim(strip_tags(str_replace(['<br>', '<br/>'], ' — ', $s->tooltipHtml)));
@@ -70,7 +76,7 @@
         // button's in _listing-row.blade.php (same min-width value too) — the
         // two are meant to square up into one block; if you change one, change
         // the other.
-        $baseChipStyle = 'display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 6px 12px; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; border-radius: 5px; text-decoration: none; cursor: pointer; white-space: nowrap; min-width: 160px; box-sizing: border-box;';
+        $baseChipStyle = 'display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 6px 12px; font-size: 0.75rem; font-weight: 600; border-radius: 6px; text-decoration: none; cursor: pointer; white-space: nowrap; min-width: 150px; box-sizing: border-box;';
 
         // Small, non-interactive secondary badge — text-only (no chip
         // background/border) so it reads as a status indicator rather than
@@ -96,7 +102,7 @@
            style="{{ $baseChipStyle }} {{ $tierStyle }}"
            onclick="event.stopPropagation();">
             {!! $iconSvg !!}
-            <span>{{ $s->label }}</span>
+            <span>{{ $chipLabel }}</span>
         </a>
     @elseif($s->clickType === 'alpine')
         <button type="button"
@@ -107,7 +113,7 @@
                 style="{{ $baseChipStyle }} {{ $tierStyle }}"
                 @click.stop="{{ $s->alpineCall }}">
             {!! $iconSvg !!}
-            <span>{{ $s->label }}</span>
+            <span>{{ $chipLabel }}</span>
         </button>
     @elseif($s->clickType === 'modal')
         <button type="button"
@@ -118,7 +124,7 @@
                 style="{{ $baseChipStyle }} {{ $tierStyle }}"
                 @click.stop="$dispatch('mi-open-modal', { key: '{{ $s->modalKey }}', listingId: {{ $listingIdForModal }} })">
             {!! $iconSvg !!}
-            <span>{{ $s->label }}</span>
+            <span>{{ $chipLabel }}</span>
         </button>
     @endif
 

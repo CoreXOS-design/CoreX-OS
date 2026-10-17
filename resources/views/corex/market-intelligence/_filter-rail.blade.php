@@ -108,7 +108,7 @@
     $activeRowStyle = $rowStyle . ' background: color-mix(in srgb, var(--brand-icon) 12%, var(--surface)); color: var(--brand-icon); font-weight: 600;';
 @endphp
 
-<aside class="mi-filter-rail">
+<aside class="mi-filter-rail corex-brand-scroll">
 
     {{-- Sticky search at top --}}
     <form method="GET" action="{{ route('market-intelligence.work') }}"
@@ -156,7 +156,21 @@
     {{-- ALWAYS rendered (no invisible door — AT-242 escalation). Open by default so
          the headline buyer-led control is visible on landing; empty state explains
          itself when no buyer matches are computed yet. --}}
-    <div x-data="{ open: true, q: '' }" data-tour="mic-prospect-buyer" style="border-bottom: 1px solid var(--border);">
+    @php
+        // AT-455 — the buyer search's haystack: one entry per buyer, words to
+        // match on (first name, surname, email) and the link to open.
+        $micBuyerHays = $micBuyers->map(fn ($b) => [
+            'w' => preg_split('/\s+/', mb_strtolower(trim(($b->first_name ?? '') . ' ' . ($b->last_name ?? '') . ' ' . ($b->email ?? ''))), -1, PREG_SPLIT_NO_EMPTY),
+            'u' => $urlWith(['buyer_id' => $b->id]),
+        ])->values();
+    @endphp
+    <div x-data="{
+            open: true, q: '',
+            hays: {{ \Illuminate\Support\Js::from($micBuyerHays) }},
+            hit(h) { const n = this.q.trim().toLowerCase(); return n === '' || h.w.some(w => w.startsWith(n)); },
+            get matches() { return this.hays.filter(h => this.hit(h)).length; },
+            openFirst() { const b = this.hays.find(h => this.hit(h)); if (b && this.q.trim() !== '') window.location = b.u; },
+         }" data-tour="mic-prospect-buyer" style="border-bottom: 1px solid var(--border);">
         <button @click="open = !open" type="button" style="{{ $sectionTitleStyle }}; width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding: 8px 12px;">
             <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 12px;"></span> Prospect for buyer
         </button>
@@ -178,26 +192,38 @@
                 </div>
             @endif
             @if($micBuyers->count() > 0)
+                {{-- AT-455 (Andre, 2026-10-14): the buyer search matches on the START of
+                     a first name, surname or email (typing "andre" no longer lists
+                     "Crystal Andrews"), shows how many buyers match, says so when none
+                     do, and Enter opens the first match. --}}
                 <div data-tour="mic-buyer-select" style="padding: 2px 12px 6px;">
                     <input type="text" x-model="q" placeholder="Search buyer…"
-                           class="w-full rounded-md px-2 py-1"
-                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.8125rem;">
+                           @keydown.enter.prevent="openFirst()"
+                           class="w-full rounded-md px-2 py-1.5"
+                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); font-size: 0.8125rem;">
+                    <div style="padding: 4px 0 0; font-size: 0.625rem; color: var(--text-muted);"
+                         x-text="q.trim() === '' ? '{{ number_format($micBuyers->count()) }} buyers' : (matches + ' of {{ number_format($micBuyers->count()) }} buyers')"></div>
                 </div>
                 @if($activeBuyerId)
                     <a href="{{ $urlWithout('buyer_id') }}" style="{{ $rowStyle }} color: var(--brand-icon);">
                         <span>← All stock (clear buyer)</span>
                     </a>
                 @endif
-                <div data-tour="mic-buyer-list" style="max-height: 240px; overflow-y: auto;">
+                <div data-tour="mic-buyer-list" class="corex-brand-scroll" style="max-height: 300px; overflow-y: auto;">
                     @foreach($micBuyers as $b)
                         @php $bIsActive = (string) $activeBuyerId === (string) $b->id; $bName = $buyerLabel($b); @endphp
-                        <a href="{{ $urlWith(['buyer_id' => $b->id]) }}"
-                           x-show="q === '' || {{ \Illuminate\Support\Js::from(mb_strtolower($bName . ' ' . ($b->email ?? ''))) }}.includes(q.toLowerCase())"
+                        {{-- .mi-rail-row carries display:flex (work.blade.php): Alpine's
+                             x-show strips the inline display when it re-shows a row, which
+                             left these as inline text flowing side by side. --}}
+                        <a href="{{ $urlWith(['buyer_id' => $b->id]) }}" data-buyer class="mi-rail-row"
+                           x-show="hit(hays[{{ $loop->index }}])"
                            style="{{ $bIsActive ? $activeRowStyle : $rowStyle }}">
                             <span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ $bName }}</span>
                             @if($bIsActive)<span style="font-weight:700;">✓</span>@endif
                         </a>
                     @endforeach
+                    <div x-show="q.trim() !== '' && matches === 0" x-cloak
+                         style="padding: 8px 12px; font-size: 0.75rem; color: var(--text-muted);">No buyer matches that name.</div>
                 </div>
             @else
                 <p style="padding: 4px 12px 10px; font-size: 0.75rem; line-height: 1.4; color: var(--text-muted);">

@@ -32,7 +32,7 @@
             <select name="portal"
                     class="w-full rounded-md text-sm transition-all duration-300"
                     style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                <option value="">All</option>
+                <option value="">All portals</option>
                 <option value="p24"     @selected(($filters['portal'] ?? '') === 'p24')>Property24</option>
                 <option value="pp"      @selected(($filters['portal'] ?? '') === 'pp')>Private Property</option>
                 <option value="website" @selected(($filters['portal'] ?? '') === 'website')>Website</option>
@@ -71,7 +71,7 @@
                     data-tour="re-portal-leads-status"
                     class="w-full rounded-md text-sm transition-all duration-300"
                     style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                <option value="">All</option>
+                <option value="">All statuses</option>
                 <option value="new"      @selected(($filters['status'] ?? '') === 'new')>New Contact</option>
                 <option value="existing" @selected(($filters['status'] ?? '') === 'existing')>Already Exists</option>
             </select>

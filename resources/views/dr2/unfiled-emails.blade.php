@@ -286,7 +286,7 @@
                 f.submit();
             }
          }">
-        <form method="GET" action="{{ route('deals-dr2.unfiled-emails.index') }}" x-ref="unfiledFilterForm" class="flex flex-wrap items-center gap-2">
+        <form method="GET" action="{{ route('deals-dr2.unfiled-emails.index') }}" x-ref="unfiledFilterForm" class="props-filter-panel rounded-md px-4 py-3 flex flex-wrap items-center gap-2" style="border: 1px solid var(--border);">
             <input type="hidden" name="scope" value="{{ $scope }}">
             <input type="hidden" name="state" value="{{ $state }}">
             <input type="text" name="q" value="{{ $search }}"

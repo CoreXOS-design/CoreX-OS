@@ -43,7 +43,7 @@
             <div>
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Channel</label>
                 <select name="channel" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                    <option value="">All</option>
+                    <option value="">All channels</option>
                     <option value="email" {{ $channel === 'email' ? 'selected' : '' }}>Email</option>
                     <option value="whatsapp" {{ $channel === 'whatsapp' ? 'selected' : '' }}>WhatsApp</option>
                 </select>
@@ -51,7 +51,7 @@
             <div>
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Direction</label>
                 <select name="direction" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                    <option value="">All</option>
+                    <option value="">All directions</option>
                     <option value="inbound" {{ $direction === 'inbound' ? 'selected' : '' }}>Inbound</option>
                     <option value="outbound" {{ $direction === 'outbound' ? 'selected' : '' }}>Outbound</option>
                 </select>

@@ -39,7 +39,7 @@
             <div>
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Flag</label>
                 <select name="flag" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                    <option value="">All</option>
+                    <option value="">All flags</option>
                     <option value="not_real_estate" {{ $flag === 'not_real_estate' ? 'selected' : '' }}>Not real estate</option>
                     <option value="real_estate" {{ $flag === 'real_estate' ? 'selected' : '' }}>Real estate</option>
                 </select>

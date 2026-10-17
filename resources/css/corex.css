@@ -173,10 +173,25 @@ html.dark .corex-sidebar-logo .corex-logo-accent {
     font-size: 0.875rem;
     font-weight: 400;
     color: #cbd5e1; /* slate-300 */
-    transition: background-color 150ms ease, color 150ms ease;
+    position: relative;
+    transition: background-color 150ms ease, color 150ms ease, transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 200ms ease, opacity 240ms ease, filter 240ms ease;
     text-decoration: none;
     min-width: 0;
     overflow: hidden;
+}
+
+/* Accent edge that grows down the left side on hover */
+.corex-nav-item::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 20%;
+    bottom: 20%;
+    width: 3px;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--corex-sidebar-hover) 60%, transparent);
+    transform: scaleY(0);
+    transition: transform 220ms ease;
 }
 
 .corex-nav-item > span {
@@ -187,9 +202,117 @@ html.dark .corex-sidebar-logo .corex-logo-accent {
     flex: 1;
 }
 
+/* Pop on hover: the item lifts and glows, its edge grows, and its icon nudges forward */
 .corex-nav-item:hover {
     background: color-mix(in srgb, var(--corex-sidebar-hover) 12%, transparent);
     color: var(--corex-sidebar-hover);
+    transform: translateY(-1px) translateX(3px);
+    box-shadow: 0 10px 20px -14px color-mix(in srgb, var(--corex-sidebar-hover) 45%, transparent);
+}
+
+.corex-nav-item:hover::before {
+    transform: scaleY(1);
+}
+
+.corex-nav-item svg {
+    transition: transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.corex-nav-item:hover svg {
+    transform: translateX(2px) scale(1.15);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .corex-nav-item,
+    .corex-nav-item::before,
+    .corex-nav-item svg {
+        transition: none;
+    }
+    .corex-nav-item:hover,
+    .corex-nav-item:hover svg {
+        transform: none;
+    }
+}
+
+/* Sub-menu click (option 2, ripple): the link sinks as it is pressed, and a soft ring of accent
+   colour spreads out from the exact point pressed. The current page keeps its usual active tint. */
+.corex-nav-panel .corex-nav-subitem {
+    position: relative;
+    overflow: hidden;
+    transition: transform 140ms ease, background-color 150ms ease, color 150ms ease;
+}
+
+/* The ring is added by the click handler in the sidebar, at the point pressed */
+.corex-subitem-ripple {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    margin: -5px 0 0 -5px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--corex-sidebar-hover, #0ea5e9) 35%, transparent);
+    transform: scale(0);
+    pointer-events: none;
+    animation: corex-subitem-ripple 560ms ease-out forwards;
+}
+
+.corex-nav-panel .corex-nav-subitem:active {
+    transform: scale(0.97);
+}
+
+@keyframes corex-subitem-ripple {
+    to { transform: scale(14); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .corex-nav-panel .corex-nav-subitem,
+    .corex-subitem-ripple {
+        transition: none;
+        animation: none;
+    }
+    .corex-nav-panel .corex-nav-subitem:active {
+        transform: none;
+    }
+}
+
+/* Sub-menu hover: the same pop as the main sidebar links (lift, soft glow, accent edge that grows
+   down the side). The active link keeps its own marker, and the press still sinks the link. */
+.corex-nav-panel .corex-nav-subitem {
+    transition: transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1), background-color 150ms ease, color 150ms ease, box-shadow 200ms ease;
+}
+.corex-nav-panel .corex-nav-subitem::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 20%;
+    bottom: 20%;
+    width: 3px;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--corex-sidebar-hover, #0ea5e9) 60%, transparent);
+    transform: scaleY(0);
+    transition: transform 220ms ease;
+}
+.corex-nav-panel .corex-nav-subitem:hover {
+    transform: translateY(-1px) translateX(3px);
+    box-shadow: 0 10px 20px -14px color-mix(in srgb, var(--corex-sidebar-hover, #0ea5e9) 45%, transparent);
+}
+.corex-nav-panel .corex-nav-subitem:hover::before {
+    transform: scaleY(1);
+}
+.corex-nav-panel .corex-nav-subitem.active::before {
+    transform: translateY(-50%);
+}
+.corex-nav-panel .corex-nav-subitem:active {
+    transform: scale(0.97);
+}
+@media (prefers-reduced-motion: reduce) {
+    .corex-nav-panel .corex-nav-subitem,
+    .corex-nav-panel .corex-nav-subitem::before {
+        transition: none;
+    }
+    .corex-nav-panel .corex-nav-subitem:hover,
+    .corex-nav-panel .corex-nav-subitem:active {
+        transform: none;
+    }
 }
 
 .corex-nav-item.active {
@@ -803,6 +926,88 @@ html.dark .corex-sidebar-logo .corex-logo-accent {
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-button, #0ea5e9) 15%, transparent);
 }
 
+/* Filter fields everywhere in CoreX (AT-455): the Properties look. Hover tints the edge, focus and
+   the set-filter highlight use the agency colour with no glow, and the open option list stays plain. */
+.list-header-filter { transition: border-color 200ms ease, color 200ms ease, background 200ms ease; }
+.list-header-filter:hover { border-color: color-mix(in srgb, var(--brand-button, #0ea5e9) 55%, var(--border, #d1d5db)); }
+.list-header-filter:focus { box-shadow: none; border-color: var(--brand-button, #0ea5e9); }
+.list-header-filter.is-active { border-color: var(--brand-button, #0ea5e9); color: var(--brand-button, #0ea5e9); background: color-mix(in srgb, var(--brand-button, #0ea5e9) 10%, var(--surface)); }
+.list-header-filter option { background: var(--surface); color: var(--text-primary); }
+.list-header-filter option:checked,
+.list-header-filter option:hover { background: var(--surface-2); color: var(--text-primary); }
+
+/* Filter panel (AT-455): the Properties look for any filter bar. A page adds the props-filter-panel
+   class to its filter container. No grey fill, and a lit accent edge along the top. */
+.props-filter-panel { background: transparent !important; }
+
+/* CoreX-wide filter bars (AT-455): every filter bar takes the Core Matches look without
+   editing each page. A filter panel is either marked with .props-filter-panel, or found by
+   its shape: a surface panel holding a GET filter form, or a GET filter form that is itself
+   the panel. Matching panels lose the grey fill and get the accent edge; their fields take
+   the shared filter-field look; their stacked text labels are hidden visually but still read
+   out by screen readers, so every field keeps its name. Pages with the CoreX sidebar only. */
+:is(
+    html:has(.corex-sidebar) .props-filter-panel,
+    html:has(.corex-sidebar) div[style*="var(--surface)"]:has(> form[method="GET" i] :is(select, .list-header-filter, input[name="search"], input[name="q"])),
+    html:has(.corex-sidebar) form[method="GET" i][style*="var(--surface)"]:has(:is(select, .list-header-filter, input[name="search"], input[name="q"]))
+) {
+    background: transparent !important;
+}
+
+:is(
+    html:has(.corex-sidebar) .props-filter-panel,
+    html:has(.corex-sidebar) div[style*="var(--surface)"]:has(> form[method="GET" i] :is(select, .list-header-filter, input[name="search"], input[name="q"])),
+    html:has(.corex-sidebar) form[method="GET" i][style*="var(--surface)"]:has(:is(select, .list-header-filter, input[name="search"], input[name="q"]))
+) :is(select, input[type="text"], input[type="search"], input[type="date"], input[type="number"]):not(.list-header-filter),
+html:has(.corex-sidebar) main form[method="GET" i] :is(select, input[type="text"], input[type="search"], input[type="date"], input[type="number"]):not(.list-header-filter) {
+    height: 2.25rem;
+    border: 1px solid var(--border) !important;
+    border-radius: 6px !important;
+    background: var(--surface) !important;
+    color: var(--text-primary) !important;
+    font-size: 0.8125rem;
+    transition: border-color 200ms ease;
+}
+
+:is(
+    html:has(.corex-sidebar) .props-filter-panel,
+    html:has(.corex-sidebar) div[style*="var(--surface)"]:has(> form[method="GET" i] :is(select, .list-header-filter, input[name="search"], input[name="q"])),
+    html:has(.corex-sidebar) form[method="GET" i][style*="var(--surface)"]:has(:is(select, .list-header-filter, input[name="search"], input[name="q"]))
+) :is(select, input[type="text"], input[type="search"], input[type="date"], input[type="number"]):not(.list-header-filter):hover,
+html:has(.corex-sidebar) main form[method="GET" i] :is(select, input[type="text"], input[type="search"], input[type="date"], input[type="number"]):not(.list-header-filter):hover {
+    border-color: color-mix(in srgb, var(--brand-button, #0ea5e9) 55%, var(--border)) !important;
+}
+
+:is(
+    html:has(.corex-sidebar) .props-filter-panel,
+    html:has(.corex-sidebar) div[style*="var(--surface)"]:has(> form[method="GET" i] :is(select, .list-header-filter, input[name="search"], input[name="q"])),
+    html:has(.corex-sidebar) form[method="GET" i][style*="var(--surface)"]:has(:is(select, .list-header-filter, input[name="search"], input[name="q"]))
+) :is(select, input[type="text"], input[type="search"], input[type="date"], input[type="number"]):not(.list-header-filter):focus,
+html:has(.corex-sidebar) main form[method="GET" i] :is(select, input[type="text"], input[type="search"], input[type="date"], input[type="number"]):not(.list-header-filter):focus {
+    outline: none;
+    box-shadow: none;
+    border-color: var(--brand-button, #0ea5e9) !important;
+}
+
+/* Stacked text labels: hidden on screen, kept for screen readers. Only a plain text label whose
+   very next element is its dropdown or input box is hidden. Labels used as clickable chips or
+   buttons, labels that wrap their own control, and tick-box text all stay visible. */
+:is(
+    html:has(.corex-sidebar) .props-filter-panel,
+    html:has(.corex-sidebar) div[style*="var(--surface)"]:has(> form[method="GET" i] :is(select, .list-header-filter, input[name="search"], input[name="q"])),
+    html:has(.corex-sidebar) form[method="GET" i][style*="var(--surface)"]:has(:is(select, .list-header-filter, input[name="search"], input[name="q"]))
+) label:not(:has(input, select, textarea)):has(+ :is(select, input[type="text"], input[type="search"], input[type="date"], input[type="number"])) {
+    position: absolute !important;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 /* ========== KPI Cards ========== */
 .corex-kpi-grid {
     display: grid;
@@ -1298,6 +1503,19 @@ html.dark .corex-sidebar-logo .corex-logo-accent {
 
 .ds-table tbody tr:hover {
     background: var(--surface-2);
+}
+
+/* List-row hover everywhere in CoreX (AT-455): the Contacts hover. The row turns the plain light
+   colour and lifts on a deeper shadow. Nothing moves, so a row never overlaps its neighbours.
+   Every table row in the content area of a page with the CoreX sidebar; header rows are untouched. */
+html:has(.corex-sidebar) main table tbody tr {
+    transition: background-color 200ms ease, box-shadow 220ms ease;
+}
+html:has(.corex-sidebar) main table tbody tr:hover {
+    background: var(--surface-2) !important;
+    box-shadow: 0 12px 28px -12px rgba(0, 0, 0, 0.35);
+    position: relative;
+    z-index: 1;
 }
 
 /* ===== Daily Activity page — day chips + field focus ===== */
@@ -1831,7 +2049,8 @@ input[type="radio"] {
     inset: 0;
     background: var(--surface);
     transform: translateX(100%);
-    transition: transform 280ms cubic-bezier(0.22, 0.61, 0.36, 1);
+    opacity: 0;
+    transition: transform 360ms cubic-bezier(0.22, 0.61, 0.36, 1), opacity 240ms ease;
     overflow-y: auto;
     padding: 0.5rem 0;
     z-index: 5;
@@ -1846,7 +2065,49 @@ input[type="radio"] {
 
 .corex-nav-panel.is-open {
     transform: translateX(0);
+    opacity: 1;
     box-shadow: -8px 0 24px -12px rgba(0, 0, 0, 0.45);
+}
+
+/* Opening a sub-menu: the panel slides and fades in, and its links rise in one after another */
+.corex-nav-panel.is-open .corex-nav-subitem {
+    animation: corex-panel-item-in 360ms cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+}
+.corex-nav-panel.is-open .corex-nav-subitem:nth-child(2) { animation-delay: 40ms; }
+.corex-nav-panel.is-open .corex-nav-subitem:nth-child(3) { animation-delay: 80ms; }
+.corex-nav-panel.is-open .corex-nav-subitem:nth-child(4) { animation-delay: 120ms; }
+.corex-nav-panel.is-open .corex-nav-subitem:nth-child(5) { animation-delay: 160ms; }
+.corex-nav-panel.is-open .corex-nav-subitem:nth-child(6) { animation-delay: 200ms; }
+.corex-nav-panel.is-open .corex-nav-subitem:nth-child(7) { animation-delay: 240ms; }
+.corex-nav-panel.is-open .corex-nav-subitem:nth-child(8) { animation-delay: 280ms; }
+.corex-nav-panel.is-open .corex-nav-subitem:nth-child(n+9) { animation-delay: 320ms; }
+
+@keyframes corex-panel-item-in {
+    from { opacity: 0; transform: translateX(10px); }
+    to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .corex-nav-panel,
+    .corex-nav-panel.is-open .corex-nav-subitem {
+        transition: none;
+        animation: none;
+    }
+}
+
+/* Sub-menu open, option 3 (blur behind): while a sub-menu is open, the main sidebar links
+   dim and soften behind it, so the open sub-menu is clearly the focus. */
+.corex-sidebar:has(.corex-nav-panel.is-open) .corex-nav-item,
+.corex-sidebar:has(.corex-nav-panel.is-open) .corex-nav-section-label {
+    opacity: 0.45;
+    filter: blur(2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .corex-sidebar:has(.corex-nav-panel.is-open) .corex-nav-item,
+    .corex-sidebar:has(.corex-nav-panel.is-open) .corex-nav-section-label {
+        filter: none;
+    }
 }
 
 .corex-nav-back {
@@ -3291,7 +3552,8 @@ html.dark .corex-ui-v2 {
      content page keeps the global dark theme untouched.
    • The sidebar is a shared component (explicitly in scope) so it goes deep on
      every page; its border + drill-down panels match the same base tone. */
-html.dark main#appScroll:has(.corex-props-v2) {
+html.dark main#appScroll:has(.corex-props-v2),
+html.dark main#appScroll:has(.corex-contacts-v2) {
     background: #020617 !important;   /* slate-950 — canvas the cards lift off */
 }
 html.dark .corex-sidebar {
@@ -3317,7 +3579,7 @@ html.dark .corex-nav-panel {
 .corex-nav-search-results,
 .corex-brand-scroll {
     scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--brand-icon, #6366f1) 40%, transparent) transparent;
+    scrollbar-color: color-mix(in srgb, var(--brand-button, #0ea5e9) 40%, transparent) transparent;
 }
 .corex-sidebar::-webkit-scrollbar,
 .corex-nav-root::-webkit-scrollbar,
@@ -3342,11 +3604,11 @@ html.dark .corex-nav-panel {
     border-radius: 9999px;
     border: 2px solid transparent;      /* inset padding → slim floating pill */
     background-clip: padding-box;
-    background-color: color-mix(in srgb, var(--brand-icon, #6366f1) 35%, transparent);
+    background-color: color-mix(in srgb, var(--brand-button, #0ea5e9) 35%, transparent);
     background-image: linear-gradient(
         180deg,
-        color-mix(in srgb, var(--brand-icon, #6366f1) 50%, transparent),
-        color-mix(in srgb, var(--brand-sidebar, #6366f1) 35%, transparent)
+        color-mix(in srgb, var(--brand-button, #0ea5e9) 50%, transparent),
+        color-mix(in srgb, var(--brand-button, #0ea5e9) 35%, transparent)
     );
     transition: background-color 150ms ease;
 }
@@ -3357,8 +3619,8 @@ html.dark .corex-nav-panel {
 .corex-brand-scroll::-webkit-scrollbar-thumb:hover {
     background-image: linear-gradient(
         180deg,
-        var(--brand-icon, #6366f1),
-        var(--brand-sidebar, #6366f1)
+        var(--brand-button, #0ea5e9),
+        var(--brand-button, #0ea5e9)
     );
 }
 .corex-sidebar::-webkit-scrollbar-corner,
@@ -3366,6 +3628,13 @@ html.dark .corex-nav-panel {
 .corex-nav-panel::-webkit-scrollbar-corner,
 .corex-brand-scroll::-webkit-scrollbar-corner {
     background: transparent;
+}
+
+/* --- 6a. Every other scroll area on CoreX pages (AT-455): the agency button colour, same as the sidebar.
+   Scoped to pages that carry the CoreX sidebar, so public, guest and onboarding pages keep their own bars. */
+html:has(.corex-sidebar) {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--brand-button, #0ea5e9) 40%, transparent) transparent;
 }
 
 /* --- 6b. Tile body scrollbar (AT-336) ------------------------------------- */
@@ -3376,7 +3645,7 @@ html.dark .corex-nav-panel {
    would out-shout the tile's own RAG accent). */
 .corex-tile-scroll {
     scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--text-muted, #94a3b8) 45%, transparent) transparent;
+    scrollbar-color: color-mix(in srgb, var(--brand-button, #0ea5e9) 45%, transparent) transparent;
 }
 .corex-tile-scroll::-webkit-scrollbar {
     width: 9px;
@@ -3389,11 +3658,11 @@ html.dark .corex-nav-panel {
     border-radius: 9999px;
     border: 2px solid transparent;      /* inset padding → slim floating pill */
     background-clip: padding-box;
-    background-color: color-mix(in srgb, var(--text-muted, #94a3b8) 35%, transparent);
+    background-color: color-mix(in srgb, var(--brand-button, #0ea5e9) 35%, transparent);
     transition: background-color 150ms ease;
 }
 .corex-tile-scroll::-webkit-scrollbar-thumb:hover {
-    background-color: color-mix(in srgb, var(--text-muted, #94a3b8) 65%, transparent);
+    background-color: color-mix(in srgb, var(--brand-button, #0ea5e9) 65%, transparent);
 }
 .corex-tile-scroll::-webkit-scrollbar-corner {
     background: transparent;

@@ -153,13 +153,21 @@ final class FeaturesPageTest extends TestCase
         $this->assertStringContainsString("route('admin.users')", $group[1]);
         $this->assertMatchesRegularExpression("/@permission\\('manage_users'\\)\\s*<a href=\"\\{\\{ route\\('admin\\.users'\\) \\}\\}\"/", $group[1]);
 
+        // Role Manager moved here from the Company group (Andre 2026-10-14); same route, same permission.
+        $this->assertStringContainsString("route('corex.role-manager')", $group[1]);
+        $this->assertMatchesRegularExpression("/@permission\('access_role_manager'\)\s*<a href=\"\{\{ route\('corex\.role-manager'\) \}\}\"/", $group[1]);
+        $gate = substr($sidebar, 0, strpos($sidebar, "push('settings')"));
+        $this->assertStringContainsString("'access_role_manager'", substr($gate, strrpos($gate, 'hasAnyPermission')), 'the Settings group gate must include access_role_manager');
+
         // Features no longer sits in the Company group.
         preg_match('#<div class="corex-nav-panel-title">Company</div>(.*?)</div>\s*</div>#s', $sidebar, $company);
         $this->assertNotEmpty($company);
         $this->assertStringNotContainsString("route('corex.features.index')", $company[1]);
+        $this->assertStringNotContainsString("route('corex.role-manager')", $company[1]);
 
         // The Features page lights up the Settings group.
         $this->assertStringContainsString("'corex.features.*',", $sidebar);
+        $this->assertStringContainsString("'corex.role-manager*',", $sidebar);
         $this->assertStringContainsString('$activeGroup = \'settings\';', $sidebar);
 
         // ...and the rule precedes the broad deals-v2.* one, else the service-types page (deals-v2.settings.*) never opens it.

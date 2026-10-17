@@ -45,7 +45,7 @@
         <div>
             <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Status</label>
             <select name="status" class="list-header-filter">
-                <option value="">All</option>
+                <option value="">All statuses</option>
                 @foreach(['submitted','approved','rejected','cancelled','taken'] as $s)
                     <option value="{{ $s }}" {{ $status === $s ? 'selected' : '' }}>{{ ucfirst($s) }}</option>
                 @endforeach
@@ -54,7 +54,7 @@
         <div>
             <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Type</label>
             <select name="type" class="list-header-filter">
-                <option value="">All</option>
+                <option value="">All types</option>
                 @foreach($leaveTypes as $lt)
                     <option value="{{ $lt->id }}" {{ ($typeFilter ?? '') == $lt->id ? 'selected' : '' }}>{{ $lt->label }}</option>
                 @endforeach
