@@ -18,83 +18,100 @@
     always stored excl-VAT regardless of capture mode.
 --}}
 
-@section('content')
-<div class="p-6 space-y-4">
-    <div class="flex items-center justify-between">
-        <h1 class="text-lg font-semibold">Parts &amp; Labour Catalogue</h1>
-        <div class="flex items-center gap-3">
-            <a href="{{ route('admin.company-settings') }}#catalogue-item-types" class="text-xs underline" style="color: var(--text-muted);">Manage types &amp; units</a>
-            @permission('rental_catalogue.manage')
-            <a href="{{ route('corex.rental-catalogue-items.import.index') }}" class="corex-btn-outline text-xs">Import</a>
-            <a href="{{ route('corex.rental-catalogue-items.create') }}" class="corex-btn-primary text-xs">+ Add Item</a>
-            @endpermission
+@section('corex-content')
+@php
+    $chip = fn (string $tone) => 'background:color-mix(in srgb, var(' . $tone . ') 12%, transparent); color:var(' . $tone . '); border:1px solid color-mix(in srgb, var(' . $tone . ') 25%, transparent);';
+@endphp
+<div class="w-full space-y-5">
+
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Parts &amp; Labour Catalogue</h1>
+                <p class="text-xs" style="color: var(--text-muted);">The labour and parts your maintenance team picks from when pricing a job card.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                <a href="{{ route('admin.company-settings') }}#catalogue-item-types" class="corex-btn-outline text-xs">Manage types &amp; units</a>
+                @permission('rental_catalogue.manage')
+                <a href="{{ route('corex.rental-catalogue-items.import.index') }}" class="corex-btn-outline text-xs">Import</a>
+                <a href="{{ route('corex.rental-catalogue-items.create') }}" class="corex-btn-primary text-xs">+ Add Item</a>
+                @endpermission
+            </div>
         </div>
     </div>
 
     @if(session('success'))
-        <div class="rounded-md px-4 py-3 text-sm" style="background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46;">{{ session('success') }}</div>
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">{{ session('success') }}</div>
     @endif
     @if($errors->any())
-        <div class="rounded-md px-4 py-3 text-sm" style="background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;">
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">
             @foreach ($errors->all() as $error)<div>{{ $error }}</div>@endforeach
         </div>
     @endif
 
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
     <form method="GET" action="{{ route('corex.rental-catalogue-items.index') }}" class="flex flex-wrap items-end gap-3">
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Search</label><br>
-            <input type="text" name="q" value="{{ request('q') }}" placeholder="Code or description" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
+            <input type="text" name="q" value="{{ request('q') }}" placeholder="Code or description" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Type</label><br>
-            <select name="type" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Type</label>
+            <select name="type" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                 <option value="">All</option>
                 @foreach($catalogueItemTypes as $t)
                     <option value="{{ $t->id }}" @selected((string) request('type') === (string) $t->id)>{{ $t->name }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Status</label><br>
-            <select name="status" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
+            <select name="status" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                 <option value="active" @selected($status === 'active')>Active</option>
                 <option value="archived" @selected($status === 'archived')>Archived</option>
             </select>
         </div>
-        <button type="submit" class="corex-btn-outline text-xs">Filter</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+        <div class="flex-1"></div>
+        <span class="text-xs font-semibold px-2.5 py-1 rounded-md whitespace-nowrap"
+              style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent);">
+            {{ number_format($items->total()) }} {{ \Illuminate\Support\Str::plural('item', $items->total()) }}
+        </span>
     </form>
+    </div>
 
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
-                <tr style="background: var(--surface-2); color: var(--text-muted);">
-                    <th class="text-left px-4 py-2 font-medium"><a href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'code'])) }}">Code</a></th>
-                    <th class="text-left px-4 py-2 font-medium"><a href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'description'])) }}">Description</a></th>
-                    <th class="text-left px-4 py-2 font-medium">Type</th>
-                    <th class="text-left px-4 py-2 font-medium">Unit</th>
-                    <th class="text-right px-4 py-2 font-medium"><a href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'default_price'])) }}">Excl VAT</a></th>
+                <tr style="background: var(--surface-2); color: var(--text-muted); border-bottom: 1px solid var(--border);">
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'code'])) }}">Code</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'description'])) }}">Description</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Type</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Unit</th>
+                    <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'default_price'])) }}">Excl VAT</a></th>
                     @if($agency?->vat_registered)
-                        <th class="text-left px-4 py-2 font-medium">VAT type</th>
-                        <th class="text-right px-4 py-2 font-medium">Incl VAT</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">VAT type</th>
+                        <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Incl VAT</th>
                     @endif
-                    <th class="text-right px-4 py-2 font-medium">Actions</th>
+                    <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($items as $item)
                     @php $prices = $vat->catalogueItemPrices($item, $agency); @endphp
-                    <tr style="border-top: 1px solid var(--border);">
-                        <td class="px-4 py-2" style="font-family: monospace;">{{ $item->code }}</td>
-                        <td class="px-4 py-2">{{ $item->description }}</td>
-                        <td class="px-4 py-2"><span class="ds-badge {{ $item->kind() === 'labour' ? 'ds-badge-info' : 'ds-badge-muted' }}">{{ $item->catalogueItemType->name ?? '—' }}</span></td>
-                        <td class="px-4 py-2">{{ $item->catalogueUnit->name ?? '—' }}</td>
-                        <td class="px-4 py-2 text-right">{{ $prices['excl'] !== null ? 'R' . number_format($prices['excl'], 2) : '—' }}</td>
+                    <tr style="border-top: 1px solid var(--border); color: var(--text-secondary);" class="transition-colors duration-150" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                        <td class="px-4 py-3" style="font-family: monospace;">{{ $item->code }}</td>
+                        <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $item->description }}</td>
+                        <td class="px-4 py-3"><span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="{{ $chip($item->kind() === 'labour' ? '--brand-icon' : '--text-muted') }}">{{ $item->catalogueItemType->name ?? '—' }}</span></td>
+                        <td class="px-4 py-3">{{ $item->catalogueUnit->name ?? '—' }}</td>
+                        <td class="px-4 py-3 text-right">{{ $prices['excl'] !== null ? 'R' . number_format($prices['excl'], 2) : '—' }}</td>
                         @if($agency?->vat_registered)
-                            <td class="px-4 py-2">{{ $prices['label'] ?? '—' }}</td>
-                            <td class="px-4 py-2 text-right">{{ $prices['incl'] !== null ? 'R' . number_format($prices['incl'], 2) : '—' }}</td>
+                            <td class="px-4 py-3">{{ $prices['label'] ?? '—' }}</td>
+                            <td class="px-4 py-3 text-right">{{ $prices['incl'] !== null ? 'R' . number_format($prices['incl'], 2) : '—' }}</td>
                         @endif
-                        <td class="px-4 py-2 text-right space-x-2 cx-equal-btns">
+                        <td class="px-4 py-3 text-right space-x-2 cx-equal-btns">
                             @permission('rental_catalogue.manage')
                                 @if($status === 'archived')
                                     <form method="POST" action="{{ route('corex.rental-catalogue-items.restore', $item->id) }}" class="inline">
@@ -113,7 +130,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="{{ $agency?->vat_registered ? 8 : 6 }}" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
+                        <td colspan="{{ $agency?->vat_registered ? 8 : 6 }}" class="px-6 py-12 text-center text-sm" style="color: var(--text-muted);">
                             @if(request('q') || request('type'))
                                 No catalogue items match this filter.
                             @else
@@ -125,8 +142,11 @@
             </tbody>
         </table>
         </div>
+        @if($items->hasPages())
+        <div class="px-5 py-4" style="border-top:1px solid var(--border);">
+            {{ $items->links() }}
+        </div>
+        @endif
     </div>
-
-    {{ $items->links() }}
 </div>
 @endsection

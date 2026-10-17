@@ -223,59 +223,60 @@
         @endforeach
     </div>
 
-    <form method="GET" action="{{ route('corex.rental-applications.index') }}" class="rounded-md p-4 flex flex-wrap items-end gap-3" style="background: var(--surface); border: 1px solid var(--border);">
+    <form method="GET" action="{{ route('corex.rental-applications.index') }}" class="rounded-md px-5 py-4 flex flex-wrap items-end gap-3" style="background: var(--surface); border: 1px solid var(--border);">
         <input type="hidden" name="scope" value="{{ request('scope', 'own') }}">
         <input type="hidden" name="tile" value="{{ $tile }}">
-        <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
+        <div class="flex flex-col gap-1">
+            <label class="block text-xs font-medium" style="color: var(--text-secondary);">Search</label>
             <input type="text" name="q" value="{{ request('q') }}" placeholder="Applicant name, phone, email, ID number, property, or #id"
-                   class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border); min-width: 260px;">
+                   class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary); min-width: 260px;">
         </div>
-        <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Created from</label>
-            <input type="date" name="date_from" value="{{ request('date_from') }}" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="block text-xs font-medium" style="color: var(--text-secondary);">Created from</label>
+            <input type="date" name="date_from" value="{{ request('date_from') }}" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
         </div>
-        <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Created to</label>
-            <input type="date" name="date_to" value="{{ request('date_to') }}" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="block text-xs font-medium" style="color: var(--text-secondary);">Created to</label>
+            <input type="date" name="date_to" value="{{ request('date_to') }}" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
         </div>
-        <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Per page</label>
-            <select name="per_page" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" onchange="this.form.submit()">
+        <div class="flex flex-col gap-1">
+            <label class="block text-xs font-medium" style="color: var(--text-secondary);">Per page</label>
+            <select name="per_page" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);" onchange="this.form.submit()">
                 @foreach([10, 25, 50, 100] as $option)
                     <option value="{{ $option }}" @selected($perPage === $option)>{{ $option }}</option>
                 @endforeach
             </select>
         </div>
-        <button type="submit" class="corex-btn-outline text-xs">Filter</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
         @if(request()->hasAny(['q', 'date_from', 'date_to', 'per_page']))
-            <a href="{{ route('corex.rental-applications.index', array_merge(request()->only('scope'), ['tile' => $tile])) }}" class="corex-btn-outline text-xs">Clear</a>
+            <a href="{{ route('corex.rental-applications.index', array_merge(request()->only('scope'), ['tile' => $tile])) }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>
         @endif
         <a href="{{ route('corex.rental-applications.index', array_merge(request()->except('page'), ['archived' => request()->boolean('archived') ? null : 1])) }}"
-           class="corex-btn-outline text-xs {{ request()->boolean('archived') ? 'corex-tab-active' : '' }}">
+           class="corex-btn-outline text-sm {{ request()->boolean('archived') ? 'corex-tab-active' : '' }}" style="height:2.25rem;">
             {{ request()->boolean('archived') ? 'Hide archived' : 'Show archived' }}
         </a>
     </form>
 
-    <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('contact') }}" style="color: var(--text-muted);">Applicant{{ $sortIndicator('contact') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('property') }}" style="color: var(--text-muted);">Property{{ $sortIndicator('property') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('status') }}" style="color: var(--text-muted);">Status{{ $sortIndicator('status') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('agent') }}" style="color: var(--text-muted);">Agent{{ $sortIndicator('agent') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('date') }}" style="color: var(--text-muted);">Created{{ $sortIndicator('date') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('updated') }}" style="color: var(--text-muted);">Last updated{{ $sortIndicator('updated') }}</a></th>
+                <tr style="background: var(--surface-2); color: var(--text-muted); border-bottom: 1px solid var(--border);">
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('contact') }}">Applicant{{ $sortIndicator('contact') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('property') }}">Property{{ $sortIndicator('property') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('status') }}">Status{{ $sortIndicator('status') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('agent') }}">Agent{{ $sortIndicator('agent') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('date') }}">Created{{ $sortIndicator('date') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('updated') }}">Last updated{{ $sortIndicator('updated') }}</a></th>
                     <th></th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($applications as $application)
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <td class="px-4 py-2">{{ $application->contact?->full_name ?? $application->full_name ?? '—' }}</td>
-                    <td class="px-4 py-2">{{ $application->property?->buildDisplayAddress() ?? $application->property_address_override ?? '—' }}{{ $application->property?->trashed() ? ' (archived)' : '' }}</td>
-                    <td class="px-4 py-2">
+                <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);" class="transition-colors duration-150" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                    <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $application->contact?->full_name ?? $application->full_name ?? '—' }}</td>
+                    <td class="px-4 py-3">{{ $application->property?->buildDisplayAddress() ?? $application->property_address_override ?? '—' }}{{ $application->property?->trashed() ? ' (archived)' : '' }}</td>
+                    <td class="px-4 py-3">
                         @permission('rental_applications.create')
                             {{-- 2026-09-12 REGRESSION FIX — this used to trigger on
                                  'withdrawn' too (via array_merge(['returned'],
@@ -347,10 +348,10 @@
                             </div>
                         @endif
                     </td>
-                    <td class="px-4 py-2">{{ $application->createdBy->name ?? '—' }}</td>
-                    <td class="px-4 py-2">{{ $application->created_at->format('d M Y') }}</td>
-                    <td class="px-4 py-2">{{ $application->updated_at->format('d M Y H:i') }}</td>
-                    <td class="px-4 py-2 text-right whitespace-nowrap">
+                    <td class="px-4 py-3">{{ $application->createdBy->name ?? '—' }}</td>
+                    <td class="px-4 py-3">{{ $application->created_at->format('d M Y') }}</td>
+                    <td class="px-4 py-3">{{ $application->updated_at->format('d M Y H:i') }}</td>
+                    <td class="px-4 py-3 text-right whitespace-nowrap">
                         {{-- REGRESSION FIX (2026-09-11) — Open alone orphaned the review
                              screen for every application actively being worked.
                              Review shows for the statuses an agent still has real
@@ -475,7 +476,7 @@
                     </td>
                 </tr>
                 @empty
-                <tr><td colspan="7" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
+                <tr><td colspan="7" class="px-6 py-12 text-center text-sm" style="color: var(--text-muted);">
                     @if(request()->hasAny(['q', 'date_from', 'date_to']))
                         No rental applications match this search in {{ $tileLabels[$tile] }}. Try clearing a filter{{ ($canSeeBranch || $canSeeAgency) && request('scope', 'own') === 'own' ? ', or widen the scope above' : '' }}.
                     @elseif(request('scope', 'own') === 'own' && ($canSeeBranch || $canSeeAgency))
@@ -487,29 +488,34 @@
                 @endforelse
             </tbody>
         </table>
+        </div>
+        @if($applications->hasPages())
+        <div class="px-5 py-4" style="border-top:1px solid var(--border);">
+            {{ $applications->links() }}
+        </div>
+        @endif
     </div>
 
-    {{ $applications->links() }}
-
     @if($archived !== null)
-    <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="px-4 py-3 text-sm font-semibold" style="color: var(--text-primary); border-bottom: 1px solid var(--border);">Archived — {{ $tileLabels[$tile] }}</div>
+        <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <th class="text-left px-4 py-2" style="color: var(--text-muted);">Contact</th>
-                    <th class="text-left px-4 py-2" style="color: var(--text-muted);">Property</th>
-                    <th class="text-left px-4 py-2" style="color: var(--text-muted);">Archived</th>
+                <tr style="background: var(--surface-2); color: var(--text-muted); border-bottom: 1px solid var(--border);">
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Contact</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Property</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Archived</th>
                     <th></th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($archived as $application)
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <td class="px-4 py-2">{{ $application->contact?->full_name ?? '—' }}</td>
-                    <td class="px-4 py-2">{{ $application->property?->buildDisplayAddress() ?? $application->property_address_override ?? '—' }}{{ $application->property?->trashed() ? ' (archived)' : '' }}</td>
-                    <td class="px-4 py-2">{{ $application->deleted_at->format('d M Y') }}</td>
-                    <td class="px-4 py-2 text-right">
+                <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);" class="transition-colors duration-150" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                    <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $application->contact?->full_name ?? '—' }}</td>
+                    <td class="px-4 py-3">{{ $application->property?->buildDisplayAddress() ?? $application->property_address_override ?? '—' }}{{ $application->property?->trashed() ? ' (archived)' : '' }}</td>
+                    <td class="px-4 py-3">{{ $application->deleted_at->format('d M Y') }}</td>
+                    <td class="px-4 py-3 text-right">
                         {{-- 2026-09-12 — moved off rental_applications.create onto
                              rental_applications.archive, same as Archive above. --}}
                         @permission('rental_applications.archive')
@@ -521,12 +527,17 @@
                     </td>
                 </tr>
                 @empty
-                <tr><td colspan="4" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">Nothing archived in {{ $tileLabels[$tile] }}.</td></tr>
+                <tr><td colspan="4" class="px-6 py-12 text-center text-sm" style="color: var(--text-muted);">Nothing archived in {{ $tileLabels[$tile] }}.</td></tr>
                 @endforelse
             </tbody>
         </table>
+        </div>
+        @if($archived->hasPages())
+        <div class="px-5 py-4" style="border-top:1px solid var(--border);">
+            {{ $archived->links() }}
+        </div>
+        @endif
     </div>
-    {{ $archived->links() }}
     @endif
 </div>
 @endsection

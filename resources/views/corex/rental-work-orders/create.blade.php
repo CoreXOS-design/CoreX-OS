@@ -9,24 +9,28 @@
     sharing only the fields a human must still decide below.
 --}}
 
-@section('content')
-<div class="p-6 max-w-2xl mx-auto space-y-4" x-data="rentalWorkOrderCreate({{ Js::from([
+@section('corex-content')
+<div class="w-full space-y-5" x-data="rentalWorkOrderCreate({{ Js::from([
     'propertyId' => $property?->id ?? '',
     'propertyLabel' => $property?->buildDisplayAddress() ?? '',
 ]) }})">
-    <h1 class="text-lg font-semibold">New Work Order</h1>
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">New Work Order</h1>
+        <p class="text-xs" style="color: var(--text-muted);">Log a repair or maintenance job on a rental property and say who will do it.</p>
+    </div>
 
     @if($followUp && ($followUp['mode'] ?? null) === 'none')
-        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); color: var(--ds-amber);">
+        <div class="text-sm px-4 py-3 rounded-md max-w-3xl" style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); color: var(--ds-amber);">
             Nothing to create — every selected item already has a work order.
         </div>
     @endif
 
-    <form method="POST" action="{{ route('corex.rental-work-orders.store') }}" class="space-y-4 rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+    <form method="POST" action="{{ route('corex.rental-work-orders.store') }}" class="space-y-5 rounded-md p-6 max-w-3xl" style="background: var(--surface); border: 1px solid var(--border);">
         @csrf
 
         @if ($errors->any())
-            <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
+            <div class="text-sm px-4 py-3 rounded-md" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--ds-crimson);">
                 <ul>
                     @foreach ($errors->all() as $error)
                         <li>{{ $error }}</li>
@@ -37,18 +41,18 @@
 
         {{-- AT-442 req #1 — "who does the work" is the FIRST choice on every work order. --}}
         <div>
-            <label class="text-xs font-medium">Who does the work?</label>
-            <div class="flex gap-4 mt-1 text-sm">
-                <label class="flex items-center gap-1"><input type="radio" name="assignment_type" value="outside_supplier" {{ $presetAssignmentType !== 'internal' ? 'checked' : '' }}> Outside supplier</label>
-                <label class="flex items-center gap-1"><input type="radio" name="assignment_type" value="internal" {{ $presetAssignmentType === 'internal' ? 'checked' : '' }}> Our maintenance team</label>
+            <label class="prop-label">Who does the work?</label>
+            <div class="flex flex-wrap gap-3 mt-1 text-sm">
+                <label class="flex items-center gap-2 rounded-md px-4 cursor-pointer" style="height:2.25rem; background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"><input type="radio" name="assignment_type" value="outside_supplier" {{ $presetAssignmentType !== 'internal' ? 'checked' : '' }}> Outside supplier</label>
+                <label class="flex items-center gap-2 rounded-md px-4 cursor-pointer" style="height:2.25rem; background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"><input type="radio" name="assignment_type" value="internal" {{ $presetAssignmentType === 'internal' ? 'checked' : '' }}> Our maintenance team</label>
             </div>
         </div>
 
         <div>
-            <label class="text-xs font-medium">Property</label>
+            <label class="prop-label">Property</label>
             @if($property)
                 <input type="hidden" name="property_id" value="{{ $property->id }}">
-                <div class="text-sm mt-1">{{ $property->buildDisplayAddress() }}</div>
+                <div class="text-sm mt-1 font-medium" style="color: var(--text-primary);">{{ $property->buildDisplayAddress() }}</div>
             @else
                 {{-- AT-442 fix #2 — searchable, scoped property picker (same
                      pattern as RentalApplicationController::searchProperties())
@@ -56,11 +60,11 @@
                      that silently dropped the rest of a 570-property book. --}}
                 <input type="text" x-model="propertyQuery" @input.debounce.300ms="searchProperties()"
                        placeholder="Search properties by address…" required
-                       class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                       class="prop-input mt-1">
                 <input type="hidden" name="property_id" x-model="selectedPropertyId" required>
-                <div class="mt-1 rounded-md max-h-72 overflow-y-auto" style="border: 1px solid var(--border);" x-show="propertyResults.length">
+                <div class="mt-1 rounded-md max-h-72 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border);" x-show="propertyResults.length" x-cloak>
                     <template x-for="p in propertyResults" :key="p.id">
-                        <button type="button" @click="selectProperty(p)" class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50">
+                        <button type="button" @click="selectProperty(p)" class="block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary);" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
                             <span x-text="p.label"></span>
                         </button>
                     </template>
@@ -74,8 +78,8 @@
             <p class="text-xs" style="color: var(--text-muted);">Tenancy: {{ $lease->tenantNames() }}.</p>
         @elseif($property)
             <div>
-                <label class="text-xs font-medium">Tenancy (optional)</label>
-                <select name="lease_id" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                <label class="prop-label">Tenancy (optional)</label>
+                <select name="lease_id" class="prop-input">
                     <option value="">— No tenancy (vacancy period) —</option>
                     @foreach(\App\Models\Lease::where('property_id', $property->id)->orderByDesc('start_date')->limit(50)->get() as $l)
                         <option value="{{ $l->id }}">{{ $l->tenantNames() }} ({{ $l->start_date?->format('Y-m-d') }}&ndash;{{ $l->end_date?->format('Y-m-d') ?? 'ongoing' }})</option>
@@ -92,8 +96,8 @@
             <input type="hidden" name="rental_inspection_id" value="{{ $followUp['rental_inspection_id'] }}">
             <input type="hidden" name="reported_by_type" value="{{ \App\Models\RentalWorkOrder::REPORTED_BY_INSPECTION }}">
             <div>
-                <label class="text-xs font-medium">{{ count($followUp['items']) }} items — each becomes its own work order</label>
-                <ul class="text-sm mt-1 space-y-1">
+                <label class="prop-label">{{ count($followUp['items']) }} items — each becomes its own work order</label>
+                <ul class="text-sm mt-1 space-y-1" style="color: var(--text-primary);">
                     @foreach($followUp['items'] as $i => $item)
                         <li>{{ $item['title'] }}</li>
                         <input type="hidden" name="batch_items[{{ $i }}][observation_id]" value="{{ $item['observation_id'] }}">
@@ -115,8 +119,8 @@
                 <p class="text-xs" style="color: var(--text-muted);">Reported via: this inspection's Follow-up block.</p>
             @else
                 <div>
-                    <label class="text-xs font-medium">Reported by</label>
-                    <select name="reported_by_type" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                    <label class="prop-label">Reported by</label>
+                    <select name="reported_by_type" required class="prop-input">
                         <option value="{{ \App\Models\RentalWorkOrder::REPORTED_BY_OWNER_INSTRUCTED }}">Owner instructed</option>
                         <option value="{{ \App\Models\RentalWorkOrder::REPORTED_BY_AGENT_NOTICED }}">Agent noticed it directly</option>
                         <option value="{{ \App\Models\RentalWorkOrder::REPORTED_BY_TENANT }}">Tenant (bypassing a fault report)</option>
@@ -126,19 +130,19 @@
             @endif
 
             <div>
-                <label class="text-xs font-medium">Title</label>
-                <input type="text" name="title" value="{{ old('title', $followUp['title'] ?? '') }}" required maxlength="191" placeholder="e.g. Geyser burst — upstairs bathroom" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                <label class="prop-label">Title</label>
+                <input type="text" name="title" value="{{ old('title', $followUp['title'] ?? '') }}" required maxlength="191" placeholder="e.g. Geyser burst — upstairs bathroom" class="prop-input">
             </div>
 
             <div>
-                <label class="text-xs font-medium">Description</label>
-                <textarea name="description" required rows="4" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('description', $followUp['description'] ?? '') }}</textarea>
+                <label class="prop-label">Description</label>
+                <textarea name="description" required rows="4" class="prop-input">{{ old('description', $followUp['description'] ?? '') }}</textarea>
             </div>
         @endif
 
         <div>
-            <label class="text-xs font-medium">Trade type</label>
-            <select name="trade_type" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+            <label class="prop-label">Trade type</label>
+            <select name="trade_type" class="prop-input">
                 <option value="">— Not yet known —</option>
                 @foreach(\App\Models\DealV2\AgencyServiceType::work()->orderBy('label')->get() as $type)
                     <option value="{{ $type->code }}">{{ $type->label }}</option>
@@ -146,9 +150,9 @@
             </select>
         </div>
 
-        <div class="flex justify-end gap-2 pt-2">
-            <a href="{{ $property ? route('corex.properties.show', $property->id) : route('corex.rental-work-orders.index') }}" class="corex-btn-outline text-xs">Cancel</a>
-            <button type="submit" class="corex-btn-primary text-xs">Log Work Order</button>
+        <div class="flex justify-end gap-2 pt-4" style="border-top: 1px solid var(--border);">
+            <a href="{{ $property ? route('corex.properties.show', $property->id) : route('corex.rental-work-orders.index') }}" class="corex-btn-outline text-sm">Cancel</a>
+            <button type="submit" class="corex-btn-primary text-sm">Log Work Order</button>
         </div>
     </form>
 </div>

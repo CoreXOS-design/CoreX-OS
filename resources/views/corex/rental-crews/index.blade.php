@@ -9,58 +9,77 @@
     BelongsToAgency + AgencyScope on the model.
 --}}
 
-@section('content')
-@php $linkStatuses = app(\App\Services\Rentals\RentalCrewScheduleService::class)->linkStatusesFor($crews->pluck('id')->all()); @endphp
-<div class="p-6 space-y-4">
-    <div class="flex items-center justify-between">
-        <h1 class="text-lg font-semibold">Rental Crews</h1>
-        @permission('rental_catalogue.manage')
-        <a href="{{ route('corex.rental-crews.create') }}" class="corex-btn-primary text-xs">+ Add Crew</a>
-        @endpermission
+@section('corex-content')
+@php
+    $linkStatuses = app(\App\Services\Rentals\RentalCrewScheduleService::class)->linkStatusesFor($crews->pluck('id')->all());
+    $chip = fn (string $tone) => 'background:color-mix(in srgb, var(' . $tone . ') 12%, transparent); color:var(' . $tone . '); border:1px solid color-mix(in srgb, var(' . $tone . ') 25%, transparent);';
+@endphp
+<div class="w-full space-y-5">
+
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Crews</h1>
+                <p class="text-xs" style="color: var(--text-muted);">The maintenance teams your job cards assign work to.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                @permission('rental_catalogue.manage')
+                <a href="{{ route('corex.rental-crews.create') }}" class="corex-btn-primary text-xs">+ Add Crew</a>
+                @endpermission
+            </div>
+        </div>
     </div>
 
     @if(session('success'))
-        <div class="rounded-md px-4 py-3 text-sm" style="background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46;">{{ session('success') }}</div>
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">{{ session('success') }}</div>
     @endif
     @if($errors->any())
-        <div class="rounded-md px-4 py-3 text-sm" style="background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;">
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">
             @foreach ($errors->all() as $error)<div>{{ $error }}</div>@endforeach
         </div>
     @endif
 
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
     <form method="GET" action="{{ route('corex.rental-crews.index') }}" class="flex flex-wrap items-end gap-3">
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Search</label><br>
-            <input type="text" name="q" value="{{ request('q') }}" placeholder="Name, email or number" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
+            <input type="text" name="q" value="{{ request('q') }}" placeholder="Name, email or number" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Status</label><br>
-            <select name="status" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
+            <select name="status" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                 <option value="active" @selected($status === 'active')>Active</option>
                 <option value="archived" @selected($status === 'archived')>Archived</option>
             </select>
         </div>
-        <button type="submit" class="corex-btn-outline text-xs">Filter</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+        <div class="flex-1"></div>
+        <span class="text-xs font-semibold px-2.5 py-1 rounded-md whitespace-nowrap"
+              style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent);">
+            {{ number_format($crews->total()) }} {{ \Illuminate\Support\Str::plural('crew', $crews->total()) }}
+        </span>
     </form>
+    </div>
 
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
-                <tr style="background: var(--surface-2); color: var(--text-muted);">
-                    <th class="text-left px-4 py-2 font-medium"><a href="{{ route('corex.rental-crews.index', array_merge(request()->except('page'), ['sort' => 'name', 'direction' => $sort === 'name' && $direction === 'asc' ? 'desc' : 'asc'])) }}">Name</a></th>
-                    <th class="text-left px-4 py-2 font-medium">Contact</th>
-                    <th class="text-left px-4 py-2 font-medium">Members</th>
-                    @permission('rental_job_cards.share')<th class="text-left px-4 py-2 font-medium">Crew link</th>@endpermission
-                    <th class="text-left px-4 py-2 font-medium">Notes</th>
-                    <th class="text-right px-4 py-2 font-medium">Actions</th>
+                <tr style="background: var(--surface-2); color: var(--text-muted); border-bottom: 1px solid var(--border);">
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ route('corex.rental-crews.index', array_merge(request()->except('page'), ['sort' => 'name', 'direction' => $sort === 'name' && $direction === 'asc' ? 'desc' : 'asc'])) }}">Name</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Contact</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Members</th>
+                    @permission('rental_job_cards.share')<th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Crew link</th>@endpermission
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Notes</th>
+                    <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($crews as $crew)
-                    <tr style="border-top: 1px solid var(--border);">
-                        <td class="px-4 py-2">{{ $crew->name }}</td>
-                        <td class="px-4 py-2">
+                    <tr style="border-top: 1px solid var(--border); color: var(--text-secondary);" class="transition-colors duration-150" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                        <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $crew->name }}</td>
+                        <td class="px-4 py-3">
                             @if($crew->email || $crew->phone)
                                 @if($crew->email)<div>{{ $crew->email }}</div>@endif
                                 @if($crew->phone)<div style="color: var(--text-muted);">{{ $crew->phone }}</div>@endif
@@ -68,30 +87,30 @@
                                 <span style="color: var(--text-muted);">—</span>
                             @endif
                         </td>
-                        <td class="px-4 py-2">{{ $crew->members_count }}</td>
+                        <td class="px-4 py-3">{{ $crew->members_count }}</td>
                         @permission('rental_job_cards.share')
-                        <td class="px-4 py-2 text-xs" data-crew-link-cell="{{ $crew->id }}">
+                        <td class="px-4 py-3 text-xs" data-crew-link-cell="{{ $crew->id }}">
                             @php $ls = $linkStatuses[$crew->id] ?? null; @endphp
                             @if($ls)
-                                <span class="rounded-full px-2 py-0.5 font-semibold" style="{{ $ls['state'] === 'live' ? 'background:#ecfdf5;color:#065f46;' : ($ls['state'] === 'never' ? 'background:var(--surface-2);color:var(--text-muted);' : 'background:#fef2f2;color:#991b1b;') }}">{{ $ls['label'] }}</span>
+                                <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="{{ $chip($ls['state'] === 'live' ? '--ds-green' : ($ls['state'] === 'never' ? '--text-muted' : '--ds-crimson')) }}">{{ $ls['label'] }}</span>
                                 @if($ls['last_used_at'])<div style="color: var(--text-muted);">used {{ $ls['last_used_at']->format('j M H:i') }}</div>@endif
                             @endif
                         </td>
                         @endpermission
-                        <td class="px-4 py-2" style="color: var(--text-muted);">{{ \Illuminate\Support\Str::limit($crew->notes, 60) ?: '—' }}</td>
-                        <td class="px-4 py-2 text-right space-x-2">
+                        <td class="px-4 py-3" style="color: var(--text-muted);">{{ \Illuminate\Support\Str::limit($crew->notes, 60) ?: '—' }}</td>
+                        <td class="px-4 py-3 text-right space-x-2 cx-equal-btns">
                             @permission('rental_catalogue.manage')
                                 @if($status === 'archived')
                                     <form method="POST" action="{{ route('corex.rental-crews.restore', $crew->id) }}" class="inline">
                                         @csrf
-                                        <button type="submit" class="text-xs" style="color: var(--brand-icon, #0ea5e9);">Restore</button>
+                                        <button type="submit" class="corex-btn-outline text-xs">Restore</button>
                                     </form>
                                 @else
-                                    <a href="{{ route('corex.rental-crews.edit', $crew) }}" class="text-xs" style="color: var(--brand-icon, #0ea5e9);">Edit</a>
+                                    <a href="{{ route('corex.rental-crews.edit', $crew) }}" class="corex-btn-outline text-xs">Edit</a>
                                     <form method="POST" action="{{ route('corex.rental-crews.archive', $crew) }}" class="inline" data-confirm="Archive this crew? It stays visible on job cards it is already assigned to, but can no longer be newly picked." data-confirm-danger data-confirm-label="Archive">
                                         @csrf
                                         @method('DELETE')
-                                        <button type="submit" class="text-xs" style="color: #991b1b;">Archive</button>
+                                        <button type="submit" class="corex-btn-danger text-xs">Archive</button>
                                     </form>
                                 @endif
                             @endpermission
@@ -99,7 +118,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="6" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
+                        <td colspan="6" class="px-6 py-12 text-center text-sm" style="color: var(--text-muted);">
                             @if(request('q'))
                                 No crews match this filter.
                             @elseif($status === 'archived')
@@ -113,8 +132,11 @@
             </tbody>
         </table>
         </div>
+        @if($crews->hasPages())
+        <div class="px-5 py-4" style="border-top:1px solid var(--border);">
+            {{ $crews->links() }}
+        </div>
+        @endif
     </div>
-
-    {{ $crews->links() }}
 </div>
 @endsection
