@@ -46,20 +46,24 @@
     ])->values()->all();
 @endphp
 
-@section('content')
-<div class="p-6 space-y-4">
-    <div class="flex items-center justify-between">
-        <div class="flex items-center gap-3">
-            <h1 class="text-lg font-semibold">Rental Inspections</h1>
+@section('corex-content')
+<div class="w-full space-y-5">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Inspections</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Move-in and move-out inspections that are due, plus the interim dates your agency has loaded.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
             <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
                 <a href="{{ route('corex.rental-inspections.index') }}" class="px-3 py-1.5 text-xs font-semibold" style="background: var(--surface); color: var(--text-muted);">All inspections</a>
                 <a href="{{ route('corex.rental-inspections.due') }}" data-qa="due-tab" class="px-3 py-1.5 text-xs font-semibold" style="border-left: 1px solid var(--border); background: var(--brand-icon, #0ea5e9); color: #fff;">Due</a>
             </div>
-        </div>
-        <div class="flex items-center gap-2">
-            @permission('rental_inspections.create')
-            <a href="{{ route('corex.rental-inspections.create') }}" class="corex-btn-primary text-xs">Start Inspection</a>
-            @endpermission
+                @permission('rental_inspections.create')
+                <a href="{{ route('corex.rental-inspections.create') }}" class="corex-btn-primary text-xs">Start Inspection</a>
+                @endpermission
+            </div>
         </div>
     </div>
 
@@ -137,25 +141,26 @@
     </details>
     @endif
 
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
     <form method="GET" action="{{ route('corex.rental-inspections.due') }}" class="flex flex-wrap items-end gap-3">
         @if($archived)<input type="hidden" name="archived" value="1">@endif
         @if(request('scope'))<input type="hidden" name="scope" value="{{ request('scope') }}">@endif
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Search</label><br>
-            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Property, tenant, agent or note" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
+            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Property, tenant, agent or note" class="list-header-filter text-sm {{ filled($filters['q'] ?? '') ? 'is-active' : '' }}">
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Type</label><br>
-            <select name="type" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                <option value="">All</option>
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Type</label>
+            <select name="type" class="list-header-filter text-sm {{ filled($filters['type'] ?? null) ? 'is-active' : '' }}">
+                <option value="">All types</option>
                 @foreach($typeLabels as $value => $label)
                     <option value="{{ $value }}" @selected(($filters['type'] ?? '') === $value)>{{ $label }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Status</label><br>
-            <select name="status" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
+            <select name="status" class="list-header-filter text-sm {{ $currentStatus !== 'open' ? 'is-active' : '' }}">
                 <option value="open" @selected($currentStatus === 'open')>Open (overdue, due, upcoming, booked)</option>
                 @foreach(['overdue', 'due', 'upcoming', 'booked', 'done', 'skipped', 'lease_ended'] as $s)
                     <option value="{{ $s }}" @selected($currentStatus === $s)>{{ $stateLabels[$s] }}</option>
@@ -163,61 +168,68 @@
                 <option value="all" @selected($currentStatus === 'all')>All</option>
             </select>
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Due from</label><br>
-            <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Due from</label>
+            <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_from'] ?? '') ? 'is-active' : '' }}">
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Due to</label><br>
-            <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Due to</label>
+            <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_to'] ?? '') ? 'is-active' : '' }}">
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Agent</label><br>
-            <select name="agent_id" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                <option value="">All</option>
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Agent</label>
+            <select name="agent_id" class="list-header-filter text-sm {{ filled($filters['agent_id'] ?? null) ? 'is-active' : '' }}">
+                <option value="">All agents</option>
                 @foreach($agentOptions as $agent)
                     <option value="{{ $agent->id }}" @selected(($filters['agent_id'] ?? '') == $agent->id)>{{ $agent->name }}</option>
                 @endforeach
             </select>
         </div>
-        <button type="submit" class="corex-btn-outline text-xs">Filter</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
         @if(request()->hasAny(['q', 'status', 'type', 'date_from', 'date_to', 'agent_id']))
-            <a href="{{ route('corex.rental-inspections.due', array_filter(['archived' => $archived ? 1 : null, 'scope' => request('scope')])) }}" class="corex-btn-outline text-xs">Clear</a>
+            <a href="{{ route('corex.rental-inspections.due', array_filter(['archived' => $archived ? 1 : null, 'scope' => request('scope')])) }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>
         @endif
+            <div class="flex-1"></div>
+        <span class="text-xs font-semibold px-2.5 py-1 rounded-md whitespace-nowrap"
+              style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent);">
+            {{ number_format($rows->total()) }} {{ \Illuminate\Support\Str::plural('inspection date', $rows->total()) }}
+        </span>
     </form>
+    </div>
 
-    <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="overflow-x-auto">
         <table class="w-full text-sm" data-qa="due-table">
             <thead>
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <th class="text-left px-3 py-2"><a href="{{ $sortLink('type') }}" style="color: var(--text-muted);">Type{{ $sortIndicator('type') }}</a></th>
-                    <th class="text-left px-3 py-2"><a href="{{ $sortLink('property') }}" style="color: var(--text-muted);">Property{{ $sortIndicator('property') }}</a></th>
-                    <th class="text-left px-3 py-2">Tenant(s)</th>
-                    <th class="text-left px-3 py-2"><a href="{{ $sortLink('due') }}" style="color: var(--text-muted);">Due{{ $sortIndicator('due') }}</a></th>
-                    <th class="text-left px-3 py-2"><a href="{{ $sortLink('status') }}" style="color: var(--text-muted);">Status{{ $sortIndicator('status') }}</a></th>
-                    <th class="text-left px-3 py-2"><a href="{{ $sortLink('overdue') }}" style="color: var(--text-muted);">Days overdue{{ $sortIndicator('overdue') }}</a></th>
-                    <th class="text-left px-3 py-2">Agent</th>
-                    <th class="text-left px-3 py-2">Note</th>
-                    <th></th>
+                <tr style="background: var(--surface-2); color: var(--text-muted); border-bottom: 1px solid var(--border);">
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('type') }}">Type{{ $sortIndicator('type') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('property') }}">Property{{ $sortIndicator('property') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Tenant(s)</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('due') }}">Due{{ $sortIndicator('due') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('status') }}">Status{{ $sortIndicator('status') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('overdue') }}">Days overdue{{ $sortIndicator('overdue') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Agent</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Note</th>
+                    <th class="px-4 py-3"></th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($rows as $row)
                 @php $pd = $row['planned']; @endphp
-                <tr style="border-bottom: 1px solid var(--border); vertical-align: top;" data-qa="due-row-{{ $row['key'] }}">
-                    <td class="px-3 py-2">{{ $typeLabels[$row['type']] ?? ucfirst($row['type']) }}</td>
-                    <td class="px-3 py-2">{{ $row['property_address'] }}</td>
-                    <td class="px-3 py-2">{{ $row['tenants'] ?: '—' }}</td>
-                    <td class="px-3 py-2">{{ $row['due_on']?->format('Y-m-d') ?? '—' }}</td>
-                    <td class="px-3 py-2"><span class="ds-badge {{ $badge($row['state']) }}">{{ $stateLabels[$row['state']] ?? $row['state'] }}</span></td>
-                    <td class="px-3 py-2">{{ $row['days_overdue'] > 0 ? $row['days_overdue'] : '—' }}</td>
-                    <td class="px-3 py-2">{{ $row['agent_name'] ?? '—' }}</td>
-                    <td class="px-3 py-2 text-xs" style="color: var(--text-secondary); max-width: 18rem;">
+                <tr style="border-bottom: 1px solid var(--border); vertical-align: top; color: var(--text-secondary);" data-qa="due-row-{{ $row['key'] }}">
+                    <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $typeLabels[$row['type']] ?? ucfirst($row['type']) }}</td>
+                    <td class="px-4 py-3">{{ $row['property_address'] }}</td>
+                    <td class="px-4 py-3">{{ $row['tenants'] ?: '—' }}</td>
+                    <td class="px-4 py-3">{{ $row['due_on']?->format('Y-m-d') ?? '—' }}</td>
+                    <td class="px-4 py-3"><span class="ds-badge {{ $badge($row['state']) }}">{{ $stateLabels[$row['state']] ?? $row['state'] }}</span></td>
+                    <td class="px-4 py-3">{{ $row['days_overdue'] > 0 ? $row['days_overdue'] : '—' }}</td>
+                    <td class="px-4 py-3">{{ $row['agent_name'] ?? '—' }}</td>
+                    <td class="px-4 py-3 text-xs" style="color: var(--text-secondary); max-width: 18rem;">
                         {{ $row['source'] === 'due_list' ? $row['reason'] : ($row['note'] ?: '') }}
                         @if($row['reason'] && $row['source'] === 'planned') <br><em>Skipped: {{ $row['reason'] }}</em> @endif
                         @if($pd && $pd->trashed()) <br>Archived by {{ $pd->archivedBy?->name ?? 'unknown' }} — {{ $pd->deleted_at?->format('Y-m-d') }} @endif
                     </td>
-                    <td class="px-3 py-2 text-right" style="min-width: 15rem;">
+                    <td class="px-4 py-3 text-right" style="min-width: 15rem;">
                         @if(!$pd)
                             {{-- Computed In/Out item: hand off to the ordinary start/schedule form, prefilled. --}}
                             @permission('rental_inspections.create')
@@ -271,7 +283,7 @@
                     </td>
                 </tr>
                 @empty
-                <tr><td colspan="9" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);" data-qa="due-empty">
+                <tr><td colspan="9" class="px-6 py-12 text-center text-sm" style="color: var(--text-muted);" data-qa="due-empty">
                     @if($archived)
                         No archived dates in this view.
                     @elseif(!$hasAnything)
@@ -285,7 +297,11 @@
             </tbody>
         </table>
     </div>
-
-    {{ $rows->links() }}
+        @if($rows->hasPages())
+        <div class="px-5 py-4" style="border-top:1px solid var(--border);">
+            {{ $rows->links() }}
+        </div>
+        @endif
+    </div>
 </div>
 @endsection

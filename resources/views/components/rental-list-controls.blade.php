@@ -69,7 +69,7 @@
         @if($routeName)
             <label class="text-xs flex items-center gap-1" style="color: var(--text-muted);">
                 Per page
-                <select onchange="window.location.href = this.value" class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
+                <select onchange="window.location.href = this.value" class="list-header-filter text-xs" style="height: auto; padding: 0.25rem 0.5rem;">
                     @foreach($perPageOptions as $opt)
                         <option value="{{ route($routeName, array_merge(request()->except(['page']), ['per_page' => $opt])) }}" @selected((int) $perPage === (int) $opt)>{{ $opt }}</option>
                     @endforeach
