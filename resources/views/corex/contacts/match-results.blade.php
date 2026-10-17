@@ -53,7 +53,7 @@
                 <h1 class="text-2xl font-bold leading-tight" style="color: var(--text-primary);">{{ $contact->full_name }}</h1>
                 <div class="flex items-center gap-2 flex-wrap">
                     @if($contact->type)
-                    <span class="ds-badge ds-badge-pill ds-badge-default">
+                    <span class="ds-badge ds-badge-pill ds-badge-text ds-badge-default">
                         {{ $contact->type->name }}
                     </span>
                     @endif

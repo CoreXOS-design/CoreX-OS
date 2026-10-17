@@ -1083,7 +1083,7 @@
             @if($property->isImportedStock())
             <span class="ds-badge ds-badge-pill ds-badge-default mt-2 w-fit" title="Imported from Property24">Imported</span>
             @endif
-            <div class="ds-badge ds-badge-pill ds-badge-warning mt-2 w-fit">
+            <div class="ds-badge ds-badge-pill ds-badge-text ds-badge-warning mt-2 w-fit">
                 Agent: {{ $property->agent?->name ?? 'Unassigned' }}
             </div>
             <div class="text-[10px] italic mt-2" style="color:var(--text-muted);">Already listed — not in your listings</div>
@@ -1365,7 +1365,7 @@
                                 @if($property->isImportedStock())
                                 <span class="ds-badge ds-badge-pill ds-badge-default" title="Imported from Property24">Imported</span>
                                 @endif
-                                <span class="ds-badge ds-badge-pill ds-badge-warning">
+                                <span class="ds-badge ds-badge-pill ds-badge-text ds-badge-warning">
                                     Agent: {{ $property->agent?->name ?? 'Unassigned' }}
                                 </span>
                             </div>

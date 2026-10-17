@@ -64,7 +64,7 @@
                             </span>
                             {{-- AT-120 — whose message it is, shown when viewing beyond own (manager/admin). --}}
                             @if(($showAgent ?? false) && $row->agent)
-                                <span class="ds-badge ds-badge-pill ds-badge-info">
+                                <span class="ds-badge ds-badge-pill ds-badge-text ds-badge-info">
                                     {{ $row->agent_id === ($currentUserId ?? null) ? 'You' : ($row->agent->name ?? ('Agent #' . $row->agent_id)) }}
                                 </span>
                             @endif

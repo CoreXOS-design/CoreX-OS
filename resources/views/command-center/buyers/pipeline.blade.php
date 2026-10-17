@@ -242,7 +242,7 @@
                                 </div>
                                 @unless($buyer->hasCountableWishlist())
                                     <div class="mt-1">
-                                        <span class="ds-badge ds-badge-pill ds-badge-warning" title="On the pipeline but has no countable wishlist (search criteria removed), so this {{ $personNoun }} is excluded from all match figures. Add a wishlist to include them.">No core match · not in figures</span>
+                                        <span class="ds-badge ds-badge-pill ds-badge-text ds-badge-warning" title="On the pipeline but has no countable wishlist (search criteria removed), so this {{ $personNoun }} is excluded from all match figures. Add a wishlist to include them.">No core match · not in figures</span>
                                     </div>
                                 @endunless
                                 <div class="flex items-center justify-between text-[10px] mt-1" style="color: var(--text-muted);">
@@ -346,7 +346,7 @@
                                     <span class="ds-badge ds-badge-pill {{ $buyerIsRental ? 'ds-badge-info' : 'ds-badge-success' }} ml-1.5 align-middle">{{ $buyerIsRental ? 'RENTAL' : 'SALE' }}</span>
                                 @endif
                                 @unless($buyer->hasCountableWishlist())
-                                    <span class="ds-badge ds-badge-pill ds-badge-warning ml-2 align-middle" title="On the pipeline but has no countable wishlist (search criteria removed), so this {{ $personNoun }} is excluded from all match figures. Add a wishlist to include them.">No core match · not in figures</span>
+                                    <span class="ds-badge ds-badge-pill ds-badge-text ds-badge-warning ml-2 align-middle" title="On the pipeline but has no countable wishlist (search criteria removed), so this {{ $personNoun }} is excluded from all match figures. Add a wishlist to include them.">No core match · not in figures</span>
                                 @endunless
                             </td>
                             <td class="px-4 py-3">

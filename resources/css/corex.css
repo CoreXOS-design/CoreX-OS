@@ -1691,6 +1691,11 @@ html:has(.corex-sidebar) main table tbody tr:hover {
     color: #fff;
     background: var(--ds-badge-c, var(--text-muted));
 }
+/* Tags that carry a person's name or a phrase keep their own letter case. */
+.ds-badge.ds-badge-pill.ds-badge-text {
+    text-transform: none;
+    letter-spacing: 0;
+}
 .ds-badge.ds-badge-pill::before,
 .ds-badge[style*="#fff"]::before,
 .ds-badge[style*="255,255,255"]::before,

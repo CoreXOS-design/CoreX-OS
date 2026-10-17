@@ -112,13 +112,13 @@
                             <a href="{{ route('corex.contacts.show', $contact) }}"
                                class="text-sm font-bold no-underline hover:underline" style="color:var(--text-primary);">{{ $fullName }}</a>
                             @if($contact->type)
-                            <span class="ds-badge ds-badge-pill ds-badge-default">{{ $contact->type->name }}</span>
+                            <span class="ds-badge ds-badge-pill ds-badge-text ds-badge-default">{{ $contact->type->name }}</span>
                             @endif
                             {{-- Contact tags (e.g. Lead) — each its own pill, tinted with the
                                  tag's colour so it reads distinctly from the type badge. --}}
                             @foreach($contact->tags as $tag)
                                 @php $tagColor = $tag->color ?: 'var(--brand-icon,#0ea5e9)'; @endphp
-                                <span class="ds-badge ds-badge-pill" style="--ds-badge-c: {{ $tagColor }};">{{ $tag->name }}</span>
+                                <span class="ds-badge ds-badge-pill ds-badge-text" style="--ds-badge-c: {{ $tagColor }};">{{ $tag->name }}</span>
                             @endforeach
                         </div>
                         <div class="text-xs mt-0.5" style="color:var(--text-muted);">
