@@ -10,7 +10,13 @@
 @php
     $sortLink = fn (string $col) => route('corex.lease-notices.index', array_merge(request()->query(), ['sort' => $col, 'dir' => ($sort === $col && $dir === 'asc') ? 'desc' : 'asc']));
     $arrow = fn (string $col) => $sort === $col ? ($dir === 'asc' ? ' ↑' : ' ↓') : '';
-    $chip = fn (string $tone) => 'background:color-mix(in srgb, var(' . $tone . ') 12%, transparent); color:var(' . $tone . '); border:1px solid color-mix(in srgb, var(' . $tone . ') 25%, transparent);';
+    $badge = fn (string $tone) => match ($tone) {
+        '--ds-green' => 'ds-badge-success',
+        '--ds-amber' => 'ds-badge-warning',
+        '--ds-crimson' => 'ds-badge-danger',
+        '--brand-icon' => 'ds-badge-info',
+        default => 'ds-badge-muted',
+    };
 @endphp
 <div class="w-full space-y-5">
 
@@ -24,11 +30,11 @@
     <form method="GET" action="{{ route('corex.lease-notices.index') }}" class="flex flex-wrap items-end gap-3" data-qa="lease-notices-filters">
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
-            <input type="text" name="q" value="{{ request('q') }}" placeholder="Name, address or reason" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <input type="text" name="q" value="{{ request('q') }}" placeholder="Name, address or reason" class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}">
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
-            <select name="status" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <select name="status" class="list-header-filter text-sm {{ $status !== 'received' ? 'is-active' : '' }}">
                 <option value="">All</option>
                 @foreach(\App\Models\LeaseNotice::STATUS_LABELS as $key => $label)
                     <option value="{{ $key }}" @selected($status === $key)>{{ $label }}</option>
@@ -37,7 +43,7 @@
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Given by</label>
-            <select name="given_by" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <select name="given_by" class="list-header-filter text-sm {{ filled(request('given_by')) ? 'is-active' : '' }}">
                 <option value="">Anyone</option>
                 <option value="tenant" @selected(request('given_by') === 'tenant')>Tenant</option>
                 <option value="landlord" @selected(request('given_by') === 'landlord')>Landlord</option>
@@ -45,11 +51,11 @@
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Given from</label>
-            <input type="date" name="date_from" value="{{ request('date_from') }}" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <input type="date" name="date_from" value="{{ request('date_from') }}" class="list-header-filter text-sm {{ filled(request('date_from')) ? 'is-active' : '' }}">
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">to</label>
-            <input type="date" name="date_to" value="{{ request('date_to') }}" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <input type="date" name="date_to" value="{{ request('date_to') }}" class="list-header-filter text-sm {{ filled(request('date_to')) ? 'is-active' : '' }}">
         </div>
         <label class="flex items-center gap-2 text-xs" style="height:2.25rem; color: var(--text-secondary);"><input type="checkbox" name="archived" value="1" @checked(request()->boolean('archived'))> Archived</label>
         <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
@@ -77,12 +83,12 @@
             </thead>
             <tbody>
                 @forelse($notices as $n)
-                    <tr style="border-top: 1px solid var(--border); color: var(--text-secondary);" class="transition-colors duration-150" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'" data-notice-row="{{ $n->id }}">
+                    <tr style="border-top: 1px solid var(--border); color: var(--text-secondary);" data-notice-row="{{ $n->id }}">
                         <td class="px-4 py-3">{{ $n->notice_date->format('j M Y') }}</td>
                         <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $n->lease?->property?->buildDisplayAddress() ?: ('Lease #' . $n->lease_id) }}{{ $n->lease?->property?->trashed() ? ' (archived)' : '' }}</td>
                         <td class="px-4 py-3">{{ $n->givenByLabel() }}{{ $n->givenByContact ? ' - ' . $n->givenByContact->full_name : '' }}</td>
                         <td class="px-4 py-3">{{ $n->effectiveEndDate()->format('j M Y') }}</td>
-                        <td class="px-4 py-3"><span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="{{ $chip($n->isReceived() ? '--ds-amber' : ($n->isAccepted() ? '--ds-green' : '--text-muted')) }}">{{ $n->statusLabel() }}</span>{{ $n->trashed() ? ' (archived)' : '' }}</td>
+                        <td class="px-4 py-3"><span class="ds-badge {{ $badge($n->isReceived() ? '--ds-amber' : ($n->isAccepted() ? '--ds-green' : '--text-muted')) }}">{{ $n->statusLabel() }}</span>{{ $n->trashed() ? ' (archived)' : '' }}</td>
                         <td class="px-4 py-3 text-right">
                             <a href="{{ route('corex.lease-notices.show', $n->id) }}" class="corex-btn-outline text-xs">{{ $n->isReceived() ? 'Review' : 'Open' }}</a>
                         </td>

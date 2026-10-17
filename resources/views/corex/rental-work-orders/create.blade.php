@@ -64,7 +64,7 @@
                 <input type="hidden" name="property_id" x-model="selectedPropertyId" required>
                 <div class="mt-1 rounded-md max-h-72 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border);" x-show="propertyResults.length" x-cloak>
                     <template x-for="p in propertyResults" :key="p.id">
-                        <button type="button" @click="selectProperty(p)" class="block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary);" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                        <button type="button" @click="selectProperty(p)" class="list-row-hover block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary);">
                             <span x-text="p.label"></span>
                         </button>
                     </template>

@@ -20,7 +20,13 @@
         'cancelled' => '--ds-crimson',
         default => '--brand-icon',
     };
-    $chip = fn (string $tone) => 'background:color-mix(in srgb, var(' . $tone . ') 12%, transparent); color:var(' . $tone . '); border:1px solid color-mix(in srgb, var(' . $tone . ') 25%, transparent);';
+    $badge = fn (string $tone) => match ($tone) {
+        '--ds-green' => 'ds-badge-success',
+        '--ds-amber' => 'ds-badge-warning',
+        '--ds-crimson' => 'ds-badge-danger',
+        '--brand-icon' => 'ds-badge-info',
+        default => 'ds-badge-muted',
+    };
 @endphp
 
 @section('corex-content')
@@ -99,11 +105,11 @@
         @endif
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
-            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Property address or tenant name" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Property address or tenant name" class="list-header-filter text-sm {{ filled($filters['q'] ?? '') ? 'is-active' : '' }}">
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
-            <select name="status" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <select name="status" class="list-header-filter text-sm {{ filled($filters['status'] ?? null) ? 'is-active' : '' }}">
                 <option value="">All</option>
                 @foreach(['draft', 'signed_awaiting_start', 'active', 'expired', 'cancelled'] as $s)
                     <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ $s === 'signed_awaiting_start' ? 'Signed - starts later' : ucfirst($s) }}</option>
@@ -112,7 +118,7 @@
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Agreement</label>
-            <select name="agreement" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <select name="agreement" class="list-header-filter text-sm {{ filled($filters['agreement'] ?? null) ? 'is-active' : '' }}">
                 <option value="">All</option>
                 @foreach(\App\Models\Lease::SIGNING_LABELS as $signingKey => $signingLabel)
                     <option value="{{ $signingKey }}" @selected(($filters['agreement'] ?? '') === $signingKey)>{{ $signingLabel }}</option>
@@ -121,7 +127,7 @@
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Notice terms</label>
-            <select name="notice_terms" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);" data-qa="lease-filter-notice-terms">
+            <select name="notice_terms" class="list-header-filter text-sm {{ filled($filters['notice_terms'] ?? null) ? 'is-active' : '' }}" data-qa="lease-filter-notice-terms">
                 <option value="">All</option>
                 <option value="unconfirmed" @selected(($filters['notice_terms'] ?? '') === 'unconfirmed')>To check — not confirmed</option>
             </select>
@@ -133,11 +139,11 @@
                  unaffected). --}}
             <input type="text" x-model="propertyQuery" @input.debounce.300ms="searchProperties()"
                    placeholder="Search properties by address…"
-                   class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                   class="list-header-filter text-sm" :class="{ 'is-active': propertyQuery }">
             <input type="hidden" name="property_id" x-model="selectedPropertyId">
             <div class="absolute z-10 mt-1 rounded-md max-h-72 overflow-y-auto" style="top:100%; background: var(--surface); border: 1px solid var(--border);" x-show="propertyResults.length" x-cloak>
                 <template x-for="p in propertyResults" :key="p.id">
-                    <button type="button" @click="selectProperty(p)" class="block w-full text-left px-3 py-2 text-xs" style="color:var(--text-primary);" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                    <button type="button" @click="selectProperty(p)" class="list-row-hover block w-full text-left px-3 py-2 text-xs" style="color:var(--text-primary);">
                         <span x-text="p.label"></span>
                     </button>
                 </template>
@@ -145,11 +151,11 @@
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">End date from</label>
-            <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_from'] ?? '') ? 'is-active' : '' }}">
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">End date to</label>
-            <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_to'] ?? '') ? 'is-active' : '' }}">
         </div>
         <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
         @if(request()->hasAny(['q', 'status', 'agreement', 'notice_terms', 'property_id', 'date_from', 'date_to']))
@@ -206,7 +212,7 @@
             </thead>
             <tbody>
                 @forelse($leases as $lease)
-                <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);" class="transition-colors duration-150" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'" data-qa="lease-row-{{ $lease->id }}">
+                <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);" data-qa="lease-row-{{ $lease->id }}">
                     @permission('rental_breaches.manage')<td class="px-3 py-3">@if($lease->status === 'active' && !$lease->trashed())<input type="checkbox" name="leases[]" value="{{ $lease->id }}" form="leases-bulk-form" aria-label="Tick this lease">@endif</td>@endpermission
                     <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $lease->property?->trashed() ? ' (archived)' : '' }}</td>
                     <td class="px-4 py-3">
@@ -230,12 +236,12 @@
                     </td>
                     <td class="px-4 py-3">
                         @if($showArchived)
-                            <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="{{ $chip('--text-muted') }}">Archived {{ $lease->deleted_at?->format('Y-m-d') }}</span>
+                            <span class="ds-badge {{ $badge('--text-muted') }}">Archived {{ $lease->deleted_at?->format('Y-m-d') }}</span>
                             <div class="text-xs mt-0.5" style="color: var(--text-muted);">
                                 Was {{ $lease->archived_from_status ?: $lease->status }}@if($lease->archive_reason) — {{ \Illuminate\Support\Str::limit($lease->archive_reason, 80) }}@endif
                             </div>
                         @else
-                            <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="{{ $chip($statusTone($lease->status)) }}">{{ $lease->displayStatus() }}</span>
+                            <span class="ds-badge {{ $badge($statusTone($lease->status)) }}">{{ $lease->displayStatus() }}</span>
                             @if($lease->signingStatusLabel())
                                 <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $lease->signingStatusLabel() }}</div>
                             @endif

@@ -9,10 +9,10 @@
 @php
     $panel = app(\App\Services\Rentals\RentalCrewScheduleService::class)->linkPanelFor($crew);
     $newUrl = session('crew_link_url');
-    $stateStyle = match ($panel['state']) {
-        'live' => 'background:color-mix(in srgb, var(--ds-green) 12%, transparent);color:var(--ds-green);border:1px solid color-mix(in srgb, var(--ds-green) 25%, transparent);',
-        'never' => 'background:color-mix(in srgb, var(--text-muted) 12%, transparent);color:var(--text-muted);border:1px solid color-mix(in srgb, var(--text-muted) 25%, transparent);',
-        default => 'background:color-mix(in srgb, var(--ds-crimson) 12%, transparent);color:var(--ds-crimson);border:1px solid color-mix(in srgb, var(--ds-crimson) 25%, transparent);',
+    $stateBadge = match ($panel['state']) {
+        'live' => 'ds-badge-success',
+        'never' => 'ds-badge-muted',
+        default => 'ds-badge-danger',
     };
     $eventLabels = [
         'issued' => 'Link created', 'regenerated' => 'Link regenerated', 'emailed' => 'Link emailed', 'revoked' => 'Link revoked',
@@ -23,7 +23,7 @@
 <div id="crew-link-panel" class="rounded-md p-6 space-y-3 max-w-3xl" style="background: var(--surface); border: 1px solid var(--border);">
     <div class="flex items-center justify-between gap-2">
         <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Crew link</h2>
-        <span class="text-xs rounded-md px-2.5 py-0.5 font-medium" style="{{ $stateStyle }}" data-crew-link-state="{{ $panel['state'] }}">{{ $panel['label'] }}</span>
+        <span class="ds-badge {{ $stateBadge }}" data-crew-link-state="{{ $panel['state'] }}">{{ $panel['label'] }}</span>
     </div>
     <p class="text-xs" style="color: var(--text-muted);">
         One link for the whole crew. They open it on their phone — no login — and see only the jobs booked for this crew: where, when, what to load, with their tasks, photos and sign-off.

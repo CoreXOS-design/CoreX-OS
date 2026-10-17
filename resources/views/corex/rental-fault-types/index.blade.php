@@ -11,7 +11,13 @@
 
 @section('corex-content')
 @php
-    $chip = fn (string $tone) => 'background:color-mix(in srgb, var(' . $tone . ') 12%, transparent); color:var(' . $tone . '); border:1px solid color-mix(in srgb, var(' . $tone . ') 25%, transparent);';
+    $badge = fn (string $tone) => match ($tone) {
+        '--ds-green' => 'ds-badge-success',
+        '--ds-amber' => 'ds-badge-warning',
+        '--ds-crimson' => 'ds-badge-danger',
+        '--brand-icon' => 'ds-badge-info',
+        default => 'ds-badge-muted',
+    };
 @endphp
 <div class="w-full space-y-5">
 
@@ -38,11 +44,11 @@
     <form method="GET" action="{{ route('corex.rental-fault-types.index') }}" class="flex flex-wrap items-end gap-3">
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
-            <input type="text" name="q" value="{{ request('q') }}" placeholder="Name or category" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <input type="text" name="q" value="{{ request('q') }}" placeholder="Name or category" class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}">
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Category</label>
-            <select name="category" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <select name="category" class="list-header-filter text-sm {{ filled(request('category')) ? 'is-active' : '' }}">
                 <option value="">All</option>
                 @foreach($categories as $c)
                     <option value="{{ $c }}" @selected(request('category') === $c)>{{ $c }}</option>
@@ -51,7 +57,7 @@
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Urgency</label>
-            <select name="urgency" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <select name="urgency" class="list-header-filter text-sm {{ filled(request('urgency')) ? 'is-active' : '' }}">
                 <option value="">All</option>
                 @foreach(['routine', 'urgent', 'emergency'] as $u)
                     <option value="{{ $u }}" @selected(request('urgency') === $u)>{{ ucfirst($u) }}</option>
@@ -60,7 +66,7 @@
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
-            <select name="status" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <select name="status" class="list-header-filter text-sm {{ $status !== 'active' ? 'is-active' : '' }}">
                 <option value="active" @selected($status === 'active')>Active</option>
                 <option value="archived" @selected($status === 'archived')>Archived</option>
             </select>
@@ -95,11 +101,11 @@
             </thead>
             <tbody>
                 @forelse($faultTypes as $ft)
-                    <tr style="border-top: 1px solid var(--border); color: var(--text-secondary);" class="transition-colors duration-150" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                    <tr style="border-top: 1px solid var(--border); color: var(--text-secondary);">
                         <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $ft->name }}</td>
                         <td class="px-4 py-3">{{ $ft->category ?? '—' }}</td>
                         <td class="px-4 py-3">
-                            <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="{{ $chip($ft->urgency === 'emergency' ? '--ds-crimson' : ($ft->urgency === 'urgent' ? '--ds-amber' : '--text-muted')) }}">{{ ucfirst($ft->urgency) }}</span>
+                            <span class="ds-badge {{ $badge($ft->urgency === 'emergency' ? '--ds-crimson' : ($ft->urgency === 'urgent' ? '--ds-amber' : '--text-muted')) }}">{{ ucfirst($ft->urgency) }}</span>
                         </td>
                         <td class="px-4 py-3">{{ $ft->is_default ? 'CoreX default' : 'Custom' }}</td>
                         <td class="px-4 py-3">{{ $ft->documents->count() }}</td>

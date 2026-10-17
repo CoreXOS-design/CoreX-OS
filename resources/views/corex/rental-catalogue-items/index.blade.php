@@ -20,7 +20,13 @@
 
 @section('corex-content')
 @php
-    $chip = fn (string $tone) => 'background:color-mix(in srgb, var(' . $tone . ') 12%, transparent); color:var(' . $tone . '); border:1px solid color-mix(in srgb, var(' . $tone . ') 25%, transparent);';
+    $badge = fn (string $tone) => match ($tone) {
+        '--ds-green' => 'ds-badge-success',
+        '--ds-amber' => 'ds-badge-warning',
+        '--ds-crimson' => 'ds-badge-danger',
+        '--brand-icon' => 'ds-badge-info',
+        default => 'ds-badge-muted',
+    };
 @endphp
 <div class="w-full space-y-5">
 
@@ -54,11 +60,11 @@
     <form method="GET" action="{{ route('corex.rental-catalogue-items.index') }}" class="flex flex-wrap items-end gap-3">
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
-            <input type="text" name="q" value="{{ request('q') }}" placeholder="Code or description" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <input type="text" name="q" value="{{ request('q') }}" placeholder="Code or description" class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}">
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Type</label>
-            <select name="type" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <select name="type" class="list-header-filter text-sm {{ filled(request('type')) ? 'is-active' : '' }}">
                 <option value="">All</option>
                 @foreach($catalogueItemTypes as $t)
                     <option value="{{ $t->id }}" @selected((string) request('type') === (string) $t->id)>{{ $t->name }}</option>
@@ -67,7 +73,7 @@
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
-            <select name="status" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <select name="status" class="list-header-filter text-sm {{ $status !== 'active' ? 'is-active' : '' }}">
                 <option value="active" @selected($status === 'active')>Active</option>
                 <option value="archived" @selected($status === 'archived')>Archived</option>
             </select>
@@ -101,10 +107,10 @@
             <tbody>
                 @forelse($items as $item)
                     @php $prices = $vat->catalogueItemPrices($item, $agency); @endphp
-                    <tr style="border-top: 1px solid var(--border); color: var(--text-secondary);" class="transition-colors duration-150" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                    <tr style="border-top: 1px solid var(--border); color: var(--text-secondary);">
                         <td class="px-4 py-3" style="font-family: monospace;">{{ $item->code }}</td>
                         <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $item->description }}</td>
-                        <td class="px-4 py-3"><span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="{{ $chip($item->kind() === 'labour' ? '--brand-icon' : '--text-muted') }}">{{ $item->catalogueItemType->name ?? '—' }}</span></td>
+                        <td class="px-4 py-3"><span class="ds-badge {{ $badge($item->kind() === 'labour' ? '--brand-icon' : '--text-muted') }}">{{ $item->catalogueItemType->name ?? '—' }}</span></td>
                         <td class="px-4 py-3">{{ $item->catalogueUnit->name ?? '—' }}</td>
                         <td class="px-4 py-3 text-right">{{ $prices['excl'] !== null ? 'R' . number_format($prices['excl'], 2) : '—' }}</td>
                         @if($agency?->vat_registered)

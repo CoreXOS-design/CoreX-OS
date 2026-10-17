@@ -32,7 +32,7 @@
             <input type="hidden" name="contact_id" x-model="selectedContactId" required>
             <div class="mt-1 rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" x-show="contactResults.length">
                 <template x-for="c in contactResults" :key="c.id">
-                    <button type="button" @click="selectContact(c)" class="block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary);" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                    <button type="button" @click="selectContact(c)" class="list-row-hover block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary);">
                         <span x-text="c.first_name + ' ' + c.last_name"></span>
                         <span class="text-xs" style="color: var(--text-muted);" x-text="c.email || c.phone || ''"></span>
                     </button>
@@ -54,7 +54,7 @@
                  property they're picking, not just its marketing title. --}}
             <div class="mt-1 rounded-md max-h-72 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border);" x-show="propertyResults.length">
                 <template x-for="p in propertyResults" :key="p.id">
-                    <button type="button" @click="selectProperty(p)" class="block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary);" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                    <button type="button" @click="selectProperty(p)" class="list-row-hover block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary);">
                         <div class="flex items-center gap-1.5">
                             <span x-text="p.label"></span>
                             <span x-show="p.status" x-text="p.status" class="text-[10px] px-1 py-0.5 rounded" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border); white-space:nowrap;"></span>

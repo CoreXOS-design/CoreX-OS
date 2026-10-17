@@ -172,7 +172,7 @@
                         <template x-for="(p, idx) in propertyResults" :key="p.id">
                             <button type="button" role="option" :aria-selected="highlighted === idx ? 'true' : 'false'"
                                     @click="selectProperty(p)" @mouseenter="highlighted = idx"
-                                    :style="highlighted === idx ? 'background: var(--surface-2);' : ''"
+                                    :style="{ background: highlighted === idx ? 'var(--surface-2)' : '' }"
                                     class="block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary);">
                                 <div class="flex items-center gap-1.5">
                                     <span x-text="p.label"></span>
@@ -203,7 +203,7 @@
                        class="prop-input">
                 <div class="mt-1 rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" x-show="results.length > 0" x-cloak>
                     <template x-for="r in results" :key="r.id">
-                        <button type="button" @click="add(r)" class="block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary); border-bottom: 1px solid var(--border);" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'" x-text="r.name + (r.email ? ' — ' + r.email : '')"></button>
+                        <button type="button" @click="add(r)" class="list-row-hover block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary); border-bottom: 1px solid var(--border);" x-text="r.name + (r.email ? ' — ' + r.email : '')"></button>
                     </template>
                 </div>
                 <div class="mt-2 space-y-1">

@@ -21,7 +21,13 @@
         'declined', 'cancelled' => '--ds-crimson',
         default => '--text-muted',
     };
-    $chip = fn (string $tone) => 'background:color-mix(in srgb, var(' . $tone . ') 12%, transparent); color:var(' . $tone . '); border:1px solid color-mix(in srgb, var(' . $tone . ') 25%, transparent);';
+    $badge = fn (string $tone) => match ($tone) {
+        '--ds-green' => 'ds-badge-success',
+        '--ds-amber' => 'ds-badge-warning',
+        '--ds-crimson' => 'ds-badge-danger',
+        '--brand-icon' => 'ds-badge-info',
+        default => 'ds-badge-muted',
+    };
 @endphp
 
 @section('corex-content')
@@ -101,11 +107,11 @@
         @endif
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
-            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Property address, title or description" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Property address, title or description" class="list-header-filter text-sm {{ filled($filters['q'] ?? '') ? 'is-active' : '' }}">
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
-            <select name="status" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <select name="status" class="list-header-filter text-sm {{ filled($filters['status'] ?? null) ? 'is-active' : '' }}">
                 <option value="">All</option>
                 @foreach(['reported', 'under_review', 'awaiting_approval', 'approved', 'declined', 'work_order_raised', 'owner_handling', 'resolved', 'cancelled'] as $s)
                     <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ (new \App\Models\RentalFaultReport(['status' => $s]))->statusLabel() }}</option>
@@ -119,11 +125,11 @@
                  job, unaffected). --}}
             <input type="text" x-model="propertyQuery" @input.debounce.300ms="searchProperties()"
                    placeholder="Search properties by address…"
-                   class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                   class="list-header-filter text-sm" :class="{ 'is-active': propertyQuery }">
             <input type="hidden" name="property_id" x-model="selectedPropertyId">
             <div class="absolute z-10 mt-1 rounded-md max-h-72 overflow-y-auto" style="top:100%; background: var(--surface); border: 1px solid var(--border);" x-show="propertyResults.length" x-cloak>
                 <template x-for="p in propertyResults" :key="p.id">
-                    <button type="button" @click="selectProperty(p)" class="block w-full text-left px-3 py-2 text-xs" style="color:var(--text-primary);" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                    <button type="button" @click="selectProperty(p)" class="list-row-hover block w-full text-left px-3 py-2 text-xs" style="color:var(--text-primary);">
                         <span x-text="p.label"></span>
                     </button>
                 </template>
@@ -131,7 +137,7 @@
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Outcome</label>
-            <select name="outcome" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <select name="outcome" class="list-header-filter text-sm {{ filled($filters['outcome'] ?? null) ? 'is-active' : '' }}">
                 <option value="">All</option>
                 @foreach(['repaired', 'repaired_partially', 'not_repaired', 'owner_declined', 'tenant_liable'] as $o)
                     <option value="{{ $o }}" @selected(($filters['outcome'] ?? '') === $o)>{{ ucfirst(str_replace('_', ' ', $o)) }}</option>
@@ -140,11 +146,11 @@
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Reported from</label>
-            <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_from'] ?? '') ? 'is-active' : '' }}">
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Reported to</label>
-            <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_to'] ?? '') ? 'is-active' : '' }}">
         </div>
         @if(!empty($filters['cc_scope']))<input type="hidden" name="cc_scope" value="{{ $filters['cc_scope'] }}">@endif
         <label class="flex items-center gap-2 text-xs" style="height:2.25rem; color: var(--text-secondary);">
@@ -184,10 +190,10 @@
     <div class="text-xs flex items-center gap-2" style="color: var(--text-muted);">
         Filtered to:
         @if($filteredProperty)
-            <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="{{ $chip('--brand-icon') }}">{{ $filteredProperty->buildDisplayAddress() }}</span>
+            <span class="ds-badge {{ $badge('--brand-icon') }}">{{ $filteredProperty->buildDisplayAddress() }}</span>
         @endif
         @if($filteredLease)
-            <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="{{ $chip('--brand-icon') }}">{{ $filteredLease->tenantNames() ?: ('Lease #' . $filteredLease->id) }}</span>
+            <span class="ds-badge {{ $badge('--brand-icon') }}">{{ $filteredLease->tenantNames() ?: ('Lease #' . $filteredLease->id) }}</span>
         @endif
         <a href="{{ route('corex.rental-fault-reports.index', request()->except(['property_id', 'lease_id', 'page'])) }}" class="underline">Clear</a>
     </div>
@@ -208,14 +214,14 @@
             </thead>
             <tbody>
                 @forelse($faultReports as $faultReport)
-                <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);" class="transition-colors duration-150" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'" data-qa="fault-report-row-{{ $faultReport->id }}">
+                <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);" data-qa="fault-report-row-{{ $faultReport->id }}">
                     <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $faultReport->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $faultReport->property?->trashed() ? ' (archived)' : '' }}</td>
                     <td class="px-4 py-3">{{ $faultReport->title }}</td>
                     <td class="px-4 py-3">
                         @if($showArchived)
-                            <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="{{ $chip('--text-muted') }}">Archived {{ $faultReport->deleted_at?->format('Y-m-d') }}</span>
+                            <span class="ds-badge {{ $badge('--text-muted') }}">Archived {{ $faultReport->deleted_at?->format('Y-m-d') }}</span>
                         @else
-                            <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="{{ $chip($statusTone($faultReport->status)) }}">{{ $faultReport->statusLabel() }}</span>
+                            <span class="ds-badge {{ $badge($statusTone($faultReport->status)) }}">{{ $faultReport->statusLabel() }}</span>
                         @endif
                     </td>
                     <td class="px-4 py-3">{{ $faultReport->outcome ? ucfirst(str_replace('_', ' ', $faultReport->outcome)) : '—' }}</td>

@@ -20,7 +20,13 @@
         'draft' => '--text-muted',
         default => '--brand-icon',
     };
-    $chip = fn (string $tone) => 'background:color-mix(in srgb, var(' . $tone . ') 12%, transparent); color:var(' . $tone . '); border:1px solid color-mix(in srgb, var(' . $tone . ') 25%, transparent);';
+    $badge = fn (string $tone) => match ($tone) {
+        '--ds-green' => 'ds-badge-success',
+        '--ds-amber' => 'ds-badge-warning',
+        '--ds-crimson' => 'ds-badge-danger',
+        '--brand-icon' => 'ds-badge-info',
+        default => 'ds-badge-muted',
+    };
     $money = fn ($v) => $v === null ? '—' : 'R ' . number_format($v, 2, '.', ',');
 
     $tiles = [
@@ -122,11 +128,11 @@
         @if(request('direction'))<input type="hidden" name="direction" value="{{ request('direction') }}">@endif
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
-            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" aria-label="Search job cards" class="rounded-md px-3 text-sm w-64" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" aria-label="Search job cards" class="list-header-filter text-sm w-64 {{ filled($filters['q'] ?? '') ? 'is-active' : '' }}">
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Crew</label>
-            <select name="rental_crew_id" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <select name="rental_crew_id" class="list-header-filter text-sm {{ filled($filters['rental_crew_id'] ?? null) ? 'is-active' : '' }}">
                 <option value="">All</option>
                 @foreach($crews as $c)
                     <option value="{{ $c->id }}" @selected(($filters['rental_crew_id'] ?? null) == $c->id)>{{ $c->name }}</option>
@@ -140,11 +146,11 @@
                  unaffected). --}}
             <input type="text" x-model="propertyQuery" @input.debounce.300ms="searchProperties()" @input="if (!propertyQuery) selectedPropertyId = ''"
                    aria-label="Filter by property"
-                   class="rounded-md px-3 text-sm w-56" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                   class="list-header-filter text-sm w-56" :class="{ 'is-active': propertyQuery }">
             <input type="hidden" name="property_id" x-model="selectedPropertyId">
             <div class="absolute z-10 mt-1 rounded-md max-h-72 overflow-y-auto" style="top:100%; background: var(--surface); border: 1px solid var(--border);" x-show="propertyResults.length" x-cloak>
                 <template x-for="p in propertyResults" :key="p.id">
-                    <button type="button" @click="selectProperty(p)" class="block w-full text-left px-3 py-2 text-xs" style="color:var(--text-primary);" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                    <button type="button" @click="selectProperty(p)" class="list-row-hover block w-full text-left px-3 py-2 text-xs" style="color:var(--text-primary);">
                         <span x-text="p.label"></span>
                     </button>
                 </template>
@@ -152,11 +158,11 @@
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Due from</label>
-            <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_from'] ?? '') ? 'is-active' : '' }}">
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Due to</label>
-            <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_to'] ?? '') ? 'is-active' : '' }}">
         </div>
         <label class="flex items-center gap-2 text-xs" style="height:2.25rem; color: var(--text-secondary);">
             <input type="checkbox" name="archived" value="1" @checked($showArchived)> Show archived
@@ -211,16 +217,16 @@
                         // §17.7.1 — after the owner approves an amount a change is a variation, never a re-send, so "Changed since sent" only applies before that.
                         $changed = $quote ? ($jc->quoteChangedSinceSent($quote) && ! $jc->workOrder?->hasApprovedBaseline()) : false;
                     @endphp
-                    <tr style="border-top: 1px solid var(--border); color: var(--text-secondary);" class="transition-colors duration-150" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'" data-job-card-row="{{ $jc->id }}">
+                    <tr style="border-top: 1px solid var(--border); color: var(--text-secondary);" data-job-card-row="{{ $jc->id }}">
                         <td class="px-4 py-3 tabular-nums whitespace-nowrap">#{{ $jc->id }}</td>
                         <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $jc->property?->buildDisplayAddress() ?? '—' }}{{ $jc->property?->trashed() ? ' (archived)' : '' }}</td>
                         <td class="px-4 py-3">{{ $jc->title }}</td>
                         <td class="px-4 py-3">{{ $jc->lease?->tenantNames() ?? '—' }}</td>
                         <td class="px-4 py-3">{{ $jc->crew?->name ?? ($jc->assigned_user_id ? 'Previously assigned: ' . ($jc->assignedUser?->name ?? '—') : '—') }}</td>
                         <td class="px-4 py-3 whitespace-nowrap">
-                            <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="{{ $chip($statusTone($jc->status)) }}">{{ ucfirst(str_replace('_', ' ', $jc->status)) }}</span>
-                            @if($quote && $quote->revision > 1)<span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="{{ $chip('--text-muted') }}" data-quote-revision>Rev {{ $quote->revision }}</span>@endif
-                            @if($changed)<span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="{{ $chip('--ds-amber') }}" data-quote-changed>Changed since sent</span>@endif
+                            <span class="ds-badge {{ $badge($statusTone($jc->status)) }}">{{ ucfirst(str_replace('_', ' ', $jc->status)) }}</span>
+                            @if($quote && $quote->revision > 1)<span class="ds-badge {{ $badge('--text-muted') }}" data-quote-revision>Rev {{ $quote->revision }}</span>@endif
+                            @if($changed)<span class="ds-badge {{ $badge('--ds-amber') }}" data-quote-changed>Changed since sent</span>@endif
                         </td>
                         <td class="px-4 py-3 whitespace-nowrap">{{ $jc->due_at?->format('Y-m-d H:i') ?? '—' }}</td>
                         <td class="px-4 py-3 whitespace-nowrap">{{ $jc->created_at?->format('Y-m-d') ?? '—' }}</td>

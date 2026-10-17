@@ -229,19 +229,19 @@
         <div class="flex flex-col gap-1">
             <label class="block text-xs font-medium" style="color: var(--text-secondary);">Search</label>
             <input type="text" name="q" value="{{ request('q') }}" placeholder="Applicant name, phone, email, ID number, property, or #id"
-                   class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary); min-width: 260px;">
+                   class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}" style="min-width: 260px;">
         </div>
         <div class="flex flex-col gap-1">
             <label class="block text-xs font-medium" style="color: var(--text-secondary);">Created from</label>
-            <input type="date" name="date_from" value="{{ request('date_from') }}" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <input type="date" name="date_from" value="{{ request('date_from') }}" class="list-header-filter text-sm {{ filled(request('date_from')) ? 'is-active' : '' }}">
         </div>
         <div class="flex flex-col gap-1">
             <label class="block text-xs font-medium" style="color: var(--text-secondary);">Created to</label>
-            <input type="date" name="date_to" value="{{ request('date_to') }}" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <input type="date" name="date_to" value="{{ request('date_to') }}" class="list-header-filter text-sm {{ filled(request('date_to')) ? 'is-active' : '' }}">
         </div>
         <div class="flex flex-col gap-1">
             <label class="block text-xs font-medium" style="color: var(--text-secondary);">Per page</label>
-            <select name="per_page" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);" onchange="this.form.submit()">
+            <select name="per_page" class="list-header-filter text-sm" onchange="this.form.submit()">
                 @foreach([10, 25, 50, 100] as $option)
                     <option value="{{ $option }}" @selected($perPage === $option)>{{ $option }}</option>
                 @endforeach
@@ -273,7 +273,7 @@
             </thead>
             <tbody>
                 @forelse($applications as $application)
-                <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);" class="transition-colors duration-150" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);">
                     <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $application->contact?->full_name ?? $application->full_name ?? '—' }}</td>
                     <td class="px-4 py-3">{{ $application->property?->buildDisplayAddress() ?? $application->property_address_override ?? '—' }}{{ $application->property?->trashed() ? ' (archived)' : '' }}</td>
                     <td class="px-4 py-3">
@@ -303,7 +303,7 @@
                                          "under assessment" judgement call, which stays
                                          optional-note. See _record-withdrawn.blade.php,
                                          included right below. --}}
-                                    <select name="status" onchange="this.form.submit()" class="ds-badge ds-badge-info text-xs" style="border: 1px solid var(--border); cursor: pointer;">
+                                    <select name="status" onchange="this.form.submit()" class="list-header-filter text-xs" style="height: auto; padding: 0.25rem 0.5rem;">
                                         <option value="returned" disabled @selected($application->status === 'returned')>Returned</option>
                                         @foreach(array_diff(\App\Models\RentalApplication::AGENT_SETTABLE_STATUSES, ['withdrawn']) as $s)
                                             <option value="{{ $s }}" @selected($application->status === $s)>{{ str_replace('_', ' ', ucfirst($s)) }}</option>
@@ -312,13 +312,13 @@
                                 </form>
                                 @include('corex.rental-applications._record-withdrawn', ['application' => $application])
                             @elseif($application->status === 'approved' && ! $application->applicant_notified_at)
-                                <span class="ds-badge" style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 16%, transparent); color:var(--ds-amber, #f59e0b); font-weight:600;">Approved — ready to send</span>
+                                <span class="ds-badge ds-badge-warning">Approved — ready to send</span>
                             @else
                                 <span class="ds-badge {{ $application->status === 'draft' ? 'ds-badge-muted' : 'ds-badge-info' }}">{{ $application->displayStatusLabel() }}</span>
                             @endif
                         @else
                             @if($application->status === 'approved' && ! $application->applicant_notified_at)
-                                <span class="ds-badge" style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 16%, transparent); color:var(--ds-amber, #f59e0b); font-weight:600;">Approved — ready to send</span>
+                                <span class="ds-badge ds-badge-warning">Approved — ready to send</span>
                             @else
                                 <span class="ds-badge {{ $application->status === 'draft' ? 'ds-badge-muted' : 'ds-badge-info' }}">{{ $application->displayStatusLabel() }}</span>
                             @endif
@@ -511,7 +511,7 @@
             </thead>
             <tbody>
                 @forelse($archived as $application)
-                <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);" class="transition-colors duration-150" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);">
                     <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $application->contact?->full_name ?? '—' }}</td>
                     <td class="px-4 py-3">{{ $application->property?->buildDisplayAddress() ?? $application->property_address_override ?? '—' }}{{ $application->property?->trashed() ? ' (archived)' : '' }}</td>
                     <td class="px-4 py-3">{{ $application->deleted_at->format('d M Y') }}</td>

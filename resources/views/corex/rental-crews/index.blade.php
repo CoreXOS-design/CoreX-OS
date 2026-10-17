@@ -12,7 +12,13 @@
 @section('corex-content')
 @php
     $linkStatuses = app(\App\Services\Rentals\RentalCrewScheduleService::class)->linkStatusesFor($crews->pluck('id')->all());
-    $chip = fn (string $tone) => 'background:color-mix(in srgb, var(' . $tone . ') 12%, transparent); color:var(' . $tone . '); border:1px solid color-mix(in srgb, var(' . $tone . ') 25%, transparent);';
+    $badge = fn (string $tone) => match ($tone) {
+        '--ds-green' => 'ds-badge-success',
+        '--ds-amber' => 'ds-badge-warning',
+        '--ds-crimson' => 'ds-badge-danger',
+        '--brand-icon' => 'ds-badge-info',
+        default => 'ds-badge-muted',
+    };
 @endphp
 <div class="w-full space-y-5">
 
@@ -44,11 +50,11 @@
     <form method="GET" action="{{ route('corex.rental-crews.index') }}" class="flex flex-wrap items-end gap-3">
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
-            <input type="text" name="q" value="{{ request('q') }}" placeholder="Name, email or number" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <input type="text" name="q" value="{{ request('q') }}" placeholder="Name, email or number" class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}">
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
-            <select name="status" class="rounded-md px-3 text-sm" style="height:2.25rem; background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+            <select name="status" class="list-header-filter text-sm {{ $status !== 'active' ? 'is-active' : '' }}">
                 <option value="active" @selected($status === 'active')>Active</option>
                 <option value="archived" @selected($status === 'archived')>Archived</option>
             </select>
@@ -77,7 +83,7 @@
             </thead>
             <tbody>
                 @forelse($crews as $crew)
-                    <tr style="border-top: 1px solid var(--border); color: var(--text-secondary);" class="transition-colors duration-150" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                    <tr style="border-top: 1px solid var(--border); color: var(--text-secondary);">
                         <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $crew->name }}</td>
                         <td class="px-4 py-3">
                             @if($crew->email || $crew->phone)
@@ -92,7 +98,7 @@
                         <td class="px-4 py-3 text-xs" data-crew-link-cell="{{ $crew->id }}">
                             @php $ls = $linkStatuses[$crew->id] ?? null; @endphp
                             @if($ls)
-                                <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="{{ $chip($ls['state'] === 'live' ? '--ds-green' : ($ls['state'] === 'never' ? '--text-muted' : '--ds-crimson')) }}">{{ $ls['label'] }}</span>
+                                <span class="ds-badge {{ $badge($ls['state'] === 'live' ? '--ds-green' : ($ls['state'] === 'never' ? '--text-muted' : '--ds-crimson')) }}">{{ $ls['label'] }}</span>
                                 @if($ls['last_used_at'])<div style="color: var(--text-muted);">used {{ $ls['last_used_at']->format('j M H:i') }}</div>@endif
                             @endif
                         </td>

@@ -30,7 +30,7 @@
             </form>
             <div class="space-y-1">
                 @forelse($leaseChoices as $choice)
-                    <a href="{{ route('corex.rental-fault-reports.create', ['property_id' => $choice->property_id, 'lease_id' => $choice->id]) }}" class="block rounded-md px-3 py-2.5 text-sm no-underline transition-colors duration-150" style="color: var(--text-secondary); border: 1px solid var(--border);" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'" data-lease-choice="{{ $choice->id }}">
+                    <a href="{{ route('corex.rental-fault-reports.create', ['property_id' => $choice->property_id, 'lease_id' => $choice->id]) }}" class="list-row-hover block rounded-md px-3 py-2.5 text-sm no-underline transition-colors duration-150" style="color: var(--text-secondary); border: 1px solid var(--border);" data-lease-choice="{{ $choice->id }}">
                         <span class="font-medium" style="color: var(--text-primary);">{{ $choice->property?->buildDisplayAddress() }}</span>
                         <span class="text-xs" style="color: var(--text-muted);"> &mdash; {{ $choice->tenantNames() ?: 'no tenant named' }}</span>
                     </a>
@@ -113,7 +113,7 @@
                        class="prop-input mt-1">
                 <div class="mt-1 rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" x-show="results.length > 0" x-cloak>
                     <template x-for="r in results" :key="r.id">
-                        <button type="button" @click="select(r)" class="block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary); border-bottom: 1px solid var(--border);" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'" x-text="r.name + (r.email ? ' — ' + r.email : '')"></button>
+                        <button type="button" @click="select(r)" class="list-row-hover block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary); border-bottom: 1px solid var(--border);" x-text="r.name + (r.email ? ' — ' + r.email : '')"></button>
                     </template>
                 </div>
             </div>
