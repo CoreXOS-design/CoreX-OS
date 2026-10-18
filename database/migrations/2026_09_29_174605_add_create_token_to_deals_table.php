@@ -18,6 +18,11 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Audit fix 2026-10-18: guarded so a partially-applied database does not fail on "duplicate column".
+        if (Schema::hasColumn('deals', 'create_token')) {
+            return;
+        }
+
         Schema::table('deals', function (Blueprint $table) {
             $table->string('create_token', 64)->nullable()->after('deal_no');
             $table->unique('create_token');

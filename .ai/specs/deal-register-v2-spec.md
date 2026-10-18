@@ -521,3 +521,6 @@ set it reads "X of N deals". The table shows no money totals, so none change. Th
 **Out of scope:** no new columns of data beyond Deal date, no export, no bulk actions, no change to the Actions links.
 
 **Tests:** `tests/Feature/Agent/MyDealsFiltersTest.php`.
+
+### 21a. Audit fix (2026-10-18) - the superseded fix's migrations can no longer stop a deploy
+`2026_09_29_174606_add_unique_index_to_deals_deal_no` used to THROW when duplicate `(agency_id, deal_no)` rows existed, halting the whole `migrate` run (the real live server is expected to hold such duplicates - #1826/#1827). It now logs a warning plus a console line, adds nothing and carries on (the index is dropped again by `2026_09_29_203059` anyway, which was already existence-guarded). `174604` (sequence_counters) and both `174605` (create_token) are now hasTable/hasColumn-guarded. No effect on databases that already ran them. Tests: `tests/Feature/Migrations/AuditFixMigrationsTest.php`.

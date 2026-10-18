@@ -18,6 +18,11 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Audit fix 2026-10-18: guard so a re-run / partially-applied database does not fail on "table exists".
+        if (Schema::hasTable('sequence_counters')) {
+            return;
+        }
+
         Schema::create('sequence_counters', function (Blueprint $table) {
             $table->id();
             $table->string('scope')->unique();
