@@ -79,9 +79,8 @@ return new class extends Migration
 
     public function down(): void
     {
-        DB::table('sequence_counters')
-            ->where('scope', 'like', 'deal_no:agency:%')
-            ->orWhere('scope', 'like', 'deal_v2_reference:agency:%')
-            ->delete();
+        // Audit fix 2026-10-18: was a hard delete of every counter row (including ones the app has advanced since).
+        // sequence_counters has no deleted_at and is dropped by 2026_09_29_203059; the counters are the only record of
+        // numbers already issued, so rolling back must not erase them. Nothing to undo.
     }
 };
