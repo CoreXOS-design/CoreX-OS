@@ -427,6 +427,13 @@ agency explicitly. Posting looks the ad up in the poster's agency only. Proof: `
 The property Template Manager list and Scheduled Posts had the same owner-account behaviour — locked the same way on
 Johan's go (`OwnerAgencyLockTest`).
 
+## 14f. "No icons" in the idea is binding (2026-10-18, branch `ai-no-icons-rule-2026-10-18`)
+
+Same rule as property templates (AT-456 spec, B.10 amendment "no icons is binding"): what the idea asks for about the
+look wins over the style; when the idea says no icons, the prompt says so as a hard rule (and the no-picture line stops
+suggesting icons) and every icon is removed from every design on the server before and after validation
+(`AdIdeaWishes`). Proof: `AiTemplateNoIconsTest`.
+
 ## 17. Open items for Johan
 
 None blocking. Approve the spec (or say what to change) and E-1 starts.
